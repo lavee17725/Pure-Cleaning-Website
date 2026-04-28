@@ -525,6 +525,27 @@ selectCoats(2);
 renderAddons();
 updatePreview();
 
+// Auto-populate from ?customer= URL param (base64 JSON from quote form)
+(function() {
+  const param = new URLSearchParams(window.location.search).get('customer');
+  if (!param) return;
+  try {
+    const d = JSON.parse(decodeURIComponent(escape(atob(param))));
+    const parts = (d.customer_name || '').split(' ');
+    document.getElementById('custFirst').value = parts[0] || '';
+    document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
+    document.getElementById('custPhone').value = d.phone || '';
+    document.getElementById('custEmail').value = d.email || '';
+    document.getElementById('custAddr').value = d.address || '';
+    if (d.notes && d.notes !== 'None') document.getElementById('customerNotes').value = d.notes;
+    if (d.services) {
+      services = d.services.split(',').map(s => s.trim()).filter(Boolean);
+      renderChips();
+    }
+    updatePreview();
+  } catch(e) {}
+})();
+
 // ─── TAB SWITCHING ───────────────────────────────────────────────
 function switchTab(tab, e) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));

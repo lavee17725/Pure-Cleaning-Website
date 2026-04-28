@@ -856,6 +856,7 @@
   <h2>Request Sent!</h2>
   <p>Thanks! Tyler will review your request and text you back with a quote and confirmed date — usually within a few hours.</p>
   <p style="margin-top:1rem;">Questions? Call us at <a href="tel:9543892642" style="color:var(--sky);font-weight:600;">954-389-2642</a></p>
+  <p id="quoteBuilderLinkWrap" style="margin-top:1.5rem;display:none;"><a id="quoteBuilderLink" href="#" target="_blank" style="color:var(--sky);font-weight:600;text-decoration:underline;">Open Quote Builder with this customer's info →</a></p>
 </div>
 
 <script>
@@ -1177,6 +1178,9 @@
       reminder: customFreq || selectedReminder || 'Not specified',
       notes: document.getElementById('notes').value || 'None'
     };
+    const _encoded = btoa(unescape(encodeURIComponent(JSON.stringify(zapData))));
+    const _qbLink = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote_builder_v2.html?customer=' + _encoded;
+    zapData.quote_builder_link = _qbLink;
 
     try {
       // Fire both in parallel — email via Formspree, text via Zapier
@@ -1199,6 +1203,8 @@
         document.querySelector('.seal-banner').style.display = 'none';
         document.querySelector('.hero').style.paddingBottom = '1.5rem';
         document.getElementById('successMsg').classList.add('show');
+        document.getElementById('quoteBuilderLink').href = _qbLink;
+        document.getElementById('quoteBuilderLinkWrap').style.display = 'block';
         window.scrollTo(0,0);
       } else {
         btn.textContent = 'Send My Quote Request →';
