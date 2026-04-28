@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pure Cleaning — Request a Quote</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0a1628;
+    --blue: #1a4a8a;
+    --sky: #2d7dd2;
+    --gold: #f4a620;
+    --gold-dark: #c47f00;
+    --white: #ffffff;
+    --gray: #f5f6f8;
+    --text: #1a1f2e;
+    --muted: #6b7280;
+    --border: #e2e8f0;
+    --seal-bg: #fff8ed;
+    --seal-border: #f4a620;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--gray);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* HEADER */
+  .header {
+    background: var(--navy);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    color: var(--white);
+    letter-spacing: 1px;
+  }
+  .logo span { color: var(--gold); }
+  .header-phone {
+    font-size: 14px;
+    color: var(--gold);
+    font-weight: 600;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* HERO */
+  .hero {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--blue) 100%);
+    padding: 2.5rem 1.5rem 2rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(45,125,210,0.3) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero-tag {
+    display: inline-block;
+    background: var(--gold);
+    color: var(--navy);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 4px 14px;
+    border-radius: 20px;
+    margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    color: var(--white);
+    letter-spacing: 2px;
+    line-height: 1.1;
+    margin-bottom: 0.75rem;
+  }
+  .hero h1 span { color: var(--gold); }
+  .hero p {
+    color: rgba(255,255,255,0.75);
+    font-size: 15px;
+    max-width: 340px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* SEAL BANNER */
+  .seal-banner {
+    margin: 1.25rem 1rem 0;
+    background: var(--gold);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .seal-banner::before {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 80px;
+    background: rgba(0,0,0,0.08);
+    clip-path: polygon(30% 0, 100% 0, 100% 100%, 0% 100%);
+  }
+  .seal-banner:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(244,166,32,0.4); }
+  .seal-icon {
+    width: 52px;
+    height: 52px;
+    background: var(--navy);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 24px;
+  }
+  .seal-text { flex: 1; }
+  .seal-text .seal-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--navy);
+    opacity: 0.7;
+    margin-bottom: 2px;
+  }
+  .seal-text h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    color: var(--navy);
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+  .seal-text p {
+    font-size: 12px;
+    color: var(--navy);
+    opacity: 0.8;
+  }
+  .seal-arrow {
+    font-size: 20px;
+    color: var(--navy);
+    font-weight: 700;
+    z-index: 1;
+  }
+
+  /* SEAL FORM SECTION */
+  .seal-section {
+    margin: 0 1rem;
+    background: var(--seal-bg);
+    border: 2px solid var(--seal-border);
+    border-top: none;
+    border-radius: 0 0 16px 16px;
+    padding: 1.25rem 1.25rem 1.5rem;
+    display: none;
+  }
+  .seal-section.open { display: block; }
+  .seal-info {
+    background: var(--gold);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 13px;
+    color: var(--navy);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  /* MAIN FORM */
+  .form-wrap {
+    padding: 1.25rem 1rem 2rem;
+    max-width: 600px;
+    margin: 0 auto;
+    background: var(--gray);
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #6b7280;
+    margin-bottom: 0.75rem;
+    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .field { margin-bottom: 1rem; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a1f2e;
+    margin-bottom: 6px;
+  }
+  .field label .req { color: #e53e3e; margin-left: 2px; }
+
+  input[type=text], input[type=tel], input[type=email], input[type=date], select, textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    color: var(--text);
+    background: var(--white);
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--sky);
+    box-shadow: 0 0 0 3px rgba(45,125,210,0.1);
+  }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* SERVICE CHECKBOXES */
+  .services-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .service-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--white);
+    user-select: none;
+  }
+  .service-check:hover { border-color: var(--sky); background: #f0f7ff; }
+  .service-check input { display: none; }
+  .service-check .cb {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    font-size: 11px;
+    color: transparent;
+  }
+  .service-check input:checked ~ .cb {
+    background: var(--sky);
+    border-color: var(--sky);
+    color: white;
+  }
+  .service-check span { font-size: 13px; font-weight: 500; }
+
+  /* SEAL CHECKBOX SPECIAL */
+  .service-check.seal-opt {
+    border-color: var(--gold);
+    background: var(--seal-bg);
+    grid-column: span 2;
+  }
+  .service-check.seal-opt:hover { background: #fff0d0; }
+  .service-check.seal-opt input:checked ~ .cb {
+    background: var(--gold);
+    border-color: var(--gold-dark);
+  }
+  .seal-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--gold);
+    color: var(--navy);
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* REMINDER OPTIONS */
+  .reminder-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .reminder-opt {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--white);
+    text-align: center;
+    user-select: none;
+  }
+  .reminder-opt:hover { border-color: var(--sky); }
+  .reminder-opt input { display: none; }
+  .reminder-opt.selected { border-color: var(--sky); background: #f0f7ff; }
+  .reminder-opt .r-time { font-size: 18px; font-weight: 700; color: var(--navy); font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px; }
+  .reminder-opt .r-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* DATE PICKER */
+  .date-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+  /* SUBMIT */
+  .submit-btn {
+    width: 100%;
+    padding: 16px;
+    background: var(--navy);
+    color: var(--white);
+    border: none;
+    border-radius: 12px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    margin-top: 1.5rem;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .submit-btn:hover { background: var(--blue); transform: translateY(-1px); box-shadow: 0 6px 20px rgba(10,22,40,0.3); }
+  .submit-btn:active { transform: translateY(0); }
+
+  .trust-row {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .trust-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .trust-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+
+  /* SUCCESS STATE */
+  .success {
+    display: none;
+    text-align: center;
+    padding: 3rem 1.5rem;
+  }
+  .success.show { display: block; }
+  .success-icon { font-size: 56px; margin-bottom: 1rem; }
+  .success h2 { font-family: 'Bebas Neue', sans-serif; font-size: 32px; color: var(--navy); letter-spacing: 1px; margin-bottom: 0.5rem; }
+  .success p { color: var(--muted); font-size: 15px; line-height: 1.6; }
+
+  @media (max-width: 380px) {
+    .row-2, .date-grid { grid-template-columns: 1fr; }
+    .services-grid { grid-template-columns: 1fr; }
+    .service-check.seal-opt { grid-column: span 1; }
+    .reminder-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="https://purecleaningpressurecleaning.com" target="_blank" style="text-decoration:none;"><div class="logo">Pure <span>Cleaning</span></div></a>
+  <a href="tel:9543892642" class="header-phone">📞 954-389-2642</a>
+</div>
+
+<div class="hero">
+  <div class="hero-tag">Since 1995 · South Florida</div>
+  <h1>Get Your Free<br><span>Quote Today</span></h1>
+  <p>Fill out the form below and we'll send you a price and available dates within hours.</p>
+  <div style="display:flex;justify-content:center;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.8);">
+      <span style="color:#f4a620;">⭐⭐⭐⭐⭐</span> 100+ Google Reviews
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.8);">
+      <span style="color:#f4a620;">⭐⭐⭐⭐⭐</span> Nearly 400 on Angie's List
+    </div>
+  </div>
+</div>
+
+<!-- SEAL BANNER -->
+<div class="seal-banner" onclick="toggleSeal()">
+  <div class="seal-icon">🛡️</div>
+  <div class="seal-text">
+    <div class="seal-label">🔥 Most Popular Add-On</div>
+    <h3>Want a Sealing Quote?</h3>
+    <p>Protect your driveway & patio · Lasts 2-3 years</p>
+  </div>
+  <div class="seal-arrow" id="sealArrow">＋</div>
+</div>
+
+<div class="seal-section" id="sealSection">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:1rem;">
+    <div style="background:var(--navy);border-radius:10px;padding:0.75rem;text-align:center;">
+      <div style="font-size:22px;margin-bottom:4px;">🎨</div>
+      <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:2px;">Brings Back Color</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.4;">Restores and enhances your surface's original tone</div>
+    </div>
+    <div style="background:var(--navy);border-radius:10px;padding:0.75rem;text-align:center;">
+      <div style="font-size:22px;margin-bottom:4px;">🛡️</div>
+      <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:2px;">Locks Out Stains</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.4;">Creates a barrier against oil, dirt & weather damage</div>
+    </div>
+    <div style="background:var(--navy);border-radius:10px;padding:0.75rem;text-align:center;">
+      <div style="font-size:22px;margin-bottom:4px;">🧱</div>
+      <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:2px;">Prevents Cracks</div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.4;">Helps ward off dirt buildup that breaks down surfaces</div>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>What would you like sealed?</label>
+    <div class="services-grid" style="margin-top:4px;">
+      <label class="service-check"><input type="checkbox" name="seal_service" value="Driveway"><div class="cb">✓</div><span>Driveway</span></label>
+      <label class="service-check"><input type="checkbox" name="seal_service" value="Patio"><div class="cb">✓</div><span>Patio</span></label>
+      <label class="service-check"><input type="checkbox" name="seal_service" value="Pool Deck"><div class="cb">✓</div><span>Pool Deck</span></label>
+      <label class="service-check"><input type="checkbox" name="seal_service" value="Entranceway"><div class="cb">✓</div><span>Entranceway</span></label>
+      <label class="service-check"><input type="checkbox" name="seal_service" value="Not sure - need advice"><div class="cb">✓</div><span>Not sure — advise me</span></label>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Paver Joint Sand? <span style="font-size:11px;color:var(--muted);font-weight:400;">(additional service)</span></label>
+    <div style="background:white;border:1.5px solid var(--border);border-radius:10px;padding:12px;margin-top:4px;">
+      <label class="service-check" style="border:none;padding:0;margin-bottom:8px;">
+        <input type="checkbox" name="seal_service" value="Paver Joint Sand">
+        <div class="cb">✓</div>
+        <div>
+          <div style="font-size:13px;font-weight:600;">Yes — add paver joint sand quote</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Refills gaps between pavers to stabilize surface & prevent weed growth</div>
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>📸 Upload photos <span style="font-size:11px;color:#1d9e75;font-weight:600;">(get a faster & more accurate quote)</span></label>
+    <div style="border:1.5px dashed var(--border);border-radius:10px;padding:14px;text-align:center;background:white;cursor:pointer;" onclick="document.getElementById('sealPhotos').click()">
+      <div style="font-size:24px;margin-bottom:4px;">📷</div>
+      <div style="font-size:13px;font-weight:600;color:#1a1f2e;">Tap to upload photos of your surfaces</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Photos help us provide more accurate pricing — customers who upload often get better rates</div>
+      <input type="file" id="sealPhotos" multiple accept="image/*" style="display:none;" onchange="showSealPhotoCount(this)">
+    </div>
+    <div id="sealPhotoCount" style="font-size:12px;color:#1d9e75;margin-top:6px;font-weight:600;display:none;"></div>
+    <div style="margin-top:12px;text-align:center;">
+      <button onclick="toggleSeal()" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN FORM -->
+<div class="form-wrap" id="mainForm">
+
+  <div class="section-label">Your info</div>
+
+  <div class="row-2">
+    <div class="field">
+      <label>First name <span class="req">*</span></label>
+      <input type="text" id="firstName" placeholder="John">
+    </div>
+    <div class="field">
+      <label>Last name <span class="req">*</span></label>
+      <input type="text" id="lastName" placeholder="Smith">
+    </div>
+  </div>
+
+  <div class="row-2">
+    <div class="field">
+      <label>Phone <span class="req">*</span></label>
+      <input type="tel" id="phone" placeholder="954-000-0000">
+    </div>
+    <div class="field">
+      <label>Email <span class="req">*</span></label>
+      <input type="email" id="email" placeholder="you@email.com">
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Street address <span class="req">*</span></label>
+    <input type="text" id="address" placeholder="123 Main St">
+  </div>
+
+  <div class="row-2">
+    <div class="field">
+      <label>City <span class="req">*</span></label>
+      <input type="text" id="city" placeholder="Weston">
+    </div>
+    <div class="field">
+      <label>Zip code</label>
+      <input type="text" id="zip" placeholder="33326">
+    </div>
+  </div>
+
+  <div class="section-label">Services needed</div>
+
+  <div class="services-grid">
+    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleRoof()">
+      <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
+        <div class="cb" id="roofCb">✓</div>
+        <span style="font-weight:600;">Roof cleaning</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted);" id="roofMethodLabel"></span>
+      </div>
+    </div>
+
+    <!-- Roof method selector - shows when roof is checked -->
+    <div id="roofMethodSection" style="display:none;grid-column:span 2;border:1.5px solid var(--sky);border-radius:12px;overflow:hidden;margin-top:-4px;">
+      <div style="background:#f0f7ff;padding:10px 14px;font-size:12px;color:var(--sky);font-weight:600;border-bottom:1px solid var(--border);">
+        Select your roof cleaning method <span style="color:#e53e3e;">*</span>
+      </div>
+      <div style="background:#fff0f0;padding:10px 14px;font-size:12px;color:#c0392b;font-weight:500;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+        ⚠️ <span><strong>We do not service metal roofs</strong> — too dangerous for our crew.</span>
+      </div>
+
+      <!-- Softwash Option -->
+      <div class="roof-method-opt" id="methodSoftwash" onclick="selectRoofMethod('Softwash')" style="padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;background:white;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="width:18px;height:18px;border:2px solid var(--border);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;" id="radiusSoftwash"></div>
+          <span style="font-weight:600;font-size:14px;color:#1a1f2e;">Softwash</span>
+          <span style="margin-left:auto;background:var(--gold);color:var(--navy);font-size:10px;font-weight:700;padding:2px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:1px;">⭐ Premium</span>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-left:28px;margin-bottom:10px;line-height:1.5;">Low-pressure application with professional-grade cleaning solution. Works by breaking down algae, mold, and buildup at the source for longer lasting results.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-left:28px;">
+          <div style="background:#e8f5e9;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:#2e7d32;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">✓ Pros</div>
+            <div style="font-size:12px;color:#1a1f2e;line-height:1.6;">Faster cleaning process · Kills algae & mold at the root · Longer lasting results</div>
+          </div>
+          <div style="background:#fff3e0;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:#e65100;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">⚠ Consider if...</div>
+            <div style="font-size:12px;color:#1a1f2e;line-height:1.6;">Home has no gutters · Gutter downspouts drain near sensitive plants · Yard has delicate landscaping — chemicals can run off into soil</div>
+          </div>
+        </div>
+        <div style="margin-left:28px;margin-top:10px;background:#e8f0fb;border-radius:8px;padding:8px 12px;font-size:12px;color:#1a4a8a;line-height:1.6;">
+          <strong>📋 Required for:</strong> Shingle roofs · Spanish S tile (Venezuelan/Altusa tile) — these roof types must always be cleaned with softwash to protect the material.
+        </div>
+      </div>
+
+      <!-- Traditional Option -->
+      <div class="roof-method-opt" id="methodTraditional" onclick="selectRoofMethod('Traditional brush cleaning')" style="padding:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;background:white;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="width:18px;height:18px;border:2px solid var(--border);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;" id="radiusTraditional"></div>
+          <span style="font-weight:600;font-size:14px;color:#1a1f2e;">Traditional brush cleaning</span>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-left:28px;margin-bottom:10px;line-height:1.5;">Manual brush cleaning with soap and water. A thorough, effective clean — takes a bit longer but gentler on surrounding landscaping.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-left:28px;">
+          <div style="background:#e8f5e9;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:#2e7d32;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">✓ Pros</div>
+            <div style="font-size:12px;color:#1a1f2e;line-height:1.6;">Less aggressive on plants & soil · Better choice for homes without gutters · Limited chemical runoff · Good for sensitive landscaping</div>
+          </div>
+          <div style="background:#fff3e0;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:#e65100;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">− Cons</div>
+            <div style="font-size:12px;color:#1a1f2e;line-height:1.6;">Takes longer · Results may not be as dramatic as softwash</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Water Only Option -->
+      <div class="roof-method-opt" id="methodWaterOnly" onclick="selectRoofMethod('Water only pressure cleaning')" style="padding:14px;cursor:pointer;transition:background 0.15s;background:white;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="width:18px;height:18px;border:2px solid var(--border);border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;" id="radiusWaterOnly"></div>
+          <span style="font-weight:600;font-size:14px;color:#1a1f2e;">Water only pressure cleaning</span>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-left:28px;margin-bottom:10px;line-height:1.5;">Pressure cleaning with water only — no soap or chemical solution. Think of it like washing your hair with just water. You'll still get a solid clean and remove the majority of surface dirt and buildup, just without the deep treatment that soap provides.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-left:28px;">
+          <div style="background:#e8f5e9;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:#2e7d32;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">✓ Pros</div>
+            <div style="font-size:12px;color:#1a1f2e;line-height:1.6;">Zero chemical exposure · Safe for all landscaping · Same great results on surface dirt and buildup</div>
+          </div>
+          <div style="background:#fff3e0;border-radius:8px;padding:8px 10px;">
+            <div style="font-size:10px;font-weight:700;color:#e65100;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">− Cons</div>
+            <div style="font-size:12px;color:#1a1f2e;line-height:1.6;">Won't fully remove stains, algae, or dark streaks · Results will be noticeably less dramatic · Growth returns faster</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <label class="service-check"><input type="checkbox" name="service" value="Driveway"><div class="cb">✓</div><span>Driveway</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Patio"><div class="cb">✓</div><span>Patio</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Sidewalk"><div class="cb">✓</div><span>Sidewalk</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Rinse walls"><div class="cb">✓</div><span>Rinse walls</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Entranceway"><div class="cb">✓</div><span>Entranceway</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Screen enclosure"><div class="cb">✓</div><span>Screen enclosure</span></label>
+    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleFence()">
+      <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
+        <div class="cb" id="fenceCb">✓</div>
+        <span style="font-weight:600;">Fence</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted);" id="fenceTypeLabel"></span>
+      </div>
+    </div>
+    <div id="fenceTypeSection" style="display:none;grid-column:span 2;border:1.5px solid var(--sky);border-radius:12px;overflow:hidden;margin-top:-4px;">
+      <div style="background:#f0f7ff;padding:10px 14px;font-size:12px;color:var(--sky);font-weight:600;border-bottom:1px solid var(--border);">What type of fence? <span style="color:#e53e3e;">*</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:white;">
+        <div onclick="selectFenceType('Wood fence')" id="fenceWood" style="padding:14px;cursor:pointer;border-right:1px solid var(--border);text-align:center;transition:background 0.15s;">
+          <div style="font-size:22px;margin-bottom:6px;">🪵</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1f2e;">Wood</div>
+          <div id="radioFenceWood" style="width:14px;height:14px;border:2px solid var(--border);border-radius:50%;margin:8px auto 0;display:flex;align-items:center;justify-content:center;"></div>
+        </div>
+        <div onclick="selectFenceType('Plastic / vinyl fence')" id="fencePlastic" style="padding:14px;cursor:pointer;border-right:1px solid var(--border);text-align:center;transition:background 0.15s;">
+          <div style="font-size:22px;margin-bottom:6px;">🏗️</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1f2e;">Plastic / Vinyl</div>
+          <div id="radioFencePlastic" style="width:14px;height:14px;border:2px solid var(--border);border-radius:50%;margin:8px auto 0;display:flex;align-items:center;justify-content:center;"></div>
+        </div>
+        <div onclick="selectFenceType('Metal fence')" id="fenceMetal" style="padding:14px;cursor:pointer;text-align:center;transition:background 0.15s;">
+          <div style="font-size:22px;margin-bottom:6px;">⚙️</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1f2e;">Metal</div>
+          <div id="radioFenceMetal" style="width:14px;height:14px;border:2px solid var(--border);border-radius:50%;margin:8px auto 0;display:flex;align-items:center;justify-content:center;"></div>
+        </div>
+      </div>
+    </div>
+
+    <label class="service-check"><input type="checkbox" name="service" value="Pool deck"><div class="cb">✓</div><span>Pool deck</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Deck"><div class="cb">✓</div><span>Deck</span></label>
+    <label class="service-check"><input type="checkbox" name="service" value="Balcony"><div class="cb">✓</div><span>Balcony</span></label>
+    <!-- SEALING QUOTE EXPANDABLE -->
+    <div class="service-check seal-opt" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleSealQuote()">
+      <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
+        <div class="cb" id="sealQuoteCb" style="border-color:var(--gold-dark);">✓</div>
+        <span style="font-weight:600;color:#1a1f2e;">Add sealing quote</span>
+        <span class="seal-badge" style="margin-left:auto;">⭐ Recommended</span>
+      </div>
+    </div>
+    <div id="sealQuoteSection" style="display:none;grid-column:span 2;border:1.5px solid var(--seal-border);border-radius:12px;overflow:hidden;margin-top:-4px;">
+      <div style="background:var(--gold);padding:10px 14px;font-size:12px;color:var(--navy);font-weight:600;border-bottom:1px solid #e8c94a;">
+        Why seal? Here's what it does for your surfaces
+      </div>
+      <div style="background:var(--seal-bg);padding:14px;">
+        <!-- Three benefit cards -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+          <div style="background:var(--navy);border-radius:10px;padding:10px 8px;text-align:center;">
+            <div style="font-size:20px;margin-bottom:4px;">🎨</div>
+            <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:2px;">Brings Back Color</div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.7);line-height:1.4;">Restores your surface's original tone</div>
+          </div>
+          <div style="background:var(--navy);border-radius:10px;padding:10px 8px;text-align:center;">
+            <div style="font-size:20px;margin-bottom:4px;">🛡️</div>
+            <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:2px;">Locks Out Stains</div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.7);line-height:1.4;">Barrier against oil, dirt & weather</div>
+          </div>
+          <div style="background:var(--navy);border-radius:10px;padding:10px 8px;text-align:center;">
+            <div style="font-size:20px;margin-bottom:4px;">🧱</div>
+            <div style="font-size:11px;font-weight:600;color:var(--gold);margin-bottom:2px;">Prevents Cracks</div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.7);line-height:1.4;">Helps ward off surface breakdown</div>
+          </div>
+        </div>
+        <!-- Surfaces to seal -->
+        <div style="font-size:12px;font-weight:600;color:#7a5c00;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">What would you like sealed?</div>
+        <div class="services-grid">
+          <label class="service-check"><input type="checkbox" name="seal_service" value="Driveway"><div class="cb">✓</div><span>Driveway</span></label>
+          <label class="service-check"><input type="checkbox" name="seal_service" value="Patio"><div class="cb">✓</div><span>Patio</span></label>
+          <label class="service-check"><input type="checkbox" name="seal_service" value="Pool Deck"><div class="cb">✓</div><span>Pool Deck</span></label>
+          <label class="service-check"><input type="checkbox" name="seal_service" value="Entranceway"><div class="cb">✓</div><span>Entranceway</span></label>
+          <label class="service-check"><input type="checkbox" name="seal_service" value="Not sure - need advice"><div class="cb">✓</div><span>Not sure — advise me</span></label>
+        </div>
+        <!-- Sand in joints upsell inside seal -->
+        <div style="margin-top:10px;background:white;border:1.5px solid var(--border);border-radius:10px;padding:12px;">
+          <label class="service-check" style="border:none;padding:0;">
+            <input type="checkbox" name="seal_service" value="Sand in joints">
+            <div class="cb">✓</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#1a1f2e;">Add paver joint sand quote</div>
+              <div style="font-size:12px;color:var(--muted);margin-top:2px;">Refills gaps between pavers — stabilizes surface & prevents weed growth</div>
+            </div>
+          </label>
+        </div>
+        <!-- Photo upload — matches top seal banner -->
+        <div style="margin-top:10px;border:1.5px dashed var(--gold-dark);border-radius:10px;padding:12px;text-align:center;background:#fffbf0;cursor:pointer;" onclick="document.getElementById('sealPhotos2').click()">
+          <div style="font-size:13px;font-weight:600;color:#7a5c00;">📸 Upload photos of surfaces to be sealed</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:3px;">Photos help us provide more accurate pricing — customers who upload often get better rates</div>
+          <input type="file" id="sealPhotos2" multiple accept="image/*" style="display:none;" onchange="showSealPhotoCount2(this)">
+        </div>
+        <div id="sealPhotoCount2" style="font-size:12px;color:var(--gold-dark);margin-top:6px;font-weight:600;display:none;"></div>
+        <div style="margin-top:10px;text-align:center;">
+          <button onclick="document.getElementById('sealQuoteSection').style.display='none';document.getElementById('sealQuoteCb').textContent='✓';" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RUST REMOVAL -->
+    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;background:#fff8f8;border-color:#e53e3e;" onclick="toggleRust()">
+      <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
+        <div class="cb" id="rustCb" style="border-color:#e53e3e;">✓</div>
+        <span style="font-weight:600;color:#1a1f2e;">Rust removal</span>
+      </div>
+    </div>
+    <div id="rustSection" style="display:none;grid-column:span 2;border:1.5px solid #e53e3e;border-radius:12px;overflow:hidden;margin-top:-4px;">
+      <div style="background:#fff0f0;padding:10px 14px;font-size:12px;color:#c0392b;font-weight:600;border-bottom:1px solid #fcc;">
+        What needs rust removal? <span style="color:#e53e3e;">*</span>
+      </div>
+      <div style="padding:12px;background:white;">
+        <div style="font-size:12px;color:#6b7280;margin-bottom:10px;line-height:1.6;">Rust removal is a specialized treatment. Pricing typically ranges <strong style="color:#1a1f2e;">$25–$100</strong> depending on surface area. We will always confirm the exact price with you before proceeding.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+          <div onclick="selectRustArea('Walls')" id="rustWalls" style="padding:12px 8px;border:1.5px solid #e2e8f0;border-radius:10px;cursor:pointer;text-align:center;transition:all 0.15s;background:#f9fafb;">
+            <div style="font-size:22px;margin-bottom:6px;">🧱</div>
+            <div style="font-size:12px;font-weight:600;color:#1a1f2e;">Walls</div>
+            <div id="radioRustWalls" style="width:14px;height:14px;border:2px solid #e2e8f0;border-radius:50%;margin:6px auto 0;display:flex;align-items:center;justify-content:center;"></div>
+          </div>
+          <div onclick="selectRustArea('Floors')" id="rustFloors" style="padding:12px 8px;border:1.5px solid #e2e8f0;border-radius:10px;cursor:pointer;text-align:center;transition:all 0.15s;background:#f9fafb;">
+            <div style="font-size:22px;margin-bottom:6px;">⬛</div>
+            <div style="font-size:12px;font-weight:600;color:#1a1f2e;">Floors</div>
+            <div id="radioRustFloors" style="width:14px;height:14px;border:2px solid #e2e8f0;border-radius:50%;margin:6px auto 0;display:flex;align-items:center;justify-content:center;"></div>
+          </div>
+          <div onclick="selectRustArea('Both')" id="rustBoth" style="padding:12px 8px;border:1.5px solid #e2e8f0;border-radius:10px;cursor:pointer;text-align:center;transition:all 0.15s;background:#f9fafb;">
+            <div style="font-size:22px;margin-bottom:6px;">🔄</div>
+            <div style="font-size:12px;font-weight:600;color:#1a1f2e;">Both</div>
+            <div id="radioRustBoth" style="width:14px;height:14px;border:2px solid #e2e8f0;border-radius:50%;margin:6px auto 0;display:flex;align-items:center;justify-content:center;"></div>
+          </div>
+        </div>
+        <div style="margin-top:10px;border:1.5px dashed #fcc;border-radius:10px;padding:12px;text-align:center;background:#fff8f8;cursor:pointer;" onclick="document.getElementById('rustPhotos').click()">
+          <div style="font-size:13px;font-weight:600;color:#c0392b;">📸 Upload photos of rust areas</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:3px;">Helps us assess severity — customers who upload often get more accurate pricing</div>
+          <input type="file" id="rustPhotos" multiple accept="image/*" style="display:none;" onchange="showRustPhotoCount(this)">
+        </div>
+        <div id="rustDoneBtn" style="display:none;margin-top:10px;text-align:center;">
+          <button onclick="document.getElementById('rustSection').style.display='none'" style="background:#e53e3e;color:white;border:none;border-radius:8px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done</button>
+        </div>
+        <div id="rustPhotoCount" style="font-size:12px;color:#e53e3e;margin-top:6px;font-weight:600;display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="field" style="margin-top:1rem;">
+    <label>Anything else not listed above?</label>
+    <textarea id="otherServices" rows="2" placeholder="e.g. wall, basketball court, walkways, stepping stones, landscaping border..."></textarea>
+  </div>
+
+  <div style="background:#f0f7ff;border:1.5px solid #2d7dd2;border-radius:12px;padding:12px 14px;margin-bottom:1.25rem;display:flex;gap:10px;align-items:flex-start;">
+    <span style="font-size:20px;flex-shrink:0;">🛰️</span>
+    <div style="font-size:13px;color:#1a4a8a;line-height:1.6;">
+      <strong>How we quote remotely</strong> — We use Broward County Property Appraiser (BCPA) records and satellite imagery to accurately measure your property. Most homes can be quoted same day. Some properties with unique layouts or special circumstances may require an in-person visit before we can finalize a price.
+    </div>
+  </div>
+
+  <div class="section-label">Preferred timeframe</div>
+  <div id="seasonalBanner" style="border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.6;"></div>
+  <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">We'll send you two available dates to choose from — just let us know roughly when works best.</p>
+  <div class="field">
+    <select id="timeframeSelect" onchange="selectedTimeframe = this.value; document.querySelectorAll('.timeframe-opt').forEach(r => r.classList.remove('selected'));" style="background:white;color:#1a1f2e;font-size:15px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;">
+      <option value="">Select a timeframe...</option>
+      <optgroup label="— Coming up —">
+        <option value="This week">This week</option>
+        <option value="Next week">Next week (1 week out)</option>
+        <option value="2 weeks out">2 weeks out</option>
+        <option value="3 weeks out">3 weeks out</option>
+      </optgroup>
+      <optgroup label="— Next month —">
+        <option value="4 weeks out">4 weeks out</option>
+        <option value="5 weeks out">5 weeks out</option>
+        <option value="6 weeks out">6 weeks out</option>
+        <option value="7 weeks out">7 weeks out</option>
+      </optgroup>
+      <optgroup label="— Further out —">
+        <option value="2 months out">2 months out</option>
+        <option value="3 months out">3 months out</option>
+        <option value="Flexible — no rush">Flexible — no rush</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <div class="section-label">Cleaning reminders</div>
+  <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">How often would you like us to remind you? We recommend <strong style="color:#1a1f2e;">4–6 months for floor cleaning</strong> and <strong style="color:#1a1f2e;">18–24 months for roof cleaning</strong>.</p>
+  <div class="reminder-grid" style="margin-bottom:10px;">
+    <label class="reminder-opt" onclick="selectReminder(this,'Monthly')">
+      <input type="radio" name="reminder"><div class="r-time">1 Mo</div><div class="r-label">Every month</div>
+    </label>
+    <label class="reminder-opt" onclick="selectReminder(this,'Every 3 months')">
+      <input type="radio" name="reminder"><div class="r-time">3 Mo</div><div class="r-label">Every 3 months</div>
+    </label>
+    <label class="reminder-opt" onclick="selectReminder(this,'Every 6 months')">
+      <input type="radio" name="reminder"><div class="r-time">6 Mo</div><div class="r-label">Every 6 months</div>
+    </label>
+    <label class="reminder-opt" onclick="selectReminder(this,'Every 12 months')">
+      <input type="radio" name="reminder"><div class="r-time">12 Mo</div><div class="r-label">Once a year</div>
+    </label>
+    <label class="reminder-opt" onclick="selectReminder(this,'Every 18 months')">
+      <input type="radio" name="reminder"><div class="r-time">18 Mo</div><div class="r-label">Every 18 months</div>
+    </label>
+    <label class="reminder-opt" onclick="selectReminder(this,'Every 24 months')">
+      <input type="radio" name="reminder"><div class="r-time">24 Mo</div><div class="r-label">Every 24 months</div>
+    </label>
+    <label class="reminder-opt" onclick="selectReminder(this,'No reminders')">
+      <input type="radio" name="reminder"><div class="r-time">None</div><div class="r-label">No reminders</div>
+    </label>
+  </div>
+
+  <!-- Custom frequency -->
+  <div id="customFreqWrap" style="overflow:hidden;max-height:0;transition:max-height 0.3s ease;margin-top:0;">
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--gray);border:1.5px solid var(--sky);border-radius:10px;margin-top:8px;">
+      <span style="font-size:18px;">✏️</span>
+      <input type="text" id="customFrequency" placeholder="Type your preferred frequency..." style="border:none;background:transparent;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);width:100%;outline:none;" oninput="updateReminderFromCustom()">
+    </div>
+  </div>
+  <div style="text-align:center;margin-top:8px;">
+    <span onclick="toggleCustomFreq()" style="font-size:13px;color:var(--sky);cursor:pointer;font-weight:500;" id="customFreqToggle">+ Different frequency</span>
+  </div>
+
+  <div class="field" style="margin-top:1.25rem;">
+    <label>Anything else we should know?</label>
+    <textarea id="notes" rows="3" placeholder="Gate code, special instructions, specific areas of concern..."></textarea>
+  </div>
+
+  <button class="submit-btn" onclick="submitForm()">Send My Quote Request →</button>
+
+  <div class="trust-row">
+    <div class="trust-item"><div class="trust-dot"></div>Family owned since 1995</div>
+    <div class="trust-item"><div class="trust-dot"></div>South Florida's best</div>
+    <div class="trust-item"><div class="trust-dot"></div>Same-day response</div>
+  </div>
+  <div style="text-align:center;margin-top:1.25rem;font-size:13px;color:var(--muted);">
+    Have additional questions? Call our office at <a href="tel:9543892642" style="color:var(--sky);font-weight:600;">954-389-2642</a>
+  </div>
+
+  <div style="text-align:center;margin-top:2rem;padding-top:1.5rem;border-top:1px solid var(--border);">
+    <a href="https://purecleaningpressurecleaning.com" target="_blank" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:var(--muted);font-size:13px;font-weight:500;transition:color 0.2s;" onmouseover="this.style.color='var(--sky)'" onmouseout="this.style.color='var(--muted)'">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      purecleaningpressurecleaning.com
+    </a>
+    <p style="font-size:11px;color:var(--muted);margin-top:6px;opacity:0.6;">© 2026 Pure Cleaning Pressure Cleaning LLC · Southwest Ranches, FL</p>
+  </div>
+
+</div>
+
+<!-- SUCCESS -->
+<div class="success" id="successMsg">
+  <div class="success-icon">✅</div>
+  <h2>Request Sent!</h2>
+  <p>Thanks! Tyler will review your request and text you back with a quote and confirmed date — usually within a few hours.</p>
+  <p style="margin-top:1rem;">Questions? Call us at <a href="tel:9543892642" style="color:var(--sky);font-weight:600;">954-389-2642</a></p>
+</div>
+
+<script>
+  let returningCustomer = false;
+
+  function toggleReturning() {
+    returningCustomer = !returningCustomer;
+    const cb = document.getElementById('returningCb');
+    cb.style.background = returningCustomer ? '#1d9e75' : '';
+    cb.style.color = returningCustomer ? 'white' : 'transparent';
+  }
+
+  function showSealPhotoCount2(input) {
+    const el = document.getElementById('sealPhotoCount2');
+    if (input.files.length > 0) {
+      el.textContent = `✓ ${input.files.length} photo${input.files.length > 1 ? 's' : ''} selected`;
+      el.style.display = 'block';
+    }
+  }
+
+  function showSealPhotoCount(input) {
+    const el = document.getElementById('sealPhotoCount');
+    if (input.files.length > 0) {
+      el.textContent = `✓ ${input.files.length} photo${input.files.length > 1 ? 's' : ''} selected`;
+      el.style.display = 'block';
+    }
+  }
+
+  function showRustPhotoCount(input) {
+    const el = document.getElementById('rustPhotoCount');
+    if (input.files.length > 0) {
+      el.textContent = `✓ ${input.files.length} photo${input.files.length > 1 ? 's' : ''} selected`;
+      el.style.display = 'block';
+    }
+  }
+
+  let sealQuoteChecked = false;
+
+  function toggleSealQuote() {
+    sealQuoteChecked = !sealQuoteChecked;
+    const cb = document.getElementById('sealQuoteCb');
+    const section = document.getElementById('sealQuoteSection');
+    if (sealQuoteChecked) {
+      cb.style.background = 'var(--gold)';
+      cb.style.borderColor = 'var(--gold-dark)';
+      cb.style.color = 'var(--navy)';
+      section.style.display = 'block';
+    } else {
+      cb.style.background = '';
+      cb.style.borderColor = 'var(--gold-dark)';
+      cb.style.color = '';
+      section.style.display = 'none';
+    }
+  }
+
+  let rustChecked = false;
+  let selectedRustArea = '';
+
+  function toggleRust() {
+    rustChecked = !rustChecked;
+    const cb = document.getElementById('rustCb');
+    const section = document.getElementById('rustSection');
+    if (rustChecked) {
+      cb.style.background = '#e53e3e';
+      cb.style.borderColor = '#e53e3e';
+      cb.style.color = 'white';
+      section.style.display = 'block';
+    } else {
+      cb.style.background = '';
+      cb.style.borderColor = '#e53e3e';
+      cb.style.color = '';
+      section.style.display = 'none';
+      selectedRustArea = '';
+      ['Walls','Floors','Both'].forEach(a => {
+        document.getElementById('rustArea'+a) && (document.getElementById('rustArea'+a).style.background = '');
+        document.getElementById('radioRust'+a).innerHTML = '';
+        document.getElementById('radioRust'+a).style.borderColor = '#e2e8f0';
+        document.getElementById('rust'+a).style.borderColor = '#e2e8f0';
+      });
+    }
+  }
+
+  function selectRustArea(area) {
+    ['Walls','Floors','Both'].forEach(a => {
+      document.getElementById('rust'+a).style.borderColor = '#e2e8f0';
+      document.getElementById('rust'+a).style.background = '#f9fafb';
+      document.getElementById('radioRust'+a).innerHTML = '';
+      document.getElementById('radioRust'+a).style.borderColor = '#e2e8f0';
+    });
+    document.getElementById('rust'+area).style.borderColor = '#e53e3e';
+    document.getElementById('rust'+area).style.background = '#fff0f0';
+    document.getElementById('radioRust'+area).innerHTML = '<div style="width:8px;height:8px;border-radius:50%;background:#e53e3e;"></div>';
+    document.getElementById('radioRust'+area).style.borderColor = '#e53e3e';
+    selectedRustArea = area;
+    document.getElementById('rustDoneBtn').style.display = 'block';
+  }
+  let fenceChecked = false;
+  let selectedFenceType = '';
+  let roofChecked = false;
+  let selectedRoofMethod = '';
+
+  function toggleFence() {
+    fenceChecked = !fenceChecked;
+    const cb = document.getElementById('fenceCb');
+    const section = document.getElementById('fenceTypeSection');
+    if (fenceChecked) {
+      cb.style.background = 'var(--sky)';
+      cb.style.borderColor = 'var(--sky)';
+      cb.style.color = 'white';
+      section.style.display = 'block';
+    } else {
+      cb.style.background = '';
+      cb.style.borderColor = '';
+      cb.style.color = '';
+      section.style.display = 'none';
+      selectedFenceType = '';
+      document.getElementById('fenceTypeLabel').textContent = '';
+      ['Wood','Plastic','Metal'].forEach(t => {
+        document.getElementById('fence'+t).style.background = '';
+        document.getElementById('radioFence'+t).innerHTML = '';
+        document.getElementById('radioFence'+t).style.borderColor = 'var(--border)';
+      });
+    }
+  }
+
+  function selectFenceType(type) {
+    ['Wood','Plastic','Metal'].forEach(t => {
+      document.getElementById('fence'+t).style.background = 'white';
+      document.getElementById('radioFence'+t).innerHTML = '';
+      document.getElementById('radioFence'+t).style.borderColor = 'var(--border)';
+    });
+    const map = {'Wood fence':'Wood','Plastic / vinyl fence':'Plastic','Metal fence':'Metal'};
+    const key = map[type];
+    document.getElementById('fence'+key).style.background = '#f0f7ff';
+    document.getElementById('radioFence'+key).innerHTML = '<div style="width:8px;height:8px;border-radius:50%;background:var(--sky);"></div>';
+    document.getElementById('radioFence'+key).style.borderColor = 'var(--sky)';
+    selectedFenceType = type;
+    document.getElementById('fenceTypeLabel').textContent = '· ' + type;
+    // Collapse after short delay
+    setTimeout(() => {
+      document.getElementById('fenceTypeSection').style.display = 'none';
+    }, 400);
+  }
+  function toggleRoof() {
+    roofChecked = !roofChecked;
+    const cb = document.getElementById('roofCb');
+    const section = document.getElementById('roofMethodSection');
+    if (roofChecked) {
+      cb.style.background = 'var(--sky)';
+      cb.style.borderColor = 'var(--sky)';
+      cb.style.color = 'white';
+      section.style.display = 'block';
+    } else {
+      cb.style.background = '';
+      cb.style.borderColor = '';
+      cb.style.color = '';
+      section.style.display = 'none';
+      selectedRoofMethod = '';
+      document.getElementById('roofMethodLabel').textContent = '';
+      selectRoofMethod(null);
+    }
+  }
+
+  function selectRoofMethod(method) {
+    const opts = ['Softwash','Traditional','WaterOnly'];
+    opts.forEach(o => {
+      const el = document.getElementById('method'+o);
+      const radio = document.getElementById('radius'+o);
+      if (el) el.style.background = 'white';
+      if (radio) { radio.innerHTML = ''; radio.style.borderColor = 'var(--border)'; }
+    });
+
+    const map = {
+      'Softwash': 'Softwash',
+      'Traditional brush cleaning': 'Traditional',
+      'Water only pressure cleaning': 'WaterOnly'
+    };
+
+    if (method && map[method]) {
+      const key = map[method];
+      const el = document.getElementById('method'+key);
+      const radio = document.getElementById('radius'+key);
+      if (el) el.style.background = '#f0f7ff';
+      if (radio) {
+        radio.innerHTML = '<div style="width:10px;height:10px;border-radius:50%;background:var(--sky);"></div>';
+        radio.style.borderColor = 'var(--sky)';
+      }
+      selectedRoofMethod = method;
+      document.getElementById('roofMethodLabel').textContent = '· ' + method;
+      // Collapse after short delay so user sees their selection
+      setTimeout(() => {
+        document.getElementById('roofMethodSection').style.display = 'none';
+      }, 400);
+    }
+  }
+
+  // Seasonal availability banner
+  const month = new Date().getMonth();
+  const banner = document.getElementById('seasonalBanner');
+  const isSummer = month >= 5 && month <= 8;
+  const isPeak = month >= 10 || month <= 1;
+
+  if (isSummer) {
+    banner.style.background = '#e8f5e9';
+    banner.style.border = '1.5px solid #4caf50';
+    banner.innerHTML = '☀️ <strong style="color:#2e7d32;">Summer rates now available</strong> — We have great availability right now and offer our best pricing during the summer season. Book before peak season returns and prices increase.';
+  } else if (isPeak) {
+    banner.style.background = '#fff3e0';
+    banner.style.border = '1.5px solid #ef9f27';
+    banner.innerHTML = '📅 <strong style="color:#c47f00;">Peak season — act fast</strong> — We\'re currently booking several weeks out and pricing reflects peak demand. The sooner you submit, the sooner we can get you scheduled.';
+  } else {
+    banner.style.background = '#f0f7ff';
+    banner.style.border = '1.5px solid #2d7dd2';
+    banner.innerHTML = '🗓️ <strong style="color:#1a4a8a;">Good availability right now</strong> — We can typically get you on the schedule within 1–2 weeks. Submit your request and we\'ll confirm your dates quickly.';
+  }
+
+  function selectTimeframe(el, val) {
+    document.querySelectorAll('input[name=timeframe]').forEach(r => r.closest('.reminder-opt').classList.remove('selected'));
+    el.classList.add('selected');
+    selectedTimeframe = val;
+  }
+
+  function toggleSeal() {
+    const section = document.getElementById('sealSection');
+    const arrow = document.getElementById('sealArrow');
+    const isOpen = section.classList.contains('open');
+    section.classList.toggle('open');
+    arrow.textContent = isOpen ? '＋' : '－';
+  }
+
+  function selectReminder(el, val) {
+    document.querySelectorAll('.reminder-opt').forEach(r => r.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedReminder = val;
+    // Clear custom if they pick a preset
+    const custom = document.getElementById('customFrequency');
+    if (custom) custom.value = '';
+  }
+
+  function toggleCustomFreq() {
+    const wrap = document.getElementById('customFreqWrap');
+    const toggle = document.getElementById('customFreqToggle');
+    const isOpen = wrap.style.maxHeight !== '0px' && wrap.style.maxHeight !== '';
+    if (isOpen) {
+      wrap.style.maxHeight = '0px';
+      toggle.textContent = '+ Different frequency';
+    } else {
+      wrap.style.maxHeight = '80px';
+      toggle.textContent = '− Close';
+      document.getElementById('customFrequency').focus();
+    }
+  }
+
+  function updateReminderFromCustom() {
+    const val = document.getElementById('customFrequency').value.trim();
+    if (val) {
+      // Deselect preset buttons when typing custom
+      document.querySelectorAll('.reminder-opt').forEach(r => r.classList.remove('selected'));
+      selectedReminder = val;
+    }
+  }
+
+  async function submitForm() {
+    const required = ['firstName','lastName','phone','email','address','city'];
+    let valid = true;
+    required.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el.value.trim()) {
+        el.style.borderColor = '#e53e3e';
+        valid = false;
+      } else {
+        el.style.borderColor = '';
+      }
+    });
+    const services = [...document.querySelectorAll('input[name=service]:checked')].map(c => c.value);
+    if (roofChecked) services.unshift('Roof cleaning');
+    if (fenceChecked) services.push(selectedFenceType || 'Fence');
+    if (rustChecked) services.push(`Rust removal — ${selectedRustArea || 'area TBD'}`);
+    if (sealQuoteChecked) services.push('Sealing quote requested');
+    if (services.length === 0) { alert('Please select at least one service.'); return; }
+    if (roofChecked && !selectedRoofMethod) { alert('Please select a roof cleaning method — Softwash, Traditional, or Water Only.'); document.getElementById('roofMethodSection').scrollIntoView({behavior:'smooth'}); return; }
+    if (fenceChecked && !selectedFenceType) { alert('Please select your fence type — Wood, Plastic/Vinyl, or Metal.'); document.getElementById('fenceTypeSection').scrollIntoView({behavior:'smooth'}); return; }
+    if (!valid) { alert('Please fill in all required fields.'); return; }
+
+    const sealServices = [...document.querySelectorAll('input[name=seal_service]:checked')].map(c => c.value);
+
+    const btn = document.querySelector('.submit-btn');
+    btn.textContent = 'Sending...';
+    btn.disabled = true;
+
+    const formData = new FormData();
+    formData.append('_subject', '🧽 New Quote Request — Pure Cleaning');
+    formData.append('Customer Name', document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value);
+    formData.append('Phone', document.getElementById('phone').value);
+    formData.append('Email', document.getElementById('email').value);
+    formData.append('Address', document.getElementById('address').value + ', ' + document.getElementById('city').value + ' ' + document.getElementById('zip').value);
+    const roofMethod = selectedRoofMethod ? ` (${selectedRoofMethod})` : '';
+    const servicesWithMethod = services.map(s => s === 'Roof cleaning' ? `Roof cleaning${roofMethod}` : s);
+    formData.append('Services Requested', servicesWithMethod.join(', '));
+    formData.append('Sealing Quote For', sealServices.length ? sealServices.join(', ') : 'Not requested');
+    formData.append('Returning Customer', returningCustomer ? 'Yes' : 'No');
+    const timeframeEl = document.getElementById('timeframeSelect');
+    const timeframeVal = timeframeEl ? timeframeEl.value : (selectedTimeframe || 'Not specified');
+    formData.append('Preferred Timeframe', timeframeVal);
+    const customFreq = document.getElementById('customFrequency').value.trim();
+    const reminderVal = customFreq || selectedReminder || 'Not specified';
+    formData.append('Reminder Preference', reminderVal);
+    formData.append('Notes', document.getElementById('notes').value || 'None');
+    formData.append('_replyto', document.getElementById('email').value);
+
+    const zapData = {
+      customer_name: document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value,
+      phone: document.getElementById('phone').value,
+      email: document.getElementById('email').value,
+      address: document.getElementById('address').value + ', ' + document.getElementById('city').value + ' ' + document.getElementById('zip').value,
+      services: servicesWithMethod.join(', '),
+      sealing: sealServices.length ? sealServices.join(', ') : 'Not requested',
+      dates: timeframeVal || 'Not specified',
+      reminder: customFreq || selectedReminder || 'Not specified',
+      notes: document.getElementById('notes').value || 'None'
+    };
+
+    try {
+      // Fire both in parallel — email via Formspree, text via Zapier
+      const [formspreeRes] = await Promise.all([
+        fetch('https://formspree.io/f/xlgaylyd', {
+          method: 'POST',
+          body: formData,
+          headers: { 'Accept': 'application/json' }
+        }),
+        fetch('https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/', {
+          method: 'POST',
+          body: JSON.stringify(zapData),
+          headers: { 'Content-Type': 'application/json' }
+        }).catch(() => {}) // don't block if Zapier fails
+      ]);
+
+      if (formspreeRes.ok) {
+        document.getElementById('mainForm').style.display = 'none';
+        document.getElementById('sealSection').style.display = 'none';
+        document.querySelector('.seal-banner').style.display = 'none';
+        document.querySelector('.hero').style.paddingBottom = '1.5rem';
+        document.getElementById('successMsg').classList.add('show');
+        window.scrollTo(0,0);
+      } else {
+        btn.textContent = 'Send My Quote Request →';
+        btn.disabled = false;
+        alert('Something went wrong. Please call us at 954-389-2642 or try again.');
+      }
+    } catch(e) {
+      btn.textContent = 'Send My Quote Request →';
+      btn.disabled = false;
+      alert('Connection error. Please call us at 954-389-2642 or try again.');
+    }
+  }
+
+  // Set min date removed - using timeframe selector instead
+</script>
+</body>
+</html>
