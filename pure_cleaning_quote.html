@@ -856,7 +856,6 @@
   <h2>Request Sent!</h2>
   <p>Thanks! Tyler will review your request and text you back with a quote and confirmed date — usually within a few hours.</p>
   <p style="margin-top:1rem;">Questions? Call us at <a href="tel:9543892642" style="color:var(--sky);font-weight:600;">954-389-2642</a></p>
-  <p id="quoteBuilderLinkWrap" style="margin-top:1.5rem;display:none;"><a id="quoteBuilderLink" href="#" target="_blank" style="color:var(--sky);font-weight:600;text-decoration:underline;">Open Quote Builder with this customer's info →</a></p>
 </div>
 
 <script>
@@ -1154,7 +1153,9 @@
     formData.append('Email', document.getElementById('email').value);
     formData.append('Address', document.getElementById('address').value + ', ' + document.getElementById('city').value + ' ' + document.getElementById('zip').value);
     const roofMethod = selectedRoofMethod ? ` (${selectedRoofMethod})` : '';
-    const servicesWithMethod = services.map(s => s === 'Roof cleaning' ? `Roof cleaning${roofMethod}` : s);
+    const servicesWithMethod = services.flatMap(s =>
+      s === 'Roof cleaning' ? [`Roof cleaning${roofMethod}`, 'Rinse Walls & Windows'] : [s]
+    );
     formData.append('Services Requested', servicesWithMethod.join(', '));
     formData.append('Sealing Quote For', sealServices.length ? sealServices.join(', ') : 'Not requested');
     formData.append('Returning Customer', returningCustomer ? 'Yes' : 'No');
@@ -1187,6 +1188,7 @@
     const _encoded = btoa(unescape(encodeURIComponent(JSON.stringify(_slim))));
     const _qbLink = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote_builder_v2.html?customer=' + _encoded;
     zapData.quote_builder_link = _qbLink;
+    formData.append('Quote Builder Link', _qbLink);
 
     try {
       // Fire both in parallel — email via Formspree, text via Zapier
@@ -1209,8 +1211,6 @@
         document.querySelector('.seal-banner').style.display = 'none';
         document.querySelector('.hero').style.paddingBottom = '1.5rem';
         document.getElementById('successMsg').classList.add('show');
-        document.getElementById('quoteBuilderLink').href = _qbLink;
-        document.getElementById('quoteBuilderLinkWrap').style.display = 'block';
         window.scrollTo(0,0);
       } else {
         btn.textContent = 'Send My Quote Request →';
