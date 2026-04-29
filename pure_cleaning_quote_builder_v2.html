@@ -397,7 +397,10 @@ function renderAddons() {
     <div class="addon-builder-item">
       <div class="icon">${a.icon}</div>
       <div class="addon-info"><div class="addon-name">${a.label}</div><div class="addon-hint">Customer taps to add</div></div>
-      <div class="addon-price-input"><span>+$</span><input type="number" id="addon_${a.id}" placeholder="0" min="0" oninput="updatePreview()"></div>
+      <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+        <div class="addon-price-input"><span>+$</span><input type="number" id="addon_${a.id}" placeholder="0" min="0" oninput="updatePreview()" title="Bundle price"></div>
+        <div class="addon-price-input"><span style="font-size:10px;color:var(--muted);">Reg $</span><input type="number" id="addonRegular_${a.id}" placeholder="0" min="0" style="width:60px;color:var(--muted);font-size:12px;" title="Regular price (shown as strikethrough)"></div>
+      </div>
       <label class="toggle"><input type="checkbox" id="addonEnabled_${a.id}" checked><span class="toggle-slider"></span></label>
     </div>
   `).join('');
@@ -410,7 +413,11 @@ function getEnabledAddons() {
     const cb = document.getElementById('addonEnabled_'+a.id);
     const p = document.getElementById('addon_'+a.id);
     return cb && cb.checked && p && Number(p.value) > 0;
-  }).map(a => ({ ...a, price: Number(document.getElementById('addon_'+a.id).value) }));
+  }).map(a => ({
+    ...a,
+    price: Number(document.getElementById('addon_'+a.id).value),
+    regularPrice: Number(document.getElementById('addonRegular_'+a.id).value) || 0
+  }));
 }
 
 // ─── PREVIEW ─────────────────────────────────────────────────────
