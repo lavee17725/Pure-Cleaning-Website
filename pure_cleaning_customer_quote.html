@@ -181,7 +181,7 @@ function loadFromParams() {
   if (id) {
     console.log('[JSONbin GET] fetching id:', id);
     fetch(`https://api.jsonbin.io/v3/b/${id}`, {
-      headers: { 'X-Master-Key': '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i' }
+      mode: 'cors'
     })
     .then(r => {
       console.log('[JSONbin GET] HTTP status:', r.status);
@@ -190,13 +190,13 @@ function loadFromParams() {
     .then(data => {
       console.log('[JSONbin GET] full response:', JSON.stringify(data));
       if (!data.record) {
-        console.error('[JSONbin GET] no record field in response — API key may be wrong or bin not found');
+        console.error('[JSONbin GET] no record field — bin may not be public or id is wrong');
         return;
       }
       quoteData = data.record;
       renderQuote();
     })
-    .catch(e => { console.error('[JSONbin GET] fetch threw:', e); });
+    .catch(e => { console.error('[JSONbin GET] network error:', e.message || e); });
     return;
   }
 
