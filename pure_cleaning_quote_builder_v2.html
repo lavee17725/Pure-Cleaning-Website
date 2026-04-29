@@ -762,6 +762,7 @@ function updatePreview() {
 
 // ─── GENERATE ────────────────────────────────────────────────────
 function generateQuote() {
+  console.log('generateQuote called, currentType:', currentType);
   const first = document.getElementById('custFirst').value;
   if (!first) { alert('Please enter customer name.'); return; }
 
@@ -800,7 +801,7 @@ function generateQuote() {
   quotes.unshift(quoteData);
   localStorage.setItem('pureCleaningQuotesV2', JSON.stringify(quotes));
 
-  const encoded = btoa(JSON.stringify(quoteData));
+  const encoded = btoa(JSON.stringify(quoteData).replace(/[^\x00-\x7F]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4)));
   generatedUrl = `${QUOTE_PAGE}?q=${encoded}`;
   document.getElementById('quoteLinkUrl').textContent = generatedUrl;
   document.getElementById('quoteLinkBox').classList.add('show');
