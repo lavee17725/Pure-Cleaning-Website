@@ -168,7 +168,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 <div class="success-screen" id="successScreen">
   <div class="success-icon">🎉</div>
   <div class="success-title">You're booked!</div>
-  <div class="success-sub">The Pure Cleaning team will be in touch shortly to confirm your appointment.<br>We'll see you on your selected date!</div>
+  <div class="success-sub">We will call or text you the night before your scheduled appointment to confirm. We look forward to seeing you!</div>
   <div class="success-detail" id="successDetail"></div>
   <div style="font-size:14px;color:var(--muted);">Questions? Call or text us at<br><a href="tel:9543892642" style="color:var(--sky);font-weight:700;">954-389-2642</a></div>
 </div>
@@ -364,16 +364,43 @@ async function approveQuote() {
     approved_at: new Date().toLocaleString('en-US')
   };
 
-  // Fire to Zapier
-  if (quoteData.zapierWebhook) {
-    try {
-      await fetch(quoteData.zapierWebhook, {
-        method: 'POST',
-        body: JSON.stringify(approval),
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch(e) {}
-  }
+  // Fire Zapier + Formspree + JSONbin simultaneously
+  const formspreeData = new FormData();
+  formspreeData.append('_subject', `🎉 Booking Confirmed — ${quoteData.name}`);
+  formspreeData.append('Customer Name', approval.customer_name);
+  formspreeData.append('Phone', approval.phone);
+  formspreeData.append('Address', approval.address);
+  formspreeData.append('Services', approval.services);
+  formspreeData.append('Addons Added', approval.addons_added);
+  formspreeData.append('Final Total', '$' + total.toLocaleString());
+  formspreeData.append('Selected Date', approval.selected_date);
+  formspreeData.append('Approved At', approval.approved_at);
+
+  await Promise.all([
+    quoteData.zapierWebhook
+      ? fetch(quoteData.zapierWebhook, {
+          method: 'POST',
+          body: new URLSearchParams(approval),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        }).catch(() => {})
+      : Promise.resolve(),
+    fetch('https://formspree.io/f/xlgaylyd', {
+      method: 'POST',
+      body: formspreeData,
+      headers: { 'Accept': 'application/json' }
+    }).catch(() => {}),
+    fetch('https://api.jsonbin.io/v3/b', {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i',
+        'X-Bin-Private': 'false',
+        'X-Bin-Name': 'PureCleaningBookings'
+      },
+      body: JSON.stringify({ ...approval, quote: quoteData })
+    }).catch(() => {})
+  ]);
 
   // Show success
   document.getElementById('quoteView').style.display = 'none';
