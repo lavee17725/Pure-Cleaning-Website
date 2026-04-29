@@ -1157,6 +1157,18 @@
     formData.append('Notes', document.getElementById('notes').value || 'None');
     formData.append('_replyto', document.getElementById('email').value);
 
+    // Attach photos to Formspree submission
+    ['sealPhotos', 'sealPhotos2'].forEach(id => {
+      const input = document.getElementById(id);
+      if (input && input.files.length > 0) {
+        Array.from(input.files).forEach(file => formData.append('Seal Photos', file));
+      }
+    });
+    const rustInput = document.getElementById('rustPhotos');
+    if (rustInput && rustInput.files.length > 0) {
+      Array.from(rustInput.files).forEach(file => formData.append('Rust Photos', file));
+    }
+
     const zapData = {
       customer_name: document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value,
       phone: document.getElementById('phone').value,
