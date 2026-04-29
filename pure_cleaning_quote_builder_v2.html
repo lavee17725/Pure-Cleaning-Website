@@ -148,9 +148,9 @@ select option{background:var(--navy2);}
 
 <!-- MAIN NAV TABS -->
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('build',event)">Build</div>
-  <div class="tab" onclick="switchTab('preview',event)">Preview</div>
-  <div class="tab" onclick="switchTab('history',event)">History</div>
+  <div class="tab active" onclick="switchTab('build')">Build</div>
+  <div class="tab" onclick="switchTab('preview')">Preview</div>
+  <div class="tab" onclick="switchTab('history')">History</div>
 </div>
 
 <!-- BUILD PANEL -->
@@ -243,7 +243,7 @@ select option{background:var(--navy2);}
   </div>
 
   <button class="send-btn send-btn-pressure" id="generateBtn" onclick="generateQuote()">Generate Quote Link →</button>
-  <button class="secondary-btn" onclick="switchTab('preview',{target:document.querySelectorAll('.tab')[1]})">Preview First</button>
+  <button class="secondary-btn" onclick="switchTab('preview')">Preview First</button>
 
 </div>
 
@@ -279,7 +279,7 @@ select option{background:var(--navy2);}
   </div>
 
   <button class="send-btn send-btn-pressure" id="previewGenerateBtn" onclick="generateQuote()">Generate Quote Link →</button>
-  <button class="secondary-btn" onclick="switchTab('build',{target:document.querySelectorAll('.tab')[0]})">← Edit</button>
+  <button class="secondary-btn" onclick="switchTab('build')">← Edit</button>
 
 </div>
 
@@ -334,7 +334,7 @@ try {
 }
 
 // ─── TAB SWITCHING ───────────────────────────────────────────────
-function switchTab(tab, e) {
+function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById(tab+'Panel').classList.add('active');
@@ -520,14 +520,16 @@ async function generateQuote() {
   document.getElementById('quoteLinkBox').classList.add('show');
   document.getElementById('textPreview').textContent = document.getElementById('textPreview').textContent.replace('[quote link]', generatedUrl);
 
-  switchTab('preview', {target: document.querySelectorAll('.tab')[1]});
+  switchTab('preview');
 }
 
 function copyLink() {
-  navigator.clipboard.writeText(generatedUrl).then(() => { const b=event.target; b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Link',2000); });
+  const b = event && event.target;
+  navigator.clipboard.writeText(generatedUrl).then(() => { if(b){b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Link',2000);} });
 }
 function copyText() {
-  navigator.clipboard.writeText(document.getElementById('textPreview').textContent).then(() => { const b=event.target; b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Text Msg',2000); });
+  const b = event && event.target;
+  navigator.clipboard.writeText(document.getElementById('textPreview').textContent).then(() => { if(b){b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Text Msg',2000);} });
 }
 
 // ─── HISTORY ─────────────────────────────────────────────────────
