@@ -810,9 +810,14 @@ async function generateQuote() {
       body: JSON.stringify(quoteData)
     });
     const data = await res.json();
+    console.log('[JSONbin POST] status:', res.status, 'response:', JSON.stringify(data));
+    if (!res.ok || !data.metadata || !data.metadata.id) {
+      throw new Error('Bad response: ' + JSON.stringify(data));
+    }
     generatedUrl = `${QUOTE_PAGE}?id=${data.metadata.id}`;
+    console.log('[JSONbin POST] short URL:', generatedUrl);
   } catch(e) {
-    console.error('JSONbin POST failed, falling back to encoded URL:', e);
+    console.error('[JSONbin POST] failed, falling back to encoded URL:', e.message);
     const encoded = btoa(JSON.stringify(quoteData).replace(/[^\x00-\x7F]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4)));
     generatedUrl = `${QUOTE_PAGE}?q=${encoded}`;
   }
