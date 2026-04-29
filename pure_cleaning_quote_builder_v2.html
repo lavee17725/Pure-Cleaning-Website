@@ -842,26 +842,38 @@ function renderHistory() {
   }).join('');
 }
 
-// Auto-populate from ?customer= URL param — wrapped in DOMContentLoaded to guarantee DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-  const param = new URLSearchParams(window.location.search).get('customer');
-  console.log('[QuoteBuilder] DOMContentLoaded fired. param:', param ? param.slice(0,40)+'...' : 'none');
+// Confirm script is running — always shows on every page load
+(function() {
+  var ping = document.createElement('div');
+  ping.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:9999;background:#1d9e75;color:white;font-family:monospace;font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+  ping.textContent = 'Builder loaded ✓';
+  document.body.appendChild(ping);
+  setTimeout(function() { ping.remove(); }, 5000);
+})();
 
-  if (!param) return;
+// Auto-populate from ?customer= URL param — 500ms delay to ensure all elements are ready
+setTimeout(function() {
+  var param = new URLSearchParams(window.location.search).get('customer');
+  console.log('[QuoteBuilder] setTimeout fired. param:', param ? param.slice(0,40)+'...' : 'none');
 
   function debugBanner(msg) {
-    const el = document.createElement('div');
-    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a1f2e;color:#fff;font-family:monospace;font-size:13px;padding:16px 20px;white-space:pre-wrap;border-bottom:3px solid #2d7dd2;';
+    var el = document.createElement('div');
+    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1f2e;color:#fff;font-family:monospace;font-size:13px;padding:16px 20px;white-space:pre-wrap;border-top:3px solid #2d7dd2;max-height:50vh;overflow-y:auto;';
     el.textContent = '🔍 DEBUG\n\n' + msg;
-    const btn = document.createElement('button');
+    var btn = document.createElement('button');
     btn.textContent = '✕ close';
     btn.style.cssText = 'margin-top:10px;display:block;background:#2d7dd2;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;';
     btn.onclick = function() { el.remove(); };
     el.appendChild(btn);
-    document.body.prepend(el);
+    document.body.appendChild(el);
   }
 
-  let d;
+  if (!param) {
+    console.log('[QuoteBuilder] No customer param — skipping pre-fill.');
+    return;
+  }
+
+  var d;
   try {
     d = JSON.parse(atob(param));
     console.log('[QuoteBuilder] Decoded:', d);
@@ -872,7 +884,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
 
-  const parts = (d.n || '').split(' ');
+  var parts = (d.n || '').split(' ');
   document.getElementById('custFirst').value = parts[0] || '';
   document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
   document.getElementById('custPhone').value = d.p || '';
@@ -883,7 +895,7 @@ document.addEventListener('DOMContentLoaded', function() {
     renderAddons();
   }
   updatePreview();
-});
+}, 500);
 </script>
 </body>
 </html>
