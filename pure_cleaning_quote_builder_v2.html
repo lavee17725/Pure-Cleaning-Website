@@ -518,33 +518,14 @@ if (pendingRequest) {
   document.getElementById('popName').textContent = pendingRequest.customer_name || '';
   document.getElementById('popMeta').textContent = [pendingRequest.phone, pendingRequest.address, pendingRequest.services].filter(Boolean).join(' · ');
 }
-// Pre-load demo services so add-ons are visible
-services = ['Roof — Softwash', 'Rinse Walls'];
-renderChips();
+// Pre-load demo services only when NOT opening from a customer link
+if (!new URLSearchParams(window.location.search).get('customer')) {
+  services = ['Roof — Softwash', 'Rinse Walls'];
+  renderChips();
+}
 selectCoats(2);
 renderAddons();
 updatePreview();
-
-// Auto-populate from ?customer= URL param (base64 JSON from quote form)
-(function() {
-  const param = new URLSearchParams(window.location.search).get('customer');
-  if (!param) return;
-  try {
-    const d = JSON.parse(atob(param));
-    const parts = (d.n || '').split(' ');
-    document.getElementById('custFirst').value = parts[0] || '';
-    document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
-    document.getElementById('custPhone').value = d.p || '';
-    document.getElementById('custAddr').value = d.a || '';
-    if (d.s) {
-      services = d.s.split(',').map(s => s.trim()).filter(Boolean);
-      renderChips();
-    }
-    updatePreview();
-  } catch(e) {
-    console.error('QuoteBuilder pre-fill decode failed:', e);
-  }
-})();
 
 // ─── TAB SWITCHING ───────────────────────────────────────────────
 function switchTab(tab, e) {
@@ -860,6 +841,28 @@ function renderHistory() {
     </div>`;
   }).join('');
 }
+
+// Auto-populate from ?customer= URL param — runs last so nothing overwrites it
+(function() {
+  const param = new URLSearchParams(window.location.search).get('customer');
+  if (!param) return;
+  try {
+    const d = JSON.parse(atob(param));
+    const parts = (d.n || '').split(' ');
+    document.getElementById('custFirst').value = parts[0] || '';
+    document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
+    document.getElementById('custPhone').value = d.p || '';
+    document.getElementById('custAddr').value = d.a || '';
+    if (d.s) {
+      services = d.s.split(',').map(s => s.trim()).filter(Boolean);
+      renderChips();
+      renderAddons();
+    }
+    updatePreview();
+  } catch(e) {
+    console.error('QuoteBuilder pre-fill decode failed:', e);
+  }
+})();
 </script>
 </body>
 </html>
