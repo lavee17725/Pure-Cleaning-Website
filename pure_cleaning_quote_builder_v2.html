@@ -486,24 +486,6 @@ select option{background:var(--navy2);}
 </div>
 
 <script>
-// ── PING: runs first, before any init code, to confirm script executes ──
-(function() {
-  var ping = document.createElement('div');
-  ping.id = 'qb-ping';
-  ping.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:9999;background:#1d9e75;color:white;font-family:monospace;font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-  ping.textContent = 'Builder loaded ✓';
-  document.body.appendChild(ping);
-  setTimeout(function() { if (ping.parentNode) ping.remove(); }, 6000);
-})();
-
-// ── Catch any uncaught errors and show them on screen ──
-window.onerror = function(msg, src, line, col) {
-  var el = document.createElement('div');
-  el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#c0392b;color:white;font-family:monospace;font-size:13px;padding:12px 16px;white-space:pre-wrap;';
-  el.textContent = '❌ JS ERROR: ' + msg + '\nLine ' + line + ', col ' + col;
-  document.body.appendChild(el);
-};
-
 const ZAPIER = 'https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/';
 const QUOTE_PAGE = 'https://purecleaningpressurecleaning.com/pure_cleaning_customer_quote.html';
 const ROOF_ADDONS = [
@@ -865,58 +847,26 @@ function renderHistory() {
 }
 
 // Confirm script is running — always shows on every page load
-(function() {
-  var ping = document.createElement('div');
-  ping.style.cssText = 'position:fixed;bottom:12px;right:12px;z-index:9999;background:#1d9e75;color:white;font-family:monospace;font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-  ping.textContent = 'Builder loaded ✓';
-  document.body.appendChild(ping);
-  setTimeout(function() { ping.remove(); }, 5000);
-})();
-
-// Auto-populate from ?customer= URL param — 500ms delay to ensure all elements are ready
+// Auto-populate from ?customer= URL param
 setTimeout(function() {
   var param = new URLSearchParams(window.location.search).get('customer');
-  console.log('[QuoteBuilder] setTimeout fired. param:', param ? param.slice(0,40)+'...' : 'none');
-
-  function debugBanner(msg) {
-    var el = document.createElement('div');
-    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a1f2e;color:#fff;font-family:monospace;font-size:13px;padding:16px 20px;white-space:pre-wrap;border-top:3px solid #2d7dd2;max-height:50vh;overflow-y:auto;';
-    el.textContent = '🔍 DEBUG\n\n' + msg;
-    var btn = document.createElement('button');
-    btn.textContent = '✕ close';
-    btn.style.cssText = 'margin-top:10px;display:block;background:#2d7dd2;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;';
-    btn.onclick = function() { el.remove(); };
-    el.appendChild(btn);
-    document.body.appendChild(el);
-  }
-
-  if (!param) {
-    console.log('[QuoteBuilder] No customer param — skipping pre-fill.');
-    return;
-  }
-
-  var d;
+  if (!param) return;
   try {
-    d = JSON.parse(atob(param));
-    console.log('[QuoteBuilder] Decoded:', d);
-    debugBanner('✅ Decoded OK\nName: ' + (d.n||'—') + '\nPhone: ' + (d.p||'—') + '\nAddress: ' + (d.a||'—') + '\nServices: ' + (d.s||'—'));
+    var d = JSON.parse(atob(param));
+    var parts = (d.n || '').split(' ');
+    document.getElementById('custFirst').value = parts[0] || '';
+    document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
+    document.getElementById('custPhone').value = d.p || '';
+    document.getElementById('custAddr').value = d.a || '';
+    if (d.s) {
+      services = d.s.split(',').map(s => s.trim()).filter(Boolean);
+      renderChips();
+      renderAddons();
+    }
+    updatePreview();
   } catch(e) {
-    console.error('[QuoteBuilder] Decode failed:', e.message);
-    debugBanner('❌ Decode failed: ' + e.message + '\n\nRaw param (first 200 chars):\n' + param.slice(0, 200));
-    return;
+    console.error('QuoteBuilder pre-fill failed:', e);
   }
-
-  var parts = (d.n || '').split(' ');
-  document.getElementById('custFirst').value = parts[0] || '';
-  document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
-  document.getElementById('custPhone').value = d.p || '';
-  document.getElementById('custAddr').value = d.a || '';
-  if (d.s) {
-    services = d.s.split(',').map(s => s.trim()).filter(Boolean);
-    renderChips();
-    renderAddons();
-  }
-  updatePreview();
 }, 500);
 </script>
 </body>
