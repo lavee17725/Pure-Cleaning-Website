@@ -175,7 +175,19 @@ let basePrice = 0;
 
 function loadFromParams() {
   const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
   const encoded = params.get('q');
+
+  if (id) {
+    fetch(`https://api.jsonbin.io/v3/b/${id}`, {
+      headers: { 'X-Master-Key': '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i' }
+    })
+    .then(r => r.json())
+    .then(data => { quoteData = data.record; renderQuote(); })
+    .catch(e => { console.error('JSONbin fetch failed:', e); });
+    return;
+  }
+
   if (encoded) {
     try {
       quoteData = JSON.parse(atob(encoded));
