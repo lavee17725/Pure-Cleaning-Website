@@ -527,21 +527,58 @@ updatePreview();
 
 // Auto-populate from ?customer= URL param (base64 JSON from quote form)
 (function() {
+  console.log('[QuoteBuilder] Full URL:', window.location.href);
+
   const param = new URLSearchParams(window.location.search).get('customer');
-  if (!param) return;
+  console.log('[QuoteBuilder] Raw customer param:', param);
+
+  if (!param) {
+    console.log('[QuoteBuilder] No customer param found — skipping pre-fill.');
+    return;
+  }
+
+  let decoded, d;
   try {
-    const d = JSON.parse(decodeURIComponent(escape(atob(param))));
-    const parts = (d.n || '').split(' ');
-    document.getElementById('custFirst').value = parts[0] || '';
-    document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
-    document.getElementById('custPhone').value = d.p || '';
-    document.getElementById('custAddr').value = d.a || '';
-    if (d.s) {
-      services = d.s.split(',').map(s => s.trim()).filter(Boolean);
-      renderChips();
-    }
-    updatePreview();
-  } catch(e) {}
+    decoded = atob(param);
+    console.log('[QuoteBuilder] atob decoded:', decoded);
+  } catch(e) {
+    console.error('[QuoteBuilder] atob FAILED:', e.message);
+    _debugBanner('❌ atob failed: ' + e.message + '\n\nRaw param (first 200 chars):\n' + param.slice(0, 200));
+    return;
+  }
+
+  try {
+    d = JSON.parse(decodeURIComponent(escape(decoded)));
+    console.log('[QuoteBuilder] Parsed customer data:', d);
+    _debugBanner('✅ Customer data received:\n\nName: ' + (d.n||'—') + '\nPhone: ' + (d.p||'—') + '\nAddress: ' + (d.a||'—') + '\nServices: ' + (d.s||'—'));
+  } catch(e) {
+    console.error('[QuoteBuilder] JSON parse FAILED:', e.message, '| decoded was:', decoded);
+    _debugBanner('❌ JSON parse failed: ' + e.message + '\n\ndecoded string:\n' + decoded.slice(0, 300));
+    return;
+  }
+
+  const parts = (d.n || '').split(' ');
+  document.getElementById('custFirst').value = parts[0] || '';
+  document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
+  document.getElementById('custPhone').value = d.p || '';
+  document.getElementById('custAddr').value = d.a || '';
+  if (d.s) {
+    services = d.s.split(',').map(s => s.trim()).filter(Boolean);
+    renderChips();
+  }
+  updatePreview();
+
+  function _debugBanner(msg) {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a1f2e;color:#fff;font-family:monospace;font-size:13px;padding:16px 20px;white-space:pre-wrap;border-bottom:3px solid #2d7dd2;';
+    el.textContent = '🔍 DEBUG — remove before launch\n\n' + msg;
+    const close = document.createElement('button');
+    close.textContent = '✕ close';
+    close.style.cssText = 'margin-top:10px;display:block;background:#2d7dd2;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;';
+    close.onclick = () => el.remove();
+    el.appendChild(close);
+    document.body.prepend(el);
+  }
 })();
 
 // ─── TAB SWITCHING ───────────────────────────────────────────────
