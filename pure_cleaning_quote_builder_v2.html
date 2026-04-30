@@ -344,6 +344,7 @@ try {
   }
   renderAddons();
   updatePreview();
+  updatePropLink();
 } catch(initErr) {
   console.error('Init block threw:', initErr);
 }
@@ -602,9 +603,9 @@ function renderHistory() {
 }
 
 // ─── PROPERTY APPRAISER LINK ─────────────────────────────────────
-const _BROWARD = ['weston','davie','pembroke pines','coral springs','plantation','sunrise','fort lauderdale','hollywood','miramar','cooper city','southwest ranches','tamarac','lauderhill','margate','coconut creek','parkland','deerfield beach','pompano beach','oakland park','wilton manors','lauderdale lakes'];
-const _MIAMI_DADE = ['miami','aventura','kendall','doral','hialeah','homestead','cutler bay','pinecrest','palmetto bay','miami beach','miami lakes','coral gables','north miami','north miami beach','sunny isles beach','bay harbor islands'];
-const _PALM_BEACH = ['boca raton','delray beach','wellington','boynton beach','west palm beach'];
+const _BROWARD = ['weston','davie','pembroke pines','coral springs','plantation','sunrise','fort lauderdale','hollywood','miramar','cooper city','southwest ranches','tamarac','lauderhill','margate','coconut creek','parkland','deerfield beach','pompano beach','oakland park','wilton manors','lauderdale lakes','lauderdale-by-the-sea','north lauderdale','dania beach','hallandale beach','west park','pembroke park','sea ranch lakes','lazy lake','hillsboro beach','lighthouse point'];
+const _MIAMI_DADE = ['miami','aventura','kendall','doral','hialeah','hialeah gardens','homestead','cutler bay','pinecrest','palmetto bay','miami beach','miami lakes','coral gables','north miami','north miami beach','sunny isles beach','bay harbor islands','bal harbour','surfside','key biscayne','south miami','west miami','miami springs','medley','sweetwater','opa-locka','florida city','indian creek','biscayne park','el portal','miami shores','north bay village','virginia gardens'];
+const _PALM_BEACH = ['boca raton','delray beach','wellington','boynton beach','west palm beach','palm beach','palm beach gardens','jupiter','lake worth beach','royal palm beach','greenacres','riviera beach','palm springs','highland beach','tequesta','north palm beach','lantana','manalapan','juno beach','atlantis','south palm beach','loxahatchee','belle glade','pahokee','south bay'];
 
 function detectCounty(addr) {
   const s = addr.toLowerCase();
@@ -618,23 +619,24 @@ function updatePropLink() {
   const addr = (document.getElementById('custAddr').value || '').trim();
   const wrap = document.getElementById('propLinkWrap');
   if (!wrap) return;
-  if (!addr) { wrap.innerHTML = ''; return; }
-  const county = detectCounty(addr);
-  let url, label;
-  if (county === 'broward') {
-    url   = 'https://web.bcpa.net/BcpaClient/#/Record-Search?searchText=' + encodeURIComponent(addr);
-    label = '📍 BCPA (Broward) →';
-  } else if (county === 'miami-dade') {
-    url   = 'https://www.miamidade.gov/Apps/PA/propertysearch/';
-    label = '📍 Miami-Dade PA →';
-  } else if (county === 'palm-beach') {
-    url   = 'https://pbcpao.gov/Property/Search';
-    label = '📍 Palm Beach PAO →';
-  } else {
-    url   = 'https://www.google.com/search?q=' + encodeURIComponent(addr + ' FL property appraiser');
-    label = '📍 Search Property Records →';
+
+  if (!addr) {
+    wrap.innerHTML = '<button class="prop-link" disabled title="Enter customer address first" style="opacity:.4;cursor:not-allowed;">📍 Look up property records →</button>';
+    return;
   }
-  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" title="Opens in new tab">' + label + '</a>';
+
+  const county = detectCounty(addr);
+  let url;
+  if (county === 'broward') {
+    url = 'https://bcpa.net/RecAddr.asp';
+  } else if (county === 'miami-dade') {
+    url = 'https://www.miamidadepa.gov/pa/property_search.asp';
+  } else if (county === 'palm-beach') {
+    url = 'https://pbcpao.gov/Property/Search';
+  } else {
+    url = 'https://www.google.com/search?q=' + encodeURIComponent(addr + ' FL property appraiser');
+  }
+  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" title="Opens property appraiser in new tab">📍 Look up property records →</a>';
 }
 
 // ─── AUTO-POPULATE FROM ?customer= LINK ──────────────────────────
