@@ -522,8 +522,7 @@ function updatePreview() {
 }
 
 // ─── GENERATE ────────────────────────────────────────────────────
-async function generateQuote() {
-  console.log('generateQuote called');
+function generateQuote() {
   const first = document.getElementById('custFirst').value;
   if (!first) { alert('Please enter customer name.'); return; }
 
@@ -554,34 +553,8 @@ async function generateQuote() {
   quotes.unshift(quoteData);
   localStorage.setItem('pureCleaningQuotesV2', JSON.stringify(quotes));
 
-  const [btn1, btn2] = [document.getElementById('generateBtn'), document.getElementById('previewGenerateBtn')];
-  [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generating…'; b.disabled = true; } });
-
-  try {
-    const res = await fetch('https://api.jsonbin.io/v3/b', {
-      method: 'POST',
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i',
-        'X-Bin-Private': 'false'
-      },
-      body: JSON.stringify(quoteData)
-    });
-    const data = await res.json();
-    console.log('[JSONbin POST] status:', res.status, 'response:', JSON.stringify(data));
-    if (!res.ok || !data.metadata || !data.metadata.id) {
-      throw new Error('Bad response: ' + JSON.stringify(data));
-    }
-    generatedUrl = `${QUOTE_PAGE}?id=${data.metadata.id}`;
-    console.log('[JSONbin POST] short URL:', generatedUrl);
-  } catch(e) {
-    console.error('[JSONbin POST] failed, falling back to encoded URL:', e.message);
-    const encoded = btoa(JSON.stringify(quoteData).replace(/[^\x00-\x7F]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4)));
-    generatedUrl = `${QUOTE_PAGE}?q=${encoded}`;
-  }
-
-  [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generate Quote Link →'; b.disabled = false; } });
+  const encoded = btoa(JSON.stringify(quoteData).replace(/[^\x00-\x7F]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4)));
+  generatedUrl = `${QUOTE_PAGE}?q=${encoded}`;
 
   document.getElementById('quoteLinkUrl').textContent = generatedUrl;
   document.getElementById('quoteLinkBox').classList.add('show');
