@@ -26,6 +26,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .tool-card:hover{background:rgba(45,125,210,.07);}
 .tool-card:active{transform:scale(.98);}
 .card-accent{width:4px;align-self:stretch;flex-shrink:0;border-radius:12px 0 0 12px;}
+.cat-incoming .card-accent{background:#e53e3e;}
 .cat-quote .card-accent{background:var(--gold);}
 .cat-reactivation .card-accent{background:#fc8181;}
 .cat-pipeline .card-accent{background:#1d9e75;}
@@ -63,6 +64,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
   <div class="stats-panel">
     <div class="panel-title">Quick Stats · Customer Database</div>
     <div class="stats-grid">
+      <span class="slabel">🔔 New requests waiting</span> <span class="sval" id="qs-incoming">…</span>
       <span class="slabel">Total customers</span>   <span class="sval" id="qs-total">…</span>
       <span class="slabel">Last updated</span>       <span class="sval" id="qs-updated">…</span>
       <span class="slabel">💎 VIP Seal</span>        <span class="sval" id="qs-vip">…</span>
@@ -87,16 +89,18 @@ const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
 
 const TOOLS = [
+  { icon: '🔔', name: 'New Quote Requests',   description: 'Build quotes from incoming customer form submissions',           url: '/pure_cleaning_incoming.html',          category: 'incoming',  badgeId: 'incoming-badge' },
   { icon: '🧾', name: 'Quote Builder',        description: 'Build and send custom quotes to customers',                     url: '/pure_cleaning_quote_builder_v2.html', category: 'quote' },
   { icon: '📨', name: 'Customer Quote Form',  description: 'Preview the customer-facing quote request form',                url: '/pure_cleaning_quote.html',            category: 'quote' },
   { icon: '📋', name: 'Open Quotes',          description: 'Track quotes that haven\'t booked yet',                         url: '/pure_cleaning_quotes.html',           category: 'pipeline' },
-  { icon: '📅', name: 'Calendar & Crew',     description: 'Schedule jobs, assign crews, track weekly payroll',             url: '/pure_cleaning_calendar.html',         category: 'schedule' },
+  { icon: '📅', name: 'Calendar & Crew',      description: 'Schedule jobs, assign crews, track weekly payroll',             url: '/pure_cleaning_calendar.html',         category: 'schedule' },
   { icon: '📞', name: 'Add or Find Customer', description: 'Search existing customers or add a new one',                    url: '/pure_cleaning_new_customer.html',     category: 'new_customer' },
   { icon: '📱', name: 'Bulk Reactivation',    description: 'Tier customers, generate batch links, send reactivation texts', url: '/pure_cleaning_bulk_reactivation.html',category: 'reactivation' },
   { icon: '🌎', name: 'Pure Cleaning Website',description: 'View the live customer website',                                url: '/',                                    category: 'customer_facing' },
 ];
 
 const CATEGORIES = [
+  { key: 'incoming',        label: '📥 Incoming Requests' },
   { key: 'quote',           label: '📋 Quote Workflow' },
   { key: 'new_customer',    label: '📞 New Customer' },
   { key: 'pipeline',        label: '📋 Open Quotes' },
@@ -113,6 +117,9 @@ function renderTools() {
     if (!tools.length) return;
     html += `<div class="section-label">${cat.label}</div><div class="card-grid">`;
     tools.forEach(t => {
+      const badge = t.badgeId
+        ? `<span id="${t.badgeId}" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:22px;text-align:center;flex-shrink:0;margin-right:4px;"></span>`
+        : '';
       html += `<a href="${t.url}" target="_blank" rel="noopener" class="tool-card cat-${t.category}">
         <div class="card-accent"></div>
         <div class="card-icon">${t.icon}</div>
@@ -120,6 +127,7 @@ function renderTools() {
           <div class="card-name">${t.name}</div>
           <div class="card-desc">${t.description}</div>
         </div>
+        ${badge}
         <div class="card-arrow">›</div>
       </a>`;
     });
@@ -170,8 +178,28 @@ function clearStats() {
   ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week','qs-sched','qs-done'].forEach(id => set(id, '—'));
 }
 
+async function loadIncomingCount() {
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/69f39ce0856a682189900bdc', {
+      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    if (!res.ok) { set('qs-incoming', '—'); return; }
+    const data  = await res.json();
+    const count = ((data.record || {}).requests || []).filter(r => r.status === 'new').length;
+    set('qs-incoming', String(count));
+    const statEl = document.getElementById('qs-incoming');
+    if (statEl) statEl.style.color = count > 0 ? '#fc8181' : '';
+    const badge = document.getElementById('incoming-badge');
+    if (badge) {
+      badge.textContent    = count > 0 ? String(count) : '';
+      badge.style.display  = count > 0 ? 'inline-flex' : 'none';
+    }
+  } catch(e) { set('qs-incoming', '—'); }
+}
+
 renderTools();
 loadQuickStats();
+loadIncomingCount();
 </script>
 </body>
 </html>

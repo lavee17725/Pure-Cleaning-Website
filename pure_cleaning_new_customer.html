@@ -289,6 +289,7 @@ async function init() {
   buildPresetGrid();
   try {
     const res  = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     dbRecord     = data.record || {};
     allCustomers = dbRecord.customers || [];
@@ -299,6 +300,9 @@ async function init() {
     allCustomers = [];
     dbLoaded = true;
   }
+  // re-run search if user typed before DB finished loading
+  const si = document.getElementById('searchInput');
+  if (si && si.value.trim()) onSearch(si);
 }
 
 async function saveDb() {
@@ -325,12 +329,14 @@ function onSearch(input) {
   if (!dbLoaded) { document.getElementById('searchResults').innerHTML = '<div class="empty-r"><p>Loading…</p></div>'; return; }
   const qL = q.toLowerCase(), qD = q.replace(/\D/g,'');
   const hits = allCustomers.filter(c => {
-    const full = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase();
-    return full.includes(qL) || (c.firstName||'').toLowerCase().includes(qL) || (c.lastName||'').toLowerCase().includes(qL) || (qD && c.phone && c.phone.includes(qD));
+    const fn   = (c.firstName || c.fn || '').toLowerCase();
+    const ln   = (c.lastName  || c.ln || '').toLowerCase();
+    const full = (fn + ' ' + ln).trim();
+    return full.includes(qL) || fn.includes(qL) || ln.includes(qL) || (qD && c.phone && c.phone.includes(qD)) || (c.address || '').toLowerCase().includes(qL);
   }).slice(0, 8);
   if (!hits.length) { document.getElementById('searchResults').innerHTML = '<div class="empty-r"><p>No matches — add them as a new customer.</p></div>'; return; }
   document.getElementById('searchResults').innerHTML = hits.map(c => {
-    const name   = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim());
+    const name   = esc((((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim()));
     const icons  = (c.alerts||[]).slice(0,3).map(a=>`<span>${a.icon}</span>`).join('');
     const more   = (c.alerts||[]).length > 3 ? `<span style="font-size:11px;color:var(--muted)">+${(c.alerts||[]).length-3}</span>` : '';
     const lastSv = c.lastService ? friendly(c.lastService) : null;

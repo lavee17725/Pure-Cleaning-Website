@@ -595,15 +595,15 @@
     </div>
 
     <!-- RUST REMOVAL -->
-    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;background:#fff8f8;border-color:#e53e3e;" onclick="toggleRust()">
+    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;background:#fff5ed;border-color:#c2410c;" onclick="toggleRust()">
       <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
-        <div class="cb" id="rustCb" style="border-color:#e53e3e;">✓</div>
+        <div class="cb" id="rustCb" style="border-color:#c2410c;">✓</div>
         <span style="font-weight:600;color:#1a1f2e;">Rust removal</span>
       </div>
     </div>
-    <div id="rustSection" style="display:none;grid-column:span 2;border:1.5px solid #e53e3e;border-radius:12px;overflow:hidden;margin-top:-4px;">
-      <div style="background:#fff0f0;padding:10px 14px;font-size:12px;color:#c0392b;font-weight:600;border-bottom:1px solid #fcc;">
-        What surfaces need rust removal? <span style="color:#e53e3e;">*</span>
+    <div id="rustSection" style="display:none;grid-column:span 2;border:1.5px solid #c2410c;border-radius:12px;overflow:hidden;margin-top:-4px;">
+      <div style="background:#fff5ed;padding:10px 14px;font-size:12px;color:#c2410c;font-weight:600;border-bottom:1px solid #f5c4a0;">
+        What surfaces need rust removal? <span style="color:#c2410c;">*</span>
       </div>
       <div style="padding:12px;background:white;">
         <div style="font-size:12px;color:#6b7280;margin-bottom:10px;line-height:1.6;">Rust removal is a specialized treatment. Pricing typically ranges <strong style="color:#1a1f2e;">$25–$100</strong> depending on surface area. We will always confirm the exact price with you before proceeding.</div>
@@ -624,15 +624,15 @@
             <div id="radioRustBoth" style="width:14px;height:14px;border:2px solid #e2e8f0;border-radius:50%;margin:6px auto 0;display:flex;align-items:center;justify-content:center;"></div>
           </div>
         </div>
-        <div style="margin-top:10px;border:1.5px dashed #fcc;border-radius:10px;padding:12px;text-align:center;background:#fff8f8;cursor:pointer;" onclick="document.getElementById('rustPhotos').click()">
-          <div style="font-size:13px;font-weight:600;color:#c0392b;">📸 Upload photos of rust areas</div>
+        <div style="margin-top:10px;border:1.5px dashed #f5c4a0;border-radius:10px;padding:12px;text-align:center;background:#fff5ed;cursor:pointer;" onclick="document.getElementById('rustPhotos').click()">
+          <div style="font-size:13px;font-weight:600;color:#c2410c;">📸 Upload photos of rust areas</div>
           <div style="font-size:11px;color:#6b7280;margin-top:3px;">Helps us assess severity — customers who upload often get more accurate pricing</div>
           <input type="file" id="rustPhotos" multiple accept="image/*" style="display:none;" onchange="showRustPhotoCount(this)">
         </div>
         <div id="rustDoneBtn" style="display:none;margin-top:10px;text-align:center;">
-          <button onclick="document.getElementById('rustSection').style.display='none'" style="background:#e53e3e;color:white;border:none;border-radius:8px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done</button>
+          <button onclick="document.getElementById('rustSection').style.display='none'" style="background:#c2410c;color:white;border:none;border-radius:8px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done</button>
         </div>
-        <div id="rustPhotoCount" style="font-size:12px;color:#e53e3e;margin-top:6px;font-weight:600;display:none;"></div>
+        <div id="rustPhotoCount" style="font-size:12px;color:#c2410c;margin-top:6px;font-weight:600;display:none;"></div>
       </div>
     </div>
   </div>
@@ -728,6 +728,24 @@
 </div>
 
 <script>
+  const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
+
+  async function saveToIncomingBin(reqData) {
+    const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+    const res  = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
+      mode: 'cors', headers: { 'X-Master-Key': KEY }
+    });
+    const data = await res.json();
+    const db   = data.record || {};
+    const reqs = db.requests || [];
+    reqs.unshift(reqData);
+    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
+      method: 'PUT', mode: 'cors',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY },
+      body: JSON.stringify({ requests: reqs })
+    });
+  }
+
   let returningCustomer = false;
 
   function toggleReturning() {
@@ -780,13 +798,13 @@
     const cb = document.getElementById('rustCb');
     const section = document.getElementById('rustSection');
     if (rustChecked) {
-      cb.style.background = '#e53e3e';
-      cb.style.borderColor = '#e53e3e';
+      cb.style.background = '#c2410c';
+      cb.style.borderColor = '#c2410c';
       cb.style.color = 'white';
       section.style.display = 'block';
     } else {
       cb.style.background = '';
-      cb.style.borderColor = '#e53e3e';
+      cb.style.borderColor = '#c2410c';
       cb.style.color = '';
       section.style.display = 'none';
       selectedRustArea = '';
@@ -806,10 +824,10 @@
       document.getElementById('radioRust'+a).innerHTML = '';
       document.getElementById('radioRust'+a).style.borderColor = '#e2e8f0';
     });
-    document.getElementById('rust'+area).style.borderColor = '#e53e3e';
-    document.getElementById('rust'+area).style.background = '#fff0f0';
-    document.getElementById('radioRust'+area).innerHTML = '<div style="width:8px;height:8px;border-radius:50%;background:#e53e3e;"></div>';
-    document.getElementById('radioRust'+area).style.borderColor = '#e53e3e';
+    document.getElementById('rust'+area).style.borderColor = '#c2410c';
+    document.getElementById('rust'+area).style.background = '#fff5ed';
+    document.getElementById('radioRust'+area).innerHTML = '<div style="width:8px;height:8px;border-radius:50%;background:#c2410c;"></div>';
+    document.getElementById('radioRust'+area).style.borderColor = '#c2410c';
     selectedRustArea = area;
     document.getElementById('rustDoneBtn').style.display = 'block';
   }
@@ -958,7 +976,8 @@
 
   // ── Seal upsell slide-in ─────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function() {
-    if (localStorage.getItem('pcpc_seal_upsell_dismissed')) return;
+    const _sd = localStorage.getItem('pcpc_seal_upsell_dismissed');
+    if (_sd && (isNaN(parseInt(_sd,10)) || Date.now() - parseInt(_sd,10) < 30*24*60*60*1000)) return;
     const card = document.getElementById('sealUpsellCard');
     const dismissBtn = document.getElementById('sealUpsellDismiss');
     const ctaBtn = document.getElementById('sealUpsellCta');
@@ -979,7 +998,7 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     dismissBtn.addEventListener('click', () => {
       card.style.display = 'none';
-      localStorage.setItem('pcpc_seal_upsell_dismissed', '1');
+      localStorage.setItem('pcpc_seal_upsell_dismissed', String(Date.now()));
       clearTimeout(timer);
       window.removeEventListener('scroll', onScroll);
     });
@@ -1167,6 +1186,30 @@
     const _qbLink = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote_builder_v2.html?customer=' + encodeURIComponent(_encoded);
     zapData.quote_builder_link = _qbLink;
     formData.append('🔗 Open Quote Builder', _qbLink);
+
+    // Save to incoming requests inbox (fire and forget — doesn't block success UX)
+    saveToIncomingBin({
+      id:          Date.now().toString(),
+      submittedAt: new Date().toISOString(),
+      status:      'new',
+      quotedAt:    null,
+      customerData: {
+        firstName:         document.getElementById('firstName').value,
+        lastName:          document.getElementById('lastName').value,
+        phone:             document.getElementById('phone').value,
+        email:             document.getElementById('email').value,
+        address:           document.getElementById('address').value,
+        city:              document.getElementById('city').value,
+        zip:               document.getElementById('zip').value,
+        services:          servicesWithMethod,
+        sealing:           { requested: sealQuoteChecked, surfaces: sealServices },
+        rustRemoval:       { requested: rustChecked,      area: selectedRustArea },
+        timeframe:         (timeframeEl && timeframeEl.value) || selectedTimeframe || '',
+        reminderFrequency: customFreq || selectedReminder || '',
+        notes:             document.getElementById('notes').value || '',
+        otherServices:     document.getElementById('otherServices').value || ''
+      }
+    }).catch(e => console.warn('[incoming save]', e.message));
 
     try {
       // Fire both in parallel — email via Formspree, text via Zapier

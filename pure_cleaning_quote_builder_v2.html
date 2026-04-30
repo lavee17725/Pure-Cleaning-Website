@@ -67,7 +67,7 @@ select option{background:var(--navy2);}
 .date-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .date-card{background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;}
 .date-card label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:block;margin-bottom:6px;}
-.date-card input{border:none;background:transparent;padding:0;font-size:15px;font-weight:600;color:var(--white);}
+.date-card input{border:none;background:transparent;padding:4px 0;font-size:16px;font-weight:600;color:var(--white);-webkit-appearance:auto;appearance:auto;color-scheme:dark;width:100%;}
 .date-card input:focus{outline:none;}
 
 /* ADDONS */
@@ -306,8 +306,10 @@ select option{background:var(--navy2);}
 </div>
 
 <script>
-const ZAPIER = 'https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/';
-const QUOTE_PAGE = 'https://purecleaningpressurecleaning.com/pure_cleaning_customer_quote.html';
+const ZAPIER                  = 'https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/';
+const QUOTE_PAGE              = 'https://purecleaningpressurecleaning.com/pure_cleaning_customer_quote.html';
+const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
+const JSONBIN_KEY              = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const ROOF_ADDONS = [
   {id:'driveway',label:'Driveway Package',icon:'🚗',desc:'Includes driveway, sidewalk & entranceway'},
   {id:'patio',label:'Patio',icon:'☀️',desc:'Add patio cleaning'},
@@ -318,6 +320,7 @@ let services = [];
 let quotes = JSON.parse(localStorage.getItem('pureCleaningQuotesV2') || '[]');
 let pendingRequest = JSON.parse(localStorage.getItem('pendingQuoteRequest') || 'null');
 let generatedUrl = '';
+let incomingReqId = null; // set when opened from Incoming Requests inbox
 
 // ─── INIT ────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0];
@@ -550,6 +553,9 @@ async function generateQuote() {
   document.getElementById('quoteLinkBox').classList.add('show');
   document.getElementById('textPreview').textContent = document.getElementById('textPreview').textContent.replace('[quote link]', generatedUrl);
 
+  // Auto-mark the incoming request as quoted
+  if (incomingReqId) markIncomingQuoted(incomingReqId);
+
   switchTab('preview');
 }
 
@@ -596,23 +602,49 @@ setTimeout(function() {
   var param = new URLSearchParams(window.location.search).get('customer');
   if (!param) return;
   try {
-    var d = JSON.parse(atob(param));
+    var raw = atob(decodeURIComponent(param));
+    try { raw = decodeURIComponent(escape(raw)); } catch(e2) { /* already ascii */ }
+    var d = JSON.parse(raw);
     var parts = (d.n || '').split(' ');
     document.getElementById('custFirst').value = parts[0] || '';
-    document.getElementById('custLast').value = parts.slice(1).join(' ') || '';
-    document.getElementById('custPhone').value = d.p || '';
-    document.getElementById('custAddr').value = d.a || '';
+    document.getElementById('custLast').value  = parts.slice(1).join(' ') || '';
+    document.getElementById('custPhone').value = d.p  || '';
+    document.getElementById('custEmail').value = d.em || '';
+    document.getElementById('custAddr').value  = d.a  || '';
+    if (d.notes) document.getElementById('customerNotes').value = d.notes;
     if (d.s) {
       services = d.s.split(',').map(s => s.trim()).filter(Boolean);
       renderChips();
       renderAddons();
     }
+    if (d.reqId) incomingReqId = d.reqId;
     updatePreview();
     if (d.p) checkCustomerAlerts(d.p.replace(/\D/g,''));
   } catch(e) {
     console.error('QuoteBuilder pre-fill failed:', e);
   }
 }, 500);
+
+// ─── MARK INCOMING REQUEST AS QUOTED ─────────────────────────────
+async function markIncomingQuoted(reqId) {
+  if (!reqId) return;
+  try {
+    const res  = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
+      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    const data = await res.json();
+    const db   = data.record || {};
+    const req  = (db.requests || []).find(r => r.id === reqId);
+    if (!req || req.status !== 'new') return;
+    req.status   = 'quoted';
+    req.quotedAt = new Date().toISOString();
+    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
+      method: 'PUT', mode: 'cors',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+      body: JSON.stringify(db)
+    });
+  } catch(e) { console.warn('[markIncomingQuoted]', e.message); }
+}
 </script>
 </body>
 </html>

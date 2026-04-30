@@ -168,7 +168,26 @@ td.money{font-family:'DM Mono',monospace;}
 .text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
 .text-now-btn:hover{background:#2470c0;}
 .texted-badge{background:rgba(29,158,117,.2);color:#5de0b3;border:1px solid var(--green);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.text-disconnected-btn{background:rgba(229,62,62,.1);color:#fc8181;border:1px solid rgba(229,62,62,.3);border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:default;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .contact-stats{font-size:12px;color:var(--muted);padding:5px 2px;}
+
+/* dormant / ancient tier pills */
+.tp-dormant{background:rgba(147,197,253,.15);color:#93c5fd;border-color:rgba(147,197,253,.4);}
+.tp-ancient{background:rgba(167,139,250,.15);color:#a78bfa;border-color:rgba(167,139,250,.4);}
+
+/* row ⋯ overflow menu */
+.row-menu-btn{background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 8px;font-size:14px;cursor:pointer;transition:all .15s;font-family:'DM Sans',sans-serif;line-height:1;}
+.row-menu-btn:hover,.row-menu-btn.menu-open{border-color:var(--sky);color:var(--sky);}
+.row-menu-item{display:block;width:100%;background:none;border:none;color:var(--muted);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;border-radius:5px;text-align:left;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:color .15s,background .15s;}
+.row-menu-item:hover{background:rgba(255,255,255,.06);color:var(--text);}
+.row-menu-item.danger{color:#fc8181;}.row-menu-item.danger:hover{background:rgba(229,62,62,.1);}
+.row-menu-item.phone-act:hover{color:#fb923c;}
+
+/* upload summary modal */
+.summary-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.summary-row:last-child{border-bottom:none;}
+.summary-key{color:var(--muted);}
+.summary-val{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);}
 
 @media(max-width:600px){.stats-bar{grid-template-columns:1fr 1fr;}}
 </style>
@@ -257,7 +276,17 @@ td.money{font-family:'DM Mono',monospace;}
       <span class="tier-pill tp-warm on" data-tier="WARM" onclick="toggleTier(this)">🟡 Warm</span>
       <span class="tier-pill tp-sleeping on" data-tier="SLEEPING" onclick="toggleTier(this)">🟢 Sleeping</span>
       <span class="tier-pill tp-cold on" data-tier="COLD" onclick="toggleTier(this)">❄️ Cold</span>
+      <span class="tier-pill tp-dormant on" data-tier="DORMANT" onclick="toggleTier(this)">🧊 Dormant</span>
+      <span class="tier-pill tp-ancient on" data-tier="ANCIENT" onclick="toggleTier(this)">👻 Ancient</span>
       <span class="tier-pill tp-active off" data-tier="ACTIVE" onclick="toggleTier(this)">⏸️ Active</span>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">Phones:</span>
+      <select id="phoneFilterSel" class="filter-input" style="min-width:200px;" onchange="setPhoneFilter(this.value)">
+        <option value="active">Active phones only</option>
+        <option value="all">All (incl. disconnected)</option>
+        <option value="disconnected">Disconnected only</option>
+      </select>
     </div>
     <div class="filter-row">
       <span class="filter-label">City:</span>
@@ -362,7 +391,7 @@ const BUILDING_PATTERN_RE = /^the\s+\w+$|\bat\s+\d|\b\d+$/i;
 let allCustomers = [];
 let filteredCustomers = [];
 let selectedPhones = new Set();
-let activeTiers = new Set(['VIP_SEAL','HOT','WARM','SLEEPING','COLD']);
+let activeTiers = new Set(['VIP_SEAL','HOT','WARM','SLEEPING','COLD','DORMANT','ANCIENT']);
 let uploadedFiles = [];
 let generatedLinks = []; // [{customer, code, link, sms}]
 let fileRowCounts = {}; // filename → data row count (set after processing)
@@ -373,7 +402,9 @@ let oldDbCustomers = []; // saved before update mode merge
 let updateMode = false; // true when re-processing CSVs to merge with existing DB
 let lastTotalRows = 0; // total raw rows from last processFiles run (stored for DB stats)
 let contactFilter = 'all'; // 'all' | 'not_texted' | 'this_week' | 'any_time'
-let searchQuery = '';
+let phoneFilter   = 'active'; // 'active' | 'all' | 'disconnected'
+let searchQuery   = '';
+let openRowMenu   = null; // phone of currently open ⋯ menu
 
 // ─── OVERRIDES ───────────────────────────────────────────────────────────────
 function loadOverrides() {
@@ -405,10 +436,12 @@ function customerToDbRecord(c) {
     totalJobs: c.totalJobs,
     lifetimeSpend: Math.round(c.lifetimeSpend),
     hasSealHistory: c.hasSeal || false,
+    phoneStatus: c.phoneStatus || 'active',
     linkCode: c.linkCode || null,
     linkBin: c.linkBin || null,
     lastTextedDate: c.lastTextedDate || null,
     quoteStatus: c.quoteStatus || null,
+    scheduledStatus: c.scheduledStatus || null,
     alerts: c.alerts || []
   };
 }
@@ -426,8 +459,10 @@ function dbRecordToCustomer(r) {
     avgTicket, maxTicket: 0, hasSeal, tier, monthsSince: ms,
     addresses: new Set(),
     lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
+    phoneStatus: r.phoneStatus || 'active',
     linkCode: r.linkCode || null, linkBin: r.linkBin || null, lastTextedDate: r.lastTextedDate || null,
     quoteStatus: r.quoteStatus || null,
+    scheduledStatus: r.scheduledStatus || null,
     alerts: r.alerts || []
   };
 }
@@ -446,6 +481,8 @@ async function saveDatabase() {
       warm: tierCounts['WARM'] || 0,
       sleeping: tierCounts['SLEEPING'] || 0,
       cold: tierCounts['COLD'] || 0,
+      dormant: tierCounts['DORMANT'] || 0,
+      ancient: tierCounts['ANCIENT'] || 0,
       active: tierCounts['ACTIVE'] || 0
     },
     customers: allCustomers.map(customerToDbRecord),
@@ -649,19 +686,21 @@ function calcTier(c) {
   // VIP Seal: has seal history, premium spend, in the 6mo–3yr engagement window
   if (c.hasSeal && c.lifetimeSpend >= 1000 && m >= 6 && m <= 36) return 'VIP_SEAL';
   const quality = c.totalJobs >= 2 || c.avgTicket >= 400;
-  if (m < 6)  return 'ACTIVE';
-  if (m < 12) return quality ? 'HOT' : 'WARM';
-  if (m < 18) return quality ? 'WARM' : 'SLEEPING';
-  if (m < 24) return 'SLEEPING';
-  return 'COLD';
+  if (m <  6)  return 'ACTIVE';
+  if (m < 12)  return quality ? 'HOT' : 'WARM';
+  if (m < 18)  return quality ? 'WARM' : 'SLEEPING';
+  if (m < 24)  return 'SLEEPING';
+  if (m < 48)  return 'COLD';    // 2–4 years
+  if (m < 96)  return 'DORMANT'; // 4–8 years
+  return 'ANCIENT';              // 8+ years
 }
 
 function tierLabel(t) {
-  return {VIP_SEAL:'💎 VIP Seal',HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',ACTIVE:'⏸️ Active'}[t] || t;
+  return {VIP_SEAL:'💎 VIP Seal',HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',DORMANT:'🧊 Dormant',ANCIENT:'👻 Ancient',ACTIVE:'⏸️ Active'}[t] || t;
 }
 
 function tierClass(t) {
-  return {VIP_SEAL:'tp-vip-seal',HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',ACTIVE:'tp-active'}[t] || '';
+  return {VIP_SEAL:'tp-vip-seal',HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',DORMANT:'tp-dormant',ANCIENT:'tp-ancient',ACTIVE:'tp-active'}[t] || '';
 }
 
 // ─── MAIN PROCESSING ─────────────────────────────────────────────────────────
@@ -674,6 +713,7 @@ async function processFiles() {
   let rawRows = [];
   excludedRecords = [];
   let totalRows = 0;
+  let skippedErrors = 0;
   fileRowCounts = {};
   const seenExcKeys = new Set();
 
@@ -745,7 +785,7 @@ async function processFiles() {
       }
 
       const { fn, ln } = splitName(customer);
-      if (!fn) continue;
+      if (!fn) { skippedErrors++; continue; }
       rawRows.push({ fn, ln, phone, dateObj, total, address, city });
     }
   }
@@ -800,16 +840,18 @@ async function processFiles() {
     for (const c of oldDbCustomers) oldByPhone[c.phone] = c;
     const newByPhone = {};
     for (const c of allCustomers) newByPhone[c.phone] = c;
-    // Keep old-only customers; new data wins on shared phones but preserves link/texted info
+    // Keep old-only customers; new data wins on shared phones but preserves link/texted/status info
     for (const [phone, old] of Object.entries(oldByPhone)) {
       if (!newByPhone[phone]) {
         newByPhone[phone] = old;
       } else {
-        newByPhone[phone].linkCode = old.linkCode || null;
-        newByPhone[phone].linkBin = old.linkBin || null;
-        newByPhone[phone].lastTextedDate = old.lastTextedDate || null;
-        newByPhone[phone].quoteStatus = old.quoteStatus || null;
-        newByPhone[phone].alerts = old.alerts || [];
+        newByPhone[phone].phoneStatus     = old.phoneStatus     || 'active';
+        newByPhone[phone].linkCode        = old.linkCode        || null;
+        newByPhone[phone].linkBin         = old.linkBin         || null;
+        newByPhone[phone].lastTextedDate  = old.lastTextedDate  || null;
+        newByPhone[phone].quoteStatus     = old.quoteStatus     || null;
+        newByPhone[phone].scheduledStatus = old.scheduledStatus || null;
+        newByPhone[phone].alerts          = old.alerts          || [];
       }
     }
     allCustomers = Object.values(newByPhone);
@@ -848,6 +890,25 @@ async function processFiles() {
 
   renderFilePills();
 
+  // Build upload summary before saving
+  let summaryNew = allCustomers.length, summaryUpdated = 0;
+  if (updateMode) {
+    const oldPhones = new Set(oldDbCustomers.map(c => c.phone));
+    summaryNew     = allCustomers.filter(c => !oldPhones.has(c.phone)).length;
+    summaryUpdated = allCustomers.filter(c =>  oldPhones.has(c.phone)).length;
+  }
+  const tierDist = {};
+  for (const c of allCustomers) tierDist[c.tier] = (tierDist[c.tier] || 0) + 1;
+  const uploadSummary = {
+    filesProcessed: uploadedFiles.length,
+    totalRows,
+    newCustomers: summaryNew,
+    updatedCustomers: summaryUpdated,
+    commercialExcluded: excludedRecords.length,
+    skippedErrors,
+    tiers: tierDist
+  };
+
   // Persist to database (non-blocking; show banner on success)
   const savingNote = document.getElementById('dbBannerText');
   if (savingNote) savingNote.textContent = 'Saving to database…';
@@ -857,6 +918,7 @@ async function processFiles() {
     oldDbCustomers = [];
     showDbBanner(db);
     document.getElementById('uploadSection').style.display = 'none';
+    showUploadSummary(uploadSummary);
   }).catch(e => {
     updateMode = false;
     document.getElementById('dbBannerText').textContent = `⚠️ Database save failed: ${e.message}`;
@@ -877,6 +939,8 @@ function applyFilters() {
     if (!activeTiers.has(c.tier)) return false;
     if (city && c.city !== city) return false;
     if (c.lifetimeSpend < minSpend) return false;
+    if (phoneFilter === 'active'       && c.phoneStatus === 'disconnected') return false;
+    if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
     if (contactFilter !== 'all') {
       const iso = contacts[c.phone];
       if (contactFilter === 'not_texted' && iso) return false;
@@ -950,9 +1014,12 @@ function renderTable() {
     const sealIcon   = c.hasSeal ? '🛡️ ' : '';
     const alertBadge = renderAlertIcons(c.alerts);
     const contactedIso = contacts[c.phone];
-    const textBtn = contactedIso
-      ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(contactedIso)}</button>`
-      : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
+    const isDisc = c.phoneStatus === 'disconnected';
+    const textBtn = isDisc
+      ? `<button class="text-disconnected-btn" disabled title="Phone marked disconnected">📵 Disconnected</button>`
+      : contactedIso
+        ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(contactedIso)}</button>`
+        : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
       <td>${textBtn}</td>
@@ -965,7 +1032,7 @@ function renderTable() {
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
-      <td><button class="mark-commercial-btn" onclick="markCommercial('${c.phone}')" title="Mark as commercial / exclude">⊘ excl.</button></td>
+      <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
     </tr>`;
   }).join('');
   updateSelInfo();
@@ -1113,9 +1180,12 @@ async function textNow(phone) {
 
   const link = `${QUOTE_BASE}?c=${binId}.${code}`;
   const monthsText = buildMonthsText(c.monthsSince);
-  const body = c.tier === 'VIP_SEAL'
-    ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — ${monthsText} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
-    : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home ${monthsText} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+  const years = Math.floor(c.monthsSince / 12);
+  const body = (c.tier === 'DORMANT' || c.tier === 'ANCIENT')
+    ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in here:\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
+    : c.tier === 'VIP_SEAL'
+      ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — ${monthsText} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+      : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home ${monthsText} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
@@ -1170,9 +1240,12 @@ async function generateLinks() {
       records[code] = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
       const link = `${QUOTE_BASE}?c=${binId}.${code}`;
       const months = Math.round(c.monthsSince);
-      const sms = c.tier === 'VIP_SEAL'
-        ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${months} month${months===1?'':'s'} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
-        : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home about ${months} month${months===1?'':'s'} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+      const years  = Math.floor(c.monthsSince / 12);
+      const sms = (c.tier === 'DORMANT' || c.tier === 'ANCIENT')
+        ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in here:\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
+        : c.tier === 'VIP_SEAL'
+          ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${months} month${months===1?'':'s'} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+          : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home about ${months} month${months===1?'':'s'} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
       generatedLinks.push({ customer: c, code, link, sms, months });
     }
 
@@ -1398,7 +1471,15 @@ const TIER_TOOLTIPS = {
   },
   COLD: {
     title: '❄️ COLD — Long inactive',
-    body: 'Customers last serviced 24+ months ago. Some may have moved, sold their home, or switched providers. Lowest conversion rate — but still worth a single low-pressure outreach for the ones who do convert.'
+    body: 'Customers last serviced 24–48 months ago. Some may have moved, sold their home, or switched providers. Lower conversion rate — but still worth a single low-pressure outreach for the ones who do convert.'
+  },
+  DORMANT: {
+    title: '🧊 DORMANT — 4–8 year inactive customers',
+    body: "Customers last serviced 4–8 years ago. Many have moved or used competitors. Lower conversion rate but emotionally meaningful — these customers knew Darla and Tony personally in the early years of the business. Best for 'checking in after years' soft outreach."
+  },
+  ANCIENT: {
+    title: '👻 ANCIENT — 8+ year inactive customers',
+    body: "Customers last serviced 8+ years ago. Phone numbers may be disconnected, addresses may have changed hands. Worth attempting once with a 'remember us?' message but expect low response rate."
   },
   ACTIVE: {
     title: '⏸️ ACTIVE — Recently serviced, do not text',
@@ -1491,6 +1572,7 @@ function initTooltips() {
     const infoBtn = document.getElementById('tierInfoBtn');
     if (infoBtn) { infoBtn.classList.remove('tt-active'); }
     _ttHide();
+    closeRowMenus();
   });
 }
 
@@ -1591,11 +1673,92 @@ function _mErr(inputId, errId, msg) {
   document.getElementById(errId).textContent = msg;
 }
 
+// ─── PHONE STATUS ────────────────────────────────────────────────────────────
+function setPhoneFilter(val) {
+  phoneFilter = val;
+  applyFilters();
+}
+
+function markPhoneDisconnected(phone) {
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.phoneStatus = 'disconnected';
+  closeRowMenus();
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function markPhoneActive(phone) {
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.phoneStatus = 'active';
+  closeRowMenus();
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+// ─── ROW OVERFLOW MENU ───────────────────────────────────────────────────────
+function toggleRowMenu(phone, btn) {
+  if (openRowMenu === phone) { closeRowMenus(); return; }
+  closeRowMenus();
+  openRowMenu = phone;
+
+  const c = allCustomers.find(x => x.phone === phone);
+  const isDisc = c && c.phoneStatus === 'disconnected';
+  const menu = document.getElementById('rowMenuDropdown');
+  menu.innerHTML =
+    `<button class="row-menu-item danger" onclick="markCommercial('${phone}')">⊘ Exclude (commercial)</button>` +
+    (isDisc
+      ? `<button class="row-menu-item phone-act" onclick="markPhoneActive('${phone}')">📞 Mark phone active</button>`
+      : `<button class="row-menu-item phone-act" onclick="markPhoneDisconnected('${phone}')">📵 Mark phone disconnected</button>`
+    );
+
+  const rect = btn.getBoundingClientRect();
+  menu.style.top   = (rect.bottom + 2) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+  menu.style.left  = 'auto';
+  menu.style.display = 'block';
+  btn.classList.add('menu-open');
+}
+
+function closeRowMenus() {
+  if (!openRowMenu) return;
+  openRowMenu = null;
+  const menu = document.getElementById('rowMenuDropdown');
+  if (menu) menu.style.display = 'none';
+  document.querySelectorAll('.row-menu-btn.menu-open').forEach(b => b.classList.remove('menu-open'));
+}
+
+// ─── UPLOAD SUMMARY MODAL ────────────────────────────────────────────────────
+function showUploadSummary(s) {
+  const ALL_TIERS = ['VIP_SEAL','HOT','WARM','SLEEPING','COLD','DORMANT','ANCIENT','ACTIVE'];
+  const tierRows = ALL_TIERS.filter(t => (s.tiers[t] || 0) > 0).map(t =>
+    `<div class="summary-row"><span class="summary-key">${tierLabel(t)}</span><span class="summary-val">${s.tiers[t]}</span></div>`
+  ).join('');
+  document.getElementById('uploadSummaryContent').innerHTML = `
+    <div class="summary-row"><span class="summary-key">Files processed</span><span class="summary-val">${s.filesProcessed}</span></div>
+    <div class="summary-row"><span class="summary-key">Total rows</span><span class="summary-val">${s.totalRows.toLocaleString()}</span></div>
+    <div class="summary-row"><span class="summary-key" style="color:#5de0b3;">New customers added</span><span class="summary-val" style="color:#5de0b3;">${s.newCustomers}</span></div>
+    <div class="summary-row"><span class="summary-key" style="color:var(--sky);">Existing updated</span><span class="summary-val" style="color:var(--sky);">${s.updatedCustomers}</span></div>
+    <div class="summary-row"><span class="summary-key">Commercial excluded</span><span class="summary-val">${s.commercialExcluded}</span></div>
+    ${s.skippedErrors > 0 ? `<div class="summary-row"><span class="summary-key" style="color:#fc8181;">Skipped (errors)</span><span class="summary-val" style="color:#fc8181;">${s.skippedErrors}</span></div>` : ''}
+    <div style="padding:.5rem 0 .25rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">Tier distribution</div>
+    ${tierRows}
+  `;
+  document.getElementById('uploadSummaryModal').classList.remove('hidden');
+}
+
+function closeUploadSummary() {
+  document.getElementById('uploadSummaryModal').classList.add('hidden');
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   tryLoadDatabase();
   initTooltips();
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAddCustomerModal(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); }
+  });
 });
 </script>
 
@@ -1680,6 +1843,20 @@ document.addEventListener('DOMContentLoaded', () => {
 <div id="tierTooltip" class="tier-tooltip" role="tooltip">
   <div class="tt-title"></div>
   <div class="tt-body"></div>
+</div>
+
+<!-- ROW OVERFLOW MENU (global, repositioned by JS) -->
+<div id="rowMenuDropdown" style="position:fixed;display:none;background:var(--navy2);border:1.5px solid var(--border);border-radius:8px;padding:4px;z-index:9000;min-width:210px;box-shadow:0 4px 20px rgba(0,0,0,.55);"></div>
+
+<!-- UPLOAD SUMMARY MODAL -->
+<div class="modal-overlay hidden" id="uploadSummaryModal" onclick="if(event.target===this)closeUploadSummary()">
+  <div class="modal-card" style="max-width:400px;">
+    <div class="modal-title">📊 Upload Complete</div>
+    <div id="uploadSummaryContent"></div>
+    <div class="modal-footer" style="margin-top:1.25rem;">
+      <button class="mbtn-submit" onclick="closeUploadSummary()">Done</button>
+    </div>
+  </div>
 </div>
 
 </body>
