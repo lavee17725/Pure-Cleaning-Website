@@ -30,6 +30,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .cat-reactivation .card-accent{background:#fc8181;}
 .cat-pipeline .card-accent{background:#1d9e75;}
 .cat-new_customer .card-accent{background:#f97316;}
+.cat-schedule .card-accent{background:#8b5cf6;}
 .cat-customer_facing .card-accent{background:var(--sky);}
 .card-icon{font-size:22px;width:52px;text-align:center;flex-shrink:0;}
 .card-body{flex:1;min-width:0;padding:14px 0;}
@@ -41,7 +42,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .panel-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.875rem;}
 .stats-grid{display:grid;grid-template-columns:1fr auto;}
 .stats-grid > span{padding:8px 0;font-size:13px;border-bottom:1px solid var(--border);}
-.stats-grid > span:nth-last-child(-n+4){border-bottom:none;padding-bottom:1rem;}
+.stats-grid > span:nth-last-child(-n+6){border-bottom:none;padding-bottom:1rem;}
 .slabel{color:var(--muted);}
 .sval{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);text-align:right;padding-left:12px;}
 
@@ -69,6 +70,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
       <span class="slabel">Texted this week</span>   <span class="sval" id="qs-texted">—</span>
       <span class="slabel">🟡 Waiting on customer</span> <span class="sval" id="qs-waiting">—</span>
       <span class="slabel">✅ Booked this week</span>    <span class="sval" id="qs-booked-week">—</span>
+      <span class="slabel">📅 Jobs scheduled this week</span> <span class="sval" id="qs-sched">—</span>
+      <span class="slabel">✓ Completed this week</span>       <span class="sval" id="qs-done">—</span>
     </div>
   </div>
 
@@ -87,6 +90,7 @@ const TOOLS = [
   { icon: '🧾', name: 'Quote Builder',        description: 'Build and send custom quotes to customers',                     url: '/pure_cleaning_quote_builder_v2.html', category: 'quote' },
   { icon: '📨', name: 'Customer Quote Form',  description: 'Preview the customer-facing quote request form',                url: '/pure_cleaning_quote.html',            category: 'quote' },
   { icon: '📋', name: 'Open Quotes',          description: 'Track quotes that haven\'t booked yet',                         url: '/pure_cleaning_quotes.html',           category: 'pipeline' },
+  { icon: '📅', name: 'Calendar & Crew',     description: 'Schedule jobs, assign crews, track weekly payroll',             url: '/pure_cleaning_calendar.html',         category: 'schedule' },
   { icon: '📞', name: 'Add or Find Customer', description: 'Search existing customers or add a new one',                    url: '/pure_cleaning_new_customer.html',     category: 'new_customer' },
   { icon: '📱', name: 'Bulk Reactivation',    description: 'Tier customers, generate batch links, send reactivation texts', url: '/pure_cleaning_bulk_reactivation.html',category: 'reactivation' },
   { icon: '🌎', name: 'Pure Cleaning Website',description: 'View the live customer website',                                url: '/',                                    category: 'customer_facing' },
@@ -96,6 +100,7 @@ const CATEGORIES = [
   { key: 'quote',           label: '📋 Quote Workflow' },
   { key: 'new_customer',    label: '📞 New Customer' },
   { key: 'pipeline',        label: '📋 Open Quotes' },
+  { key: 'schedule',        label: '📅 Schedule' },
   { key: 'reactivation',    label: '🎯 Reactivation' },
   { key: 'customer_facing', label: '🌐 Customer-Facing (Reference Only)' },
 ];
@@ -142,6 +147,13 @@ async function loadQuickStats() {
     set('qs-waiting', String(withQ.filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed').length));
     const qWeekAgo = new Date(Date.now() - 7*24*60*60*1000);
     set('qs-booked-week', String(withQ.filter(c => c.quoteStatus.state === 'approved' && c.quoteStatus.approvedDate && new Date(c.quoteStatus.approvedDate+'T12:00:00') >= qWeekAgo).length));
+    const today = new Date(); today.setHours(0,0,0,0);
+    const sun = new Date(today); sun.setDate(today.getDate() - today.getDay());
+    const sat = new Date(sun); sat.setDate(sun.getDate() + 6);
+    const inWeek = d => { if (!d) return false; const dt = new Date(d+'T12:00:00'); return dt >= sun && dt <= sat; };
+    const withSched = (db.customers||[]).filter(c => c.scheduledStatus && c.scheduledStatus.scheduledDate);
+    set('qs-sched', String(withSched.filter(c => c.scheduledStatus.state === 'scheduled' && inWeek(c.scheduledStatus.scheduledDate)).length));
+    set('qs-done',  String(withSched.filter(c => c.scheduledStatus.state === 'completed'  && inWeek(c.scheduledStatus.scheduledDate)).length));
   } catch(e) {
     clearStats();
   }
@@ -155,7 +167,7 @@ async function loadQuickStats() {
 
 function set(id, val) { document.getElementById(id).textContent = val; }
 function clearStats() {
-  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week'].forEach(id => set(id, '—'));
+  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week','qs-sched','qs-done'].forEach(id => set(id, '—'));
 }
 
 renderTools();

@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Calendar & Crew — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--bg:#f4f6f9;--card:#fff;--text:#1a1f2e;--muted:#6b7280;--border:#e2e8f0;--shadow:0 2px 8px rgba(0,0,0,.08);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+
+/* ── NAV BAR ── */
+.topbar{background:var(--navy);padding:.75rem 1.25rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:200;}
+.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;letter-spacing:1px;margin-right:6px;}
+.topbar-logo span{color:var(--gold);}
+.back-link{font-size:12px;color:var(--gold);text-decoration:none;font-weight:600;margin-right:10px;}
+.week-nav{display:flex;align-items:center;gap:6px;}
+.nav-btn{background:rgba(255,255,255,.12);border:none;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.nav-btn:hover{background:rgba(255,255,255,.22);}
+.week-label{font-size:14px;font-weight:600;color:#fff;min-width:210px;text-align:center;}
+.topbar-sep{flex:1;}
+.topbar-action{background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.2);color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.topbar-action:hover{background:rgba(255,255,255,.2);}
+
+/* ── THREE-COLUMN LAYOUT ── */
+.layout{display:grid;grid-template-columns:280px 1fr 250px;height:calc(100vh - 54px);overflow:hidden;}
+.left-col{background:var(--card);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;}
+.main-col{overflow:auto;background:var(--bg);}
+.right-col{background:var(--card);border-left:1px solid var(--border);overflow-y:auto;}
+
+/* ── LEFT SIDEBAR ── */
+.sidebar-hdr{padding:.875rem 1rem .625rem;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);background:var(--card);position:sticky;top:0;z-index:10;}
+.needs-list{padding:.75rem;flex:1;}
+.empty-sidebar{text-align:center;padding:2rem 1rem;color:var(--muted);}
+.empty-sidebar div{font-size:28px;margin-bottom:.5rem;}
+
+/* ── UNSCHEDULED JOB CARD ── */
+.job-unscheduled{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:grab;transition:box-shadow .15s,border-color .15s;user-select:none;}
+.job-unscheduled:hover{border-color:var(--sky);box-shadow:0 4px 12px rgba(45,125,210,.15);}
+.job-unscheduled:active{cursor:grabbing;}
+.jn{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:4px;}
+.jd{font-size:12px;color:var(--muted);line-height:1.5;}
+.drag-hint{font-size:10px;color:#b0bac8;margin-top:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+
+/* ── CALENDAR GRID ── */
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(175px,1fr));min-width:1225px;gap:0;}
+.day-col{border-right:1px solid var(--border);}
+.day-col:last-child{border-right:none;}
+.day-hdr{padding:8px 10px 6px;background:var(--navy2);border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;position:sticky;top:0;z-index:5;}
+.day-hdr:hover{background:#162440;}
+.day-name{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gold);}
+.day-date{font-size:16px;font-weight:700;color:#fff;line-height:1.2;}
+.day-date.today{color:var(--gold);}
+.day-labor{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
+.day-labor.has-cost{color:#86efac;}
+
+/* ── RIG LANES ── */
+.rig-section{border-bottom:1px solid var(--border);}
+.rig-section:last-child{border-bottom:none;}
+.rig-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 10px;background:#f8f9fb;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;font-size:12px;font-weight:600;color:var(--navy);}
+.rig-hdr:hover{background:#eff3f9;}
+.rig-icon{font-size:14px;}
+.rig-name{flex:1;}
+.rig-crew-label{font-size:11px;color:var(--sky);font-weight:600;}
+.rig-jobs{min-height:60px;padding:6px;background:transparent;}
+.rig-jobs.empty-hint{background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,.015) 8px,rgba(0,0,0,.015) 16px);}
+
+/* ── SCHEDULED JOB CARD ── */
+.job-scheduled{background:var(--white);border:1.5px solid #dbeafe;border-left:4px solid var(--sky);border-radius:10px;padding:7px 9px;margin-bottom:5px;cursor:pointer;transition:box-shadow .15s;user-select:none;font-size:12px;}
+.job-scheduled:hover{box-shadow:0 3px 10px rgba(45,125,210,.18);}
+.job-scheduled.in_progress{border-left-color:var(--gold);border-color:#fef3c7;}
+.job-scheduled.completed{border-left-color:var(--green);border-color:#d1fae5;opacity:.75;}
+.js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;}
+.js-meta{color:var(--muted);margin-top:1px;}
+.js-alerts{font-size:13px;margin-top:2px;}
+.sortable-ghost{opacity:.4;background:#dbeafe !important;border-style:dashed !important;}
+.sortable-chosen{box-shadow:0 6px 20px rgba(0,0,0,.2) !important;transform:rotate(1deg);}
+
+/* ── RIGHT SIDEBAR ── */
+.rside-hdr{padding:.875rem 1rem .625rem;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);position:sticky;top:0;background:var(--card);z-index:10;}
+.crew-card{margin:.625rem .75rem;background:var(--bg);border-radius:10px;padding:10px 12px;border:1.5px solid var(--border);}
+.cc-name{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--navy);margin-bottom:6px;}
+.cc-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.cc-week{display:flex;gap:3px;margin-bottom:5px;}
+.cc-day{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;}
+.cc-day.worked{background:var(--sky);color:#fff;}
+.cc-day.off{background:#fee2e2;color:#991b1b;font-size:9px;}
+.cc-day.empty{background:#f1f3f5;color:#d1d5db;}
+.cc-day-label{font-size:8px;color:var(--muted);text-align:center;width:26px;}
+.cc-stats{font-size:12px;color:var(--muted);}
+.cc-stats strong{color:var(--text);}
+.cc-owner{font-size:11px;color:var(--muted);font-style:italic;}
+.payroll-footer{margin:.75rem;background:var(--navy2);border-radius:12px;padding:12px 14px;}
+.pf-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:6px;}
+.pf-total{font-family:'Bebas Neue',sans-serif;font-size:28px;color:#fff;letter-spacing:1px;}
+.pf-sub{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
+.pf-breakdown{margin-top:8px;font-size:11px;color:rgba(255,255,255,.7);line-height:1.8;}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:999;display:flex;align-items:center;gap:12px;white-space:nowrap;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast-undo{background:var(--gold);color:var(--navy);border:none;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+
+/* ── MODALS ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.overlay.hidden{display:none;}
+.modal{background:var(--card);border-radius:18px;padding:1.5rem;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.25);}
+.modal-title{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:1rem;}
+.modal-field{margin-bottom:.875rem;}
+.modal-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.modal-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;}
+.modal-input:focus{border-color:var(--sky);}
+.modal-footer{display:flex;gap:10px;margin-top:1.25rem;}
+.mbtn-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
+.mbtn-save{flex:2;padding:11px;border:none;border-radius:10px;background:var(--sky);color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.mbtn-save:hover{background:#2470c0;}
+.mbtn-danger{flex:1;padding:11px;border:none;border-radius:10px;background:#fef2f2;color:var(--red);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+.mbtn-green{flex:1;padding:11px;border:none;border-radius:10px;background:#d1fae5;color:#047857;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+
+/* ── CREW POPOVER ── */
+.crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
+.crew-pop.hidden{display:none;}
+.cp-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:.75rem;}
+.cp-crew-item{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:8px;cursor:pointer;transition:background .1s;}
+.cp-crew-item:hover{background:#f5f7fb;}
+.cp-crew-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--sky);}
+.cp-crew-label{font-size:13px;font-weight:600;color:var(--text);flex:1;}
+.cp-crew-sub{font-size:11px;color:var(--muted);}
+.cp-crew-item.disabled{opacity:.45;cursor:not-allowed;}
+.cp-crew-item.disabled *{pointer-events:none;}
+
+/* ── PAYROLL TABLE ── */
+.payroll-table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:1rem;}
+.payroll-table th{padding:8px 10px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:2px solid var(--border);}
+.payroll-table td{padding:8px 10px;border-bottom:1px solid var(--border);}
+.payroll-table tr:last-child td{border-bottom:none;}
+.pay-total-row td{font-weight:700;border-top:2px solid var(--border);padding-top:10px;}
+
+/* ── JOB STATUS BADGES ── */
+.status-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+.status-scheduled{background:#dbeafe;color:#1e40af;}
+.status-progress{background:#fef3c7;color:#92400e;}
+.status-completed{background:#d1fae5;color:#065f46;}
+
+/* ── PRINT ── */
+@media print{
+  .topbar,.left-col,.right-col{display:none !important;}
+  .layout{display:block;}
+  .main-col{overflow:visible;height:auto;}
+  .day-col{page-break-after:always;min-height:0;}
+  .day-hdr{background:#eee !important;color:#000 !important;}
+  .day-name,.day-date,.day-labor{color:#000 !important;}
+}
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr;}
+  .left-col,.right-col{display:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <a href="/pure_cleaning_admin.html" class="back-link">← Admin</a>
+  <div class="topbar-logo">Pure <span>Cleaning</span></div>
+  <div class="week-nav">
+    <button class="nav-btn" onclick="changeWeek(-1)">‹ Prev</button>
+    <div class="week-label" id="weekLabel">Loading…</div>
+    <button class="nav-btn" onclick="changeWeek(1)">Next ›</button>
+    <button class="nav-btn" onclick="goToday()">Today</button>
+  </div>
+  <div class="topbar-sep"></div>
+  <button class="topbar-action" onclick="openDayOffModal()">+ Day Off</button>
+  <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
+  <button class="topbar-action" onclick="window.print()">🖨 Print</button>
+</div>
+
+<!-- THREE-COLUMN LAYOUT -->
+<div class="layout">
+
+  <!-- LEFT: NEEDS SCHEDULING -->
+  <div class="left-col">
+    <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
+    <div class="needs-list" id="needsList"></div>
+  </div>
+
+  <!-- MAIN: CALENDAR -->
+  <div class="main-col">
+    <div class="cal-grid" id="calGrid"></div>
+  </div>
+
+  <!-- RIGHT: CREW & PAYROLL -->
+  <div class="right-col">
+    <div class="rside-hdr">👥 Crew & Payroll</div>
+    <div id="crewPanel"></div>
+  </div>
+
+</div>
+
+<!-- ── JOB DETAIL MODAL ── -->
+<div class="overlay hidden" id="jobModal" onclick="if(event.target===this)closeJobModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-title" id="jmTitle">Job Details</div>
+    <div id="jmBody"></div>
+    <div class="modal-footer" id="jmFooter"></div>
+  </div>
+</div>
+
+<!-- ── CREW ASSIGNMENT POPOVER ── -->
+<div class="crew-pop hidden" id="crewPop">
+  <div class="cp-title" id="cpTitle">Assign Crew</div>
+  <div id="cpList"></div>
+  <div class="modal-footer" style="margin-top:.75rem;">
+    <button class="mbtn-cancel" onclick="closeCrewPop()">Cancel</button>
+    <button class="mbtn-save" onclick="saveCrewPop()">Save</button>
+  </div>
+</div>
+
+<!-- ── PAYROLL MODAL ── -->
+<div class="overlay hidden" id="payrollModal" onclick="if(event.target===this)closePayrollModal()">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-title">📊 Weekly Payroll</div>
+    <div id="payrollBody"></div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closePayrollModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── DAY OFF MODAL ── -->
+<div class="overlay hidden" id="dayOffModal" onclick="if(event.target===this)closeDayOffModal()">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-title">Mark Day Off</div>
+    <div class="modal-field">
+      <label>Crew Member</label>
+      <select id="doCrew" class="modal-input"></select>
+    </div>
+    <div class="modal-field">
+      <label>Date</label>
+      <input type="date" id="doDate" class="modal-input">
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeDayOffModal()">Cancel</button>
+      <button class="mbtn-save" onclick="saveDayOff()">Mark Off</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
+
+const CREW_MEMBERS = [
+  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, role:'crew'},
+  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, role:'crew'},
+  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, role:'crew'},
+  {id:'tyler',    name:'Tyler',    color:'#a855f7', dailyRate:150, role:'owner_son'},
+  {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   role:'owner'}
+];
+const RIGS = ['rig_1','rig_2','rig_3'];
+const RIG_LABELS = {rig_1:'Rig 1', rig_2:'Rig 2', rig_3:'Rig 3'};
+
+// ── STATE ──────────────────────────────────────────────────────────────────────
+let dbRecord      = null;
+let weekOffset    = 0;
+let calState      = loadCalState();
+let cpDate        = null; // date currently editing in crew pop
+let cpRig         = null; // rig currently editing
+let cpSelCrew     = [];   // selected crew in popover
+let jmPhone       = null; // phone in job modal
+let undoFn        = null;
+let sortables     = [];
+let wasDragging   = false;
+
+function loadCalState() {
+  try { return JSON.parse(localStorage.getItem('pcpc_calendar_state') || '{}'); } catch { return {}; }
+}
+function saveCalState() {
+  if (!calState.rigCrew) calState.rigCrew = {};
+  if (!calState.daysOff) calState.daysOff = [];
+  localStorage.setItem('pcpc_calendar_state', JSON.stringify(calState));
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const res  = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
+    const data = await res.json();
+    dbRecord = data.record || {};
+    render();
+  } catch(e) {
+    dbRecord = {customers:[]};
+    render();
+    showToast('⚠️ Could not load database — some data may be stale');
+  }
+}
+
+async function saveDb() {
+  await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
+    method:'PUT', mode:'cors',
+    headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
+    body:JSON.stringify(dbRecord)
+  });
+}
+
+// ── WEEK HELPERS ──────────────────────────────────────────────────────────────
+function getWeekDates() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const sunday = new Date(today); sunday.setDate(today.getDate() - today.getDay() + weekOffset * 7);
+  return Array.from({length:7}, (_,i) => {
+    const d = new Date(sunday); d.setDate(sunday.getDate() + i);
+    return d.toISOString().split('T')[0];
+  });
+}
+function isoToday() { return new Date().toISOString().split('T')[0]; }
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render() {
+  const dates = getWeekDates();
+  const fmt1 = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  document.getElementById('weekLabel').textContent = `${fmt1(dates[0])} – ${fmt1(dates[6])}`;
+
+  renderSidebar();
+  renderCalGrid(dates);
+  renderCrewPanel(dates);
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function renderSidebar() {
+  const jobs = getUnscheduled();
+  document.getElementById('needsCount').textContent = jobs.length;
+  const el = document.getElementById('needsList');
+  if (!jobs.length) {
+    el.innerHTML = `<div class="empty-sidebar"><div>🎉</div><p style="font-size:14px;font-weight:600;color:var(--navy);">All caught up!</p><p style="font-size:13px;margin-top:4px;">No jobs waiting to be scheduled.</p></div>`;
+  } else {
+    el.innerHTML = jobs.map(c => jobCardSidebar(c)).join('');
+  }
+  initSortables();
+}
+
+function jobCardSidebar(c) {
+  const name    = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const ss      = c.scheduledStatus || {};
+  const dur     = ss.estimatedDuration || 2;
+  const notes   = esc(ss.jobNotes || '');
+  const alerts  = alertIcons(c.alerts||[]);
+  const phone   = fmtPh(c.phone);
+  return `<div class="job-unscheduled" data-phone="${c.phone}" title="${name}">
+    <div class="jn">${name}${alerts}</div>
+    <div class="jd">${c.city ? esc(c.city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
+    ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
+    <div class="drag-hint">⠿ Drag to schedule</div>
+  </div>`;
+}
+
+// ── CALENDAR GRID ─────────────────────────────────────────────────────────────
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function renderCalGrid(dates) {
+  const today = isoToday();
+  const html = dates.map(date => {
+    const d = new Date(date+'T12:00:00');
+    const dayName = DAY_NAMES[d.getDay()];
+    const dayLabel = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+    const isToday = date === today;
+    const labor = calcDailyLabor(date);
+    const laborStr = labor > 0 ? `💰 $${labor.toLocaleString()}` : '';
+    const rigsHtml = RIGS.map(rig => {
+      const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+      const crewLabel = crew.map(id => CREW_MEMBERS.find(c=>c.id===id)?.name||id).join(' + ');
+      const jobs = getScheduledForRig(date, rig);
+      const jobsHtml = jobs.map(c => jobCardScheduled(c)).join('');
+      const emptyClass = jobs.length ? '' : ' empty-hint';
+      return `<div class="rig-section">
+        <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
+          <span class="rig-icon">🚛</span>
+          <span class="rig-name">${RIG_LABELS[rig]}</span>
+          <span class="rig-crew-label">${crewLabel}</span>
+        </div>
+        <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+      </div>`;
+    }).join('');
+    return `<div class="day-col">
+      <div class="day-hdr">
+        <div class="day-name">${dayName}</div>
+        <div class="day-date${isToday?' today':''}">${dayLabel}</div>
+        ${labor>0 ? `<div class="day-labor has-cost">${laborStr}</div>` : '<div class="day-labor">&nbsp;</div>'}
+      </div>
+      ${rigsHtml}
+    </div>`;
+  }).join('');
+  document.getElementById('calGrid').innerHTML = html;
+  initSortables();
+}
+
+function jobCardScheduled(c) {
+  const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const ss    = c.scheduledStatus || {};
+  const time  = ss.startTime || '9:00am';
+  const dur   = ss.estimatedDuration || 2;
+  const state = ss.state || 'scheduled';
+  const alerts= alertIcons(c.alerts||[]);
+  const city  = c.city ? esc(c.city) : '';
+  const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
+  return `<div class="job-scheduled ${state}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+    <div class="js-name">${badge}${name}${alerts}</div>
+    <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
+  </div>`;
+}
+
+// ── RIGHT SIDEBAR ─────────────────────────────────────────────────────────────
+function renderCrewPanel(dates) {
+  const today = isoToday();
+  const dayKeys = dates.map(d => new Date(d+'T12:00:00').getDay()); // 0-6
+  const worked = crewWorkedDays(dates);
+  const payroll = calcPayroll(dates);
+  const totalPaid = CREW_MEMBERS.filter(cm=>cm.role!=='owner').reduce((s,cm)=>(s+(payroll[cm.id]||0)),0);
+
+  let html = CREW_MEMBERS.map(cm => {
+    const days = worked[cm.id] || [];
+    const isOff = (date) => (calState.daysOff||[]).some(o=>o.crewId===cm.id&&o.date===date);
+    const weekHtml = dates.map((date, i) => {
+      const dn = ['S','M','T','W','T','F','S'][i];
+      const on = days.includes(date);
+      const off = isOff(date);
+      const cls = off ? 'off' : on ? 'worked' : 'empty';
+      return `<div class="cc-day ${cls}" title="${date}">${off?'Off':dn}</div>`;
+    }).join('');
+    const dCount = days.length;
+    const weekly = payroll[cm.id] || 0;
+    const statsHtml = cm.role==='owner'
+      ? `<div class="cc-owner">Owner — not paid</div>`
+      : `<div class="cc-stats"><strong>${dCount} day${dCount===1?'':'s'}</strong> · $${weekly.toLocaleString()}/wk</div>`;
+    return `<div class="crew-card">
+      <div class="cc-name"><div class="cc-dot" style="background:${cm.color}"></div>${cm.name}</div>
+      <div class="cc-week">${weekHtml}</div>
+      ${statsHtml}
+    </div>`;
+  }).join('');
+
+  html += `<div class="payroll-footer">
+    <div class="pf-title">💰 Weekly Labor Cost</div>
+    <div class="pf-total">$${totalPaid.toLocaleString()}</div>
+    <div class="pf-sub">Excludes Tony (owner)</div>
+    <div class="pf-breakdown">${dates.map((date,i)=>{
+      const dl = calcDailyLabor(date);
+      return dl>0 ? `${DAY_NAMES[i]}: $${dl}` : '';
+    }).filter(Boolean).join('<br>')}</div>
+  </div>`;
+
+  document.getElementById('crewPanel').innerHTML = html;
+}
+
+// ── PAYROLL CALC ──────────────────────────────────────────────────────────────
+function calcDailyLabor(date) {
+  const rigs = ((calState.rigCrew||{})[date])||{};
+  const seen = new Set();
+  for (const rig of RIGS) { for (const id of (rigs[rig]||[])) seen.add(id); }
+  return [...seen].reduce((s,id) => { const cm = CREW_MEMBERS.find(c=>c.id===id); return s+(cm?cm.dailyRate:0); }, 0);
+}
+
+function crewWorkedDays(dates) {
+  const result = {};
+  CREW_MEMBERS.forEach(cm => result[cm.id] = []);
+  for (const date of dates) {
+    const rigs = ((calState.rigCrew||{})[date])||{};
+    const seen = new Set();
+    for (const rig of RIGS) { for (const id of (rigs[rig]||[])) if(!seen.has(id)){seen.add(id);result[id].push(date);} }
+  }
+  return result;
+}
+
+function calcPayroll(dates) {
+  const worked = crewWorkedDays(dates);
+  const result = {};
+  for (const [id, days] of Object.entries(worked)) {
+    const cm = CREW_MEMBERS.find(c=>c.id===id);
+    result[id] = cm ? days.length * cm.dailyRate : 0;
+  }
+  return result;
+}
+
+// ── DATA QUERIES ──────────────────────────────────────────────────────────────
+function getUnscheduled() {
+  const c = (dbRecord.customers||[]);
+  return c.filter(x =>
+    (x.scheduledStatus && x.scheduledStatus.state === 'needs_scheduling') ||
+    (x.quoteStatus && x.quoteStatus.state === 'approved' && (!x.scheduledStatus || !x.scheduledStatus.state))
+  );
+}
+
+function getScheduledForRig(date, rig) {
+  return (dbRecord.customers||[]).filter(c => {
+    const ss = c.scheduledStatus;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed') && ss.scheduledDate===date && ss.rig===rig;
+  });
+}
+
+function findCustomer(phone) {
+  return (dbRecord.customers||[]).find(c=>c.phone===phone);
+}
+
+// ── DRAG AND DROP ─────────────────────────────────────────────────────────────
+function initSortables() {
+  sortables.forEach(s => { try { s.destroy(); } catch {} });
+  sortables = [];
+
+  const sidebarEl = document.getElementById('needsList');
+  if (sidebarEl) {
+    sortables.push(Sortable.create(sidebarEl, {
+      group:{ name:'jobs', pull:true, put:true },
+      animation:150,
+      ghostClass:'sortable-ghost',
+      chosenClass:'sortable-chosen',
+      onStart:()=>{ wasDragging=true; },
+      onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
+      onAdd: evt => handleDropToSidebar(evt.item.dataset.phone, evt)
+    }));
+  }
+
+  document.querySelectorAll('.rig-jobs').forEach(lane => {
+    sortables.push(Sortable.create(lane, {
+      group:{ name:'jobs', pull:true, put: to => {
+        // Max 2 jobs per rig slot? No — only crew has max. Multiple jobs per rig allowed.
+        return true;
+      }},
+      animation:150,
+      ghostClass:'sortable-ghost',
+      chosenClass:'sortable-chosen',
+      onStart:()=>{ wasDragging=true; },
+      onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
+      onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig)
+    }));
+  });
+}
+
+async function handleDropToRig(phone, date, rig) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  if (!c.scheduledStatus) c.scheduledStatus = { estimatedDuration:2, startTime:'09:00', jobNotes:'', crew:[] };
+  c.scheduledStatus.state = 'scheduled';
+  c.scheduledStatus.scheduledDate = date;
+  c.scheduledStatus.rig = rig;
+
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const dateStr = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  showToast(`📅 ${esc(name)} → ${dateStr} · ${RIG_LABELS[rig]}`, 'Undo', () => { undoAction(phone, prev); });
+
+  saveDb().catch(()=>{});
+  renderCrewPanel(getWeekDates());
+}
+
+async function handleDropToSidebar(phone, evt) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  if (c.scheduledStatus) {
+    c.scheduledStatus.state = 'needs_scheduling';
+    c.scheduledStatus.scheduledDate = null;
+    c.scheduledStatus.rig = null;
+  }
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`↩ ${esc(name)} moved back to Needs Scheduling`, 'Undo', () => { undoAction(phone, prev); });
+  document.getElementById('needsCount').textContent = getUnscheduled().length;
+  saveDb().catch(()=>{});
+  renderCrewPanel(getWeekDates());
+}
+
+function undoAction(phone, prevStatus) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  c.scheduledStatus = prevStatus;
+  saveDb().catch(()=>{});
+  render();
+  showToast('↩ Action undone');
+}
+
+// ── CREW POPOVER ──────────────────────────────────────────────────────────────
+function openCrewPop(date, rig, el) {
+  cpDate = date; cpRig = rig;
+  const currentCrew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+  cpSelCrew = [...currentCrew];
+
+  document.getElementById('cpTitle').textContent = `${RIG_LABELS[rig]} · ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})}`;
+
+  const isOff = id => (calState.daysOff||[]).some(o=>o.crewId===id&&o.date===date);
+  const onOtherRig = id => RIGS.filter(r=>r!==rig).some(r => ((calState.rigCrew||{})[date]||{})[r]?.includes(id));
+
+  document.getElementById('cpList').innerHTML = CREW_MEMBERS.map(cm => {
+    const off     = isOff(cm.id);
+    const other   = onOtherRig(cm.id);
+    const checked = currentCrew.includes(cm.id);
+    const sub     = off ? `<span class="cp-crew-sub">Off</span>` : other ? `<span class="cp-crew-sub">On other rig</span>` : `<span class="cp-crew-sub">$${cm.dailyRate}/day${cm.role==='owner'?' (Owner)':''}</span>`;
+    const disabled = off || other;
+    return `<div class="cp-crew-item${disabled?' disabled':''}" onclick="${disabled?'':' toggleCpCrew(\''+cm.id+'\')'}"  >
+      <input type="checkbox" id="cpc-${cm.id}" ${checked?'checked':''} ${disabled?'disabled':''}>
+      <div><div class="cp-crew-label" style="color:${cm.color}">${cm.name}</div>${sub}</div>
+    </div>`;
+  }).join('');
+
+  const pop = document.getElementById('crewPop');
+  const rect = el.getBoundingClientRect();
+  pop.style.top  = Math.min(rect.bottom + 4, window.innerHeight - 320) + 'px';
+  pop.style.left = Math.min(rect.left, window.innerWidth - 256) + 'px';
+  pop.classList.remove('hidden');
+  document.addEventListener('click', crewPopOutside, true);
+}
+
+function toggleCpCrew(id) {
+  const cb = document.getElementById('cpc-' + id);
+  if (!cb) return;
+  if (cpSelCrew.includes(id)) {
+    cpSelCrew = cpSelCrew.filter(x=>x!==id);
+    cb.checked = false;
+  } else {
+    if (cpSelCrew.length >= 2) { showToast('Max 2 crew per rig'); return; }
+    cpSelCrew.push(id);
+    cb.checked = true;
+  }
+}
+
+function saveCrewPop() {
+  if (!calState.rigCrew) calState.rigCrew = {};
+  if (!calState.rigCrew[cpDate]) calState.rigCrew[cpDate] = {};
+  calState.rigCrew[cpDate][cpRig] = [...cpSelCrew];
+  saveCalState();
+  closeCrewPop();
+  render();
+}
+
+function closeCrewPop() {
+  document.getElementById('crewPop').classList.add('hidden');
+  document.removeEventListener('click', crewPopOutside, true);
+}
+
+function crewPopOutside(e) {
+  const pop = document.getElementById('crewPop');
+  if (!pop.contains(e.target)) closeCrewPop();
+}
+
+// ── JOB DETAIL MODAL ──────────────────────────────────────────────────────────
+function openJobModal(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  jmPhone = phone;
+  const ss   = c.scheduledStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const crew = ss.crew || ( ss.rig && ss.scheduledDate ? (((calState.rigCrew||{})[ss.scheduledDate]||{})[ss.rig]||[]) : [] );
+  const crewNames = crew.map(id => CREW_MEMBERS.find(cm=>cm.id===id)?.name||id).join(', ') || '—';
+  const ph = c.phone ? `<a href="tel:${c.phone}" style="color:var(--sky)">📞 ${fmtPh(c.phone)}</a>` : '';
+  const addr = c.address ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address+' '+c.city)}" target="_blank" style="color:var(--sky)">📍 ${esc(c.address)}${c.city?', '+esc(c.city):''}</a>` : '';
+  const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
+
+  document.getElementById('jmTitle').textContent = name;
+  document.getElementById('jmBody').innerHTML = `
+    <div style="margin-bottom:.875rem;display:flex;gap:8px;align-items:center;">
+      <span class="status-badge ${stateBadge}">${ss.state||'scheduled'}</span>
+      ${ss.scheduledDate ? `<span style="font-size:13px;color:var(--muted);">${new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span>` : ''}
+    </div>
+    <div style="font-size:14px;line-height:2;margin-bottom:1rem;">
+      ${ph ? ph+'<br>' : ''}
+      ${addr ? addr+'<br>' : ''}
+      ${crewNames ? `👤 ${crewNames}<br>` : ''}
+      ${alertIcons(c.alerts||[])} ${(c.alerts||[]).map(a=>a.label).join(', ')||'No alerts'}<br>
+    </div>
+    <div class="modal-field">
+      <label>Duration (hours)</label>
+      <select id="jmDur" class="modal-input">
+        ${[1,2,3,4,5,6].map(h=>`<option value="${h}" ${(ss.estimatedDuration||2)===h?'selected':''}>${h} hour${h===1?'':'s'}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Start Time</label>
+      <input type="time" id="jmStart" class="modal-input" value="${ss.startTime||'09:00'}">
+    </div>
+    <div class="modal-field">
+      <label>Job Notes (internal)</label>
+      <input type="text" id="jmNotes" class="modal-input" value="${esc(ss.jobNotes||'')}" placeholder="Services, address notes…">
+    </div>
+  `;
+
+  const isCompleted = ss.state === 'completed';
+  document.getElementById('jmFooter').innerHTML = `
+    <button class="mbtn-cancel" onclick="unscheduleJob()">↩ Unschedule</button>
+    ${!isCompleted ? `<button class="mbtn-green" onclick="markComplete()">✓ Complete</button>` : ''}
+    <button class="mbtn-save" onclick="saveJobModal()">Save</button>
+  `;
+  document.getElementById('jobModal').classList.remove('hidden');
+}
+
+function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); jmPhone=null; }
+
+function saveJobModal() {
+  const c = findCustomer(jmPhone);
+  if (!c || !c.scheduledStatus) return;
+  c.scheduledStatus.estimatedDuration = parseInt(document.getElementById('jmDur').value)||2;
+  c.scheduledStatus.startTime = document.getElementById('jmStart').value || '09:00';
+  c.scheduledStatus.jobNotes  = document.getElementById('jmNotes').value.trim();
+  saveDb().catch(()=>{});
+  closeJobModal();
+  render();
+}
+
+function markComplete() {
+  const c = findCustomer(jmPhone);
+  if (!c || !c.scheduledStatus) return;
+  c.scheduledStatus.state = 'completed';
+  saveDb().catch(()=>{});
+  closeJobModal();
+  render();
+  showToast('✓ Job marked as completed');
+}
+
+function unscheduleJob() {
+  const c = findCustomer(jmPhone);
+  if (!c || !c.scheduledStatus) return;
+  c.scheduledStatus.state = 'needs_scheduling';
+  c.scheduledStatus.scheduledDate = null;
+  c.scheduledStatus.rig = null;
+  saveDb().catch(()=>{});
+  closeJobModal();
+  render();
+}
+
+// ── PAYROLL MODAL ─────────────────────────────────────────────────────────────
+function openPayrollModal() {
+  const dates   = getWeekDates();
+  const payroll = calcPayroll(dates);
+  const worked  = crewWorkedDays(dates);
+  const total   = CREW_MEMBERS.filter(cm=>cm.role!=='owner').reduce((s,cm)=>(s+(payroll[cm.id]||0)),0);
+  const rows    = CREW_MEMBERS.map(cm => `<tr>
+    <td style="font-weight:600">${cm.name}</td>
+    <td>${(worked[cm.id]||[]).length}</td>
+    <td>${cm.role==='owner' ? '—' : '$'+cm.dailyRate+'/day'}</td>
+    <td style="font-weight:600">${cm.role==='owner' ? '<em style="color:var(--muted)">Owner</em>' : '$'+(payroll[cm.id]||0).toLocaleString()}</td>
+  </tr>`).join('');
+  const breakdown = dates.map((date,i)=>{
+    const dl = calcDailyLabor(date);
+    return `<tr><td>${DAY_NAMES[i]} ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</td><td colspan="2">—</td><td style="font-weight:600">${dl>0?'$'+dl.toLocaleString():'-'}</td></tr>`;
+  }).join('');
+  document.getElementById('payrollBody').innerHTML = `
+    <table class="payroll-table">
+      <thead><tr><th>Crew</th><th>Days</th><th>Rate</th><th>Total</th></tr></thead>
+      <tbody>${rows}
+        <tr class="pay-total-row"><td colspan="3">PAID TOTAL</td><td>$${total.toLocaleString()}</td></tr>
+      </tbody>
+    </table>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem;">Day-by-Day</div>
+    <table class="payroll-table"><tbody>${breakdown}</tbody></table>`;
+  document.getElementById('payrollModal').classList.remove('hidden');
+}
+function closePayrollModal() { document.getElementById('payrollModal').classList.add('hidden'); }
+
+// ── DAY OFF ───────────────────────────────────────────────────────────────────
+function openDayOffModal() {
+  const sel = document.getElementById('doCrew');
+  sel.innerHTML = CREW_MEMBERS.map(cm => `<option value="${cm.id}">${cm.name}</option>`).join('');
+  document.getElementById('doDate').value = isoToday();
+  document.getElementById('dayOffModal').classList.remove('hidden');
+}
+function closeDayOffModal() { document.getElementById('dayOffModal').classList.add('hidden'); }
+function saveDayOff() {
+  const crewId = document.getElementById('doCrew').value;
+  const date   = document.getElementById('doDate').value;
+  if (!crewId || !date) return;
+  if (!calState.daysOff) calState.daysOff = [];
+  if (!calState.daysOff.some(o=>o.crewId===crewId&&o.date===date)) {
+    calState.daysOff.push({crewId, date});
+    saveCalState();
+  }
+  closeDayOffModal();
+  render();
+  const name = CREW_MEMBERS.find(c=>c.id===crewId)?.name||crewId;
+  showToast(`${name} marked off on ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}`);
+}
+
+// ── WEEK NAV ──────────────────────────────────────────────────────────────────
+function changeWeek(dir) { weekOffset += dir; render(); }
+function goToday()       { weekOffset = 0; render(); }
+
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, actionLabel, actionFn) {
+  const el = document.getElementById('toast');
+  undoFn = actionFn || null;
+  el.innerHTML = `<span>${msg}</span>${actionLabel ? `<button class="toast-undo" onclick="(undoFn&&undoFn());document.getElementById('toast').classList.remove('show')">${actionLabel}</button>` : ''}`;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 4500);
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function alertIcons(alerts) {
+  if (!alerts||!alerts.length) return '';
+  return '<span style="font-size:13px;margin-left:2px;">' + alerts.slice(0,3).map(a=>`<span title="${esc(a.label)}">${a.icon}</span>`).join('') + (alerts.length>3?`+${alerts.length-3}`:'') + '</span>';
+}
+function fmtPh(p) { return (!p||p.length!==10)?p||'':(`(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`); }
+function esc(s)   { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

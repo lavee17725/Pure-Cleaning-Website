@@ -251,11 +251,18 @@ function renderBooked() {
   return quotes.map(c => {
     const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
     const bookedOn = c.quoteStatus.approvedDate ? fmtDate(c.quoteStatus.approvedDate) : '—';
+    const ss = c.scheduledStatus || {};
+    const schedLine = ss.state === 'scheduled' && ss.scheduledDate
+      ? `<div class="cd" style="color:var(--sky);font-weight:600;">📅 Scheduled for ${fmtDate(ss.scheduledDate)}</div>`
+      : ss.state === 'completed'
+      ? `<div class="cd" style="color:var(--green);font-weight:600;">✓ Completed</div>`
+      : `<div class="cd" style="color:var(--muted);">⏳ Awaiting schedule — <a href="/pure_cleaning_calendar.html" style="color:var(--sky);">Schedule →</a></div>`;
     return `<div class="card c-booked" id="card-${c.phone}">
       <div class="cn">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
       <div class="cd" style="color:var(--green);font-weight:600;margin-top:6px;">✅ Booked ${bookedOn}</div>
+      ${schedLine}
     </div>`;
   }).join('');
 }
@@ -297,7 +304,13 @@ async function markBooked(phone) {
   const c = allQuotes.find(x => x.phone === phone);
   if (c && c.quoteStatus) { c.quoteStatus.state = 'approved'; c.quoteStatus.approvedDate = today; }
   const dbC = (dbRecord.customers || []).find(x => x.phone === phone);
-  if (dbC) { if (!dbC.quoteStatus) dbC.quoteStatus = {}; dbC.quoteStatus.state = 'approved'; dbC.quoteStatus.approvedDate = today; }
+  if (dbC) {
+    if (!dbC.quoteStatus) dbC.quoteStatus = {};
+    dbC.quoteStatus.state = 'approved'; dbC.quoteStatus.approvedDate = today;
+    if (!dbC.scheduledStatus || !dbC.scheduledStatus.state) {
+      dbC.scheduledStatus = { state:'needs_scheduling', scheduledDate:null, rig:null, crew:[], estimatedDuration:2, jobNotes:'', startTime:'09:00' };
+    }
+  }
 
   animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
   saveDb().catch(e => console.warn('Save failed:', e));
