@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pure Cleaning — Customer Link Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:#0a1628; --navy2:#111f38; --blue:#1a4a8a; --sky:#2d7dd2;
+  --gold:#f4a620; --gold-dark:#c47f00; --green:#1d9e75;
+  --white:#ffffff; --text:#e8edf5; --muted:#7a8aaa;
+  --border:#1e2e4a; --card:#0f1e35; --input-bg:#0a1628;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--white);letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.badge{font-size:11px;font-weight:600;background:var(--blue);color:var(--sky);padding:3px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;}
+.wrap{padding:1.25rem;max-width:640px;margin:0 auto;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:0.75rem;margin-top:1.75rem;display:flex;align-items:center;gap:8px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+.section-title:first-child{margin-top:0;}
+.field{margin-bottom:0.875rem;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;}
+input,select,textarea{width:100%;padding:11px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color 0.2s;-webkit-appearance:none;resize:vertical;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--sky);}
+input::placeholder,textarea::placeholder{color:var(--muted);}
+.row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.btn{width:100%;padding:15px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;cursor:pointer;transition:all 0.2s;margin-top:4px;}
+.btn-primary{background:var(--sky);color:white;}
+.btn-primary:hover{background:#2470c0;}
+.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-green{background:var(--green);color:white;}
+.btn-green:hover{background:#158f65;}
+.output-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;display:none;}
+.output-card.show{display:block;}
+.output-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px;}
+.code-box{font-family:'DM Mono',monospace;font-size:12px;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);word-break:break-all;line-height:1.7;margin-bottom:8px;white-space:pre-wrap;}
+.copy-btn{background:var(--green);color:white;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;transition:background 0.15s;}
+.copy-btn:hover{background:#158f65;}
+.copy-btn.copied{background:#0d7a5a;}
+.info-banner{background:rgba(45,125,210,0.1);border:1.5px solid rgba(45,125,210,0.3);border-radius:10px;padding:10px 14px;margin-bottom:1.25rem;font-size:13px;color:var(--sky);line-height:1.6;}
+.success-banner{background:rgba(29,158,117,0.12);border:1.5px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#5de0b3;line-height:1.6;display:none;}
+.success-banner.show{display:block;}
+.error-banner{background:rgba(229,62,62,0.1);border:1.5px solid rgba(229,62,62,0.4);border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#fc8181;display:none;}
+.error-banner.show{display:block;}
+.highlight-code{font-family:'DM Mono',monospace;background:rgba(45,125,210,0.15);color:var(--sky);padding:2px 6px;border-radius:4px;font-size:12px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="badge">Customer Links</div>
+</div>
+
+<div class="wrap">
+
+  <div class="info-banner" style="margin-top:1.25rem;">
+    🔗 Generate a personalized quote link for an existing customer. Their info will be pre-filled on the form. The link encodes the customer's record — safe to text or email directly.
+  </div>
+
+  <!-- SINGLE CUSTOMER -->
+  <div class="section-title" style="margin-top:0;">Customer info</div>
+
+  <div class="row-2">
+    <div class="field"><label>First name *</label><input id="fn" type="text" placeholder=""></div>
+    <div class="field"><label>Last name</label><input id="ln" type="text" placeholder=""></div>
+  </div>
+  <div class="field"><label>Phone</label><input id="ph" type="tel" placeholder=""></div>
+  <div class="field"><label>Email</label><input id="em" type="email" placeholder=""></div>
+  <div class="field"><label>Street address</label><input id="addr" type="text" placeholder=""></div>
+  <div class="row-2">
+    <div class="field"><label>City</label><input id="city" type="text" placeholder=""></div>
+    <div class="field"><label>Zip</label><input id="zip" type="text" placeholder=""></div>
+  </div>
+
+  <div class="section-title">SMS context</div>
+  <div class="field">
+    <label>Months since last service <span style="font-weight:400;text-transform:none;font-size:11px;">(shown in SMS draft)</span></label>
+    <input id="months" type="text" placeholder="e.g. 6 months" value="6 months">
+  </div>
+  <div class="field">
+    <label>Last service date <span style="font-weight:400;text-transform:none;font-size:11px;">(optional, stored for reference)</span></label>
+    <input id="lastService" type="date">
+  </div>
+
+  <div id="genError" class="error-banner">⚠️ <span id="genErrorText"></span></div>
+
+  <button class="btn btn-primary" id="generateBtn" onclick="generateLink()">Generate Link →</button>
+
+  <!-- OUTPUT -->
+  <div id="outputCard" class="output-card">
+    <div class="success-banner show" id="genSuccess">✅ Link created and saved.</div>
+
+    <div class="output-label">Customer link</div>
+    <div id="linkBox" class="code-box"></div>
+    <button class="copy-btn" onclick="copyEl('linkBox', this)">Copy Link</button>
+
+    <div class="output-label" style="margin-top:1rem;">SMS message (ready to send)</div>
+    <div id="smsBox" class="code-box"></div>
+    <button class="copy-btn" onclick="copyEl('smsBox', this)">Copy SMS</button>
+  </div>
+
+  <!-- BULK IMPORT -->
+  <div class="section-title">Bulk import — CSV</div>
+
+  <div class="field">
+    <label>CSV — columns: first_name, last_name, phone, email, address, city, zip</label>
+    <textarea id="csvInput" rows="6" placeholder="first_name,last_name,phone,email,address,city,zip&#10;Reg,Kenney,9541234567,reg@email.com,3805 Windmill Lake Rd,Weston,33331&#10;Jane,Smith,9549876543,jane@email.com,100 Oak Dr,Pembroke Pines,33024"></textarea>
+  </div>
+  <div id="bulkError" class="error-banner">⚠️ <span id="bulkErrorText"></span></div>
+  <button class="btn btn-green" id="bulkBtn" onclick="bulkGenerate()">Generate All Links →</button>
+
+  <div id="bulkOutputCard" class="output-card" style="margin-top:1rem;">
+    <div class="output-label">Generated links — one per line</div>
+    <textarea id="bulkBox" rows="10" readonly style="font-family:'DM Mono',monospace;font-size:12px;"></textarea>
+    <button class="copy-btn" style="margin-top:8px;" onclick="copyEl('bulkBox', this)">Copy All</button>
+  </div>
+
+  <div style="height:2rem;"></div>
+</div>
+
+<script>
+const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+// Safe charset: uppercase letters + digits, no 0/O/1/I/L
+const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+function generateCode() {
+  let c = '';
+  for (let i = 0; i < 5; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+  return c;
+}
+
+async function getOrCreateBin() {
+  let binId = localStorage.getItem('pcpc_customer_links_bin_id');
+  if (binId) return binId;
+  const res = await fetch('https://api.jsonbin.io/v3/b', {
+    method: 'POST',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Master-Key': JSONBIN_KEY,
+      'X-Bin-Private': 'false',
+      'X-Bin-Name': 'PureCleaningCustomerLinks'
+    },
+    body: JSON.stringify({})
+  });
+  const data = await res.json();
+  if (!data.metadata || !data.metadata.id) throw new Error('Failed to create bin: ' + JSON.stringify(data));
+  binId = data.metadata.id;
+  localStorage.setItem('pcpc_customer_links_bin_id', binId);
+  return binId;
+}
+
+async function fetchRecords(binId) {
+  const res = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+    mode: 'cors',
+    headers: { 'X-Master-Key': JSONBIN_KEY }
+  });
+  const data = await res.json();
+  return data.record || {};
+}
+
+async function saveRecords(binId, records) {
+  await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+    method: 'PUT',
+    mode: 'cors',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Master-Key': JSONBIN_KEY
+    },
+    body: JSON.stringify(records)
+  });
+}
+
+function buildLink(binId, code) {
+  return QUOTE_BASE + '?c=' + binId + '.' + code;
+}
+
+function buildSms(fn, months, link) {
+  return 'Hi ' + fn + '! It\'s Tyler from Pure Cleaning. It\'s been about ' + months +
+    ' since your last cleaning — just wanted to reach out and see if you\'re ready to get back on the schedule. Tap here to get a quote (your info is already filled in): ' + link +
+    '\n— Tyler | 954-389-2642\nReply MOVED if you\'ve relocated or STOP if you\'d prefer not to hear from us.';
+}
+
+function showError(id, textId, msg) {
+  const el = document.getElementById(id);
+  document.getElementById(textId).textContent = msg;
+  el.classList.add('show');
+}
+function hideError(id) { document.getElementById(id).classList.remove('show'); }
+
+async function generateLink() {
+  hideError('genError');
+  const fn = document.getElementById('fn').value.trim();
+  if (!fn) { showError('genError', 'genErrorText', 'First name is required.'); return; }
+
+  const btn = document.getElementById('generateBtn');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  try {
+    const binId = await getOrCreateBin();
+    const records = await fetchRecords(binId);
+
+    let code;
+    let attempts = 0;
+    do { code = generateCode(); attempts++; } while (records[code] && attempts < 100);
+
+    records[code] = {
+      fn,
+      ln: document.getElementById('ln').value.trim(),
+      ph: document.getElementById('ph').value.trim(),
+      em: document.getElementById('em').value.trim(),
+      addr: document.getElementById('addr').value.trim(),
+      city: document.getElementById('city').value.trim(),
+      zip: document.getElementById('zip').value.trim(),
+      lastService: document.getElementById('lastService').value || null,
+      created: new Date().toISOString()
+    };
+
+    await saveRecords(binId, records);
+
+    const link = buildLink(binId, code);
+    const months = document.getElementById('months').value.trim() || '6 months';
+    const sms = buildSms(fn, months, link);
+
+    document.getElementById('linkBox').textContent = link;
+    document.getElementById('smsBox').textContent = sms;
+    document.getElementById('outputCard').classList.add('show');
+    document.getElementById('outputCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch(e) {
+    showError('genError', 'genErrorText', 'Error: ' + e.message);
+  } finally {
+    btn.textContent = 'Generate Link →';
+    btn.disabled = false;
+  }
+}
+
+async function bulkGenerate() {
+  hideError('bulkError');
+  const raw = document.getElementById('csvInput').value.trim();
+  if (!raw) { showError('bulkError', 'bulkErrorText', 'Paste CSV data first.'); return; }
+
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) { showError('bulkError', 'bulkErrorText', 'Need at least one data row (plus header).'); return; }
+
+  const btn = document.getElementById('bulkBtn');
+  btn.textContent = 'Generating…';
+  btn.disabled = true;
+
+  try {
+    const binId = await getOrCreateBin();
+    const records = await fetchRecords(binId);
+    const output = [];
+
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
+    const col = k => header.indexOf(k);
+
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(',').map(v => v.trim());
+      const fn = vals[col('first_name')] || '';
+      const ln = vals[col('last_name')] || '';
+      const ph = vals[col('phone')] || '';
+      if (!fn) continue;
+
+      let code;
+      let attempts = 0;
+      do { code = generateCode(); attempts++; } while (records[code] && attempts < 100);
+
+      records[code] = {
+        fn, ln, ph,
+        em: vals[col('email')] || '',
+        addr: vals[col('address')] || '',
+        city: vals[col('city')] || '',
+        zip: vals[col('zip')] || '',
+        created: new Date().toISOString()
+      };
+
+      const link = buildLink(binId, code);
+      output.push((fn + ' ' + ln).trim() + ' — ' + ph + ' — ' + link);
+    }
+
+    await saveRecords(binId, records);
+
+    document.getElementById('bulkBox').value = output.join('\n');
+    document.getElementById('bulkOutputCard').classList.add('show');
+    document.getElementById('bulkOutputCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch(e) {
+    showError('bulkError', 'bulkErrorText', 'Error: ' + e.message);
+  } finally {
+    btn.textContent = 'Generate All Links →';
+    btn.disabled = false;
+  }
+}
+
+function copyEl(id, btn) {
+  const el = document.getElementById(id);
+  const text = el.tagName === 'TEXTAREA' ? el.value : el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
+  });
+}
+</script>
+</body>
+</html>

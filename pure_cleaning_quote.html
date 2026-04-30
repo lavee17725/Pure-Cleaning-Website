@@ -346,6 +346,11 @@
   <a href="tel:9543892642" class="header-phone">📞 954-389-2642</a>
 </div>
 
+<div id="welcomeBanner" style="display:none;padding:11px 16px;background:#e3f2fd;border-bottom:2px solid #1a8fc1;font-size:13px;color:#0a4a70;line-height:1.6;position:relative;">
+  👋 Welcome back, <strong id="welcomeName"></strong>! Your info is pre-filled — just let us know what you need cleaned today.
+  <button onclick="document.getElementById('welcomeBanner').style.display='none';" style="position:absolute;top:50%;right:12px;transform:translateY(-50%);background:none;border:none;font-size:18px;cursor:pointer;color:#1a8fc1;padding:4px 8px;line-height:1;" aria-label="Dismiss">✕</button>
+</div>
+
 <div id="seasonalBannerWrap" style="display:none;padding:10px 16px;background:#fff3e0;border-bottom:2px solid #ef9f27;font-size:13px;color:#7a4a00;line-height:1.6;position:relative;">
   <span id="seasonalBannerText"></span>
   <button id="seasonalBannerDismiss" style="position:absolute;top:50%;right:12px;transform:translateY(-50%);background:none;border:none;font-size:18px;cursor:pointer;color:#c47f00;padding:4px 8px;line-height:1;" aria-label="Dismiss">✕</button>
@@ -984,6 +989,34 @@
         setTimeout(() => { sealOpt.style.outline = ''; }, 2000);
       }
     });
+  });
+
+  // ── Customer pre-fill from ?c=BINID.CODE link ───────────────────
+  document.addEventListener('DOMContentLoaded', function() {
+    const cParam = new URLSearchParams(window.location.search).get('c');
+    if (!cParam || !cParam.includes('.')) return;
+    const dotIdx = cParam.indexOf('.');
+    const binId = cParam.slice(0, dotIdx);
+    const code = cParam.slice(dotIdx + 1);
+    if (!binId || !code) return;
+    fetch('https://api.jsonbin.io/v3/b/' + binId, { mode: 'cors' })
+      .then(r => r.json())
+      .then(data => {
+        const r = data.record && data.record[code];
+        if (!r) return;
+        const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+        set('firstName', r.fn);
+        set('lastName', r.ln);
+        set('phone', r.ph);
+        set('email', r.em);
+        set('address', r.addr);
+        set('city', r.city);
+        set('zip', r.zip);
+        const banner = document.getElementById('welcomeBanner');
+        const nameEl = document.getElementById('welcomeName');
+        if (banner && nameEl) { nameEl.textContent = r.fn || 'there'; banner.style.display = 'block'; }
+      })
+      .catch(() => {});
   });
 
   function selectTimeframe(el, val) {
