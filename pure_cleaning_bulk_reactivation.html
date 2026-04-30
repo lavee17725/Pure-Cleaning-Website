@@ -44,7 +44,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .btn-sm{font-size:13px;font-weight:700;padding:7px 16px;border-radius:8px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;}
 
 /* stats bar */
-.stats-bar{display:none;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:1.25rem;}
+.stats-bar{display:none;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:1.25rem;}
 .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.875rem;text-align:center;}
 .stat-val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--gold);letter-spacing:1px;}
 .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
@@ -60,6 +60,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .tp-warm{background:rgba(244,166,32,.15);color:var(--gold);border-color:rgba(244,166,32,.4);}
 .tp-sleeping{background:rgba(29,158,117,.15);color:#5de0b3;border-color:rgba(29,158,117,.4);}
 .tp-cold{background:rgba(45,125,210,.15);color:var(--sky);border-color:rgba(45,125,210,.4);}
+.tp-vip-seal{background:rgba(244,166,32,.2);color:#fbbf24;border-color:rgba(244,166,32,.6);}
 .tp-active{background:rgba(122,138,170,.15);color:var(--muted);border-color:var(--border);}
 .filter-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
 .filter-input{width:auto;padding:6px 10px;font-size:13px;}
@@ -154,6 +155,7 @@ td.money{font-family:'DM Mono',monospace;}
     <div class="stat-card"><div class="stat-val" id="sExcluded">0</div><div class="stat-label">Commercial Excl.</div></div>
     <div class="stat-card"><div class="stat-val" id="sUnique">0</div><div class="stat-label">Unique Customers</div></div>
     <div class="stat-card"><div class="stat-val" id="sHotWarm" style="color:#fc8181;">0</div><div class="stat-label">🔥 Hot + Warm</div></div>
+    <div class="stat-card"><div class="stat-val" id="sVipSeal" style="color:#fbbf24;">0</div><div class="stat-label">💎 VIP Seal</div></div>
     <div class="stat-card"><div class="stat-val" id="sSleeping" style="color:#5de0b3;">0</div><div class="stat-label">🟢 Sleeping</div></div>
   </div>
 
@@ -170,6 +172,7 @@ td.money{font-family:'DM Mono',monospace;}
   <div class="filter-bar" id="filterBar">
     <div class="filter-row">
       <span class="filter-label">Tier:</span>
+      <span class="tier-pill tp-vip-seal on" data-tier="VIP_SEAL" onclick="toggleTier(this)">💎 VIP Seal</span>
       <span class="tier-pill tp-hot on" data-tier="HOT" onclick="toggleTier(this)">🔥 Hot</span>
       <span class="tier-pill tp-warm on" data-tier="WARM" onclick="toggleTier(this)">🟡 Warm</span>
       <span class="tier-pill tp-sleeping on" data-tier="SLEEPING" onclick="toggleTier(this)">🟢 Sleeping</span>
@@ -265,12 +268,13 @@ const BUILDING_PATTERN_RE = /^the\s+\w+$|\bat\s+\d|\b\d+$/i;
 let allCustomers = [];
 let filteredCustomers = [];
 let selectedPhones = new Set();
-let activeTiers = new Set(['HOT','WARM','SLEEPING','COLD']);
+let activeTiers = new Set(['VIP_SEAL','HOT','WARM','SLEEPING','COLD']);
 let uploadedFiles = [];
 let generatedLinks = []; // [{customer, code, link, sms}]
 let fileRowCounts = {}; // filename → data row count (set after processing)
 let excludedRecords = []; // [{displayName, phone, reason, customerData}]
 let manualOverrides = loadOverrides(); // {phone: 'include'|'exclude'}
+let sealPhones = new Set(); // phones with any seal job history (used across processFiles + moveToActive)
 
 // ─── OVERRIDES ───────────────────────────────────────────────────────────────
 function loadOverrides() {
@@ -314,6 +318,7 @@ function mapCols(headers) {
     else if (n === 'city') m.city = i;
     else if (n === 'phone') m.phone = i;
     else if (n === 'total') m.total = i;
+    else if (n === 'services') m.services = i;
   });
   return m;
 }
@@ -393,6 +398,8 @@ function monthsSince(dateObj) {
 
 function calcTier(c) {
   const m = c.monthsSince;
+  // VIP Seal: has seal history, premium spend, in the 2-3yr sealer renewal window
+  if (c.hasSeal && c.lifetimeSpend >= 1000 && m >= 12 && m <= 30) return 'VIP_SEAL';
   const quality = c.totalJobs >= 2 || c.avgTicket >= 400;
   if (m < 6)  return 'ACTIVE';
   if (m < 12) return quality ? 'HOT' : 'WARM';
@@ -402,11 +409,11 @@ function calcTier(c) {
 }
 
 function tierLabel(t) {
-  return {HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',ACTIVE:'⏸️ Active'}[t] || t;
+  return {VIP_SEAL:'💎 VIP Seal',HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',ACTIVE:'⏸️ Active'}[t] || t;
 }
 
 function tierClass(t) {
-  return {HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',ACTIVE:'tp-active'}[t] || '';
+  return {VIP_SEAL:'tp-vip-seal',HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',ACTIVE:'tp-active'}[t] || '';
 }
 
 // ─── MAIN PROCESSING ─────────────────────────────────────────────────────────
@@ -420,14 +427,32 @@ async function processFiles() {
   excludedRecords = [];
   let totalRows = 0;
   fileRowCounts = {};
-  const seenExcKeys = new Set(); // dedup excluded entries by phone (or name if no phone)
+  const seenExcKeys = new Set();
 
+  // Parse each file once and cache
+  const parsedFiles = [];
   for (const file of uploadedFiles) {
     const text = await file.text();
     const parsed = parseCSVText(text);
     if (!parsed.length) continue;
     fileRowCounts[file.name] = Math.max(0, parsed.length - 1);
     const cols = mapCols(parsed[0]);
+    parsedFiles.push({ file, parsed, cols });
+  }
+
+  // Pre-scan: collect all phones that have ANY seal job — these are always residential
+  sealPhones = new Set();
+  for (const { parsed, cols } of parsedFiles) {
+    if (cols.services == null) continue;
+    for (let i = 1; i < parsed.length; i++) {
+      const phone = normalizePhone(parsed[i][cols.phone]);
+      const services = parsed[i][cols.services] || '';
+      if (phone && /seal/i.test(services)) sealPhones.add(phone);
+    }
+  }
+
+  // Main processing loop
+  for (const { parsed, cols } of parsedFiles) {
     for (let i = 1; i < parsed.length; i++) {
       const row = parsed[i];
       const customer = row[cols.customer] || '';
@@ -441,9 +466,10 @@ async function processFiles() {
       totalRows++;
 
       const override = phone ? manualOverrides[phone] : null;
+      const hasSealHistory = phone ? sealPhones.has(phone) : false;
 
-      // Name-based exclusions — bypassed if manual override says include
-      if (override !== 'include') {
+      // Name-based exclusions — bypassed for manual include OR any seal history
+      if (override !== 'include' && !hasSealHistory) {
         let reason = null;
         if (isCommercial(customer)) reason = 'keyword';
         else if (isPropManager(customer)) reason = 'property_manager';
@@ -493,17 +519,19 @@ async function processFiles() {
     }
   }
 
-  // Multi-property heuristic: 4+ jobs at 3+ distinct addresses → likely commercial
+  // Multi-property heuristic — seal customers are exempt
   for (const [phone, c] of Object.entries(byPhone)) {
+    if (sealPhones.has(phone)) continue;
     if (c.totalJobs >= 4 && c.addresses.size >= 3 && manualOverrides[phone] !== 'include') {
       excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'multi_property', customerData: c });
       delete byPhone[phone];
     }
   }
 
-  // High-ticket heuristic: single job >= $3,000 → almost certainly commercial
+  // High-ticket heuristic: single job >= $1,500 AND no seal history → commercial
   for (const [phone, c] of Object.entries(byPhone)) {
-    if (c.maxTicket >= 3000 && manualOverrides[phone] !== 'include') {
+    if (sealPhones.has(phone)) continue;
+    if (c.maxTicket >= 1500 && manualOverrides[phone] !== 'include') {
       excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'high_ticket', customerData: c });
       delete byPhone[phone];
     }
@@ -512,8 +540,9 @@ async function processFiles() {
   allCustomers = Object.values(byPhone).map(c => {
     const ms = monthsSince(c.lastDateObj);
     const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
-    const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket });
-    return { ...c, monthsSince: ms, avgTicket, tier,
+    const hasSeal = sealPhones.has(c.phone);
+    const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket, lifetimeSpend: c.lifetimeSpend, hasSeal });
+    return { ...c, monthsSince: ms, avgTicket, hasSeal, tier,
       lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
   });
 
@@ -527,6 +556,7 @@ async function processFiles() {
   document.getElementById('excludedWrap').style.display = 'block';
 
   // Stats
+  const vipSeal = allCustomers.filter(c => c.tier === 'VIP_SEAL').length;
   const hot = allCustomers.filter(c => c.tier === 'HOT').length;
   const warm = allCustomers.filter(c => c.tier === 'WARM').length;
   const sleeping = allCustomers.filter(c => c.tier === 'SLEEPING').length;
@@ -534,6 +564,7 @@ async function processFiles() {
   document.getElementById('sExcluded').textContent = excludedRecords.length;
   document.getElementById('sUnique').textContent = allCustomers.length;
   document.getElementById('sHotWarm').textContent = hot + warm;
+  document.getElementById('sVipSeal').textContent = vipSeal;
   document.getElementById('sSleeping').textContent = sleeping;
   document.getElementById('statsBar').style.display = 'grid';
 
@@ -594,9 +625,10 @@ function renderTable() {
     const checked = selectedPhones.has(c.phone);
     const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
     const tc = tierClass(c.tier);
+    const sealIcon = c.hasSeal ? '🛡️ ' : '';
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
-      <td class="name" title="${c.fn} ${c.ln}">${c.fn} ${c.ln}</td>
+      <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}</td>
       <td class="phone">${formatPhone(c.phone)}</td>
       <td>${c.city || '—'}</td>
       <td>${c.lastServiceStr}</td>
@@ -675,7 +707,9 @@ async function generateLinks() {
       records[code] = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
       const link = `${QUOTE_BASE}?c=${binId}.${code}`;
       const months = Math.round(c.monthsSince);
-      const sms = `Hi ${c.fn}! Tyler from Pure Cleaning. It's been about ${months} month${months===1?'':'s'} since we cleaned for you — wanted to check in and see if you're due. I pre-filled your info to make it easy: ${link}\n\nJust confirm what you need cleaned and we'll send pricing same day.\n— Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+      const sms = c.tier === 'VIP_SEAL'
+        ? `Hi ${c.fn}! Tyler from Pure Cleaning. Your driveway and patio seal should be coming up on its renewal window — it's been about ${months} months. Sealer typically lasts 2-3 years before it needs reapplying, and we're entering peak sealing season here in South Florida.\n\nI pre-filled your info to make it easy: ${link}\n\nTap the link to confirm what you'd like resealed and we'll send pricing same day. — Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+        : `Hi ${c.fn}! Tyler from Pure Cleaning. It's been about ${months} month${months===1?'':'s'} since we cleaned for you — wanted to check in and see if you're due. I pre-filled your info to make it easy: ${link}\n\nJust confirm what you need cleaned and we'll send pricing same day.\n— Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
       generatedLinks.push({ customer: c, code, link, sms, months });
     }
 
@@ -697,7 +731,7 @@ async function generateLinks() {
 function renderOutput() {
   const lines = generatedLinks.map(g => {
     const c = g.customer;
-    const tierStr = {HOT:'🔥 HOT',WARM:'🟡 WARM',SLEEPING:'🟢 SLEEPING',COLD:'❄️ COLD',ACTIVE:'⏸️ ACTIVE'}[c.tier] || c.tier;
+    const tierStr = {VIP_SEAL:'💎 VIP SEAL',HOT:'🔥 HOT',WARM:'🟡 WARM',SLEEPING:'🟢 SLEEPING',COLD:'❄️ COLD',ACTIVE:'⏸️ ACTIVE'}[c.tier] || c.tier;
     return `${'='.repeat(60)}\n${c.fn} ${c.ln} | ${formatPhone(c.phone)} | ${c.city} | last cleaned ~${g.months} months ago | ${tierStr}\n${'-'.repeat(60)}\n${g.sms}`;
   }).join('\n\n');
   document.getElementById('outputBlock').textContent = lines;
@@ -789,14 +823,16 @@ function moveToActive(phone) {
       const c = rec.customerData;
       const ms = monthsSince(c.lastDateObj);
       const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
-      const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket });
-      customer = { ...c, monthsSince: ms, avgTicket, tier,
+      const hasSeal = sealPhones.has(c.phone);
+      const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket, lifetimeSpend: c.lifetimeSpend, hasSeal });
+      customer = { ...c, monthsSince: ms, avgTicket, hasSeal, tier,
         lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
     } else {
       // Build stub from name — re-process for full stats
       const { fn, ln } = splitName(rec.displayName);
+      const hasSeal = sealPhones.has(phone);
       customer = { fn, ln, phone, address: '', city: '', lastDateObj: null, totalJobs: 0,
-        lifetimeSpend: 0, monthsSince: 999, avgTicket: 0, tier: 'COLD', lastServiceStr: '—', addresses: new Set() };
+        lifetimeSpend: 0, monthsSince: 999, avgTicket: 0, hasSeal, tier: 'COLD', lastServiceStr: '—', addresses: new Set() };
     }
     allCustomers.push(customer);
   }
