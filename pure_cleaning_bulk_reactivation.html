@@ -151,8 +151,8 @@ td.money{font-family:'DM Mono',monospace;}
     <button class="db-update-btn" onclick="enterUpdateMode()">↻ Update from new CSV upload</button>
   </div>
 
-  <!-- UPLOAD SECTION (hidden when DB is loaded) -->
-  <div id="uploadSection">
+  <!-- UPLOAD SECTION (hidden by default; shown only via ↻ Update button) -->
+  <div id="uploadSection" style="display:none;">
     <div class="section-title" style="margin-top:1.25rem;">Upload CSVs</div>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
       <div class="dropzone-icon">📂</div>
@@ -285,6 +285,7 @@ td.money{font-family:'DM Mono',monospace;}
 <script>
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
 const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
@@ -316,25 +317,11 @@ function saveOverrides() {
 }
 
 // ─── PERSISTENT DATABASE ─────────────────────────────────────────────────────
-async function getOrCreateDbBin() {
-  let binId = localStorage.getItem('pcpc_customer_db_bin_id');
-  if (binId) return binId;
-  const res = await fetch('https://api.jsonbin.io/v3/b', {
-    method: 'POST', mode: 'cors',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Private': 'false', 'X-Bin-Name': 'PureCleaningCustomerDatabase' },
-    body: JSON.stringify({ customers: [], lastUpdated: null, stats: {}, excluded: [] })
-  });
-  const data = await res.json();
-  if (!data.metadata?.id) throw new Error('Could not create DB bin: ' + JSON.stringify(data));
-  localStorage.setItem('pcpc_customer_db_bin_id', data.metadata.id);
-  return data.metadata.id;
-}
-
 async function loadDatabase() {
-  const binId = localStorage.getItem('pcpc_customer_db_bin_id');
-  if (!binId) return null;
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + binId, { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
-  if (!res.ok) return null;
+  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
+    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const rec = data.record;
   return (rec && rec.customers && rec.customers.length) ? rec : null;
@@ -375,7 +362,6 @@ function dbRecordToCustomer(r) {
 }
 
 async function saveDatabase() {
-  const binId = await getOrCreateDbBin();
   const tierCounts = {};
   for (const c of allCustomers) tierCounts[c.tier] = (tierCounts[c.tier] || 0) + 1;
   const db = {
@@ -394,7 +380,7 @@ async function saveDatabase() {
     customers: allCustomers.map(customerToDbRecord),
     excluded: excludedRecords.map(e => ({ name: e.displayName, reason: e.reason, phone: e.phone || null }))
   };
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
     method: 'PUT', mode: 'cors',
     headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
     body: JSON.stringify(db)
@@ -432,9 +418,18 @@ function enterUpdateMode() {
 }
 
 async function tryLoadDatabase() {
+  // Always show banner with loading state — upload section stays hidden unless Update is tapped
+  const banner = document.getElementById('dbBanner');
+  const bannerText = document.getElementById('dbBannerText');
+  banner.style.display = 'flex';
+  bannerText.textContent = 'Loading customer database…';
+
   try {
     const db = await loadDatabase();
-    if (!populateFromDatabase(db)) return;
+    if (!populateFromDatabase(db)) {
+      bannerText.textContent = '⚠️ Database is empty — tap ↻ Update to process CSVs.';
+      return;
+    }
 
     // Rebuild city filter
     const cities = [...new Set(allCustomers.map(c => c.city).filter(Boolean))].sort();
@@ -458,10 +453,10 @@ async function tryLoadDatabase() {
     document.getElementById('tableControls').classList.add('show');
 
     showDbBanner(db);
-    document.getElementById('uploadSection').style.display = 'none';
     applyFilters();
   } catch(e) {
-    console.log('No saved database or load failed:', e.message);
+    bannerText.textContent = `⚠️ Could not load database — check connection and refresh. (${e.message})`;
+    console.error('DB load error:', e);
   }
 }
 

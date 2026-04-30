@@ -77,6 +77,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 
 <script>
 const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
 
 const TOOLS = [
   { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to customers',                        url: '/pure_cleaning_quote_builder_v2.html', category: 'quote' },
@@ -116,10 +117,8 @@ function renderTools() {
 }
 
 async function loadQuickStats() {
-  const binId = localStorage.getItem('pcpc_customer_db_bin_id');
-  if (!binId) { clearStats(); return; }
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
       mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
     });
     if (!res.ok) { clearStats(); return; }
