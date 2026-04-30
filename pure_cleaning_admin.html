@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Operations</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--blue:#1a4a8a;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1.25rem 1.25rem 1rem;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--white);letter-spacing:1px;line-height:1;}
+.logo span{color:var(--gold);}
+.logo-sub{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-top:3px;}
+
+.wrap{padding:1.25rem;max-width:560px;margin:0 auto;}
+
+.section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;margin-top:1.75rem;display:flex;align-items:center;gap:8px;}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border);}
+
+.card-grid{display:flex;flex-direction:column;gap:10px;}
+.tool-card{display:flex;align-items:center;gap:0;background:var(--card);border:1px solid var(--border);border-radius:12px;text-decoration:none;color:inherit;transition:background .15s,transform .1s;overflow:hidden;-webkit-tap-highlight-color:transparent;}
+.tool-card:hover{background:rgba(45,125,210,.07);}
+.tool-card:active{transform:scale(.98);}
+.card-accent{width:4px;align-self:stretch;flex-shrink:0;border-radius:12px 0 0 12px;}
+.cat-quote .card-accent{background:var(--gold);}
+.cat-reactivation .card-accent{background:#fc8181;}
+.cat-customer_facing .card-accent{background:var(--sky);}
+.card-icon{font-size:22px;width:52px;text-align:center;flex-shrink:0;}
+.card-body{flex:1;min-width:0;padding:14px 0;}
+.card-name{font-size:15px;font-weight:600;color:var(--text);line-height:1.3;}
+.card-desc{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.45;}
+.card-arrow{font-size:22px;color:var(--border);flex-shrink:0;padding:0 14px;font-weight:300;}
+
+.stats-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1rem 1.25rem 0;margin-top:1.75rem;}
+.panel-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.875rem;}
+.stats-grid{display:grid;grid-template-columns:1fr auto;}
+.stats-grid > span{padding:8px 0;font-size:13px;border-bottom:1px solid var(--border);}
+.stats-grid > span:nth-last-child(-n+2){border-bottom:none;padding-bottom:1rem;}
+.slabel{color:var(--muted);}
+.sval{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);text-align:right;padding-left:12px;}
+
+.footer{text-align:center;padding:1.75rem 1rem 3rem;font-size:12px;color:var(--muted);line-height:2;}
+.footer strong{color:var(--text);}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="logo-sub">Operations Hub</div>
+</div>
+
+<div class="wrap">
+  <div id="toolSections"></div>
+
+  <div class="stats-panel">
+    <div class="panel-title">Quick Stats · Customer Database</div>
+    <div class="stats-grid">
+      <span class="slabel">Total customers</span>   <span class="sval" id="qs-total">…</span>
+      <span class="slabel">Last updated</span>       <span class="sval" id="qs-updated">…</span>
+      <span class="slabel">💎 VIP Seal</span>        <span class="sval" id="qs-vip">…</span>
+      <span class="slabel">🔥 Hot + Warm</span>      <span class="sval" id="qs-hotwarm">…</span>
+      <span class="slabel">Texted this week</span>   <span class="sval" id="qs-texted">—</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    <strong>Bookmark this page</strong><br>
+    iPhone: tap <strong>Share ⬆</strong> → <strong>Add to Home Screen</strong><br>
+    Android: tap <strong>⋮</strong> → <strong>Add to Home screen</strong>
+  </div>
+</div>
+
+<script>
+const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+
+const TOOLS = [
+  { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to customers',                        url: '/pure_cleaning_quote_builder_v2.html', category: 'quote' },
+  { icon: '🔗', name: 'Link Generator',          description: 'Generate a personalized pre-fill link for one customer',           url: '/pure_cleaning_link_generator.html',    category: 'quote' },
+  { icon: '📨', name: 'Customer Quote Form',     description: 'Preview the customer-facing quote request form',                   url: '/pure_cleaning_quote.html',             category: 'quote' },
+  { icon: '📱', name: 'Bulk Reactivation',       description: 'Tier customers, generate batch links, send reactivation texts',    url: '/pure_cleaning_bulk_reactivation.html', category: 'reactivation' },
+  { icon: '🌎', name: 'Pure Cleaning Website',   description: 'View the live customer website',                                   url: '/',                                     category: 'customer_facing' },
+];
+
+const CATEGORIES = [
+  { key: 'quote',           label: '📋 Quote Workflow' },
+  { key: 'reactivation',    label: '🎯 Reactivation' },
+  { key: 'customer_facing', label: '🌐 Customer-Facing (Reference Only)' },
+];
+
+function renderTools() {
+  const container = document.getElementById('toolSections');
+  let html = '';
+  CATEGORIES.forEach(cat => {
+    const tools = TOOLS.filter(t => t.category === cat.key);
+    if (!tools.length) return;
+    html += `<div class="section-label">${cat.label}</div><div class="card-grid">`;
+    tools.forEach(t => {
+      html += `<a href="${t.url}" target="_blank" rel="noopener" class="tool-card cat-${t.category}">
+        <div class="card-accent"></div>
+        <div class="card-icon">${t.icon}</div>
+        <div class="card-body">
+          <div class="card-name">${t.name}</div>
+          <div class="card-desc">${t.description}</div>
+        </div>
+        <div class="card-arrow">›</div>
+      </a>`;
+    });
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+async function loadQuickStats() {
+  const binId = localStorage.getItem('pcpc_customer_db_bin_id');
+  if (!binId) { clearStats(); return; }
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    if (!res.ok) { clearStats(); return; }
+    const data = await res.json();
+    const db = data.record || {};
+    const s = db.stats || {};
+    set('qs-total',   s.uniqueCustomers != null ? s.uniqueCustomers.toLocaleString() : '—');
+    set('qs-updated', db.lastUpdated
+      ? new Date(db.lastUpdated).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : '—');
+    set('qs-vip',     s.vipSeal != null ? s.vipSeal : '—');
+    set('qs-hotwarm', (s.hot != null && s.warm != null) ? (s.hot + s.warm).toLocaleString() : '—');
+  } catch(e) {
+    clearStats();
+  }
+}
+
+function set(id, val) { document.getElementById(id).textContent = val; }
+function clearStats() {
+  ['qs-total','qs-updated','qs-vip','qs-hotwarm'].forEach(id => set(id, '—'));
+}
+
+renderTools();
+loadQuickStats();
+</script>
+</body>
+</html>
