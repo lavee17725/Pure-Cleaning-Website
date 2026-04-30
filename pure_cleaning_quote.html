@@ -106,79 +106,28 @@
   }
 
   /* SEAL BANNER */
-  .seal-banner {
-    margin: 1.25rem 1rem 0;
-    background: var(--gold);
+  /* SEAL UPSELL SLIDE-IN */
+  #sealUpsellCard {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 320px;
+    background: white;
+    border: 1.5px solid var(--gold);
     border-radius: 16px;
-    padding: 1.25rem 1.5rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
-    position: relative;
-    overflow: hidden;
-  }
-  .seal-banner::before {
-    content: '';
-    position: absolute;
-    top: 0; right: 0; bottom: 0;
-    width: 80px;
-    background: rgba(0,0,0,0.08);
-    clip-path: polygon(30% 0, 100% 0, 100% 100%, 0% 100%);
-  }
-  .seal-banner:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(244,166,32,0.4); }
-  .seal-icon {
-    width: 52px;
-    height: 52px;
-    background: var(--navy);
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    font-size: 24px;
-  }
-  .seal-text { flex: 1; }
-  .seal-text .seal-label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: var(--navy);
-    opacity: 0.7;
-    margin-bottom: 2px;
-  }
-  .seal-text h3 {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 22px;
-    color: var(--navy);
-    letter-spacing: 1px;
-    margin-bottom: 2px;
-  }
-  .seal-text p {
-    font-size: 12px;
-    color: var(--navy);
-    opacity: 0.8;
-  }
-  .seal-arrow {
-    font-size: 20px;
-    color: var(--navy);
-    font-weight: 700;
-    z-index: 1;
-  }
-
-  /* SEAL FORM SECTION */
-  .seal-section {
-    margin: 0 1rem;
-    background: var(--seal-bg);
-    border: 2px solid var(--seal-border);
-    border-top: none;
-    border-radius: 0 0 16px 16px;
-    padding: 1.25rem 1.25rem 1.5rem;
+    padding: 1.25rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    z-index: 900;
     display: none;
+    animation: sealSlideIn 300ms ease-out;
   }
-  .seal-section.open { display: block; }
+  @keyframes sealSlideIn {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (max-width: 600px) {
+    #sealUpsellCard { left: 12px; right: 12px; bottom: 90px; width: auto; }
+  }
   .seal-info {
     background: var(--gold);
     border-radius: 10px;
@@ -397,6 +346,11 @@
   <a href="tel:9543892642" class="header-phone">📞 954-389-2642</a>
 </div>
 
+<div id="seasonalBannerWrap" style="display:none;padding:10px 16px;background:#fff3e0;border-bottom:2px solid #ef9f27;font-size:13px;color:#7a4a00;line-height:1.6;position:relative;">
+  <span id="seasonalBannerText"></span>
+  <button id="seasonalBannerDismiss" onclick="document.getElementById('seasonalBannerWrap').style.display='none';localStorage.setItem('pcpc_seasonal_banner_dismissed','1');" style="position:absolute;top:50%;right:12px;transform:translateY(-50%);background:none;border:none;font-size:18px;cursor:pointer;color:#c47f00;padding:4px 8px;line-height:1;" aria-label="Dismiss">✕</button>
+</div>
+
 <div class="hero">
   <div class="hero-tag">Since 1995 · South Florida</div>
   <h1>Get Your Free<br><span>Quote Today</span></h1>
@@ -411,75 +365,6 @@
   </div>
 </div>
 
-<!-- SEAL BANNER -->
-<div class="seal-banner" onclick="toggleSeal()">
-  <div class="seal-icon">🛡️</div>
-  <div class="seal-text">
-    <div class="seal-label">🔥 Most Popular Add-On</div>
-    <h3>Want a Sealing Quote?</h3>
-    <p>Protect your driveway & patio · Lasts 2-3 years</p>
-  </div>
-  <div class="seal-arrow" id="sealArrow">＋</div>
-</div>
-
-<div class="seal-section" id="sealSection">
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:1rem;">
-    <div style="background:var(--navy);border-radius:10px;padding:0.75rem;text-align:center;">
-      <div style="font-size:22px;margin-bottom:4px;">🎨</div>
-      <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:2px;">Brings Back Color</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.4;">Restores and enhances your surface's original tone</div>
-    </div>
-    <div style="background:var(--navy);border-radius:10px;padding:0.75rem;text-align:center;">
-      <div style="font-size:22px;margin-bottom:4px;">🛡️</div>
-      <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:2px;">Locks Out Stains</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.4;">Creates a barrier against oil, dirt & weather damage</div>
-    </div>
-    <div style="background:var(--navy);border-radius:10px;padding:0.75rem;text-align:center;">
-      <div style="font-size:22px;margin-bottom:4px;">🧱</div>
-      <div style="font-size:12px;font-weight:600;color:var(--gold);margin-bottom:2px;">Prevents Cracks</div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.7);line-height:1.4;">Helps ward off dirt buildup that breaks down surfaces</div>
-    </div>
-  </div>
-
-  <div class="field">
-    <label>What would you like sealed?</label>
-    <div class="services-grid" style="margin-top:4px;">
-      <label class="service-check"><input type="checkbox" name="seal_service" value="Driveway"><div class="cb">✓</div><span>Driveway</span></label>
-      <label class="service-check"><input type="checkbox" name="seal_service" value="Patio"><div class="cb">✓</div><span>Patio</span></label>
-      <label class="service-check"><input type="checkbox" name="seal_service" value="Pool Deck"><div class="cb">✓</div><span>Pool Deck</span></label>
-      <label class="service-check"><input type="checkbox" name="seal_service" value="Entranceway"><div class="cb">✓</div><span>Entranceway</span></label>
-      <label class="service-check"><input type="checkbox" name="seal_service" value="Not sure - need advice"><div class="cb">✓</div><span>Not sure — advise me</span></label>
-    </div>
-  </div>
-
-  <div class="field">
-    <label>Paver Joint Sand? <span style="font-size:11px;color:var(--muted);font-weight:400;">(additional service)</span></label>
-    <div style="background:white;border:1.5px solid var(--border);border-radius:10px;padding:12px;margin-top:4px;">
-      <label class="service-check" style="border:none;padding:0;margin-bottom:8px;">
-        <input type="checkbox" name="seal_service" value="Paver Joint Sand">
-        <div class="cb">✓</div>
-        <div>
-          <div style="font-size:13px;font-weight:600;">Yes — add paver joint sand quote</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">Refills gaps between pavers to stabilize surface & prevent weed growth</div>
-        </div>
-      </label>
-    </div>
-  </div>
-
-  <div class="field">
-    <label>📸 Upload photos <span style="font-size:11px;color:#1d9e75;font-weight:600;">(get a faster & more accurate quote)</span></label>
-    <div style="border:1.5px dashed var(--border);border-radius:10px;padding:14px;text-align:center;background:white;cursor:pointer;" onclick="document.getElementById('sealPhotos').click()">
-      <div style="font-size:24px;margin-bottom:4px;">📷</div>
-      <div style="font-size:13px;font-weight:600;color:#1a1f2e;">Tap to upload photos of your surfaces</div>
-      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Photos help us provide more accurate pricing — customers who upload often get better rates</div>
-      <input type="file" id="sealPhotos" multiple accept="image/*" style="display:none;" onchange="showSealPhotoCount(this)">
-    </div>
-    <div id="sealPhotoCount" style="font-size:12px;color:#1d9e75;margin-top:6px;font-weight:600;display:none;"></div>
-    <div style="margin-top:12px;text-align:center;">
-      <button onclick="toggleSeal()" style="background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done</button>
-    </div>
-  </div>
-</div>
 
 <!-- MAIN FORM -->
 <div class="form-wrap" id="mainForm">
@@ -635,6 +520,7 @@
     <label class="service-check"><input type="checkbox" name="service" value="Balcony"><div class="cb">✓</div><span>Balcony</span></label>
     <!-- SEALING QUOTE EXPANDABLE -->
     <div class="service-check seal-opt" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleSealQuote()">
+      <input type="checkbox" id="sealQuoteCheckboxInput" style="display:none;" onclick="event.stopPropagation(); if(!sealQuoteChecked) toggleSealQuote();">
       <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
         <div class="cb" id="sealQuoteCb" style="border-color:var(--gold-dark);">✓</div>
         <span style="font-weight:600;color:#1a1f2e;">Add sealing quote</span>
@@ -753,7 +639,6 @@
   </div>
 
   <div class="section-label">Preferred timeframe</div>
-  <div id="seasonalBanner" style="border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.6;"></div>
   <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">We'll send you two available dates to choose from — just let us know roughly what works best.</p>
   <div class="field">
     <select id="timeframeSelect" onchange="selectedTimeframe = this.value; document.querySelectorAll('.timeframe-opt').forEach(r => r.classList.remove('selected'));" style="background:white;color:#1a1f2e;font-size:15px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;">
@@ -769,12 +654,6 @@
   <div class="section-label">When would you like to be reminded to book your next cleaning?</div>
   <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">How often would you like us to remind you? We recommend <strong style="color:#1a1f2e;">4–6 months for floor cleaning</strong> and <strong style="color:#1a1f2e;">18–24 months for roof cleaning</strong>.</p>
   <div class="reminder-grid" style="margin-bottom:10px;">
-    <label class="reminder-opt" onclick="selectReminder(this,'Monthly')">
-      <input type="radio" name="reminder"><div class="r-time">1 Mo</div><div class="r-label">Every month</div>
-    </label>
-    <label class="reminder-opt" onclick="selectReminder(this,'Every 3 months')">
-      <input type="radio" name="reminder"><div class="r-time">3 Mo</div><div class="r-label">Every 3 months</div>
-    </label>
     <label class="reminder-opt" onclick="selectReminder(this,'Every 6 months')">
       <input type="radio" name="reminder"><div class="r-time">6 Mo</div><div class="r-label">Every 6 months</div>
     </label>
@@ -849,14 +728,6 @@
 
   function showSealPhotoCount2(input) {
     const el = document.getElementById('sealPhotoCount2');
-    if (input.files.length > 0) {
-      el.textContent = `✓ ${input.files.length} photo${input.files.length > 1 ? 's' : ''} selected`;
-      el.style.display = 'block';
-    }
-  }
-
-  function showSealPhotoCount(input) {
-    const el = document.getElementById('sealPhotoCount');
     if (input.files.length > 0) {
       el.textContent = `✓ ${input.files.length} photo${input.files.length > 1 ? 's' : ''} selected`;
       el.style.display = 'block';
@@ -1044,38 +915,76 @@
     }
   }
 
-  // Seasonal availability banner
-  const month = new Date().getMonth();
-  const banner = document.getElementById('seasonalBanner');
-  const isSummer = month >= 5 && month <= 8;
-  const isPeak = month >= 10 || month <= 1;
+  // ── Seasonal banner ─────────────────────────────────────────────
+  (function() {
+    if (localStorage.getItem('pcpc_seasonal_banner_dismissed')) return;
+    const m = new Date().getMonth();
+    const msgs = {
+      apr_jun: '🌧️ <strong>Rainy season is almost here</strong> — Book your roof clean before the storms hit.',
+      jul_sep: '🌪️ <strong>Hurricane season is active</strong> — Schedule your roof and exterior clean while we still have openings.',
+      oct_dec: '🍂 <strong>Holiday season approaching</strong> — Book early to have your home looking its best for guests.',
+      jan_mar: '☀️ <strong>Dry season</strong> — Perfect time to seal driveways and patios before summer rains return.'
+    };
+    const msg = m >= 3 && m <= 5 ? msgs.apr_jun
+              : m >= 6 && m <= 8 ? msgs.jul_sep
+              : m >= 9           ? msgs.oct_dec
+                                 : msgs.jan_mar;
+    const wrap = document.getElementById('seasonalBannerWrap');
+    const textEl = document.getElementById('seasonalBannerText');
+    if (wrap && textEl) { textEl.innerHTML = msg; wrap.style.display = 'block'; }
+    // 400ms delay before dismiss is interactive
+    const dismissBtn = document.getElementById('seasonalBannerDismiss');
+    if (dismissBtn) {
+      dismissBtn.disabled = true;
+      setTimeout(() => { dismissBtn.disabled = false; }, 400);
+    }
+  })();
 
-  if (isSummer) {
-    banner.style.background = '#e8f5e9';
-    banner.style.border = '1.5px solid #4caf50';
-    banner.innerHTML = '☀️ <strong style="color:#2e7d32;">Summer rates now available</strong> — We have great availability right now and offer our best pricing during the summer season. Book before peak season returns and prices increase.';
-  } else if (isPeak) {
-    banner.style.background = '#fff3e0';
-    banner.style.border = '1.5px solid #ef9f27';
-    banner.innerHTML = '📅 <strong style="color:#c47f00;">Peak season — act fast</strong> — We\'re currently booking several weeks out and pricing reflects peak demand. The sooner you submit, the sooner we can get you scheduled.';
-  } else {
-    banner.style.background = '#f0f7ff';
-    banner.style.border = '1.5px solid #2d7dd2';
-    banner.innerHTML = '🗓️ <strong style="color:#1a4a8a;">Availability right now</strong> — We can typically get you on the schedule within 1–2 weeks. Submit your request and we\'ll confirm your dates quickly.';
-  }
+  // ── Seal upsell slide-in ─────────────────────────────────────────
+  (function() {
+    if (localStorage.getItem('pcpc_seal_upsell_dismissed')) return;
+    const card = document.getElementById('sealUpsellCard');
+    const dismissBtn = document.getElementById('sealUpsellDismiss');
+    const ctaBtn = document.getElementById('sealUpsellCta');
+    if (!card) return;
+    let shown = false;
+    function show() {
+      if (shown) return;
+      shown = true;
+      card.style.display = 'block';
+      dismissBtn.disabled = true;
+      setTimeout(() => { dismissBtn.disabled = false; }, 400);
+    }
+    const timer = setTimeout(show, 25000);
+    function onScroll() {
+      const pct = window.scrollY / (document.body.scrollHeight - window.innerHeight);
+      if (pct >= 0.4) { clearTimeout(timer); show(); window.removeEventListener('scroll', onScroll); }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    dismissBtn.addEventListener('click', () => {
+      card.style.display = 'none';
+      localStorage.setItem('pcpc_seal_upsell_dismissed', '1');
+      clearTimeout(timer);
+      window.removeEventListener('scroll', onScroll);
+    });
+    ctaBtn.addEventListener('click', () => {
+      card.style.display = 'none';
+      const cb = document.getElementById('sealQuoteCheckboxInput');
+      if (cb) cb.click();
+      const sealOpt = document.querySelector('.service-check.seal-opt');
+      if (sealOpt) {
+        sealOpt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        sealOpt.style.outline = '3px solid var(--gold)';
+        sealOpt.style.transition = 'outline 0.3s';
+        setTimeout(() => { sealOpt.style.outline = ''; }, 2000);
+      }
+    });
+  })();
 
   function selectTimeframe(el, val) {
     document.querySelectorAll('input[name=timeframe]').forEach(r => r.closest('.reminder-opt').classList.remove('selected'));
     el.classList.add('selected');
     selectedTimeframe = val;
-  }
-
-  function toggleSeal() {
-    const section = document.getElementById('sealSection');
-    const arrow = document.getElementById('sealArrow');
-    const isOpen = section.classList.contains('open');
-    section.classList.toggle('open');
-    arrow.textContent = isOpen ? '＋' : '－';
   }
 
   function selectReminder(el, val) {
@@ -1211,8 +1120,6 @@
 
       if (formspreeRes.ok) {
         document.getElementById('mainForm').style.display = 'none';
-        document.getElementById('sealSection').style.display = 'none';
-        document.querySelector('.seal-banner').style.display = 'none';
         document.querySelector('.hero').style.paddingBottom = '1.5rem';
         document.getElementById('successMsg').classList.add('show');
         window.scrollTo(0,0);
@@ -1230,5 +1137,16 @@
 
   // Set min date removed - using timeframe selector instead
 </script>
+
+<!-- SEAL UPSELL CARD -->
+<div id="sealUpsellCard">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:0.75rem;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--gold-dark);">🛡️ Popular add-on</div>
+    <button id="sealUpsellDismiss" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);padding:0;line-height:1;margin-left:8px;" aria-label="Dismiss">✕</button>
+  </div>
+  <h3 style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--navy);letter-spacing:1px;margin-bottom:0.5rem;line-height:1.2;">Most homeowners forget to seal.</h3>
+  <p style="font-size:13px;color:#4b5563;line-height:1.6;margin-bottom:1rem;">Sealing your driveway and patio every 2–3 years protects against stains, prevents cracks, and brings back the original color. Ask us for a sealing quote — only takes 30 seconds to add.</p>
+  <button id="sealUpsellCta" style="width:100%;padding:12px;background:var(--gold);color:var(--navy);border:none;border-radius:10px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;cursor:pointer;transition:background 0.15s;">Add sealing to my quote</button>
+</div>
 </body>
 </html>
