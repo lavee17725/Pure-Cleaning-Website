@@ -134,6 +134,12 @@ async function loadQuickStats() {
   } catch(e) {
     clearStats();
   }
+  try {
+    const contacts = JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}');
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const count = Object.values(contacts).filter(iso => iso && new Date(iso) >= weekAgo).length;
+    set('qs-texted', String(count));
+  } catch(e) { /* leave as — */ }
 }
 
 function set(id, val) { document.getElementById(id).textContent = val; }

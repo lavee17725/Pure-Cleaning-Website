@@ -125,6 +125,47 @@ td.money{font-family:'DM Mono',monospace;}
 .sel-info{font-size:13px;color:var(--muted);}
 .sel-info strong{color:var(--text);}
 
+/* search bar */
+.search-wrap{position:relative;flex:1;min-width:220px;max-width:500px;}
+.search-input{padding-right:30px !important;}
+.search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:2px 3px;display:none;transition:color .15s;}
+.search-clear.visible{display:block;}
+.search-clear:hover{color:var(--text);}
+
+/* add customer button */
+.add-customer-btn{background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0;transition:border-color .15s,color .15s;}
+.add-customer-btn:hover{border-color:var(--sky);color:var(--sky);}
+
+/* add customer modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.modal-overlay.hidden{display:none;}
+.modal-card{background:var(--navy2);border:1px solid var(--border);border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:1.5rem;}
+.modal-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:1.25rem;}
+.mfield{margin-bottom:.875rem;}
+.mfield label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.mfield .req{color:#fc8181;margin-left:2px;}
+.mfield .opt{color:var(--muted);font-weight:400;font-size:10px;margin-left:3px;text-transform:none;letter-spacing:0;}
+.mfield input{width:100%;}
+.mfield input.merror{border-color:#fc8181 !important;}
+.merr{font-size:11px;color:#fc8181;margin-top:3px;min-height:14px;}
+.mrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mcheck{display:flex;align-items:center;gap:10px;margin-bottom:.875rem;}
+.mcheck input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--sky);}
+.mcheck label{font-size:13px;color:var(--text);cursor:pointer;}
+.mdup{background:rgba(244,166,32,.1);border:1.5px solid rgba(244,166,32,.35);border-radius:8px;padding:9px 12px;font-size:12px;color:var(--gold);margin-bottom:.875rem;line-height:1.5;display:none;}
+.modal-footer{display:flex;gap:10px;margin-top:1.25rem;}
+.mbtn-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s;}
+.mbtn-cancel:hover{border-color:var(--sky);color:var(--text);}
+.mbtn-submit{flex:2;padding:11px;border:none;border-radius:10px;background:var(--sky);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;transition:background .15s;}
+.mbtn-submit:hover{background:#2470c0;}
+.mbtn-submit:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+
+/* text-now column */
+.text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
+.text-now-btn:hover{background:#2470c0;}
+.texted-badge{background:rgba(29,158,117,.2);color:#5de0b3;border:1px solid var(--green);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.contact-stats{font-size:12px;color:var(--muted);padding:5px 2px;}
+
 @media(max-width:600px){.stats-bar{grid-template-columns:1fr 1fr;}}
 </style>
 </head>
@@ -198,6 +239,13 @@ td.money{font-family:'DM Mono',monospace;}
   <!-- FILTERS -->
   <div class="filter-bar" id="filterBar">
     <div class="filter-row">
+      <div class="search-wrap">
+        <input type="text" id="searchInput" class="filter-input search-input" placeholder="🔍 Search by name, phone, city, or address…" oninput="onSearchInput(this.value)" autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="search-clear" id="searchClear" onclick="clearSearch()" title="Clear search">✕</button>
+      </div>
+      <button class="add-customer-btn" onclick="openAddCustomerModal()">+ Add Customer</button>
+    </div>
+    <div class="filter-row">
       <span class="filter-label">Tier:</span>
       <button id="tierInfoBtn" class="tier-info-btn" title="How tiers work">ⓘ</button>
       <span class="tier-pill tp-vip-seal on" data-tier="VIP_SEAL" onclick="toggleTier(this)">💎 VIP Seal</span>
@@ -223,6 +271,15 @@ td.money{font-family:'DM Mono',monospace;}
         <option value="totalJobs">Job count</option>
       </select>
     </div>
+    <div class="filter-row">
+      <span class="filter-label">Show:</span>
+      <select id="contactFilterSel" class="filter-input" style="min-width:180px;" onchange="setContactFilter(this.value)">
+        <option value="all">All customers</option>
+        <option value="not_texted">Not yet texted</option>
+        <option value="this_week">Texted this week</option>
+        <option value="any_time">Texted any time</option>
+      </select>
+    </div>
   </div>
 
   <!-- TABLE CONTROLS -->
@@ -232,6 +289,9 @@ td.money{font-family:'DM Mono',monospace;}
     </label>
     <span class="sel-info" id="selInfo"><strong>0</strong> selected</span>
   </div>
+
+  <!-- CONTACT STATS -->
+  <div class="contact-stats" id="contactStats" style="display:none;"></div>
 
   <!-- TABLE -->
   <div class="table-wrap" id="tableWrap">
@@ -247,6 +307,7 @@ td.money{font-family:'DM Mono',monospace;}
           <th onclick="clickSort('lifetimeSpend')">Lifetime $</th>
           <th onclick="clickSort('avgTicket')">Avg Ticket</th>
           <th onclick="clickSort('monthsSince')">Months Since</th>
+          <th style="width:120px;cursor:default;">Text Now</th>
           <th onclick="clickSort('tier')">Tier</th>
           <th style="width:70px;cursor:default;"></th>
         </tr>
@@ -307,6 +368,8 @@ let sealPhones = new Set(); // phones with any seal job history (used across pro
 let oldDbCustomers = []; // saved before update mode merge
 let updateMode = false; // true when re-processing CSVs to merge with existing DB
 let lastTotalRows = 0; // total raw rows from last processFiles run (stored for DB stats)
+let contactFilter = 'all'; // 'all' | 'not_texted' | 'this_week' | 'any_time'
+let searchQuery = '';
 
 // ─── OVERRIDES ───────────────────────────────────────────────────────────────
 function loadOverrides() {
@@ -454,6 +517,7 @@ async function tryLoadDatabase() {
 
     showDbBanner(db);
     applyFilters();
+    updateContactStats();
   } catch(e) {
     bannerText.textContent = `⚠️ Could not load database — check connection and refresh. (${e.message})`;
     console.error('DB load error:', e);
@@ -766,6 +830,7 @@ async function processFiles() {
   document.getElementById('statsBar').style.display = 'grid';
 
   applyFilters();
+  updateContactStats();
 
   document.getElementById('filterBar').style.display = 'block';
   document.getElementById('tableWrap').style.display = 'block';
@@ -793,15 +858,49 @@ async function processFiles() {
 function applyFilters() {
   const city = document.getElementById('cityFilter').value;
   const minSpend = parseFloat(document.getElementById('minSpend').value) || 0;
+  const contacts = contactFilter !== 'all' ? loadContacts() : null;
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const q = searchQuery.toLowerCase();
+  const qDigits = q.replace(/\D/g, '');
 
   filteredCustomers = allCustomers.filter(c => {
     if (!activeTiers.has(c.tier)) return false;
     if (city && c.city !== city) return false;
     if (c.lifetimeSpend < minSpend) return false;
+    if (contactFilter !== 'all') {
+      const iso = contacts[c.phone];
+      if (contactFilter === 'not_texted' && iso) return false;
+      if (contactFilter === 'this_week' && (!iso || new Date(iso) < weekAgo)) return false;
+      if (contactFilter === 'any_time' && !iso) return false;
+    }
+    if (q) {
+      const fullName = (c.fn + ' ' + c.ln).toLowerCase();
+      const matches =
+        fullName.includes(q) ||
+        (c.fn || '').toLowerCase().includes(q) ||
+        (c.ln || '').toLowerCase().includes(q) ||
+        (c.city || '').toLowerCase().includes(q) ||
+        (c.address || '').toLowerCase().includes(q) ||
+        (qDigits && c.phone && c.phone.includes(qDigits));
+      if (!matches) return false;
+    }
     return true;
   });
 
   applySort();
+}
+
+function onSearchInput(val) {
+  searchQuery = val.trim();
+  document.getElementById('searchClear').classList.toggle('visible', searchQuery.length > 0);
+  applyFilters();
+}
+
+function clearSearch() {
+  searchQuery = '';
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchClear').classList.remove('visible');
+  applyFilters();
 }
 
 function applySort() {
@@ -833,11 +932,16 @@ function toggleTier(el) {
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
+  const contacts = loadContacts();
   tbody.innerHTML = filteredCustomers.map(c => {
     const checked = selectedPhones.has(c.phone);
     const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
     const tc = tierClass(c.tier);
     const sealIcon = c.hasSeal ? '🛡️ ' : '';
+    const contactedIso = contacts[c.phone];
+    const textBtn = contactedIso
+      ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(contactedIso)}</button>`
+      : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
       <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}</td>
@@ -848,6 +952,7 @@ function renderTable() {
       <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>
+      <td>${textBtn}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
       <td><button class="mark-commercial-btn" onclick="markCommercial('${c.phone}')" title="Mark as commercial / exclude">⊘ excl.</button></td>
     </tr>`;
@@ -874,6 +979,108 @@ function updateSelInfo() {
   document.getElementById('genCount').textContent = n;
   const bar = document.getElementById('genBar');
   if (n > 0) bar.classList.add('show'); else bar.classList.remove('show');
+}
+
+// ─── CONTACT TRACKING ────────────────────────────────────────────────────────
+function loadContacts() {
+  try { return JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}'); } catch { return {}; }
+}
+function saveContacts(c) {
+  localStorage.setItem('pcpc_reactivation_contacts', JSON.stringify(c));
+}
+function formatContactDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function buildMonthsText(ms) {
+  const n = Math.round(ms);
+  if (n <= 0) return 'a few weeks';
+  if (n === 1) return 'about a month';
+  return `about ${n} months`;
+}
+function contactStats() {
+  const contacts = loadContacts();
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  let today = 0, week = 0, allTime = 0;
+  for (const iso of Object.values(contacts)) {
+    if (!iso) continue;
+    allTime++;
+    const d = new Date(iso);
+    if (d >= weekAgo) week++;
+    if (iso.startsWith(todayStr)) today++;
+  }
+  return { today, week, allTime };
+}
+function updateContactStats() {
+  const el = document.getElementById('contactStats');
+  if (!el || !allCustomers.length) return;
+  const { today, week, allTime } = contactStats();
+  el.style.display = 'block';
+  el.textContent = `📱 Texted today: ${today} · This week: ${week} · All time: ${allTime}`;
+}
+function updateContactButton(phone, iso) {
+  const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
+  if (!btn) return;
+  btn.className = 'texted-badge';
+  btn.textContent = `✓ Texted ${formatContactDate(iso)}`;
+}
+function setContactFilter(val) {
+  contactFilter = val;
+  applyFilters();
+}
+async function textNow(phone) {
+  const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+
+  let code = c.linkCode;
+  let binId = c.linkBin;
+
+  if (!code || !binId) {
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+      binId = await getOrCreateBin();
+      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+        mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+      });
+      const getData = await getRes.json();
+      const records = getData.record || {};
+      let tries = 0;
+      do { code = generateCode(); tries++; } while (records[code] && tries < 200);
+      records[code] = {
+        fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
+        city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+        totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
+      };
+      await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+        method: 'PUT', mode: 'cors',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+        body: JSON.stringify(records)
+      });
+      c.linkCode = code;
+      c.linkBin = binId;
+      saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Text Now'; btn.className = 'text-now-btn'; }
+      alert('Could not generate link: ' + e.message);
+      return;
+    }
+  }
+
+  const link = `${QUOTE_BASE}?c=${binId}.${code}`;
+  const monthsText = buildMonthsText(c.monthsSince);
+  const body = c.tier === 'VIP_SEAL'
+    ? `Hi ${c.fn}! Tyler from Pure Cleaning. Your driveway and patio seal should be coming up on its renewal window — it's been ${monthsText}. Sealer typically lasts 2-3 years before it needs reapplying, and we're entering peak sealing season here in South Florida.\n\nI pre-filled your info to make it easy: ${link}\n\nTap the link to confirm what you'd like resealed and we'll send pricing same day. — Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+    : `Hi ${c.fn}! Tyler from Pure Cleaning. It's been ${monthsText} since we cleaned for you — wanted to check in and see if you're due. I pre-filled your info to make it easy: ${link}\n\nJust confirm what you need cleaned and we'll send pricing same day. — Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+
+  window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
+
+  const contacts = loadContacts();
+  contacts[c.phone] = new Date().toISOString();
+  saveContacts(contacts);
+  updateContactButton(phone, contacts[c.phone]);
+  updateContactStats();
 }
 
 // ─── LINK GENERATION ─────────────────────────────────────────────────────────
@@ -1243,9 +1450,187 @@ function initTooltips() {
   });
 }
 
+// ─── ADD CUSTOMER MODAL ───────────────────────────────────────────────────────
+function openAddCustomerModal() {
+  ['mFn','mLn','mPhone','mEmail','mAddr','mCity','mZip','mSpend','mJobs'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; el.classList.remove('merror'); }
+  });
+  ['mFnErr','mLnErr','mPhoneErr','mAddrErr','mCityErr'].forEach(id => {
+    document.getElementById(id).textContent = '';
+  });
+  document.getElementById('mHasSeal').checked = false;
+  document.getElementById('mLastService').value = '';
+  document.getElementById('mJobs').value = '1';
+  document.getElementById('mSpend').value = '0';
+  document.getElementById('mDupWarn').style.display = 'none';
+  document.getElementById('addCustomerModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('mFn').focus(), 60);
+}
+
+function closeAddCustomerModal() {
+  document.getElementById('addCustomerModal').classList.add('hidden');
+}
+
+function submitAddCustomer() {
+  ['mFnErr','mLnErr','mPhoneErr','mAddrErr','mCityErr'].forEach(id => {
+    document.getElementById(id).textContent = '';
+  });
+  ['mFn','mLn','mPhone','mAddr','mCity'].forEach(id => {
+    document.getElementById(id).classList.remove('merror');
+  });
+  document.getElementById('mDupWarn').style.display = 'none';
+
+  const fn     = document.getElementById('mFn').value.trim();
+  const ln     = document.getElementById('mLn').value.trim();
+  const phone  = normalizePhone(document.getElementById('mPhone').value.trim());
+  const addr   = document.getElementById('mAddr').value.trim();
+  const city   = document.getElementById('mCity').value.trim();
+  const lastSv = document.getElementById('mLastService').value;
+  const spend  = parseFloat(document.getElementById('mSpend').value) || 0;
+  const jobs   = Math.max(1, parseInt(document.getElementById('mJobs').value) || 1);
+  const hasSeal = document.getElementById('mHasSeal').checked;
+
+  let ok = true;
+  if (!fn)    { _mErr('mFn','mFnErr','Required'); ok = false; }
+  if (!ln)    { _mErr('mLn','mLnErr','Required'); ok = false; }
+  if (!phone) { _mErr('mPhone','mPhoneErr','Enter a valid 10-digit US number'); ok = false; }
+  if (!addr)  { _mErr('mAddr','mAddrErr','Required'); ok = false; }
+  if (!city)  { _mErr('mCity','mCityErr','Required'); ok = false; }
+  if (!ok) return;
+
+  const dup = allCustomers.find(c => c.phone === phone);
+  if (dup) {
+    const w = document.getElementById('mDupWarn');
+    w.textContent = `A customer with this phone already exists: ${dup.fn} ${dup.ln}. Use that record or change the phone number.`;
+    w.style.display = 'block';
+    document.getElementById('mPhone').classList.add('merror');
+    return;
+  }
+
+  const lastDateObj = lastSv ? new Date(lastSv + 'T12:00:00') : null;
+  const ms       = monthsSince(lastDateObj);
+  const avgTicket = spend / jobs;
+  const tier     = calcTier({ monthsSince: ms, totalJobs: jobs, avgTicket, lifetimeSpend: spend, hasSeal });
+
+  const customer = {
+    fn, ln, phone, address: addr, city,
+    lastDateObj, totalJobs: jobs, lifetimeSpend: spend,
+    avgTicket, maxTicket: avgTicket, hasSeal, tier, monthsSince: ms,
+    addresses: new Set([addr.toLowerCase().trim()]),
+    lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
+    linkCode: null, linkBin: null, lastTextedDate: null
+  };
+
+  allCustomers.push(customer);
+  if (hasSeal) sealPhones.add(phone);
+  saveDatabase().catch(e => console.warn('Add customer save failed:', e.message));
+
+  // Update unique count stat
+  document.getElementById('sUnique').textContent = allCustomers.length;
+
+  // Rebuild city dropdown if new city
+  const cf = document.getElementById('cityFilter');
+  const existing = [...cf.options].map(o => o.value).filter(Boolean);
+  if (city && !existing.includes(city)) {
+    const all = [...new Set([...existing, city])].sort();
+    cf.innerHTML = '<option value="">All cities</option>' + all.map(v => `<option>${v}</option>`).join('');
+  }
+
+  closeAddCustomerModal();
+  applyFilters();
+  updateContactStats();
+}
+
+function _mErr(inputId, errId, msg) {
+  document.getElementById(inputId).classList.add('merror');
+  document.getElementById(errId).textContent = msg;
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => { tryLoadDatabase(); initTooltips(); });
+document.addEventListener('DOMContentLoaded', () => {
+  tryLoadDatabase();
+  initTooltips();
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAddCustomerModal(); });
+});
 </script>
+
+<!-- ADD CUSTOMER MODAL -->
+<div class="modal-overlay hidden" id="addCustomerModal" onclick="if(event.target===this)closeAddCustomerModal()">
+  <div class="modal-card">
+    <div class="modal-title">+ Add Customer</div>
+    <div class="mdup" id="mDupWarn"></div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>First Name<span class="req">*</span></label>
+        <input type="text" id="mFn" placeholder="Tyler">
+        <div class="merr" id="mFnErr"></div>
+      </div>
+      <div class="mfield">
+        <label>Last Name<span class="req">*</span></label>
+        <input type="text" id="mLn" placeholder="Fumero">
+        <div class="merr" id="mLnErr"></div>
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>Phone<span class="req">*</span></label>
+        <input type="tel" id="mPhone" placeholder="954-555-1234">
+        <div class="merr" id="mPhoneErr"></div>
+      </div>
+      <div class="mfield">
+        <label>Email<span class="opt">(optional)</span></label>
+        <input type="email" id="mEmail" placeholder="tyler@example.com">
+      </div>
+    </div>
+
+    <div class="mfield">
+      <label>Street Address<span class="req">*</span></label>
+      <input type="text" id="mAddr" placeholder="123 Main St">
+      <div class="merr" id="mAddrErr"></div>
+    </div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>City<span class="req">*</span></label>
+        <input type="text" id="mCity" placeholder="Weston">
+        <div class="merr" id="mCityErr"></div>
+      </div>
+      <div class="mfield">
+        <label>Zip<span class="opt">(optional)</span></label>
+        <input type="text" id="mZip" placeholder="33326">
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>Last Service Date<span class="opt">(optional)</span></label>
+        <input type="date" id="mLastService">
+      </div>
+      <div class="mfield">
+        <label>Lifetime Spend<span class="opt">(optional)</span></label>
+        <input type="number" id="mSpend" placeholder="0" min="0" step="1">
+      </div>
+    </div>
+
+    <div class="mfield" style="max-width:50%;">
+      <label>Total Jobs<span class="opt">(optional)</span></label>
+      <input type="number" id="mJobs" placeholder="1" min="1" step="1">
+    </div>
+
+    <div class="mcheck">
+      <input type="checkbox" id="mHasSeal">
+      <label for="mHasSeal">🛡️ Has seal history</label>
+    </div>
+
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeAddCustomerModal()">Cancel</button>
+      <button class="mbtn-submit" id="mSubmitBtn" onclick="submitAddCustomer()">Add Customer</button>
+    </div>
+  </div>
+</div>
 
 <!-- TIER TOOLTIP (shared, repositioned by JS) -->
 <div id="tierTooltip" class="tier-tooltip" role="tooltip">
