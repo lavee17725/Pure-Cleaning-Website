@@ -638,6 +638,7 @@ function updatePropLink() {
     return;
   }
 
+  console.log('[propLink] addr=', addr.slice(0,30)||'(empty)', '— county:', detectCounty(addr)||'unknown');
   const county = detectCounty(addr);
   let url;
   if (county === 'broward') {
@@ -655,17 +656,20 @@ function updatePropLink() {
 // ─── AUTO-POPULATE FROM ?customer= LINK ──────────────────────────
 setTimeout(function() {
   var param = new URLSearchParams(window.location.search).get('customer');
+  console.log('[prefill] starting, param length:', param ? param.length : 0);
   if (!param) return;
   try {
     var raw = atob(decodeURIComponent(param));
     try { raw = decodeURIComponent(escape(raw)); } catch(e2) { /* already ascii */ }
     var d = JSON.parse(raw);
+    console.log('[prefill] data parsed, fields:', Object.keys(d).join(','));
     var parts = (d.n || '').split(' ');
     document.getElementById('custFirst').value = parts[0] || '';
     document.getElementById('custLast').value  = parts.slice(1).join(' ') || '';
     document.getElementById('custPhone').value = d.p  || '';
     document.getElementById('custEmail').value = d.em || '';
     document.getElementById('custAddr').value  = d.a  || '';
+    console.log('[prefill] fields set — name:', parts[0]||'(none)', 'addr:', (d.a||'').slice(0,30));
     if (d.notes)     document.getElementById('internalNotes').value = d.notes;
     if (d.timeframe) setTimeframeBadge(d.timeframe);
     if (d.s) {
@@ -678,12 +682,13 @@ setTimeout(function() {
     updatePropLink();
     if (d.p) checkCustomerAlerts(d.p.replace(/\D/g,''));
   } catch(e) {
-    console.error('QuoteBuilder pre-fill failed:', e);
+    console.error('[prefill] FAILED:', e);
   }
 }, 500);
 
 // ─── TIMEFRAME BADGE ─────────────────────────────────────────────
 function setTimeframeBadge(tf) {
+  console.log('[timeframe] badge triggered for:', tf);
   const el = document.getElementById('timeframeBadge');
   if (!el || !tf) return;
   const STYLES = {
