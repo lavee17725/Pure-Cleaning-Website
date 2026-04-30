@@ -230,7 +230,7 @@ function renderWaiting() {
     else if (days >= 7)                   tag = '<span class="tag tag-nudge">⏰ Needs nudge</span>';
     const ago = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
     return `<div class="card" id="card-${c.phone}">
-      <div class="cn">${name}</div>
+      <div class="cn">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
       <div class="cm"><span style="color:var(--muted);font-size:13px;">Sent ${ago}</span>${tag}</div>
@@ -252,7 +252,7 @@ function renderBooked() {
     const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
     const bookedOn = c.quoteStatus.approvedDate ? fmtDate(c.quoteStatus.approvedDate) : '—';
     return `<div class="card c-booked" id="card-${c.phone}">
-      <div class="cn">${name}</div>
+      <div class="cn">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
       <div class="cd" style="color:var(--green);font-weight:600;margin-top:6px;">✅ Booked ${bookedOn}</div>
@@ -272,7 +272,7 @@ function renderLost() {
     const reasonMap = {'no response':'No response','went elsewhere':'Went elsewhere','not interested':'Not interested'};
     const reason = esc(reasonMap[qs.lostReason] || qs.lostReason || 'Unknown');
     return `<div class="card c-lost" id="card-${c.phone}">
-      <div class="cn">${name}</div>
+      <div class="cn">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
       <div class="cm"><span style="color:var(--muted);font-size:13px;">Lost ${lostOn}</span><span class="tag tag-lr">${reason}</span></div>
@@ -367,6 +367,12 @@ function daysSince(d) { if (!d) return 0; return Math.floor((Date.now() - new Da
 function fmtDate(d)   { return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
 function fmtPhone(p)  { return (!p||p.length!==10) ? (p||'—') : `(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`; }
 function esc(s)       { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function alertBadge(alerts) {
+  if (!alerts||!alerts.length) return '';
+  const icons = alerts.slice(0,3).map(a=>`<span title="${esc(a.label)}" style="font-size:15px;">${a.icon}</span>`).join('');
+  const more  = alerts.length>3 ? `<span style="font-size:10px;color:var(--muted)">+${alerts.length-3}</span>` : '';
+  return `<span style="display:inline-flex;align-items:center;gap:1px;margin-left:4px;">${icons}${more}</span>`;
+}
 function animateOut(phone, cb) {
   const card = document.getElementById('card-' + phone);
   if (card) { card.classList.add('removing'); setTimeout(cb, 320); }

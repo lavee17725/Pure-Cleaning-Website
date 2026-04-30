@@ -168,6 +168,12 @@ select option{background:var(--navy2);}
     <button class="populate-btn" onclick="populateFromRequest()">Load Customer Info →</button>
   </div>
 
+  <!-- CUSTOMER ALERT CALLOUT -->
+  <div id="custAlertBox" style="display:none;background:#fffbeb;border:2px solid #fcd34d;border-radius:12px;padding:12px 14px;margin:0 1.25rem 1rem;font-size:13px;color:#78350f;line-height:1.6;">
+    <div style="font-weight:700;margin-bottom:4px;">⚠️ Customer Alerts</div>
+    <div id="custAlertList"></div>
+  </div>
+
   <!-- CUSTOMER INFO -->
   <div class="section">
     <div class="section-title">Customer info</div>
@@ -363,6 +369,19 @@ function populateFromRequest() {
   }
   document.getElementById('populateBanner').classList.remove('show');
   updatePreview();
+  if (pendingRequest.phone) checkCustomerAlerts(pendingRequest.phone.replace(/\D/g,''));
+}
+
+function checkCustomerAlerts(phone) {
+  if (!phone || phone.length !== 10) return;
+  fetch('https://api.jsonbin.io/v3/b/69f2d8b6856a6821898c3bfb', {
+    mode: 'cors', headers: { 'X-Master-Key': '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i' }
+  }).then(r => r.json()).then(data => {
+    const c = ((data.record||{}).customers||[]).find(x => x.phone === phone);
+    if (!c || !c.alerts || !c.alerts.length) return;
+    document.getElementById('custAlertList').innerHTML = c.alerts.map(a => `<div>${a.icon} <strong>${a.label}</strong>${a.note ? ' — ' + a.note : ''}</div>`).join('');
+    document.getElementById('custAlertBox').style.display = 'block';
+  }).catch(() => {});
 }
 
 // ─── SERVICES ────────────────────────────────────────────────────
@@ -589,6 +608,7 @@ setTimeout(function() {
       renderAddons();
     }
     updatePreview();
+    if (d.p) checkCustomerAlerts(d.p.replace(/\D/g,''));
   } catch(e) {
     console.error('QuoteBuilder pre-fill failed:', e);
   }

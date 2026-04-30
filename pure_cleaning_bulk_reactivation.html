@@ -160,6 +160,10 @@ td.money{font-family:'DM Mono',monospace;}
 .mbtn-submit:hover{background:#2470c0;}
 .mbtn-submit:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
 
+/* alert icon badges */
+.alert-badge-wrap{display:inline-flex;align-items:center;gap:1px;font-size:13px;margin-left:4px;vertical-align:middle;}
+.alert-badge-more{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;}
+
 /* text-now column */
 .text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
 .text-now-btn:hover{background:#2470c0;}
@@ -404,7 +408,8 @@ function customerToDbRecord(c) {
     linkCode: c.linkCode || null,
     linkBin: c.linkBin || null,
     lastTextedDate: c.lastTextedDate || null,
-    quoteStatus: c.quoteStatus || null
+    quoteStatus: c.quoteStatus || null,
+    alerts: c.alerts || []
   };
 }
 
@@ -422,7 +427,8 @@ function dbRecordToCustomer(r) {
     addresses: new Set(),
     lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
     linkCode: r.linkCode || null, linkBin: r.linkBin || null, lastTextedDate: r.lastTextedDate || null,
-    quoteStatus: r.quoteStatus || null
+    quoteStatus: r.quoteStatus || null,
+    alerts: r.alerts || []
   };
 }
 
@@ -803,6 +809,7 @@ async function processFiles() {
         newByPhone[phone].linkBin = old.linkBin || null;
         newByPhone[phone].lastTextedDate = old.lastTextedDate || null;
         newByPhone[phone].quoteStatus = old.quoteStatus || null;
+        newByPhone[phone].alerts = old.alerts || [];
       }
     }
     allCustomers = Object.values(newByPhone);
@@ -940,7 +947,8 @@ function renderTable() {
     const checked = selectedPhones.has(c.phone);
     const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
     const tc = tierClass(c.tier);
-    const sealIcon = c.hasSeal ? '🛡️ ' : '';
+    const sealIcon   = c.hasSeal ? '🛡️ ' : '';
+    const alertBadge = renderAlertIcons(c.alerts);
     const contactedIso = contacts[c.phone];
     const textBtn = contactedIso
       ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(contactedIso)}</button>`
@@ -948,7 +956,7 @@ function renderTable() {
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
       <td>${textBtn}</td>
-      <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}</td>
+      <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
       <td class="phone">${formatPhone(c.phone)}</td>
       <td>${c.city || '—'}</td>
       <td>${c.lastServiceStr}</td>
@@ -982,6 +990,13 @@ function updateSelInfo() {
   document.getElementById('genCount').textContent = n;
   const bar = document.getElementById('genBar');
   if (n > 0) bar.classList.add('show'); else bar.classList.remove('show');
+}
+
+function renderAlertIcons(alerts) {
+  if (!alerts || !alerts.length) return '';
+  const icons = alerts.slice(0,3).map(a=>`<span title="${a.label}">${a.icon}</span>`).join('');
+  const more  = alerts.length > 3 ? `<span class="alert-badge-more">+${alerts.length-3}</span>` : '';
+  return `<span class="alert-badge-wrap">${icons}${more}</span>`;
 }
 
 // ─── CONTACT TRACKING ────────────────────────────────────────────────────────
