@@ -268,6 +268,33 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
 
+// ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
+async function getCachedCustomerDB() {
+  const CACHE_KEY = 'pcpc_customer_db_cache';
+  const TTL_MS    = 5 * 60 * 1000;
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < TTL_MS) {
+        console.log('[customerDB] cache hit, age:', Math.round((Date.now() - timestamp)/1000) + 's');
+        return data;
+      }
+      console.log('[customerDB] cache expired, refetching');
+    }
+  } catch(e) { console.warn('[customerDB] cache read failed:', e); }
+  console.log('[customerDB] fetching fresh');
+  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
+    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = (await res.json()).record;
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch(e) { console.warn('[customerDB] cache write failed:', e); }
+  return data;
+}
+
 const CREW_MEMBERS = [
   {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew'},
   {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew'},
@@ -304,9 +331,7 @@ function saveCalState() {
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   try {
-    const res  = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
-    const data = await res.json();
-    dbRecord = data.record || {};
+    dbRecord = (await getCachedCustomerDB()) || {};
     render();
   } catch(e) {
     dbRecord = {customers:[]};
@@ -321,6 +346,7 @@ async function saveDb() {
     headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
     body:JSON.stringify(dbRecord)
   });
+  sessionStorage.removeItem('pcpc_customer_db_cache');
 }
 
 // ── WEEK HELPERS ──────────────────────────────────────────────────────────────

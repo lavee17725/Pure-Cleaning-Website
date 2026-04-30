@@ -395,6 +395,33 @@ const PROPERTY_MANAGERS = ['karen niece','nelson faguaga','patrick willis','alex
 const BUILDING_KEYWORDS = ['the edge','lakewood condo','pine ridge','pine island','country gardens','racquet club','lakeview','lighthouse cove','sabal palm','palm springs','pembroke lakes','stirling','town center','shopping plaza','davie square','realmanage','university parc','parc residences','residences'];
 const BUILDING_PATTERN_RE = /^the\s+\w+$|\bat\s+\d|\b\d+$/i;
 
+// ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
+async function getCachedCustomerDB() {
+  const CACHE_KEY = 'pcpc_customer_db_cache';
+  const TTL_MS    = 5 * 60 * 1000;
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < TTL_MS) {
+        console.log('[customerDB] cache hit, age:', Math.round((Date.now() - timestamp)/1000) + 's');
+        return data;
+      }
+      console.log('[customerDB] cache expired, refetching');
+    }
+  } catch(e) { console.warn('[customerDB] cache read failed:', e); }
+  console.log('[customerDB] fetching fresh');
+  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
+    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = (await res.json()).record;
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch(e) { console.warn('[customerDB] cache write failed:', e); }
+  return data;
+}
+
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let allCustomers = [];
 let filteredCustomers = [];
@@ -424,12 +451,7 @@ function saveOverrides() {
 
 // ─── PERSISTENT DATABASE ─────────────────────────────────────────────────────
 async function loadDatabase() {
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  const rec = data.record;
+  const rec = await getCachedCustomerDB();
   return (rec && rec.customers && rec.customers.length) ? rec : null;
 }
 
@@ -505,6 +527,7 @@ async function saveDatabase() {
     const err = await res.json().catch(() => ({}));
     throw new Error(`JSONbin save failed (${res.status}): ${err.message || JSON.stringify(err)}`);
   }
+  sessionStorage.removeItem('pcpc_customer_db_cache');
   return db;
 }
 
