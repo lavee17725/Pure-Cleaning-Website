@@ -86,6 +86,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .cc-week{display:flex;gap:3px;margin-bottom:5px;}
 .cc-day{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;}
 .cc-day.worked{background:var(--sky);color:#fff;}
+.cc-day.worked.half{background:#bfdbfe;color:#1e40af;}
 .cc-day.off{background:#fee2e2;color:#991b1b;font-size:9px;}
 .cc-day.empty{background:#f1f3f5;color:#d1d5db;}
 .cc-day-label{font-size:8px;color:var(--muted);text-align:center;width:26px;}
@@ -211,6 +212,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <!-- ── CREW ASSIGNMENT POPOVER ── -->
 <div class="crew-pop hidden" id="crewPop">
   <div class="cp-title" id="cpTitle">Assign Crew</div>
+  <div style="margin-bottom:.75rem;padding-bottom:.625rem;border-bottom:1px solid var(--border);">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Day type</div>
+    <div style="display:flex;gap:16px;">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">
+        <input type="radio" name="cpDayType" id="cpDtFull" value="full" onchange="cpUpdateDayType('full')" checked> Full day
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">
+        <input type="radio" name="cpDayType" id="cpDtHalf" value="half" onchange="cpUpdateDayType('half')"> <span style="color:var(--gold);">½</span> Half day
+      </label>
+    </div>
+  </div>
   <div id="cpList"></div>
   <div class="modal-footer" style="margin-top:.75rem;">
     <button class="mbtn-cancel" onclick="closeCrewPop()">Cancel</button>
@@ -257,11 +269,11 @@ const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2P
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
 
 const CREW_MEMBERS = [
-  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, role:'crew'},
-  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, role:'crew'},
-  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, role:'crew'},
-  {id:'tyler',    name:'Tyler',    color:'#a855f7', dailyRate:150, role:'owner_son'},
-  {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   role:'owner'}
+  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew'},
+  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew'},
+  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, halfRate:80,  role:'crew'},
+  {id:'tyler',    name:'Tyler',    color:'#a855f7', dailyRate:150, halfRate:75,  role:'owner_son'},
+  {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   halfRate:0,   role:'owner'}
 ];
 const RIGS = ['rig_1','rig_2','rig_3'];
 const RIG_LABELS = {rig_1:'Rig 1', rig_2:'Rig 2', rig_3:'Rig 3'};
@@ -273,6 +285,7 @@ let calState      = loadCalState();
 let cpDate        = null; // date currently editing in crew pop
 let cpRig         = null; // rig currently editing
 let cpSelCrew     = [];   // selected crew in popover
+let cpDayType     = 'full'; // 'full' | 'half' for current popover
 let jmPhone       = null; // phone in job modal
 let undoFn        = null;
 let sortables     = [];
@@ -282,8 +295,9 @@ function loadCalState() {
   try { return JSON.parse(localStorage.getItem('pcpc_calendar_state') || '{}'); } catch { return {}; }
 }
 function saveCalState() {
-  if (!calState.rigCrew) calState.rigCrew = {};
-  if (!calState.daysOff) calState.daysOff = [];
+  if (!calState.rigCrew)    calState.rigCrew    = {};
+  if (!calState.rigDayType) calState.rigDayType = {};
+  if (!calState.daysOff)    calState.daysOff    = [];
   localStorage.setItem('pcpc_calendar_state', JSON.stringify(calState));
 }
 
@@ -383,13 +397,15 @@ function renderCalGrid(dates) {
     const rigsHtml = RIGS.map(rig => {
       const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
       const crewLabel = crew.map(id => CREW_MEMBERS.find(c=>c.id===id)?.name||id).join(' + ');
+      const dayType = getRigDayType(date, rig);
+      const halfBadge = dayType === 'half' ? ' <span style="font-size:10px;font-weight:700;color:var(--gold);background:rgba(244,166,32,.15);border-radius:4px;padding:1px 4px;margin-left:2px;">½</span>' : '';
       const jobs = getScheduledForRig(date, rig);
       const jobsHtml = jobs.map(c => jobCardScheduled(c)).join('');
       const emptyClass = jobs.length ? '' : ' empty-hint';
       return `<div class="rig-section">
         <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
           <span class="rig-icon">🚛</span>
-          <span class="rig-name">${RIG_LABELS[rig]}</span>
+          <span class="rig-name">${RIG_LABELS[rig]}${halfBadge}</span>
           <span class="rig-crew-label">${crewLabel}</span>
         </div>
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
@@ -426,10 +442,10 @@ function jobCardScheduled(c) {
 // ── RIGHT SIDEBAR ─────────────────────────────────────────────────────────────
 function renderCrewPanel(dates) {
   const today = isoToday();
-  const dayKeys = dates.map(d => new Date(d+'T12:00:00').getDay()); // 0-6
   const worked = crewWorkedDays(dates);
-  const payroll = calcPayroll(dates);
-  const totalPaid = CREW_MEMBERS.filter(cm=>cm.role!=='owner').reduce((s,cm)=>(s+(payroll[cm.id]||0)),0);
+  const payBreakdown = crewPayBreakdown(dates);
+  const totalPaid = CREW_MEMBERS.filter(cm=>cm.role!=='owner')
+    .reduce((s,cm) => s + (payBreakdown[cm.id]?.total||0), 0);
 
   let html = CREW_MEMBERS.map(cm => {
     const days = worked[cm.id] || [];
@@ -438,14 +454,19 @@ function renderCrewPanel(dates) {
       const dn = ['S','M','T','W','T','F','S'][i];
       const on = days.includes(date);
       const off = isOff(date);
-      const cls = off ? 'off' : on ? 'worked' : 'empty';
-      return `<div class="cc-day ${cls}" title="${date}">${off?'Off':dn}</div>`;
+      const half = on && isCrewHalfDay(cm.id, date);
+      const cls = off ? 'off' : half ? 'worked half' : on ? 'worked' : 'empty';
+      const lbl = off ? 'Off' : half ? '½' : dn;
+      return `<div class="cc-day ${cls}" title="${date}">${lbl}</div>`;
     }).join('');
-    const dCount = days.length;
-    const weekly = payroll[cm.id] || 0;
+    const bd = payBreakdown[cm.id] || {full:0, half:0, total:0};
+    const breakStr = [
+      bd.full > 0 ? `${bd.full} full` : '',
+      bd.half > 0 ? `${bd.half} half` : ''
+    ].filter(Boolean).join(' + ') || '—';
     const statsHtml = cm.role==='owner'
       ? `<div class="cc-owner">Owner — not paid</div>`
-      : `<div class="cc-stats"><strong>${dCount} day${dCount===1?'':'s'}</strong> · $${weekly.toLocaleString()}/wk</div>`;
+      : `<div class="cc-stats"><strong>${breakStr}</strong> · $${bd.total.toLocaleString()}/wk</div>`;
     return `<div class="crew-card">
       <div class="cc-name"><div class="cc-dot" style="background:${cm.color}"></div>${cm.name}</div>
       <div class="cc-week">${weekHtml}</div>
@@ -467,11 +488,54 @@ function renderCrewPanel(dates) {
 }
 
 // ── PAYROLL CALC ──────────────────────────────────────────────────────────────
+function getRigDayType(date, rig) {
+  return ((calState.rigDayType||{})[date]||{})[rig] || 'full';
+}
+
+function isCrewHalfDay(id, date) {
+  for (const rig of RIGS) {
+    const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+    if (crew.includes(id)) return getRigDayType(date, rig) === 'half';
+  }
+  return false;
+}
+
+function crewPayBreakdown(dates) {
+  const result = {};
+  CREW_MEMBERS.forEach(cm => result[cm.id] = {full:0, half:0, total:0});
+  for (const date of dates) {
+    const seen = new Set();
+    for (const rig of RIGS) {
+      const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+      const dayType = getRigDayType(date, rig);
+      for (const id of crew) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const cm = CREW_MEMBERS.find(c=>c.id===id);
+        if (!cm) continue;
+        if (dayType === 'half') { result[id].half++; result[id].total += cm.halfRate||0; }
+        else                    { result[id].full++; result[id].total += cm.dailyRate;   }
+      }
+    }
+  }
+  return result;
+}
+
 function calcDailyLabor(date) {
-  const rigs = ((calState.rigCrew||{})[date])||{};
+  let total = 0;
   const seen = new Set();
-  for (const rig of RIGS) { for (const id of (rigs[rig]||[])) seen.add(id); }
-  return [...seen].reduce((s,id) => { const cm = CREW_MEMBERS.find(c=>c.id===id); return s+(cm?cm.dailyRate:0); }, 0);
+  for (const rig of RIGS) {
+    const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+    const dayType = getRigDayType(date, rig);
+    for (const id of crew) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const cm = CREW_MEMBERS.find(c=>c.id===id);
+      if (!cm) continue;
+      total += dayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+    }
+  }
+  return total;
 }
 
 function crewWorkedDays(dates) {
@@ -486,12 +550,9 @@ function crewWorkedDays(dates) {
 }
 
 function calcPayroll(dates) {
-  const worked = crewWorkedDays(dates);
+  const bd = crewPayBreakdown(dates);
   const result = {};
-  for (const [id, days] of Object.entries(worked)) {
-    const cm = CREW_MEMBERS.find(c=>c.id===id);
-    result[id] = cm ? days.length * cm.dailyRate : 0;
-  }
+  for (const [id, data] of Object.entries(bd)) result[id] = data.total;
   return result;
 }
 
@@ -596,8 +657,11 @@ function openCrewPop(date, rig, el) {
   cpDate = date; cpRig = rig;
   const currentCrew = ((calState.rigCrew||{})[date]||{})[rig] || [];
   cpSelCrew = [...currentCrew];
+  cpDayType = getRigDayType(date, rig);
 
   document.getElementById('cpTitle').textContent = `${RIG_LABELS[rig]} · ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})}`;
+  document.getElementById('cpDtFull').checked = cpDayType !== 'half';
+  document.getElementById('cpDtHalf').checked = cpDayType === 'half';
 
   const isOff = id => (calState.daysOff||[]).some(o=>o.crewId===id&&o.date===date);
   const onOtherRig = id => RIGS.filter(r=>r!==rig).some(r => ((calState.rigCrew||{})[date]||{})[r]?.includes(id));
@@ -606,7 +670,10 @@ function openCrewPop(date, rig, el) {
     const off     = isOff(cm.id);
     const other   = onOtherRig(cm.id);
     const checked = currentCrew.includes(cm.id);
-    const sub     = off ? `<span class="cp-crew-sub">Off</span>` : other ? `<span class="cp-crew-sub">On other rig</span>` : `<span class="cp-crew-sub">$${cm.dailyRate}/day${cm.role==='owner'?' (Owner)':''}</span>`;
+    const rate    = cpDayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+    const sub     = off   ? `<span class="cp-crew-sub">Off</span>`
+                  : other ? `<span class="cp-crew-sub">On other rig</span>`
+                  :         `<span class="cp-crew-sub" id="cpc-rate-${cm.id}">$${rate}/day${cm.role==='owner'?' (Owner)':''}</span>`;
     const disabled = off || other;
     return `<div class="cp-crew-item${disabled?' disabled':''}" onclick="${disabled?'':' toggleCpCrew(\''+cm.id+'\')'}"  >
       <input type="checkbox" id="cpc-${cm.id}" ${checked?'checked':''} ${disabled?'disabled':''}>
@@ -636,9 +703,12 @@ function toggleCpCrew(id) {
 }
 
 function saveCrewPop() {
-  if (!calState.rigCrew) calState.rigCrew = {};
-  if (!calState.rigCrew[cpDate]) calState.rigCrew[cpDate] = {};
-  calState.rigCrew[cpDate][cpRig] = [...cpSelCrew];
+  if (!calState.rigCrew)              calState.rigCrew              = {};
+  if (!calState.rigCrew[cpDate])      calState.rigCrew[cpDate]      = {};
+  if (!calState.rigDayType)           calState.rigDayType           = {};
+  if (!calState.rigDayType[cpDate])   calState.rigDayType[cpDate]   = {};
+  calState.rigCrew[cpDate][cpRig]    = [...cpSelCrew];
+  calState.rigDayType[cpDate][cpRig] = cpDayType;
   saveCalState();
   closeCrewPop();
   render();
@@ -647,6 +717,16 @@ function saveCrewPop() {
 function closeCrewPop() {
   document.getElementById('crewPop').classList.add('hidden');
   document.removeEventListener('click', crewPopOutside, true);
+}
+
+function cpUpdateDayType(type) {
+  cpDayType = type;
+  CREW_MEMBERS.forEach(cm => {
+    const el = document.getElementById('cpc-rate-'+cm.id);
+    if (!el || cm.role === 'owner') return;
+    const rate = type === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+    el.textContent = '$'+rate+'/day';
+  });
 }
 
 function crewPopOutside(e) {
@@ -740,23 +820,33 @@ function unscheduleJob() {
 
 // ── PAYROLL MODAL ─────────────────────────────────────────────────────────────
 function openPayrollModal() {
-  const dates   = getWeekDates();
-  const payroll = calcPayroll(dates);
-  const worked  = crewWorkedDays(dates);
-  const total   = CREW_MEMBERS.filter(cm=>cm.role!=='owner').reduce((s,cm)=>(s+(payroll[cm.id]||0)),0);
-  const rows    = CREW_MEMBERS.map(cm => `<tr>
-    <td style="font-weight:600">${cm.name}</td>
-    <td>${(worked[cm.id]||[]).length}</td>
-    <td>${cm.role==='owner' ? '—' : '$'+cm.dailyRate+'/day'}</td>
-    <td style="font-weight:600">${cm.role==='owner' ? '<em style="color:var(--muted)">Owner</em>' : '$'+(payroll[cm.id]||0).toLocaleString()}</td>
-  </tr>`).join('');
-  const breakdown = dates.map((date,i)=>{
+  const dates      = getWeekDates();
+  const payBD      = crewPayBreakdown(dates);
+  const total      = CREW_MEMBERS.filter(cm=>cm.role!=='owner')
+    .reduce((s,cm) => s + (payBD[cm.id]?.total||0), 0);
+  const rows = CREW_MEMBERS.map(cm => {
+    const bd = payBD[cm.id] || {full:0, half:0, total:0};
+    const daysStr = cm.role==='owner' ? '—'
+      : (bd.full>0 && bd.half>0) ? `${bd.full}F + ${bd.half}H`
+      : bd.half>0 ? `${bd.half} half`
+      : `${bd.full}`;
+    const rateStr = cm.role==='owner' ? '—' : `$${cm.dailyRate} / $${cm.halfRate||0}`;
+    return `<tr>
+      <td style="font-weight:600">${cm.name}</td>
+      <td>${daysStr}</td>
+      <td style="font-size:11px;color:var(--muted)">${rateStr}</td>
+      <td style="font-weight:600">${cm.role==='owner' ? '<em style="color:var(--muted)">Owner</em>' : '$'+bd.total.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+  const breakdown = dates.map((date,i) => {
     const dl = calcDailyLabor(date);
-    return `<tr><td>${DAY_NAMES[i]} ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</td><td colspan="2">—</td><td style="font-weight:600">${dl>0?'$'+dl.toLocaleString():'-'}</td></tr>`;
+    const hasHalf = RIGS.some(rig => getRigDayType(date,rig)==='half' && (((calState.rigCrew||{})[date]||{})[rig]||[]).length>0);
+    const halfNote = hasHalf ? ' <span style="color:var(--gold);font-size:10px;font-weight:700;">½</span>' : '';
+    return `<tr><td>${DAY_NAMES[i]} ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}${halfNote}</td><td colspan="2">—</td><td style="font-weight:600">${dl>0?'$'+dl.toLocaleString():'-'}</td></tr>`;
   }).join('');
   document.getElementById('payrollBody').innerHTML = `
     <table class="payroll-table">
-      <thead><tr><th>Crew</th><th>Days</th><th>Rate</th><th>Total</th></tr></thead>
+      <thead><tr><th>Crew</th><th>Days (F/H)</th><th>Full/Half $</th><th>Total</th></tr></thead>
       <tbody>${rows}
         <tr class="pay-total-row"><td colspan="3">PAID TOTAL</td><td>$${total.toLocaleString()}</td></tr>
       </tbody>
