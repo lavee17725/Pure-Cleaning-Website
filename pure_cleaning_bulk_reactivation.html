@@ -403,7 +403,8 @@ function customerToDbRecord(c) {
     hasSealHistory: c.hasSeal || false,
     linkCode: c.linkCode || null,
     linkBin: c.linkBin || null,
-    lastTextedDate: c.lastTextedDate || null
+    lastTextedDate: c.lastTextedDate || null,
+    quoteStatus: c.quoteStatus || null
   };
 }
 
@@ -420,7 +421,8 @@ function dbRecordToCustomer(r) {
     avgTicket, maxTicket: 0, hasSeal, tier, monthsSince: ms,
     addresses: new Set(),
     lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
-    linkCode: r.linkCode || null, linkBin: r.linkBin || null, lastTextedDate: r.lastTextedDate || null
+    linkCode: r.linkCode || null, linkBin: r.linkBin || null, lastTextedDate: r.lastTextedDate || null,
+    quoteStatus: r.quoteStatus || null
   };
 }
 
@@ -800,6 +802,7 @@ async function processFiles() {
         newByPhone[phone].linkCode = old.linkCode || null;
         newByPhone[phone].linkBin = old.linkBin || null;
         newByPhone[phone].lastTextedDate = old.lastTextedDate || null;
+        newByPhone[phone].quoteStatus = old.quoteStatus || null;
       }
     }
     allCustomers = Object.values(newByPhone);
@@ -1083,7 +1086,8 @@ async function textNow(phone) {
       }
 
       c.linkCode = code;
-      c.linkBin = binId;
+      c.linkBin  = binId;
+      c.quoteStatus = { state: 'sent', sentDate: new Date().toISOString().split('T')[0], viewedDate: null, approvedDate: null, lostDate: null, lostReason: null, notes: null };
       saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
     } catch(e) {
       if (btn) { btn.disabled = false; btn.textContent = 'Text Now'; btn.className = 'text-now-btn'; }

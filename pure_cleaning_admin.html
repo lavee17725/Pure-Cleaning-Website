@@ -28,6 +28,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .card-accent{width:4px;align-self:stretch;flex-shrink:0;border-radius:12px 0 0 12px;}
 .cat-quote .card-accent{background:var(--gold);}
 .cat-reactivation .card-accent{background:#fc8181;}
+.cat-pipeline .card-accent{background:#1d9e75;}
 .cat-customer_facing .card-accent{background:var(--sky);}
 .card-icon{font-size:22px;width:52px;text-align:center;flex-shrink:0;}
 .card-body{flex:1;min-width:0;padding:14px 0;}
@@ -39,7 +40,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .panel-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.875rem;}
 .stats-grid{display:grid;grid-template-columns:1fr auto;}
 .stats-grid > span{padding:8px 0;font-size:13px;border-bottom:1px solid var(--border);}
-.stats-grid > span:nth-last-child(-n+2){border-bottom:none;padding-bottom:1rem;}
+.stats-grid > span:nth-last-child(-n+4){border-bottom:none;padding-bottom:1rem;}
 .slabel{color:var(--muted);}
 .sval{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);text-align:right;padding-left:12px;}
 
@@ -65,6 +66,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
       <span class="slabel">💎 VIP Seal</span>        <span class="sval" id="qs-vip">…</span>
       <span class="slabel">🔥 Hot + Warm</span>      <span class="sval" id="qs-hotwarm">…</span>
       <span class="slabel">Texted this week</span>   <span class="sval" id="qs-texted">—</span>
+      <span class="slabel">🟡 Waiting on customer</span> <span class="sval" id="qs-waiting">—</span>
+      <span class="slabel">✅ Booked this week</span>    <span class="sval" id="qs-booked-week">—</span>
     </div>
   </div>
 
@@ -80,14 +83,16 @@ const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
 
 const TOOLS = [
-  { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to customers',                        url: '/pure_cleaning_quote_builder_v2.html', category: 'quote' },
-{ icon: '📨', name: 'Customer Quote Form',     description: 'Preview the customer-facing quote request form',                   url: '/pure_cleaning_quote.html',             category: 'quote' },
-  { icon: '📱', name: 'Bulk Reactivation',       description: 'Tier customers, generate batch links, send reactivation texts',    url: '/pure_cleaning_bulk_reactivation.html', category: 'reactivation' },
-  { icon: '🌎', name: 'Pure Cleaning Website',   description: 'View the live customer website',                                   url: '/',                                     category: 'customer_facing' },
+  { icon: '🧾', name: 'Quote Builder',        description: 'Build and send custom quotes to customers',                     url: '/pure_cleaning_quote_builder_v2.html', category: 'quote' },
+  { icon: '📨', name: 'Customer Quote Form',  description: 'Preview the customer-facing quote request form',                url: '/pure_cleaning_quote.html',            category: 'quote' },
+  { icon: '📋', name: 'Open Quotes',          description: 'Track quotes that haven\'t booked yet',                         url: '/pure_cleaning_quotes.html',           category: 'pipeline' },
+  { icon: '📱', name: 'Bulk Reactivation',    description: 'Tier customers, generate batch links, send reactivation texts', url: '/pure_cleaning_bulk_reactivation.html',category: 'reactivation' },
+  { icon: '🌎', name: 'Pure Cleaning Website',description: 'View the live customer website',                                url: '/',                                    category: 'customer_facing' },
 ];
 
 const CATEGORIES = [
   { key: 'quote',           label: '📋 Quote Workflow' },
+  { key: 'pipeline',        label: '📋 Open Quotes' },
   { key: 'reactivation',    label: '🎯 Reactivation' },
   { key: 'customer_facing', label: '🌐 Customer-Facing (Reference Only)' },
 ];
@@ -130,6 +135,10 @@ async function loadQuickStats() {
       : '—');
     set('qs-vip',     s.vipSeal != null ? s.vipSeal : '—');
     set('qs-hotwarm', (s.hot != null && s.warm != null) ? (s.hot + s.warm).toLocaleString() : '—');
+    const withQ = (db.customers || []).filter(c => c.quoteStatus && c.quoteStatus.state);
+    set('qs-waiting', String(withQ.filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed').length));
+    const qWeekAgo = new Date(Date.now() - 7*24*60*60*1000);
+    set('qs-booked-week', String(withQ.filter(c => c.quoteStatus.state === 'approved' && c.quoteStatus.approvedDate && new Date(c.quoteStatus.approvedDate+'T12:00:00') >= qWeekAgo).length));
   } catch(e) {
     clearStats();
   }
@@ -143,7 +152,7 @@ async function loadQuickStats() {
 
 function set(id, val) { document.getElementById(id).textContent = val; }
 function clearStats() {
-  ['qs-total','qs-updated','qs-vip','qs-hotwarm'].forEach(id => set(id, '—'));
+  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week'].forEach(id => set(id, '—'));
 }
 
 renderTools();

@@ -1021,9 +1021,30 @@
         const banner = document.getElementById('welcomeBanner');
         const nameEl = document.getElementById('welcomeName');
         if (banner && nameEl) { nameEl.textContent = r.fn || 'there'; banner.style.display = 'block'; }
+        if (r.ph) markLinkViewed(r.ph);
       })
       .catch(() => {});
   });
+
+  function markLinkViewed(phone) {
+    const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+    const DB  = '69f2d8b6856a6821898c3bfb';
+    fetch('https://api.jsonbin.io/v3/b/' + DB, { mode: 'cors', headers: { 'X-Master-Key': KEY } })
+      .then(r => r.json())
+      .then(data => {
+        const db = data.record || {};
+        const c  = (db.customers || []).find(x => x.phone === phone);
+        if (!c || !c.quoteStatus || c.quoteStatus.state !== 'sent') return;
+        c.quoteStatus.state      = 'viewed';
+        c.quoteStatus.viewedDate = new Date().toISOString().split('T')[0];
+        return fetch('https://api.jsonbin.io/v3/b/' + DB, {
+          method: 'PUT', mode: 'cors',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY },
+          body: JSON.stringify(db)
+        });
+      })
+      .catch(e => console.warn('[view tracking]', e.message));
+  }
 
   function selectTimeframe(el, val) {
     document.querySelectorAll('input[name=timeframe]').forEach(r => r.closest('.reminder-opt').classList.remove('selected'));

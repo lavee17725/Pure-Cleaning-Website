@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Open Quotes — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--bg:#f5f7fa;--text:#1a1f2e;--muted:#6b7280;--border:#e2e8f0;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+.header{background:var(--navy);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:#fff;letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.back-link{font-size:13px;color:var(--gold);text-decoration:none;font-weight:600;}
+
+.page-hdr{padding:1.25rem 1.25rem .5rem;max-width:640px;margin:0 auto;}
+.page-hdr h1{font-size:24px;font-weight:700;color:var(--navy);}
+.page-hdr p{font-size:14px;color:var(--muted);margin-top:3px;}
+
+.tabs{display:flex;gap:8px;padding:.75rem 1.25rem;max-width:640px;margin:0 auto;}
+.tab{flex:1;padding:12px 6px;background:var(--white);border:2px solid var(--border);border-radius:14px;font-size:13px;font-weight:700;text-align:center;cursor:pointer;transition:all .15s;color:var(--muted);line-height:1.4;-webkit-tap-highlight-color:transparent;}
+.tab small{display:block;font-size:11px;font-weight:400;margin-top:1px;}
+.tab.active{border-color:var(--sky);background:#eff6ff;color:var(--sky);}
+.tbadge{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;background:rgba(0,0,0,.1);border-radius:20px;padding:0 5px;font-size:11px;font-weight:700;margin-left:3px;vertical-align:middle;}
+.tab.active .tbadge{background:rgba(45,125,210,.2);}
+
+.pane{max-width:640px;margin:0 auto;padding:.5rem 1.25rem 4rem;}
+
+.card{background:var(--white);border-radius:18px;padding:1.25rem;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,.07);border:1.5px solid var(--border);}
+.card.c-booked{border-left:5px solid var(--green);}
+.card.c-lost{border-left:5px solid #fca5a5;}
+
+.cn{font-size:21px;font-weight:700;color:var(--navy);margin-bottom:6px;}
+.cd{font-size:15px;color:var(--muted);line-height:1.6;}
+.cm{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 4px;}
+.tag{display:inline-block;padding:4px 11px;border-radius:20px;font-size:12px;font-weight:700;}
+.tag-new{background:#fef9c3;color:#854d0e;}
+.tag-seen{background:#e0f2fe;color:#0369a1;}
+.tag-nudge{background:#fee2e2;color:#991b1b;}
+.tag-lr{background:#fee2e2;color:#991b1b;}
+
+.cta{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+.btn{min-height:48px;padding:11px 18px;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.btn-text{background:var(--sky);color:#fff;}
+.btn-text:active{background:#2470c0;}
+.btn-book{background:var(--green);color:#fff;}
+.btn-book:active{background:#18876a;}
+.btn-lost-btn{background:#fff;color:var(--red);border:2px solid #fecaca;}
+.btn-lost-btn:active{background:#fef2f2;}
+.btn-resend{background:var(--sky);color:#fff;}
+.btn-resend:active{background:#2470c0;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+
+.empty{text-align:center;padding:3.5rem 1.25rem;}
+.empty-icon{font-size:52px;margin-bottom:.875rem;}
+.empty h3{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:8px;}
+.empty p{font-size:15px;color:var(--muted);}
+
+.loading-msg{text-align:center;padding:3rem 1.25rem;font-size:16px;color:var(--muted);}
+
+/* bottom-sheet modal */
+.moverlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:flex-end;justify-content:center;}
+.moverlay.hidden{display:none;}
+.msheet{background:var(--white);border-radius:22px 22px 0 0;width:100%;max-width:640px;padding:1.5rem;max-height:90vh;overflow-y:auto;}
+.mtitle{font-size:20px;font-weight:700;color:var(--navy);margin-bottom:4px;}
+.msub{font-size:14px;color:var(--muted);margin-bottom:1.25rem;}
+.rbtn{width:100%;padding:16px;margin-bottom:8px;border:2px solid var(--border);border-radius:13px;background:var(--white);font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;color:var(--text);cursor:pointer;text-align:left;transition:all .15s;}
+.rbtn.sel{border-color:var(--red);background:#fef2f2;color:var(--red);}
+.other-inp{width:100%;padding:14px;border:2px solid var(--border);border-radius:11px;font-family:'DM Sans',sans-serif;font-size:15px;margin-top:8px;outline:none;display:none;color:var(--text);}
+.other-inp:focus{border-color:var(--sky);}
+.other-inp.show{display:block;}
+.mfoot{display:flex;gap:10px;margin-top:1.25rem;}
+.mbtn-cancel{flex:1;padding:15px;border:2px solid var(--border);border-radius:11px;background:none;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;color:var(--muted);}
+.mbtn-confirm{flex:2;padding:15px;border:none;border-radius:11px;background:var(--red);color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
+.mbtn-confirm:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+
+@keyframes fadeout{0%{opacity:1;transform:scaleY(1);max-height:200px}100%{opacity:0;transform:scaleY(0);max-height:0;padding:0;margin:0;border:none;}}
+.card.removing{animation:fadeout .3s ease forwards;overflow:hidden;transform-origin:top;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/pure_cleaning_admin.html" class="back-link">← Admin</a>
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div style="width:60px;"></div>
+</div>
+
+<div class="page-hdr">
+  <h1>📋 Open Quotes</h1>
+  <p>Customers we've quoted who haven't booked yet</p>
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tab-waiting" onclick="switchTab('waiting')">
+    🟡 Waiting<span class="tbadge" id="cnt-waiting">0</span>
+    <small>not booked yet</small>
+  </div>
+  <div class="tab" id="tab-booked" onclick="switchTab('booked')">
+    ✅ Booked<span class="tbadge" id="cnt-booked">0</span>
+    <small>approved</small>
+  </div>
+  <div class="tab" id="tab-lost" onclick="switchTab('lost')">
+    ❌ Lost<span class="tbadge" id="cnt-lost">0</span>
+    <small>no response / elsewhere</small>
+  </div>
+</div>
+
+<div id="loading" class="loading-msg">Loading quotes… 💧</div>
+<div id="pane-waiting" class="pane" style="display:none;"></div>
+<div id="pane-booked"  class="pane" style="display:none;"></div>
+<div id="pane-lost"    class="pane" style="display:none;"></div>
+
+<!-- LOST MODAL — bottom sheet -->
+<div class="moverlay hidden" id="lostModal" onclick="if(event.target===this)closeLostModal()">
+  <div class="msheet">
+    <div class="mtitle">Mark as Lost</div>
+    <div class="msub" id="lostSub">What happened with this customer?</div>
+    <button class="rbtn" data-reason="no response"    onclick="pickReason(this)">📭 No response after 14 days</button>
+    <button class="rbtn" data-reason="went elsewhere" onclick="pickReason(this)">🏃 Went with someone else</button>
+    <button class="rbtn" data-reason="not interested" onclick="pickReason(this)">🙅 Not interested right now</button>
+    <button class="rbtn" data-reason="other"          onclick="pickReason(this)">✏️ Other…</button>
+    <input class="other-inp" id="otherInp" placeholder="What happened?">
+    <div class="mfoot">
+      <button class="mbtn-cancel" onclick="closeLostModal()">Cancel</button>
+      <button class="mbtn-confirm" id="lostConfirm" onclick="confirmLost()" disabled>Mark Lost</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
+const QUOTE_BASE        = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+
+let dbRecord   = null;  // full JSONbin record
+let allQuotes  = [];    // customers with quoteStatus
+let activeTab  = 'waiting';
+let lostPhone  = null;
+let lostReason = null;
+
+// ── LOAD ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
+      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    dbRecord = data.record || {};
+    const customers = dbRecord.customers || [];
+
+    // Auto-age: sent/viewed quotes 14+ days old → lost
+    const today = isoToday();
+    let aged = false;
+    customers.forEach(c => {
+      const qs = c.quoteStatus;
+      if (!qs || qs.state === 'approved' || qs.state === 'lost') return;
+      if (!qs.sentDate) return;
+      if (daysSince(qs.sentDate) >= 14) {
+        qs.state = 'lost';
+        qs.lostDate = today;
+        qs.lostReason = 'no response';
+        aged = true;
+      }
+    });
+    if (aged) saveDb().catch(e => console.warn('Auto-age save failed:', e));
+
+    allQuotes = customers.filter(c => c.quoteStatus && c.quoteStatus.state);
+    document.getElementById('loading').style.display = 'none';
+    updateCounts();
+    showPane('waiting');
+  } catch(e) {
+    document.getElementById('loading').textContent = '⚠️ Could not load — check connection and refresh. (' + e.message + ')';
+  }
+}
+
+async function saveDb() {
+  await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
+    method: 'PUT', mode: 'cors',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+    body: JSON.stringify(dbRecord)
+  });
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  showPane(name);
+}
+
+function showPane(name) {
+  ['waiting','booked','lost'].forEach(n => {
+    document.getElementById('pane-' + n).style.display = n === name ? 'block' : 'none';
+  });
+  renderPane(name);
+}
+
+function updateCounts() {
+  document.getElementById('cnt-waiting').textContent = allQuotes.filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed').length;
+  document.getElementById('cnt-booked').textContent  = allQuotes.filter(c => c.quoteStatus.state === 'approved').length;
+  document.getElementById('cnt-lost').textContent    = allQuotes.filter(c => c.quoteStatus.state === 'lost').length;
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function renderPane(name) {
+  const el = document.getElementById('pane-' + name);
+  if      (name === 'waiting') el.innerHTML = renderWaiting();
+  else if (name === 'booked')  el.innerHTML = renderBooked();
+  else                         el.innerHTML = renderLost();
+}
+
+function renderWaiting() {
+  const quotes = allQuotes
+    .filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed')
+    .sort((a,b) => new Date(b.quoteStatus.sentDate) - new Date(a.quoteStatus.sentDate));
+  if (!quotes.length) return `<div class="empty"><div class="empty-icon">🎉</div><h3>You're all caught up!</h3><p>No quotes waiting on customer response.</p></div>`;
+  return quotes.map(c => {
+    const qs   = c.quoteStatus;
+    const days = daysSince(qs.sentDate);
+    const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
+    let tag = '';
+    if (days < 3)                         tag = '<span class="tag tag-new">🆕 New</span>';
+    else if (days < 7 && qs.viewedDate)   tag = '<span class="tag tag-seen">👀 Saw it</span>';
+    else if (days >= 7)                   tag = '<span class="tag tag-nudge">⏰ Needs nudge</span>';
+    const ago = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+    return `<div class="card" id="card-${c.phone}">
+      <div class="cn">${name}</div>
+      <div class="cd">📞 ${fmtPhone(c.phone)}</div>
+      ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
+      <div class="cm"><span style="color:var(--muted);font-size:13px;">Sent ${ago}</span>${tag}</div>
+      <div class="cta">
+        <button class="btn btn-text"     onclick="textAgain('${c.phone}')">📱 Text Again</button>
+        <button class="btn btn-book"     onclick="markBooked('${c.phone}')">✓ Booked</button>
+        <button class="btn btn-lost-btn" onclick="openLostModal('${c.phone}','${name}')">❌ Lost</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderBooked() {
+  const quotes = allQuotes
+    .filter(c => c.quoteStatus.state === 'approved')
+    .sort((a,b) => new Date(b.quoteStatus.approvedDate||'') - new Date(a.quoteStatus.approvedDate||''));
+  if (!quotes.length) return `<div class="empty"><div class="empty-icon">📋</div><h3>No bookings yet</h3><p>Booked quotes will show up here once customers approve.</p></div>`;
+  return quotes.map(c => {
+    const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
+    const bookedOn = c.quoteStatus.approvedDate ? fmtDate(c.quoteStatus.approvedDate) : '—';
+    return `<div class="card c-booked" id="card-${c.phone}">
+      <div class="cn">${name}</div>
+      <div class="cd">📞 ${fmtPhone(c.phone)}</div>
+      ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
+      <div class="cd" style="color:var(--green);font-weight:600;margin-top:6px;">✅ Booked ${bookedOn}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLost() {
+  const quotes = allQuotes
+    .filter(c => c.quoteStatus.state === 'lost')
+    .sort((a,b) => new Date(b.quoteStatus.lostDate||'') - new Date(a.quoteStatus.lostDate||''));
+  if (!quotes.length) return `<div class="empty"><div class="empty-icon">👌</div><h3>No lost quotes yet</h3><p>Keep it that way!</p></div>`;
+  return quotes.map(c => {
+    const qs = c.quoteStatus;
+    const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
+    const lostOn = qs.lostDate ? fmtDate(qs.lostDate) : '—';
+    const reasonMap = {'no response':'No response','went elsewhere':'Went elsewhere','not interested':'Not interested'};
+    const reason = esc(reasonMap[qs.lostReason] || qs.lostReason || 'Unknown');
+    return `<div class="card c-lost" id="card-${c.phone}">
+      <div class="cn">${name}</div>
+      <div class="cd">📞 ${fmtPhone(c.phone)}</div>
+      ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
+      <div class="cm"><span style="color:var(--muted);font-size:13px;">Lost ${lostOn}</span><span class="tag tag-lr">${reason}</span></div>
+      <div class="cta">
+        <button class="btn btn-resend" onclick="resendQuote('${c.phone}')">↺ Send another quote</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── ACTIONS ───────────────────────────────────────────────────────────────────
+function textAgain(phone) {
+  const c = allQuotes.find(x => x.phone === phone);
+  if (!c) return;
+  const link = (c.linkBin && c.linkCode) ? `${QUOTE_BASE}?c=${c.linkBin}.${c.linkCode}` : '';
+  const body = `Hey ${c.firstName || 'there'}! Tyler again — just checking if you had any questions about your quote? Happy to help if anything's unclear 🙂\n\n${link}\n\n— Tyler | 954-389-2642`;
+  window.location.href = `sms:${phone}&body=${encodeURIComponent(body.trim())}`;
+}
+
+async function markBooked(phone) {
+  const today = isoToday();
+  const c = allQuotes.find(x => x.phone === phone);
+  if (c && c.quoteStatus) { c.quoteStatus.state = 'approved'; c.quoteStatus.approvedDate = today; }
+  const dbC = (dbRecord.customers || []).find(x => x.phone === phone);
+  if (dbC) { if (!dbC.quoteStatus) dbC.quoteStatus = {}; dbC.quoteStatus.state = 'approved'; dbC.quoteStatus.approvedDate = today; }
+
+  animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
+  saveDb().catch(e => console.warn('Save failed:', e));
+}
+
+function openLostModal(phone, name) {
+  lostPhone = phone; lostReason = null;
+  document.querySelectorAll('.rbtn').forEach(b => b.classList.remove('sel'));
+  document.getElementById('otherInp').value = '';
+  document.getElementById('otherInp').classList.remove('show');
+  document.getElementById('lostConfirm').disabled = true;
+  document.getElementById('lostSub').textContent = `What happened with ${name || 'this customer'}?`;
+  document.getElementById('lostModal').classList.remove('hidden');
+}
+
+function closeLostModal() {
+  document.getElementById('lostModal').classList.add('hidden');
+  lostPhone = null; lostReason = null;
+}
+
+function pickReason(btn) {
+  document.querySelectorAll('.rbtn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  lostReason = btn.dataset.reason;
+  const oi = document.getElementById('otherInp');
+  if (lostReason === 'other') { oi.classList.add('show'); oi.focus(); }
+  else oi.classList.remove('show');
+  document.getElementById('lostConfirm').disabled = false;
+}
+
+async function confirmLost() {
+  if (!lostPhone) return;
+  const reason = lostReason === 'other' ? (document.getElementById('otherInp').value.trim() || 'other') : lostReason;
+  const today = isoToday();
+  const c = allQuotes.find(x => x.phone === lostPhone);
+  if (c && c.quoteStatus) { c.quoteStatus.state = 'lost'; c.quoteStatus.lostDate = today; c.quoteStatus.lostReason = reason; }
+  const dbC = (dbRecord.customers || []).find(x => x.phone === lostPhone);
+  if (dbC) { if (!dbC.quoteStatus) dbC.quoteStatus = {}; dbC.quoteStatus.state = 'lost'; dbC.quoteStatus.lostDate = today; dbC.quoteStatus.lostReason = reason; }
+  const phone = lostPhone;
+  closeLostModal();
+  animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
+  saveDb().catch(e => console.warn('Save failed:', e));
+}
+
+async function resendQuote(phone) {
+  const c = allQuotes.find(x => x.phone === phone);
+  if (!c) return;
+  const today = isoToday();
+  c.quoteStatus.state = 'sent'; c.quoteStatus.sentDate = today; c.quoteStatus.viewedDate = null;
+  const dbC = (dbRecord.customers || []).find(x => x.phone === phone);
+  if (dbC && dbC.quoteStatus) { dbC.quoteStatus.state = 'sent'; dbC.quoteStatus.sentDate = today; dbC.quoteStatus.viewedDate = null; }
+  saveDb().catch(e => console.warn('Save failed:', e));
+  updateCounts();
+
+  const link = (c.linkBin && c.linkCode) ? `${QUOTE_BASE}?c=${c.linkBin}.${c.linkCode}` : '';
+  const ms = c.lastService ? Math.round((Date.now() - new Date(c.lastService+'T12:00:00')) / (1000*60*60*24*30.44)) : null;
+  const mt = ms ? `about ${ms} month${ms===1?'':'s'}` : 'a while';
+  const body = link
+    ? `Hey ${c.firstName||'there'}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home ${mt} ago and wanted to reach out again.\n\nYour info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. — Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+    : `Hey ${c.firstName||'there'}! It's Tyler — Darla and Tony's son with Pure Cleaning. Wanted to reach out again about a quote. Give us a call or text at 954-389-2642. — Tyler`;
+  window.location.href = `sms:${phone}&body=${encodeURIComponent(body)}`;
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function isoToday() { return new Date().toISOString().split('T')[0]; }
+function daysSince(d) { if (!d) return 0; return Math.floor((Date.now() - new Date(d+'T12:00:00')) / 864e5); }
+function fmtDate(d)   { return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function fmtPhone(p)  { return (!p||p.length!==10) ? (p||'—') : `(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`; }
+function esc(s)       { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function animateOut(phone, cb) {
+  const card = document.getElementById('card-' + phone);
+  if (card) { card.classList.add('removing'); setTimeout(cb, 320); }
+  else cb();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
