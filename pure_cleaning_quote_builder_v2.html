@@ -240,6 +240,7 @@ select option{background:var(--navy2);}
   <!-- DATES -->
   <div class="section">
     <div class="section-title">Offer two dates</div>
+    <div id="timeframeBadge" style="display:none;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:600;margin-bottom:10px;line-height:1;"></div>
     <div class="date-cards">
       <div class="date-card"><label>Option 1</label><input type="date" id="date1" oninput="updatePreview()"></div>
       <div class="date-card"><label>Option 2</label><input type="date" id="date2" oninput="updatePreview()"></div>
@@ -653,7 +654,8 @@ setTimeout(function() {
     document.getElementById('custPhone').value = d.p  || '';
     document.getElementById('custEmail').value = d.em || '';
     document.getElementById('custAddr').value  = d.a  || '';
-    if (d.notes) document.getElementById('customerNotes').value = d.notes;
+    if (d.notes)     document.getElementById('customerNotes').value = d.notes;
+    if (d.timeframe) setTimeframeBadge(d.timeframe);
     if (d.s) {
       services = d.s.split(',').map(s => s.trim()).filter(Boolean);
       renderChips();
@@ -667,6 +669,22 @@ setTimeout(function() {
     console.error('QuoteBuilder pre-fill failed:', e);
   }
 }, 500);
+
+// ─── TIMEFRAME BADGE ─────────────────────────────────────────────
+function setTimeframeBadge(tf) {
+  const el = document.getElementById('timeframeBadge');
+  if (!el || !tf) return;
+  const STYLES = {
+    'This week':   { bg:'rgba(245,158,11,.18)', border:'rgba(245,158,11,.55)', color:'#92400e' },
+    '1 week out':  { bg:'rgba(244,166,32,.14)', border:'rgba(244,166,32,.45)', color:'#78350f' },
+    '2 weeks out': { bg:'rgba(244,166,32,.09)', border:'rgba(244,166,32,.3)',  color:'#a16207' },
+    '3 weeks out': { bg:'rgba(244,166,32,.07)', border:'rgba(244,166,32,.22)', color:'var(--muted)' },
+    'Next month':  { bg:'rgba(122,138,170,.1)', border:'rgba(122,138,170,.3)', color:'var(--muted)' },
+  };
+  const s = STYLES[tf] || { bg:'rgba(244,166,32,.08)', border:'rgba(244,166,32,.2)', color:'var(--muted)' };
+  el.style.cssText = `display:block;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:600;margin-bottom:10px;line-height:1;background:${s.bg};border:1px solid ${s.border};color:${s.color};`;
+  el.textContent = '⏰ Customer requested: ' + tf;
+}
 
 // ─── MARK INCOMING REQUEST AS QUOTED ─────────────────────────────
 async function markIncomingQuoted(reqId) {
