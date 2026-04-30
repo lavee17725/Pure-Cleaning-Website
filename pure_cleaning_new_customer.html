@@ -611,7 +611,8 @@ function showSuccess(customer, link, isNewCustomer) {
   const body = isNewCustomer
     ? `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for calling us today!\n\nI built a simple new way for you to get a quote — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
     : `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Always great to hear from you!\n\nI built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned today 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`;
-  pendingSms = `sms:${customer.phone}&body=${encodeURIComponent(body)}`;
+  const smsPhone = '+1' + (customer.phone||'').replace(/\D/g,'');
+  pendingSms = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
   const name = ((customer.firstName||'') + ' ' + (customer.lastName||'')).trim();
   document.getElementById('sName').textContent = name;
   document.getElementById('sSub').textContent = `${name}'s quote link is ready to send 📲`;
