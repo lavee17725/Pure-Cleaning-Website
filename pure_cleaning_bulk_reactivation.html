@@ -101,6 +101,15 @@ td.money{font-family:'DM Mono',monospace;}
 .exc-tag-manual{color:#fc8181;font-size:10px;margin-left:6px;}
 .move-active-btn{background:rgba(29,158,117,.2);border:1px solid var(--green);color:#5de0b3;border-radius:4px;padding:1px 8px;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0;margin-left:8px;}
 .move-active-btn:hover{background:rgba(29,158,117,.35);}
+.tier-info-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 3px;line-height:1;vertical-align:middle;transition:color .15s;font-family:'DM Sans',sans-serif;}
+.tier-info-btn:hover,.tier-info-btn.tt-active{color:var(--sky);}
+/* tier tooltip */
+.tier-tooltip{position:fixed;z-index:9999;width:280px;background:var(--navy2);border:1.5px solid var(--border);border-radius:10px;padding:10px 13px 12px;font-size:12px;line-height:1.6;color:var(--text);box-shadow:0 6px 28px rgba(0,0,0,.55);pointer-events:none;opacity:0;transition:opacity .18s ease;display:none;}
+.tier-tooltip.visible{opacity:1;}
+.tier-tooltip::after{content:'';position:absolute;top:100%;left:var(--arrow-left,50%);transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--border);}
+.tier-tooltip::before{content:'';position:absolute;top:100%;left:var(--arrow-left,50%);transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--navy2);z-index:1;margin-top:-1px;}
+.tt-title{font-weight:700;margin-bottom:5px;color:var(--text);}
+.tt-body{color:var(--muted);}
 .mark-commercial-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap;font-family:'DM Sans',sans-serif;transition:color .15s;}
 .mark-commercial-btn:hover{color:#fc8181;}
 
@@ -186,6 +195,7 @@ td.money{font-family:'DM Mono',monospace;}
   <div class="filter-bar" id="filterBar">
     <div class="filter-row">
       <span class="filter-label">Tier:</span>
+      <button id="tierInfoBtn" class="tier-info-btn" title="How tiers work">ⓘ</button>
       <span class="tier-pill tp-vip-seal on" data-tier="VIP_SEAL" onclick="toggleTier(this)">💎 VIP Seal</span>
       <span class="tier-pill tp-hot on" data-tier="HOT" onclick="toggleTier(this)">🔥 Hot</span>
       <span class="tier-pill tp-warm on" data-tier="WARM" onclick="toggleTier(this)">🟡 Warm</span>
@@ -1118,8 +1128,131 @@ function renderFilePills() {
   document.getElementById('processBtn').disabled = uploadedFiles.length === 0;
 }
 
+// ─── TOOLTIPS ────────────────────────────────────────────────────────────────
+const TIER_TOOLTIPS = {
+  VIP_SEAL: {
+    title: '💎 VIP SEAL — Premium sealing customers due for renewal',
+    body: "Customers with sealing history, $1,000+ lifetime spend, last serviced 6–36 months ago. Highest-priority reactivation targets — sealer typically lasts 2–3 years and these customers have already paid premium prices. South Florida's dry season (Oct–April) is ideal cure conditions."
+  },
+  HOT: {
+    title: '🔥 HOT — Recent high-value customers in renewal window',
+    body: 'Customers last serviced 6–12 months ago who are either repeat customers (2+ jobs) or high-ticket ($400+ avg). Strong reactivation candidates — recent enough to remember you, due enough to need service.'
+  },
+  WARM: {
+    title: '🟡 WARM — Approaching due window',
+    body: "Customers last serviced 12–18 months ago with repeat history or high average ticket. Soft re-engagement window — they're due, but not urgent yet. Good for batch outreach."
+  },
+  SLEEPING: {
+    title: '🟢 SLEEPING — Past due, still recoverable',
+    body: 'Customers last serviced 18–24 months ago. May have used a competitor once or just forgot to book — worth a friendly check-in. Lower conversion rate than HOT/WARM but still meaningful volume.'
+  },
+  COLD: {
+    title: '❄️ COLD — Long inactive',
+    body: 'Customers last serviced 24+ months ago. Some may have moved, sold their home, or switched providers. Lowest conversion rate — but still worth a single low-pressure outreach for the ones who do convert.'
+  },
+  ACTIVE: {
+    title: '⏸️ ACTIVE — Recently serviced, do not text',
+    body: 'Customers last serviced less than 6 months ago. Skip these — texting them a "we miss you" message would be confusing because you literally just worked with them.'
+  }
+};
+const INFO_TOOLTIP_TEXT = "Tiers are calculated from each customer's last service date, total jobs, and average ticket. Customers with seal history get the special 💎 VIP SEAL tier when their lifetime spend is $1,000+ and they're 6–36 months out. The system updates automatically when you reprocess CSVs.";
+
+let _ttHoverTimer = null;
+let _ttLongPressTimer = null;
+let _ttLongPressFired = false;
+
+function _ttShow(anchor, title, body) {
+  const tt = document.getElementById('tierTooltip');
+  tt.querySelector('.tt-title').textContent = title;
+  tt.querySelector('.tt-body').textContent = body;
+  tt.style.display = 'block';
+  tt.classList.remove('visible');
+
+  const TT_W = 280;
+  const rect = anchor.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - TT_W / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - TT_W - 8));
+
+  tt.style.left = left + 'px';
+  tt.style.width = TT_W + 'px';
+
+  // Arrow points to center of anchor
+  const arrowLeft = Math.max(16, Math.min(rect.left + rect.width / 2 - left, TT_W - 16));
+  tt.style.setProperty('--arrow-left', arrowLeft + 'px');
+
+  // Position above anchor after measuring height
+  const ttH = tt.offsetHeight;
+  tt.style.top = (rect.top - ttH - 12) + 'px';
+
+  tt.getBoundingClientRect(); // force reflow for transition
+  tt.classList.add('visible');
+}
+
+function _ttHide() {
+  const tt = document.getElementById('tierTooltip');
+  tt.classList.remove('visible');
+  setTimeout(() => { if (!tt.classList.contains('visible')) tt.style.display = 'none'; }, 200);
+}
+
+function initTooltips() {
+  // Tier pill tooltips
+  document.querySelectorAll('[data-tier]').forEach(el => {
+    const info = TIER_TOOLTIPS[el.dataset.tier];
+    if (!info) return;
+
+    // Desktop: 300ms hover delay
+    el.addEventListener('mouseenter', () => {
+      _ttHoverTimer = setTimeout(() => _ttShow(el, info.title, info.body), 300);
+    });
+    el.addEventListener('mouseleave', () => {
+      clearTimeout(_ttHoverTimer);
+      _ttHide();
+    });
+
+    // Mobile: long-press 500ms (short tap still toggles tier normally)
+    el.addEventListener('touchstart', () => {
+      _ttLongPressFired = false;
+      _ttLongPressTimer = setTimeout(() => {
+        _ttLongPressFired = true;
+        _ttShow(el, info.title, info.body);
+      }, 500);
+    }, { passive: true });
+    el.addEventListener('touchmove', () => { clearTimeout(_ttLongPressTimer); }, { passive: true });
+    el.addEventListener('touchend', e => {
+      clearTimeout(_ttLongPressTimer);
+      if (_ttLongPressFired) e.preventDefault(); // suppress click/toggle
+    });
+  });
+
+  // ⓘ info button — click-toggle, hover preview
+  const infoBtn = document.getElementById('tierInfoBtn');
+  if (infoBtn) {
+    let infoOpen = false;
+    const openInfo = () => { infoOpen = true; infoBtn.classList.add('tt-active'); _ttShow(infoBtn, 'ⓘ How tiers work', INFO_TOOLTIP_TEXT); };
+    const closeInfo = () => { infoOpen = false; infoBtn.classList.remove('tt-active'); _ttHide(); };
+
+    infoBtn.addEventListener('click', e => { e.stopPropagation(); infoOpen ? closeInfo() : openInfo(); });
+    infoBtn.addEventListener('mouseenter', () => { if (!infoOpen) _ttShow(infoBtn, 'ⓘ How tiers work', INFO_TOOLTIP_TEXT); });
+    infoBtn.addEventListener('mouseleave', () => { if (!infoOpen) _ttHide(); });
+  }
+
+  // Dismiss on outside click
+  document.addEventListener('click', () => {
+    const infoBtn = document.getElementById('tierInfoBtn');
+    if (infoBtn) { infoBtn.classList.remove('tt-active'); }
+    _ttHide();
+  });
+}
+
 // ─── INIT ─────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => { tryLoadDatabase(); });
+document.addEventListener('DOMContentLoaded', () => { tryLoadDatabase(); initTooltips(); });
 </script>
+
+<!-- TIER TOOLTIP (shared, repositioned by JS) -->
+<div id="tierTooltip" class="tier-tooltip" role="tooltip">
+  <div class="tt-title"></div>
+  <div class="tt-body"></div>
+</div>
+
 </body>
 </html>
