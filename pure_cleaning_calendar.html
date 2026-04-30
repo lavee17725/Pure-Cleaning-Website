@@ -351,9 +351,17 @@ function jobCardSidebar(c) {
   const notes   = esc(ss.jobNotes || '');
   const alerts  = alertIcons(c.alerts||[]);
   const phone   = fmtPh(c.phone);
+  const city    = formatCity(c.city || '');
+  let wantsLine = '';
+  if (ss.customerSelectedDate) {
+    const d = new Date(ss.customerSelectedDate + 'T12:00:00');
+    const fmt = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+    wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(fmt)}</div>`;
+  }
   return `<div class="job-unscheduled" data-phone="${c.phone}" title="${name}">
     <div class="jn">${name}${alerts}</div>
-    <div class="jd">${c.city ? esc(c.city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
+    ${wantsLine}
+    <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
     <div class="drag-hint">⠿ Drag to schedule</div>
   </div>`;
@@ -407,7 +415,7 @@ function jobCardScheduled(c) {
   const dur   = ss.estimatedDuration || 2;
   const state = ss.state || 'scheduled';
   const alerts= alertIcons(c.alerts||[]);
-  const city  = c.city ? esc(c.city) : '';
+  const city  = c.city ? esc(formatCity(c.city)) : '';
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
   return `<div class="job-scheduled ${state}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name">${badge}${name}${alerts}</div>
@@ -656,7 +664,7 @@ function openJobModal(phone) {
   const crew = ss.crew || ( ss.rig && ss.scheduledDate ? (((calState.rigCrew||{})[ss.scheduledDate]||{})[ss.rig]||[]) : [] );
   const crewNames = crew.map(id => CREW_MEMBERS.find(cm=>cm.id===id)?.name||id).join(', ') || '—';
   const ph = c.phone ? `<a href="tel:${c.phone}" style="color:var(--sky)">📞 ${fmtPh(c.phone)}</a>` : '';
-  const addr = c.address ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address+' '+c.city)}" target="_blank" style="color:var(--sky)">📍 ${esc(c.address)}${c.city?', '+esc(c.city):''}</a>` : '';
+  const addr = c.address ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address+' '+c.city)}" target="_blank" style="color:var(--sky)">📍 ${esc(c.address)}${c.city?', '+esc(formatCity(c.city)):''}</a>` : '';
   const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
 
   document.getElementById('jmTitle').textContent = name;
@@ -804,6 +812,14 @@ function alertIcons(alerts) {
 }
 function fmtPh(p) { return (!p||p.length!==10)?p||'':(`(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`); }
 function esc(s)   { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const _CITY_ABBR = { sw:'Southwest', ft:'Fort', n:'North', s:'South', e:'East', w:'West', ne:'Northeast', nw:'Northwest', se:'Southeast', sw:'Southwest' };
+function formatCity(city) {
+  if (!city) return '';
+  return city.trim().toLowerCase().split(/\s+/).map(w => {
+    const bare = w.replace(/[.,]$/,'');
+    return (_CITY_ABBR[bare] || (bare.charAt(0).toUpperCase() + bare.slice(1)));
+  }).join(' ');
+}
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
