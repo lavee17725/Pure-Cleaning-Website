@@ -23,8 +23,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .dropzone p{font-size:14px;color:var(--muted);}
 .dropzone strong{color:var(--text);}
 #fileInput{display:none;}
-.file-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:.75rem;}
-.file-pill{background:rgba(29,158,117,.15);border:1px solid var(--green);border-radius:8px;padding:4px 12px;font-size:12px;color:#5de0b3;font-family:'DM Mono',monospace;}
+.file-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:.75rem;align-items:center;}
+.file-pill{background:rgba(29,158,117,.15);border:1px solid var(--green);border-radius:8px;padding:4px 10px 4px 12px;font-size:12px;color:#5de0b3;font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;}
+.file-pill-x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0;margin-left:2px;transition:color .15s;}
+.file-pill-x:hover{color:#fc8181;}
+.clear-files-btn{background:rgba(229,62,62,.15);border:1px solid rgba(229,62,62,.4);color:#fc8181;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.clear-files-btn:hover{background:rgba(229,62,62,.25);}
 .field{margin-bottom:.875rem;}
 .field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
 input,select,textarea{width:100%;padding:10px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color .2s;-webkit-appearance:none;resize:vertical;}
@@ -251,6 +255,7 @@ let selectedPhones = new Set();
 let activeTiers = new Set(['HOT','WARM','SLEEPING','COLD']);
 let uploadedFiles = [];
 let generatedLinks = []; // [{customer, code, link, sms}]
+let fileRowCounts = {}; // filename → data row count (set after processing)
 
 // ─── CSV PARSING ─────────────────────────────────────────────────────────────
 function parseCSVText(text) {
@@ -377,11 +382,13 @@ async function processFiles() {
 
   let rawRows = [], excludedNames = [];
   let totalRows = 0;
+  fileRowCounts = {};
 
   for (const file of uploadedFiles) {
     const text = await file.text();
     const parsed = parseCSVText(text);
     if (!parsed.length) continue;
+    fileRowCounts[file.name] = Math.max(0, parsed.length - 1);
     const cols = mapCols(parsed[0]);
     for (let i = 1; i < parsed.length; i++) {
       const row = parsed[i];
@@ -456,6 +463,8 @@ async function processFiles() {
   document.getElementById('filterBar').style.display = 'block';
   document.getElementById('tableWrap').style.display = 'block';
   document.getElementById('tableControls').classList.add('show');
+
+  renderFilePills(); // update pills with row counts
 }
 
 // ─── FILTER / SORT ───────────────────────────────────────────────────────────
@@ -659,16 +668,48 @@ function toggleExcluded() {
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 
-fileInput.addEventListener('change', e => handleFiles(e.target.files));
+fileInput.addEventListener('change', e => {
+  handleFiles(e.target.files);
+  fileInput.value = ''; // reset so the same file can be re-selected
+});
 
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
 dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
 
 function handleFiles(files) {
-  uploadedFiles = [...files].filter(f => f.name.endsWith('.csv'));
+  const incoming = [...files].filter(f => f.name.endsWith('.csv'));
+  const existingNames = new Set(uploadedFiles.map(f => f.name));
+  for (const f of incoming) if (!existingNames.has(f.name)) uploadedFiles.push(f);
+  renderFilePills();
+}
+
+function removeFile(name) {
+  uploadedFiles = uploadedFiles.filter(f => f.name !== name);
+  renderFilePills();
+}
+
+function clearFiles() {
+  uploadedFiles = [];
+  fileRowCounts = {};
+  renderFilePills();
+}
+
+function renderFilePills() {
   const pills = document.getElementById('filePills');
-  pills.innerHTML = uploadedFiles.map(f => `<span class="file-pill">📄 ${f.name}</span>`).join('');
+  if (!uploadedFiles.length) {
+    pills.innerHTML = '';
+  } else {
+    const pillsHTML = uploadedFiles.map(f => {
+      const count = fileRowCounts[f.name];
+      const rowBadge = count != null
+        ? ` <span style="color:var(--green);font-size:11px;">(${count.toLocaleString()} rows ✓)</span>`
+        : '';
+      const safeName = f.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return `<span class="file-pill">📄 ${f.name}${rowBadge}<button class="file-pill-x" onclick="removeFile('${safeName}')" title="Remove">×</button></span>`;
+    }).join('');
+    pills.innerHTML = pillsHTML + `<button class="clear-files-btn" onclick="clearFiles()">Clear all</button>`;
+  }
   document.getElementById('processBtn').disabled = uploadedFiles.length === 0;
 }
 </script>
