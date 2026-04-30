@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pure Cleaning — Bulk Reactivation</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--blue:#1a4a8a;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;--input-bg:#0a1628;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--white);letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.badge{font-size:11px;font-weight:600;background:var(--blue);color:var(--sky);padding:3px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;}
+.wrap{padding:1.25rem;max-width:960px;margin:0 auto;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;margin-top:1.5rem;display:flex;align-items:center;gap:8px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+.info-banner{background:rgba(45,125,210,.1);border:1.5px solid rgba(45,125,210,.3);border-radius:10px;padding:10px 14px;margin-top:1.25rem;font-size:13px;color:var(--sky);line-height:1.6;}
+.dropzone{border:2px dashed var(--border);border-radius:14px;padding:2rem;text-align:center;cursor:pointer;transition:all .2s;background:var(--card);}
+.dropzone:hover,.dropzone.drag{border-color:var(--sky);background:rgba(45,125,210,.06);}
+.dropzone-icon{font-size:40px;margin-bottom:.75rem;}
+.dropzone p{font-size:14px;color:var(--muted);}
+.dropzone strong{color:var(--text);}
+#fileInput{display:none;}
+.file-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:.75rem;}
+.file-pill{background:rgba(29,158,117,.15);border:1px solid var(--green);border-radius:8px;padding:4px 12px;font-size:12px;color:#5de0b3;font-family:'DM Mono',monospace;}
+.field{margin-bottom:.875rem;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
+input,select,textarea{width:100%;padding:10px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color .2s;-webkit-appearance:none;resize:vertical;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--sky);}
+input::placeholder,textarea::placeholder{color:var(--muted);}
+.collapsible-btn{background:none;border:none;color:var(--sky);font-size:13px;cursor:pointer;padding:4px 0;font-family:'DM Sans',sans-serif;}
+.btn{padding:14px 24px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;cursor:pointer;transition:all .2s;}
+.btn-primary{background:var(--sky);color:#fff;width:100%;}
+.btn-primary:hover{background:#2470c0;}
+.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-green{background:var(--green);color:#fff;}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.btn-sm{font-size:13px;font-weight:700;padding:7px 16px;border-radius:8px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;}
+
+/* stats bar */
+.stats-bar{display:none;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:1.25rem;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.875rem;text-align:center;}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--gold);letter-spacing:1px;}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+
+/* filters */
+.filter-bar{display:none;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-top:1rem;}
+.filter-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;}
+.filter-row:last-child{margin-bottom:0;}
+.tier-pill{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid transparent;transition:all .15s;user-select:none;}
+.tier-pill.on{opacity:1;}
+.tier-pill.off{opacity:.35;}
+.tp-hot{background:rgba(229,62,62,.15);color:#fc8181;border-color:rgba(229,62,62,.4);}
+.tp-warm{background:rgba(244,166,32,.15);color:var(--gold);border-color:rgba(244,166,32,.4);}
+.tp-sleeping{background:rgba(29,158,117,.15);color:#5de0b3;border-color:rgba(29,158,117,.4);}
+.tp-cold{background:rgba(45,125,210,.15);color:var(--sky);border-color:rgba(45,125,210,.4);}
+.tp-active{background:rgba(122,138,170,.15);color:var(--muted);border-color:var(--border);}
+.filter-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
+.filter-input{width:auto;padding:6px 10px;font-size:13px;}
+
+/* table */
+.table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead th{background:var(--navy2);padding:10px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0;z-index:10;}
+thead th:hover{color:var(--sky);}
+thead th.sorted{color:var(--sky);}
+tbody tr{border-top:1px solid var(--border);transition:background .1s;}
+tbody tr:hover{background:rgba(45,125,210,.05);}
+td{padding:9px 12px;vertical-align:middle;white-space:nowrap;}
+td.name{font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
+td.phone{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}
+td.money{font-family:'DM Mono',monospace;}
+.tier-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+
+/* generate bar */
+.gen-bar{display:none;position:sticky;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:.875rem 1.25rem;display:none;align-items:center;justify-content:space-between;gap:12px;z-index:100;}
+.gen-bar.show{display:flex;}
+
+/* output */
+.output-wrap{display:none;margin-top:1rem;}
+.output-wrap.show{display:block;}
+.output-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;}
+.code-block{font-family:'DM Mono',monospace;font-size:12px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:1rem;color:var(--text);white-space:pre-wrap;word-break:break-all;line-height:1.7;max-height:500px;overflow-y:auto;}
+.copy-btn{background:var(--green);color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;}
+.copy-btn.copied{background:#0d7a5a;}
+
+/* excluded */
+.excluded-wrap{display:none;margin-top:1rem;}
+.excluded-list{font-family:'DM Mono',monospace;font-size:11px;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:.75rem;color:var(--muted);max-height:160px;overflow-y:auto;line-height:1.8;}
+
+/* select all row */
+.table-controls{display:none;justify-content:space-between;align-items:center;margin-top:.75rem;}
+.table-controls.show{display:flex;}
+.sel-info{font-size:13px;color:var(--muted);}
+.sel-info strong{color:var(--text);}
+
+@media(max-width:600px){.stats-bar{grid-template-columns:1fr 1fr;}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="badge">Bulk Reactivation</div>
+</div>
+
+<div class="wrap">
+
+  <div class="info-banner">
+    📋 Upload your master CSVs → get a sorted table of reactivation targets → generate personalized pre-fill links and SMS drafts in one click.
+  </div>
+
+  <!-- UPLOAD -->
+  <div class="section-title" style="margin-top:1.25rem;">Upload CSVs</div>
+  <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+    <div class="dropzone-icon">📂</div>
+    <p><strong>Click to upload</strong> or drag and drop your CSV files here</p>
+    <p style="margin-top:4px;font-size:12px;">Select all three master CSVs at once</p>
+  </div>
+  <input type="file" id="fileInput" multiple accept=".csv">
+  <div class="file-pills" id="filePills"></div>
+
+  <!-- SKIP LIST -->
+  <div class="section-title">Skip-list</div>
+  <button class="collapsible-btn" onclick="toggleSkip()">▶ Paste phone numbers to exclude (customers who said STOP, recently booked, etc.)</button>
+  <div id="skipWrap" style="display:none;margin-top:.5rem;">
+    <div class="field">
+      <textarea id="skipInput" rows="4" placeholder="One phone per line (any format):&#10;954-540-6076&#10;7543001234&#10;+1 305 555 0199"></textarea>
+    </div>
+  </div>
+
+  <div style="margin-top:1.25rem;">
+    <button class="btn btn-primary" id="processBtn" onclick="processFiles()" disabled>Process Files →</button>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-label">Total Rows</div></div>
+    <div class="stat-card"><div class="stat-val" id="sExcluded">0</div><div class="stat-label">Commercial Excl.</div></div>
+    <div class="stat-card"><div class="stat-val" id="sUnique">0</div><div class="stat-label">Unique Customers</div></div>
+    <div class="stat-card"><div class="stat-val" id="sHotWarm" style="color:#fc8181;">0</div><div class="stat-label">🔥 Hot + Warm</div></div>
+    <div class="stat-card"><div class="stat-val" id="sSleeping" style="color:#5de0b3;">0</div><div class="stat-label">🟢 Sleeping</div></div>
+  </div>
+
+  <!-- EXCLUDED ACCOUNTS -->
+  <div class="excluded-wrap" id="excludedWrap">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:.5rem;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">Excluded as commercial</span>
+      <button class="collapsible-btn" id="excludedToggle" onclick="toggleExcluded()">(show)</button>
+    </div>
+    <div id="excludedList" class="excluded-list" style="display:none;"></div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filter-bar" id="filterBar">
+    <div class="filter-row">
+      <span class="filter-label">Tier:</span>
+      <span class="tier-pill tp-hot on" data-tier="HOT" onclick="toggleTier(this)">🔥 Hot</span>
+      <span class="tier-pill tp-warm on" data-tier="WARM" onclick="toggleTier(this)">🟡 Warm</span>
+      <span class="tier-pill tp-sleeping on" data-tier="SLEEPING" onclick="toggleTier(this)">🟢 Sleeping</span>
+      <span class="tier-pill tp-cold on" data-tier="COLD" onclick="toggleTier(this)">❄️ Cold</span>
+      <span class="tier-pill tp-active off" data-tier="ACTIVE" onclick="toggleTier(this)">⏸️ Active</span>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">City:</span>
+      <select id="cityFilter" class="filter-input" style="min-width:160px;" onchange="applyFilters()">
+        <option value="">All cities</option>
+      </select>
+      <span class="filter-label">Min lifetime $:</span>
+      <input type="number" id="minSpend" class="filter-input" style="width:90px;" placeholder="0" oninput="applyFilters()">
+      <span class="filter-label">Sort:</span>
+      <select id="sortSel" class="filter-input" style="min-width:160px;" onchange="applySort()">
+        <option value="monthsSince">Months since (urgent first)</option>
+        <option value="lifetimeSpend">Lifetime $ (highest first)</option>
+        <option value="avgTicket">Avg ticket (highest first)</option>
+        <option value="lastService">Last service date</option>
+        <option value="totalJobs">Job count</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- TABLE CONTROLS -->
+  <div class="table-controls" id="tableControls">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+      <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"> Select all visible
+    </label>
+    <span class="sel-info" id="selInfo"><strong>0</strong> selected</span>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-wrap" id="tableWrap">
+    <table id="mainTable">
+      <thead>
+        <tr>
+          <th style="width:32px;cursor:default;"></th>
+          <th onclick="clickSort('name')">Name</th>
+          <th onclick="clickSort('phone')">Phone</th>
+          <th onclick="clickSort('city')">City</th>
+          <th onclick="clickSort('lastService')">Last Service</th>
+          <th onclick="clickSort('totalJobs')">Jobs</th>
+          <th onclick="clickSort('lifetimeSpend')">Lifetime $</th>
+          <th onclick="clickSort('avgTicket')">Avg Ticket</th>
+          <th onclick="clickSort('monthsSince')">Months Since</th>
+          <th onclick="clickSort('tier')">Tier</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+</div><!-- end .wrap -->
+
+<!-- GENERATE BAR (sticky) -->
+<div class="gen-bar" id="genBar">
+  <span style="font-size:14px;color:var(--muted);">
+    <strong id="genCount" style="color:var(--text);">0</strong> customers selected
+  </span>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-gold" style="font-size:16px;padding:10px 20px;" onclick="generateLinks()" id="genBtn">Generate Links →</button>
+  </div>
+</div>
+
+<!-- OUTPUT -->
+<div class="wrap">
+  <div class="output-wrap" id="outputWrap">
+    <div class="output-hdr">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">SMS Drafts — ready to send</span>
+      <div style="display:flex;gap:8px;">
+        <button class="copy-btn" onclick="copyOutput()">Copy All</button>
+        <button class="btn-sm" style="background:var(--blue);color:var(--sky);" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div id="outputBlock" class="code-block"></div>
+  </div>
+  <div style="height:80px;"></div>
+</div>
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let allCustomers = [];
+let filteredCustomers = [];
+let selectedPhones = new Set();
+let activeTiers = new Set(['HOT','WARM','SLEEPING','COLD']);
+let uploadedFiles = [];
+let generatedLinks = []; // [{customer, code, link, sms}]
+
+// ─── CSV PARSING ─────────────────────────────────────────────────────────────
+function parseCSVText(text) {
+  const rows = [];
+  let row = [], field = '', inQ = false;
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i <= text.length; i++) {
+    const ch = i < text.length ? text[i] : '\n';
+    if (inQ) {
+      if (ch === '"' && text[i+1] === '"') { field += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else field += ch;
+    } else {
+      if (ch === '"') { inQ = true; }
+      else if (ch === ',') { row.push(field.trim()); field = ''; }
+      else if (ch === '\n') {
+        row.push(field.trim()); field = '';
+        if (row.some(f => f)) rows.push(row);
+        row = [];
+      } else field += ch;
+    }
+  }
+  return rows;
+}
+
+function mapCols(headers) {
+  const m = {};
+  headers.forEach((h, i) => {
+    const n = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (n.includes('date')) m.date = i;
+    else if (n === 'customer') m.customer = i;
+    else if (n === 'address') m.address = i;
+    else if (n === 'city') m.city = i;
+    else if (n === 'phone') m.phone = i;
+    else if (n === 'total') m.total = i;
+  });
+  return m;
+}
+
+function parseDate(raw) {
+  if (!raw) return null;
+  raw = String(raw).trim();
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    let y = parseInt(m[3]);
+    if (y < 100) y += 2000;
+    return new Date(y, parseInt(m[1]) - 1, parseInt(m[2]));
+  }
+  const d = new Date(raw);
+  return isNaN(d) ? null : d;
+}
+
+function parseMoney(raw) {
+  if (!raw) return 0;
+  const n = parseFloat(String(raw).replace(/[$,\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const d = String(raw).replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('1')) return d.slice(1);
+  if (d.length === 10) return d;
+  return null;
+}
+
+function formatPhone(digits) {
+  if (!digits || digits.length !== 10) return digits || '';
+  return `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`;
+}
+
+function isCommercial(name) {
+  return COMMERCIAL_RE.test(name);
+}
+
+function splitName(full) {
+  // Strip parentheticals like "(referral)", "(Attn: ...)"
+  let clean = full.replace(/\(.*?\)/g, '').trim();
+  // Remove trailing notes after " - " or " / " that contain company keywords
+  let primary = clean;
+  const lastWord = clean.split(/\s+/).filter(Boolean).pop() || '';
+
+  if (clean.includes('/')) primary = clean.split('/')[0].trim();
+  else if (clean.includes(' - ')) primary = clean.split(' - ')[0].trim();
+
+  const parts = primary.split(/\s+/).filter(Boolean);
+  const fn = parts[0] || '';
+  let ln = parts.slice(1).join(' ') || '';
+  // If no last name from primary part, grab last word of full cleaned name
+  if (!ln && lastWord && lastWord !== fn) ln = lastWord;
+  return { fn, ln };
+}
+
+function monthsSince(dateObj) {
+  if (!dateObj) return 999;
+  const now = new Date();
+  return ((now - dateObj) / (1000 * 60 * 60 * 24 * 30.44));
+}
+
+function calcTier(c) {
+  const m = c.monthsSince;
+  const quality = c.totalJobs >= 2 || c.avgTicket >= 400;
+  if (m < 6)  return 'ACTIVE';
+  if (m < 12) return quality ? 'HOT' : 'WARM';
+  if (m < 18) return quality ? 'WARM' : 'SLEEPING';
+  if (m < 24) return 'SLEEPING';
+  return 'COLD';
+}
+
+function tierLabel(t) {
+  return {HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',ACTIVE:'⏸️ Active'}[t] || t;
+}
+
+function tierClass(t) {
+  return {HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',ACTIVE:'tp-active'}[t] || '';
+}
+
+// ─── MAIN PROCESSING ─────────────────────────────────────────────────────────
+async function processFiles() {
+  if (!uploadedFiles.length) return;
+
+  const skipLines = document.getElementById('skipInput').value;
+  const skipPhones = new Set(skipLines.split('\n').map(l => normalizePhone(l.trim())).filter(Boolean));
+
+  let rawRows = [], excludedNames = [];
+  let totalRows = 0;
+
+  for (const file of uploadedFiles) {
+    const text = await file.text();
+    const parsed = parseCSVText(text);
+    if (!parsed.length) continue;
+    const cols = mapCols(parsed[0]);
+    for (let i = 1; i < parsed.length; i++) {
+      const row = parsed[i];
+      const customer = row[cols.customer] || '';
+      const phone = normalizePhone(row[cols.phone]);
+      const dateObj = parseDate(row[cols.date]);
+      const total = parseMoney(row[cols.total]);
+      const address = row[cols.address] || '';
+      const city = row[cols.city] || '';
+
+      if (!customer) continue;
+      totalRows++;
+
+      if (isCommercial(customer)) { excludedNames.push(customer); continue; }
+      if (!phone) continue;
+      if (skipPhones.has(phone)) continue;
+
+      const { fn, ln } = splitName(customer);
+      if (!fn) continue;
+
+      rawRows.push({ fn, ln, phone, dateObj, total, address, city });
+    }
+  }
+
+  // Dedupe by phone — keep aggregated data
+  const byPhone = {};
+  for (const r of rawRows) {
+    if (!byPhone[r.phone]) {
+      byPhone[r.phone] = { fn: r.fn, ln: r.ln, phone: r.phone, address: r.address, city: r.city, lastDateObj: null, totalJobs: 0, lifetimeSpend: 0 };
+    }
+    const c = byPhone[r.phone];
+    c.totalJobs++;
+    c.lifetimeSpend += r.total;
+    if (r.dateObj && (!c.lastDateObj || r.dateObj > c.lastDateObj)) {
+      c.lastDateObj = r.dateObj;
+      // Use most-recent job's contact info
+      c.fn = r.fn; c.ln = r.ln; c.address = r.address; c.city = r.city;
+    }
+  }
+
+  allCustomers = Object.values(byPhone).map(c => {
+    const ms = monthsSince(c.lastDateObj);
+    const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
+    const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket });
+    return { ...c, monthsSince: ms, avgTicket, tier,
+      lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
+  });
+
+  // Populate city filter
+  const cities = [...new Set(allCustomers.map(c => c.city).filter(Boolean))].sort();
+  const cf = document.getElementById('cityFilter');
+  cf.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option>${c}</option>`).join('');
+
+  // Show excluded
+  const uniqueExcluded = [...new Set(excludedNames)].sort();
+  document.getElementById('excludedList').textContent = uniqueExcluded.join('\n');
+  document.getElementById('excludedWrap').style.display = 'block';
+
+  // Stats
+  const hot = allCustomers.filter(c => c.tier === 'HOT').length;
+  const warm = allCustomers.filter(c => c.tier === 'WARM').length;
+  const sleeping = allCustomers.filter(c => c.tier === 'SLEEPING').length;
+  document.getElementById('sTotal').textContent = totalRows;
+  document.getElementById('sExcluded').textContent = excludedNames.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+  document.getElementById('sHotWarm').textContent = hot + warm;
+  document.getElementById('sSleeping').textContent = sleeping;
+  document.getElementById('statsBar').style.display = 'grid';
+
+  applyFilters();
+
+  document.getElementById('filterBar').style.display = 'block';
+  document.getElementById('tableWrap').style.display = 'block';
+  document.getElementById('tableControls').classList.add('show');
+}
+
+// ─── FILTER / SORT ───────────────────────────────────────────────────────────
+function applyFilters() {
+  const city = document.getElementById('cityFilter').value;
+  const minSpend = parseFloat(document.getElementById('minSpend').value) || 0;
+
+  filteredCustomers = allCustomers.filter(c => {
+    if (!activeTiers.has(c.tier)) return false;
+    if (city && c.city !== city) return false;
+    if (c.lifetimeSpend < minSpend) return false;
+    return true;
+  });
+
+  applySort();
+}
+
+function applySort() {
+  const key = document.getElementById('sortSel').value;
+  const numericAsc = ['monthsSince'];
+  filteredCustomers.sort((a, b) => {
+    let av = a[key] ?? 0, bv = b[key] ?? 0;
+    if (typeof av === 'string') av = av.toLowerCase();
+    if (typeof bv === 'string') bv = bv.toLowerCase();
+    if (numericAsc.includes(key)) return av - bv; // ascending for months
+    if (typeof av === 'number') return bv - av;   // descending for money/jobs
+    return av < bv ? -1 : av > bv ? 1 : 0;
+  });
+  renderTable();
+}
+
+function clickSort(col) {
+  document.getElementById('sortSel').value = col;
+  applySort();
+}
+
+function toggleTier(el) {
+  const t = el.dataset.tier;
+  if (activeTiers.has(t)) { activeTiers.delete(t); el.classList.remove('on'); el.classList.add('off'); }
+  else { activeTiers.add(t); el.classList.add('on'); el.classList.remove('off'); }
+  applyFilters();
+}
+
+// ─── TABLE RENDERING ─────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = filteredCustomers.map(c => {
+    const checked = selectedPhones.has(c.phone);
+    const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
+    const tc = tierClass(c.tier);
+    return `<tr>
+      <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+      <td class="name" title="${c.fn} ${c.ln}">${c.fn} ${c.ln}</td>
+      <td class="phone">${formatPhone(c.phone)}</td>
+      <td>${c.city || '—'}</td>
+      <td>${c.lastServiceStr}</td>
+      <td class="money">${c.totalJobs}</td>
+      <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td class="money">$${Math.round(c.avgTicket)}</td>
+      <td class="money">${mo}</td>
+      <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+    </tr>`;
+  }).join('');
+  updateSelInfo();
+  document.getElementById('selectAll').checked =
+    filteredCustomers.length > 0 && filteredCustomers.every(c => selectedPhones.has(c.phone));
+}
+
+function toggleRow(cb) {
+  const phone = cb.dataset.phone;
+  if (cb.checked) selectedPhones.add(phone); else selectedPhones.delete(phone);
+  updateSelInfo();
+}
+
+function toggleSelectAll(masterCb) {
+  filteredCustomers.forEach(c => { if (masterCb.checked) selectedPhones.add(c.phone); else selectedPhones.delete(c.phone); });
+  renderTable();
+}
+
+function updateSelInfo() {
+  const n = selectedPhones.size;
+  document.getElementById('selInfo').innerHTML = `<strong>${n}</strong> selected`;
+  document.getElementById('genCount').textContent = n;
+  const bar = document.getElementById('genBar');
+  if (n > 0) bar.classList.add('show'); else bar.classList.remove('show');
+}
+
+// ─── LINK GENERATION ─────────────────────────────────────────────────────────
+function generateCode() {
+  let c = '';
+  for (let i = 0; i < 5; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+  return c;
+}
+
+async function getOrCreateBin() {
+  let binId = localStorage.getItem('pcpc_customer_links_bin_id');
+  if (binId) return binId;
+  const res = await fetch('https://api.jsonbin.io/v3/b', {
+    method: 'POST', mode: 'cors',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Private': 'false', 'X-Bin-Name': 'PureCleaningCustomerLinks' },
+    body: JSON.stringify({})
+  });
+  const data = await res.json();
+  if (!data.metadata?.id) throw new Error('Could not create JSONbin: ' + JSON.stringify(data));
+  localStorage.setItem('pcpc_customer_links_bin_id', data.metadata.id);
+  return data.metadata.id;
+}
+
+async function generateLinks() {
+  const selected = allCustomers.filter(c => selectedPhones.has(c.phone));
+  if (!selected.length) return;
+
+  const btn = document.getElementById('genBtn');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  try {
+    const binId = await getOrCreateBin();
+    const getRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
+    const getData = await getRes.json();
+    const records = getData.record || {};
+
+    generatedLinks = [];
+    for (const c of selected) {
+      let code;
+      let tries = 0;
+      do { code = generateCode(); tries++; } while (records[code] && tries < 200);
+      records[code] = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
+      const link = `${QUOTE_BASE}?c=${binId}.${code}`;
+      const months = Math.round(c.monthsSince);
+      const sms = `Hi ${c.fn}! Tyler from Pure Cleaning. It's been about ${months} month${months===1?'':'s'} since we cleaned for you — wanted to check in and see if you're due. I pre-filled your info to make it easy: ${link}\n\nJust confirm what you need cleaned and we'll send pricing same day.\n— Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+      generatedLinks.push({ customer: c, code, link, sms, months });
+    }
+
+    await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+      method: 'PUT', mode: 'cors',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+      body: JSON.stringify(records)
+    });
+
+    renderOutput();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.textContent = 'Generate Links →';
+    btn.disabled = false;
+  }
+}
+
+function renderOutput() {
+  const lines = generatedLinks.map(g => {
+    const c = g.customer;
+    const tierStr = {HOT:'🔥 HOT',WARM:'🟡 WARM',SLEEPING:'🟢 SLEEPING',COLD:'❄️ COLD',ACTIVE:'⏸️ ACTIVE'}[c.tier] || c.tier;
+    return `${'='.repeat(60)}\n${c.fn} ${c.ln} | ${formatPhone(c.phone)} | ${c.city} | last cleaned ~${g.months} months ago | ${tierStr}\n${'-'.repeat(60)}\n${g.sms}`;
+  }).join('\n\n');
+  document.getElementById('outputBlock').textContent = lines;
+  const ow = document.getElementById('outputWrap');
+  ow.classList.add('show');
+  ow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── COPY / EXPORT ───────────────────────────────────────────────────────────
+function copyOutput() {
+  const text = document.getElementById('outputBlock').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy All'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function exportCSV() {
+  const rows = [['first_name','last_name','phone','city','last_service','months_since','total_jobs','lifetime_spend','avg_ticket','tier','link']];
+  for (const g of generatedLinks) {
+    const c = g.customer;
+    rows.push([c.fn, c.ln, formatPhone(c.phone), c.city, c.lastServiceStr, Math.round(c.monthsSince), c.totalJobs, Math.round(c.lifetimeSpend), Math.round(c.avgTicket), c.tier, g.link]);
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `pure_cleaning_reactivation_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ─── UI HELPERS ──────────────────────────────────────────────────────────────
+function toggleSkip() {
+  const w = document.getElementById('skipWrap');
+  w.style.display = w.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleExcluded() {
+  const el = document.getElementById('excludedList');
+  const btn = document.getElementById('excludedToggle');
+  const shown = el.style.display !== 'none';
+  el.style.display = shown ? 'none' : 'block';
+  btn.textContent = shown ? '(show)' : '(hide)';
+}
+
+// ─── FILE HANDLING ───────────────────────────────────────────────────────────
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+
+function handleFiles(files) {
+  uploadedFiles = [...files].filter(f => f.name.endsWith('.csv'));
+  const pills = document.getElementById('filePills');
+  pills.innerHTML = uploadedFiles.map(f => `<span class="file-pill">📄 ${f.name}</span>`).join('');
+  document.getElementById('processBtn').disabled = uploadedFiles.length === 0;
+}
+</script>
+</body>
+</html>
