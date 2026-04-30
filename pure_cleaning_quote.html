@@ -731,19 +731,26 @@
   const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
 
   async function saveToIncomingBin(reqData) {
+    console.log('[incoming save] Starting write to bin', INCOMING_REQUESTS_BIN_ID);
     const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-    const res  = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-      mode: 'cors', headers: { 'X-Master-Key': KEY }
-    });
-    const data = await res.json();
-    const db   = data.record || {};
-    const reqs = db.requests || [];
-    reqs.unshift(reqData);
-    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-      method: 'PUT', mode: 'cors',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY },
-      body: JSON.stringify({ requests: reqs })
-    });
+    try {
+      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
+        mode: 'cors', headers: { 'X-Master-Key': KEY }
+      });
+      if (!getRes.ok) throw new Error('Incoming bin GET failed: ' + getRes.status + ' ' + await getRes.text());
+      const data = await getRes.json();
+      const reqs = (data.record || {}).requests || [];
+      reqs.unshift(reqData);
+      const putRes = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
+        method: 'PUT', mode: 'cors',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY, 'X-Bin-Versioning': 'false' },
+        body: JSON.stringify({ requests: reqs })
+      });
+      if (!putRes.ok) throw new Error('Incoming bin PUT failed: ' + putRes.status + ' ' + await putRes.text());
+    } catch(e) {
+      console.error('[incoming save FAILED]', e.message, e.stack);
+      throw e;
+    }
   }
 
   let returningCustomer = false;
