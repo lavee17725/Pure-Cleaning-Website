@@ -348,7 +348,7 @@
 
 <div id="seasonalBannerWrap" style="display:none;padding:10px 16px;background:#fff3e0;border-bottom:2px solid #ef9f27;font-size:13px;color:#7a4a00;line-height:1.6;position:relative;">
   <span id="seasonalBannerText"></span>
-  <button id="seasonalBannerDismiss" onclick="document.getElementById('seasonalBannerWrap').style.display='none';localStorage.setItem('pcpc_seasonal_banner_dismissed','1');" style="position:absolute;top:50%;right:12px;transform:translateY(-50%);background:none;border:none;font-size:18px;cursor:pointer;color:#c47f00;padding:4px 8px;line-height:1;" aria-label="Dismiss">✕</button>
+  <button id="seasonalBannerDismiss" style="position:absolute;top:50%;right:12px;transform:translateY(-50%);background:none;border:none;font-size:18px;cursor:pointer;color:#c47f00;padding:4px 8px;line-height:1;" aria-label="Dismiss">✕</button>
 </div>
 
 <div class="hero">
@@ -917,26 +917,31 @@
 
   // ── Seasonal banner ─────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', function() {
-    if (localStorage.getItem('pcpc_seasonal_banner_dismissed')) return;
     const m = new Date().getMonth();
+    const season = m >= 3 && m <= 5 ? 'rainy'
+                 : m >= 6 && m <= 8 ? 'hurricane'
+                 : m >= 9           ? 'holiday'
+                                    : 'dry';
+    const storageKey = 'pcpc_seasonal_banner_dismissed_' + season;
+    if (localStorage.getItem(storageKey)) return;
     const msgs = {
-      apr_jun: '🌧️ <strong>Rainy season is almost here</strong> — Book your roof clean before the storms hit.',
-      jul_sep: '🌪️ <strong>Hurricane season is active</strong> — Schedule your roof and exterior clean while we still have openings.',
-      oct_dec: '🍂 <strong>Holiday season approaching</strong> — Book early to have your home looking its best for guests.',
-      jan_mar: '☀️ <strong>Dry season</strong> — Perfect time to seal driveways and patios before summer rains return.'
+      rainy:     '🌧️ <strong>Rainy season is almost here</strong> — Book your roof clean before the storms hit.',
+      hurricane: '🌪️ <strong>Hurricane season is active</strong> — Schedule your roof and exterior clean while we still have openings.',
+      holiday:   '🍂 <strong>Dry season is here</strong> — Perfect conditions to seal driveways and patios before holiday guests arrive. Sealer cures best in low humidity, and we have full availability through December.',
+      dry:       '☀️ <strong>Dry season</strong> — Ideal sealer cure conditions before summer rains return. Most homeowners forget to seal until it\'s too late in the year.'
     };
-    const msg = m >= 3 && m <= 5 ? msgs.apr_jun
-              : m >= 6 && m <= 8 ? msgs.jul_sep
-              : m >= 9           ? msgs.oct_dec
-                                 : msgs.jan_mar;
     const wrap = document.getElementById('seasonalBannerWrap');
     const textEl = document.getElementById('seasonalBannerText');
-    if (wrap && textEl) { textEl.innerHTML = msg; wrap.style.display = 'block'; }
-    // 400ms delay before dismiss is interactive
+    if (wrap && textEl) { textEl.innerHTML = msgs[season]; wrap.style.display = 'block'; }
+    // 400ms delay before dismiss is interactive — JS owns the key, no inline onclick
     const dismissBtn = document.getElementById('seasonalBannerDismiss');
     if (dismissBtn) {
       dismissBtn.disabled = true;
       setTimeout(() => { dismissBtn.disabled = false; }, 400);
+      dismissBtn.addEventListener('click', () => {
+        document.getElementById('seasonalBannerWrap').style.display = 'none';
+        localStorage.setItem(storageKey, '1');
+      });
     }
   });
 
