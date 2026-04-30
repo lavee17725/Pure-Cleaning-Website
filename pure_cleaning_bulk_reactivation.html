@@ -92,7 +92,16 @@ td.money{font-family:'DM Mono',monospace;}
 
 /* excluded */
 .excluded-wrap{display:none;margin-top:1rem;}
-.excluded-list{font-family:'DM Mono',monospace;font-size:11px;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:.75rem;color:var(--muted);max-height:160px;overflow-y:auto;line-height:1.8;}
+.excluded-list{font-family:'DM Mono',monospace;font-size:11px;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:.75rem;color:var(--muted);max-height:240px;overflow-y:auto;line-height:1.8;}
+.exc-item{display:flex;align-items:center;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.exc-item:last-child{border-bottom:none;}
+.exc-tag-pm{color:var(--sky);font-size:10px;margin-left:6px;}
+.exc-tag-mp{color:var(--gold);font-size:10px;margin-left:6px;}
+.exc-tag-manual{color:#fc8181;font-size:10px;margin-left:6px;}
+.move-active-btn{background:rgba(29,158,117,.2);border:1px solid var(--green);color:#5de0b3;border-radius:4px;padding:1px 8px;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0;margin-left:8px;}
+.move-active-btn:hover{background:rgba(29,158,117,.35);}
+.mark-commercial-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap;font-family:'DM Sans',sans-serif;transition:color .15s;}
+.mark-commercial-btn:hover{color:#fc8181;}
 
 /* select all row */
 .table-controls{display:none;justify-content:space-between;align-items:center;margin-top:.75rem;}
@@ -208,6 +217,7 @@ td.money{font-family:'DM Mono',monospace;}
           <th onclick="clickSort('avgTicket')">Avg Ticket</th>
           <th onclick="clickSort('monthsSince')">Months Since</th>
           <th onclick="clickSort('tier')">Tier</th>
+          <th style="width:70px;cursor:default;"></th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -247,6 +257,7 @@ const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/
 const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
+const PROPERTY_MANAGERS = ['karen niece','nelson faguaga','patrick willis','alex rosales','maria eganez','patricia calderon'];
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let allCustomers = [];
@@ -256,6 +267,16 @@ let activeTiers = new Set(['HOT','WARM','SLEEPING','COLD']);
 let uploadedFiles = [];
 let generatedLinks = []; // [{customer, code, link, sms}]
 let fileRowCounts = {}; // filename → data row count (set after processing)
+let excludedRecords = []; // [{displayName, phone, reason, customerData}]
+let manualOverrides = loadOverrides(); // {phone: 'include'|'exclude'}
+
+// ─── OVERRIDES ───────────────────────────────────────────────────────────────
+function loadOverrides() {
+  try { return JSON.parse(localStorage.getItem('pcpc_manual_overrides') || '{}'); } catch { return {}; }
+}
+function saveOverrides() {
+  localStorage.setItem('pcpc_manual_overrides', JSON.stringify(manualOverrides));
+}
 
 // ─── CSV PARSING ─────────────────────────────────────────────────────────────
 function parseCSVText(text) {
@@ -331,6 +352,11 @@ function isCommercial(name) {
   return COMMERCIAL_RE.test(name);
 }
 
+function isPropManager(name) {
+  const lower = name.toLowerCase();
+  return PROPERTY_MANAGERS.some(pm => lower.includes(pm));
+}
+
 function splitName(full) {
   // Strip parentheticals like "(referral)", "(Attn: ...)"
   let clean = full.replace(/\(.*?\)/g, '').trim();
@@ -380,9 +406,11 @@ async function processFiles() {
   const skipLines = document.getElementById('skipInput').value;
   const skipPhones = new Set(skipLines.split('\n').map(l => normalizePhone(l.trim())).filter(Boolean));
 
-  let rawRows = [], excludedNames = [];
+  let rawRows = [];
+  excludedRecords = [];
   let totalRows = 0;
   fileRowCounts = {};
+  const seenExcKeys = new Set(); // dedup excluded entries by phone (or name if no phone)
 
   for (const file of uploadedFiles) {
     const text = await file.text();
@@ -402,30 +430,62 @@ async function processFiles() {
       if (!customer) continue;
       totalRows++;
 
-      if (isCommercial(customer)) { excludedNames.push(customer); continue; }
+      const override = phone ? manualOverrides[phone] : null;
+
+      // Name-based exclusions — bypassed if manual override says include
+      if (override !== 'include') {
+        let reason = null;
+        if (isCommercial(customer)) reason = 'keyword';
+        else if (isPropManager(customer)) reason = 'property_manager';
+        if (reason) {
+          const key = phone || customer.toLowerCase();
+          if (!seenExcKeys.has(key)) {
+            seenExcKeys.add(key);
+            excludedRecords.push({ displayName: customer, phone, reason, customerData: null });
+          }
+          continue;
+        }
+      }
+
       if (!phone) continue;
       if (skipPhones.has(phone)) continue;
 
+      // Manual exclude override
+      if (override === 'exclude') {
+        if (!seenExcKeys.has(phone)) {
+          seenExcKeys.add(phone);
+          excludedRecords.push({ displayName: customer, phone, reason: 'manual', customerData: null });
+        }
+        continue;
+      }
+
       const { fn, ln } = splitName(customer);
       if (!fn) continue;
-
       rawRows.push({ fn, ln, phone, dateObj, total, address, city });
     }
   }
 
-  // Dedupe by phone — keep aggregated data
+  // Dedupe by phone — track unique addresses for multi-property heuristic
   const byPhone = {};
   for (const r of rawRows) {
     if (!byPhone[r.phone]) {
-      byPhone[r.phone] = { fn: r.fn, ln: r.ln, phone: r.phone, address: r.address, city: r.city, lastDateObj: null, totalJobs: 0, lifetimeSpend: 0 };
+      byPhone[r.phone] = { fn: r.fn, ln: r.ln, phone: r.phone, address: r.address, city: r.city, lastDateObj: null, totalJobs: 0, lifetimeSpend: 0, addresses: new Set() };
     }
     const c = byPhone[r.phone];
     c.totalJobs++;
     c.lifetimeSpend += r.total;
+    if (r.address) c.addresses.add(r.address.toLowerCase().trim());
     if (r.dateObj && (!c.lastDateObj || r.dateObj > c.lastDateObj)) {
       c.lastDateObj = r.dateObj;
-      // Use most-recent job's contact info
       c.fn = r.fn; c.ln = r.ln; c.address = r.address; c.city = r.city;
+    }
+  }
+
+  // Multi-property heuristic: 4+ jobs at 3+ distinct addresses → likely commercial
+  for (const [phone, c] of Object.entries(byPhone)) {
+    if (c.totalJobs >= 4 && c.addresses.size >= 3 && manualOverrides[phone] !== 'include') {
+      excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'multi_property', customerData: c });
+      delete byPhone[phone];
     }
   }
 
@@ -442,9 +502,8 @@ async function processFiles() {
   const cf = document.getElementById('cityFilter');
   cf.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option>${c}</option>`).join('');
 
-  // Show excluded
-  const uniqueExcluded = [...new Set(excludedNames)].sort();
-  document.getElementById('excludedList').textContent = uniqueExcluded.join('\n');
+  // Show excluded panel
+  renderExcludedList();
   document.getElementById('excludedWrap').style.display = 'block';
 
   // Stats
@@ -452,7 +511,7 @@ async function processFiles() {
   const warm = allCustomers.filter(c => c.tier === 'WARM').length;
   const sleeping = allCustomers.filter(c => c.tier === 'SLEEPING').length;
   document.getElementById('sTotal').textContent = totalRows;
-  document.getElementById('sExcluded').textContent = excludedNames.length;
+  document.getElementById('sExcluded').textContent = excludedRecords.length;
   document.getElementById('sUnique').textContent = allCustomers.length;
   document.getElementById('sHotWarm').textContent = hot + warm;
   document.getElementById('sSleeping').textContent = sleeping;
@@ -464,7 +523,7 @@ async function processFiles() {
   document.getElementById('tableWrap').style.display = 'block';
   document.getElementById('tableControls').classList.add('show');
 
-  renderFilePills(); // update pills with row counts
+  renderFilePills();
 }
 
 // ─── FILTER / SORT ───────────────────────────────────────────────────────────
@@ -526,6 +585,7 @@ function renderTable() {
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+      <td><button class="mark-commercial-btn" onclick="markCommercial('${c.phone}')" title="Mark as commercial / exclude">⊘ excl.</button></td>
     </tr>`;
   }).join('');
   updateSelInfo();
@@ -662,6 +722,68 @@ function toggleExcluded() {
   const shown = el.style.display !== 'none';
   el.style.display = shown ? 'none' : 'block';
   btn.textContent = shown ? '(show)' : '(hide)';
+}
+
+function renderExcludedList() {
+  const el = document.getElementById('excludedList');
+  if (!excludedRecords.length) { el.innerHTML = '<span style="color:var(--muted)">None</span>'; return; }
+  el.innerHTML = excludedRecords.map(e => {
+    const tagHtml = {
+      keyword: '',
+      property_manager: '<span class="exc-tag-pm">(Property Manager)</span>',
+      multi_property: '<span class="exc-tag-mp">(Multi-property)</span>',
+      manual: '<span class="exc-tag-manual">(Manual)</span>'
+    }[e.reason] || '';
+    const moveBtn = e.phone
+      ? `<button class="move-active-btn" onclick="moveToActive('${e.phone}')">Move to active</button>`
+      : '';
+    return `<div class="exc-item"><span>${e.displayName}${tagHtml}</span>${moveBtn}</div>`;
+  }).join('');
+}
+
+function moveToActive(phone) {
+  manualOverrides[phone] = 'include';
+  saveOverrides();
+  const rec = excludedRecords.find(e => e.phone === phone);
+  if (rec) {
+    // Restore full customer if we have the data (multi-property case)
+    let customer;
+    if (rec.customerData) {
+      const c = rec.customerData;
+      const ms = monthsSince(c.lastDateObj);
+      const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
+      const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket });
+      customer = { ...c, monthsSince: ms, avgTicket, tier,
+        lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
+    } else {
+      // Build stub from name — re-process for full stats
+      const { fn, ln } = splitName(rec.displayName);
+      customer = { fn, ln, phone, address: '', city: '', lastDateObj: null, totalJobs: 0,
+        lifetimeSpend: 0, monthsSince: 999, avgTicket: 0, tier: 'COLD', lastServiceStr: '—', addresses: new Set() };
+    }
+    allCustomers.push(customer);
+  }
+  excludedRecords = excludedRecords.filter(e => e.phone !== phone);
+  renderExcludedList();
+  document.getElementById('sExcluded').textContent = excludedRecords.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+  applyFilters();
+}
+
+function markCommercial(phone) {
+  manualOverrides[phone] = 'exclude';
+  saveOverrides();
+  const customer = allCustomers.find(c => c.phone === phone);
+  allCustomers = allCustomers.filter(c => c.phone !== phone);
+  if (customer) {
+    excludedRecords.push({ displayName: `${customer.fn} ${customer.ln}`, phone, reason: 'manual', customerData: null });
+    document.getElementById('excludedWrap').style.display = 'block';
+    renderExcludedList();
+  }
+  selectedPhones.delete(phone);
+  document.getElementById('sExcluded').textContent = excludedRecords.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+  applyFilters();
 }
 
 // ─── FILE HANDLING ───────────────────────────────────────────────────────────
