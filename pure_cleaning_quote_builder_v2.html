@@ -109,6 +109,8 @@ select option{background:var(--navy2);}
 .quote-link-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--green);margin-bottom:6px;}
 .quote-link-url{font-family:'DM Mono',monospace;font-size:11px;color:var(--text);word-break:break-all;margin-bottom:8px;background:var(--navy2);padding:8px;border-radius:6px;}
 .copy-btn{background:var(--green);color:white;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-right:6px;}
+.send-sms-btn{width:100%;padding:13px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;}
+.send-sms-btn:active{opacity:.85;}
 
 /* PREVIEW */
 .preview-card{border:1px solid var(--border);border-radius:16px;padding:1.25rem;margin-bottom:1.25rem;}
@@ -282,10 +284,10 @@ select option{background:var(--navy2);}
   </div>
 
   <div class="quote-link-box" id="quoteLinkBox">
-    <div class="quote-link-label">✅ Customer quote link — text this</div>
+    <div class="quote-link-label">✅ Quote link ready</div>
     <div class="quote-link-url" id="quoteLinkUrl"></div>
-    <button class="copy-btn" onclick="copyLink()">Copy Link</button>
-    <button class="copy-btn" onclick="copyText()" style="background:var(--sky);">Copy Text Msg</button>
+    <button class="send-sms-btn" onclick="sendQuoteText()">📱 Send Quote Text to <span id="smsNameSpan">Customer</span></button>
+    <button class="copy-btn" onclick="copyLink()">📋 Copy Link</button>
   </div>
 
   <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;">
@@ -371,7 +373,7 @@ function populateFromRequest() {
   document.getElementById('custPhone').value = pendingRequest.phone || '';
   document.getElementById('custEmail').value = pendingRequest.email || '';
   document.getElementById('custAddr').value = pendingRequest.address || '';
-  if (pendingRequest.notes && pendingRequest.notes !== 'None') document.getElementById('customerNotes').value = pendingRequest.notes;
+  if (pendingRequest.notes && pendingRequest.notes !== 'None') document.getElementById('internalNotes').value = pendingRequest.notes;
   if (pendingRequest.services) {
     pendingRequest.services.split(',').map(s=>s.trim()).filter(Boolean).forEach(s => { if(!services.includes(s)) services.push(s); });
     renderChips();
@@ -557,6 +559,8 @@ async function generateQuote() {
 
   document.getElementById('quoteLinkUrl').textContent = generatedUrl;
   document.getElementById('quoteLinkBox').classList.add('show');
+  const smsSpan = document.getElementById('smsNameSpan');
+  if (smsSpan) smsSpan.textContent = document.getElementById('custFirst').value.trim() || 'Customer';
   document.getElementById('textPreview').textContent = document.getElementById('textPreview').textContent.replace('[quote link]', generatedUrl);
 
   // Auto-mark the incoming request as quoted
@@ -567,11 +571,19 @@ async function generateQuote() {
 
 function copyLink() {
   const b = event && event.target;
-  navigator.clipboard.writeText(generatedUrl).then(() => { if(b){b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Link',2000);} });
+  navigator.clipboard.writeText(generatedUrl).then(() => { if(b){b.textContent='Copied!'; setTimeout(()=>b.textContent='📋 Copy Link',2000);} });
 }
 function copyText() {
   const b = event && event.target;
   navigator.clipboard.writeText(document.getElementById('textPreview').textContent).then(() => { if(b){b.textContent='Copied!'; setTimeout(()=>b.textContent='Copy Text Msg',2000);} });
+}
+function sendQuoteText() {
+  const phone = (document.getElementById('custPhone').value||'').replace(/\D/g,'');
+  const first = document.getElementById('custFirst').value.trim() || 'there';
+  const body = `Hey ${first}!\n\nHere's your quote — just tap to review and pick a date that works for you:\n\n${generatedUrl}\n\nLooking forward to working with you 🙏\n\n— Tyler\n954-389-2642`;
+  const smsPhone = phone.length === 10 ? '+1' + phone : phone;
+  window.location.href = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
+}
 }
 
 // ─── HISTORY ─────────────────────────────────────────────────────
@@ -654,7 +666,7 @@ setTimeout(function() {
     document.getElementById('custPhone').value = d.p  || '';
     document.getElementById('custEmail').value = d.em || '';
     document.getElementById('custAddr').value  = d.a  || '';
-    if (d.notes)     document.getElementById('customerNotes').value = d.notes;
+    if (d.notes)     document.getElementById('internalNotes').value = d.notes;
     if (d.timeframe) setTimeframeBadge(d.timeframe);
     if (d.s) {
       services = d.s.split(',').map(s => s.trim()).filter(Boolean);
