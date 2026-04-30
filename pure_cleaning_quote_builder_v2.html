@@ -137,6 +137,9 @@ select option{background:var(--navy2);}
 .status-approved{background:rgba(29,158,117,0.15);color:var(--green);}
 .type-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:1px;}
 .type-pill-pressure{background:rgba(45,125,210,0.15);color:var(--sky);}
+/* property appraiser link */
+.prop-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:3px 9px;text-decoration:none;transition:all .15s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.prop-link:hover{color:var(--sky);border-color:rgba(45,125,210,.5);background:rgba(45,125,210,.08);}
 </style>
 </head>
 <body>
@@ -183,7 +186,8 @@ select option{background:var(--navy2);}
     </div>
     <div class="field"><label>Phone</label><input type="tel" id="custPhone" placeholder=""></div>
     <div class="field"><label>Email</label><input type="email" id="custEmail" placeholder=""></div>
-    <div class="field"><label>Address</label><input type="text" id="custAddr" placeholder="" oninput="updatePreview()"></div>
+    <div class="field"><label>Address</label><input type="text" id="custAddr" placeholder="" oninput="updatePreview();updatePropLink()"></div>
+    <div id="propLinkWrap" style="margin-top:-10px;margin-bottom:.875rem;"></div>
     <div class="field"><label>Roof sq ft <span style="font-weight:400;text-transform:none;font-size:11px;">(optional)</span></label><input type="number" id="roofSqFt" placeholder="e.g. 1800"></div>
   </div>
 
@@ -597,6 +601,42 @@ function renderHistory() {
   }).join('');
 }
 
+// ─── PROPERTY APPRAISER LINK ─────────────────────────────────────
+const _BROWARD = ['weston','davie','pembroke pines','coral springs','plantation','sunrise','fort lauderdale','hollywood','miramar','cooper city','southwest ranches','tamarac','lauderhill','margate','coconut creek','parkland','deerfield beach','pompano beach','oakland park','wilton manors','lauderdale lakes'];
+const _MIAMI_DADE = ['miami','aventura','kendall','doral','hialeah','homestead','cutler bay','pinecrest','palmetto bay','miami beach','miami lakes','coral gables','north miami','north miami beach','sunny isles beach','bay harbor islands'];
+const _PALM_BEACH = ['boca raton','delray beach','wellington','boynton beach','west palm beach'];
+
+function detectCounty(addr) {
+  const s = addr.toLowerCase();
+  if (_BROWARD.some(c => s.includes(c)))    return 'broward';
+  if (_MIAMI_DADE.some(c => s.includes(c))) return 'miami-dade';
+  if (_PALM_BEACH.some(c => s.includes(c))) return 'palm-beach';
+  return null;
+}
+
+function updatePropLink() {
+  const addr = (document.getElementById('custAddr').value || '').trim();
+  const wrap = document.getElementById('propLinkWrap');
+  if (!wrap) return;
+  if (!addr) { wrap.innerHTML = ''; return; }
+  const county = detectCounty(addr);
+  let url, label;
+  if (county === 'broward') {
+    url   = 'https://web.bcpa.net/BcpaClient/#/Record-Search?searchText=' + encodeURIComponent(addr);
+    label = '📍 BCPA (Broward) →';
+  } else if (county === 'miami-dade') {
+    url   = 'https://www.miamidade.gov/Apps/PA/propertysearch/';
+    label = '📍 Miami-Dade PA →';
+  } else if (county === 'palm-beach') {
+    url   = 'https://pbcpao.gov/Property/Search';
+    label = '📍 Palm Beach PAO →';
+  } else {
+    url   = 'https://www.google.com/search?q=' + encodeURIComponent(addr + ' FL property appraiser');
+    label = '📍 Search Property Records →';
+  }
+  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" title="Opens in new tab">' + label + '</a>';
+}
+
 // ─── AUTO-POPULATE FROM ?customer= LINK ──────────────────────────
 setTimeout(function() {
   var param = new URLSearchParams(window.location.search).get('customer');
@@ -619,6 +659,7 @@ setTimeout(function() {
     }
     if (d.reqId) incomingReqId = d.reqId;
     updatePreview();
+    updatePropLink();
     if (d.p) checkCustomerAlerts(d.p.replace(/\D/g,''));
   } catch(e) {
     console.error('QuoteBuilder pre-fill failed:', e);
