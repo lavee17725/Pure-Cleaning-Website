@@ -299,6 +299,7 @@ td.money{font-family:'DM Mono',monospace;}
       <thead>
         <tr>
           <th style="width:32px;cursor:default;"></th>
+          <th style="width:120px;cursor:default;">Text Now</th>
           <th onclick="clickSort('name')">Name</th>
           <th onclick="clickSort('phone')">Phone</th>
           <th onclick="clickSort('city')">City</th>
@@ -307,7 +308,6 @@ td.money{font-family:'DM Mono',monospace;}
           <th onclick="clickSort('lifetimeSpend')">Lifetime $</th>
           <th onclick="clickSort('avgTicket')">Avg Ticket</th>
           <th onclick="clickSort('monthsSince')">Months Since</th>
-          <th style="width:120px;cursor:default;">Text Now</th>
           <th onclick="clickSort('tier')">Tier</th>
           <th style="width:70px;cursor:default;"></th>
         </tr>
@@ -944,6 +944,7 @@ function renderTable() {
       : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+      <td>${textBtn}</td>
       <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}</td>
       <td class="phone">${formatPhone(c.phone)}</td>
       <td>${c.city || '—'}</td>
@@ -952,7 +953,6 @@ function renderTable() {
       <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>
-      <td>${textBtn}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
       <td><button class="mark-commercial-btn" onclick="markCommercial('${c.phone}')" title="Mark as commercial / exclude">⊘ excl.</button></td>
     </tr>`;
@@ -1040,24 +1040,48 @@ async function textNow(phone) {
   if (!code || !binId) {
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     try {
-      binId = await getOrCreateBin();
-      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-        mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-      });
-      const getData = await getRes.json();
-      const records = getData.record || {};
-      let tries = 0;
-      do { code = generateCode(); tries++; } while (records[code] && tries < 200);
-      records[code] = {
+      code = generateCode();
+      const customerRecord = {
         fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
         city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
         totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
       };
-      await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-        method: 'PUT', mode: 'cors',
-        headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
-        body: JSON.stringify(records)
-      });
+
+      const existingBinId = localStorage.getItem('pcpc_customer_links_bin_id');
+      if (existingBinId) {
+        // Bin exists — fetch records, avoid code collisions, then PUT
+        binId = existingBinId;
+        const getRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+          mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+        });
+        const getData = await getRes.json();
+        console.log('[textNow] GET bin status:', getRes.status);
+        const records = getData.record || {};
+        let tries = 0;
+        do { code = generateCode(); tries++; } while (records[code] && tries < 200);
+        records[code] = customerRecord;
+        const putRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
+          method: 'PUT', mode: 'cors',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+          body: JSON.stringify(records)
+        });
+        console.log('[textNow] PUT status:', putRes.status);
+      } else {
+        // No bin yet — create it with the customer record already in the body
+        const postBody = JSON.stringify({ [code]: customerRecord });
+        console.log('[textNow] Creating bin, body length:', postBody.length, 'body:', postBody);
+        const res = await fetch('https://api.jsonbin.io/v3/b', {
+          method: 'POST', mode: 'cors',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Private': 'false', 'X-Bin-Name': 'PureCleaningCustomerLinks' },
+          body: postBody
+        });
+        const data = await res.json();
+        console.log('[textNow] POST bin status:', res.status, 'response:', JSON.stringify(data));
+        if (!data.metadata?.id) throw new Error('Could not create JSONbin: ' + JSON.stringify(data));
+        binId = data.metadata.id;
+        localStorage.setItem('pcpc_customer_links_bin_id', binId);
+      }
+
       c.linkCode = code;
       c.linkBin = binId;
       saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
@@ -1099,6 +1123,7 @@ async function getOrCreateBin() {
     body: JSON.stringify({ _v: 1 })
   });
   const data = await res.json();
+  console.log('[getOrCreateBin] status:', res.status, 'response:', JSON.stringify(data));
   if (!data.metadata?.id) throw new Error('Could not create JSONbin: ' + JSON.stringify(data));
   localStorage.setItem('pcpc_customer_links_bin_id', data.metadata.id);
   return data.metadata.id;
