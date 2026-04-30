@@ -257,8 +257,8 @@ const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/
 const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
-const PROPERTY_MANAGERS = ['karen niece','nelson faguaga','patrick willis','alex rosales','maria eganez','patricia calderon'];
-const BUILDING_KEYWORDS = ['the edge','lakewood condo','pine ridge','pine island','country gardens','racquet club','lakeview','lighthouse cove','sabal palm','palm springs','pembroke lakes','stirling','town center','shopping plaza','davie square'];
+const PROPERTY_MANAGERS = ['karen niece','nelson faguaga','patrick willis','alex rosales','maria eganez','patricia calderon','bob better'];
+const BUILDING_KEYWORDS = ['the edge','lakewood condo','pine ridge','pine island','country gardens','racquet club','lakeview','lighthouse cove','sabal palm','palm springs','pembroke lakes','stirling','town center','shopping plaza','davie square','realmanage','university parc','parc residences','residences'];
 const BUILDING_PATTERN_RE = /^the\s+\w+$|\bat\s+\d|\b\d+$/i;
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -480,11 +480,12 @@ async function processFiles() {
   const byPhone = {};
   for (const r of rawRows) {
     if (!byPhone[r.phone]) {
-      byPhone[r.phone] = { fn: r.fn, ln: r.ln, phone: r.phone, address: r.address, city: r.city, lastDateObj: null, totalJobs: 0, lifetimeSpend: 0, addresses: new Set() };
+      byPhone[r.phone] = { fn: r.fn, ln: r.ln, phone: r.phone, address: r.address, city: r.city, lastDateObj: null, totalJobs: 0, lifetimeSpend: 0, maxTicket: 0, addresses: new Set() };
     }
     const c = byPhone[r.phone];
     c.totalJobs++;
     c.lifetimeSpend += r.total;
+    if (r.total > c.maxTicket) c.maxTicket = r.total;
     if (r.address) c.addresses.add(r.address.toLowerCase().trim());
     if (r.dateObj && (!c.lastDateObj || r.dateObj > c.lastDateObj)) {
       c.lastDateObj = r.dateObj;
@@ -496,6 +497,14 @@ async function processFiles() {
   for (const [phone, c] of Object.entries(byPhone)) {
     if (c.totalJobs >= 4 && c.addresses.size >= 3 && manualOverrides[phone] !== 'include') {
       excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'multi_property', customerData: c });
+      delete byPhone[phone];
+    }
+  }
+
+  // High-ticket heuristic: single job >= $3,000 → almost certainly commercial
+  for (const [phone, c] of Object.entries(byPhone)) {
+    if (c.maxTicket >= 3000 && manualOverrides[phone] !== 'include') {
+      excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'high_ticket', customerData: c });
       delete byPhone[phone];
     }
   }
@@ -739,7 +748,7 @@ function renderExcludedList() {
   const el = document.getElementById('excludedList');
   if (!excludedRecords.length) { el.innerHTML = '<span style="color:var(--muted)">None</span>'; return; }
 
-  const counts = { keyword: 0, property_manager: 0, building: 0, multi_property: 0, manual: 0 };
+  const counts = { keyword: 0, property_manager: 0, building: 0, multi_property: 0, high_ticket: 0, manual: 0 };
   excludedRecords.forEach(e => { if (counts[e.reason] != null) counts[e.reason]++; });
 
   const breakdown = `<div style="font-size:10px;color:var(--muted);padding:4px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;line-height:2;">` +
@@ -747,6 +756,7 @@ function renderExcludedList() {
     `<span style="margin-right:12px;">Property manager: <strong style="color:var(--sky);">${counts.property_manager}</strong></span>` +
     `<span style="margin-right:12px;">Building pattern: <strong style="color:#c084fc;">${counts.building}</strong></span>` +
     `<span style="margin-right:12px;">Multi-property: <strong style="color:var(--gold);">${counts.multi_property}</strong></span>` +
+    `<span style="margin-right:12px;">High-ticket: <strong style="color:#fb923c;">${counts.high_ticket}</strong></span>` +
     `<span>Manual: <strong style="color:#fc8181;">${counts.manual}</strong></span>` +
     `</div>`;
 
@@ -756,6 +766,7 @@ function renderExcludedList() {
       property_manager: '<span class="exc-tag-pm">(Property Manager)</span>',
       building: '<span style="color:#c084fc;font-size:10px;margin-left:6px;">(Building)</span>',
       multi_property: '<span class="exc-tag-mp">(Multi-property)</span>',
+      high_ticket: '<span style="color:#fb923c;font-size:10px;margin-left:6px;">(High-ticket)</span>',
       manual: '<span class="exc-tag-manual">(Manual)</span>'
     }[e.reason] || '';
     const moveBtn = e.phone
