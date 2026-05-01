@@ -206,7 +206,8 @@ function showPane(name) {
 function updateCounts() {
   document.getElementById('cnt-waiting').textContent = allQuotes.filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed').length;
   document.getElementById('cnt-booked').textContent  = allQuotes.filter(c => c.quoteStatus.state === 'approved').length;
-  document.getElementById('cnt-lost').textContent    = allQuotes.filter(c => c.quoteStatus.state === 'lost').length;
+  const canceledCount = (dbRecord.customers||[]).filter(c => c.scheduledStatus && c.scheduledStatus.state === 'canceled').length;
+  document.getElementById('cnt-lost').textContent    = allQuotes.filter(c => c.quoteStatus.state === 'lost').length + canceledCount;
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -269,25 +270,45 @@ function renderBooked() {
   }).join('');
 }
 
+function isInCooldown(phone) {
+  try {
+    const contacts = JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}');
+    const v = contacts[phone];
+    if (!v) return false;
+    const until = typeof v === 'string' ? v : (v && v.cooldownUntil);
+    return !!(until && new Date(until) > new Date());
+  } catch(e) { return false; }
+}
+
 function renderLost() {
-  const quotes = allQuotes
-    .filter(c => c.quoteStatus.state === 'lost')
-    .sort((a,b) => new Date(b.quoteStatus.lostDate||'') - new Date(a.quoteStatus.lostDate||''));
-  if (!quotes.length) return `<div class="empty"><div class="empty-icon">👌</div><h3>No lost quotes yet</h3><p>Keep it that way!</p></div>`;
-  return quotes.map(c => {
-    const qs = c.quoteStatus;
+  const CANCEL_LABELS = {customer_canceled:'Customer canceled',reschedule_later:'Rescheduled later',weather:'Weather delay',tyler_canceled:'Tyler canceled',no_show:'No-show',other:'Other','no response':'No response','went elsewhere':'Went elsewhere','not interested':'Not interested'};
+  const lostFromQuote = allQuotes.filter(c => c.quoteStatus && c.quoteStatus.state === 'lost');
+  const canceled = (dbRecord.customers || []).filter(c => c.scheduledStatus && c.scheduledStatus.state === 'canceled' && !(c.quoteStatus && c.quoteStatus.state === 'lost'));
+  const combined = [
+    ...lostFromQuote.map(c => ({c, date: c.quoteStatus.lostDate || '', reason: c.quoteStatus.lostReason || 'unknown', type:'lost'})),
+    ...canceled.map(c => ({c, date: c.scheduledStatus.canceledDate || '', reason: c.scheduledStatus.canceledReason || 'unknown', type:'canceled'}))
+  ].sort((a,b) => new Date(b.date) - new Date(a.date));
+
+  if (!combined.length) return `<div class="empty"><div class="empty-icon">👌</div><h3>No lost or canceled jobs yet</h3><p>Keep it that way!</p></div>`;
+
+  return combined.map(({c, date, reason, type}) => {
     const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
-    const lostOn = qs.lostDate ? fmtDate(qs.lostDate) : '—';
-    const reasonMap = {'no response':'No response','went elsewhere':'Went elsewhere','not interested':'Not interested'};
-    const reason = esc(reasonMap[qs.lostReason] || qs.lostReason || 'Unknown');
+    const dateStr = date ? fmtDate(date) : '—';
+    const reasonLabel = esc(CANCEL_LABELS[reason] || reason || 'Unknown');
+    const amt = (c.scheduledStatus||{}).approvedAmount;
+    const amtStr = amt ? ` · $${Number(amt).toLocaleString()}` : '';
+    const typeTag = type === 'canceled' ? '<span class="tag" style="background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:700;">Canceled</span>' : '<span class="tag tag-lr">Lost</span>';
+    const inCooldown = isInCooldown(c.phone);
+    const reEngageBtn = !inCooldown
+      ? `<button class="btn btn-resend" onclick="resendQuote('${c.phone}')">↺ Re-engage</button>`
+      : `<button class="btn" disabled style="opacity:.4;cursor:not-allowed;" title="In 6-month cooldown">⏳ Cooldown</button>`;
     return `<div class="card c-lost" id="card-${c.phone}">
       <div class="cn">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
-      <div class="cm"><span style="color:var(--muted);font-size:13px;">Lost ${lostOn}</span><span class="tag tag-lr">${reason}</span></div>
-      <div class="cta">
-        <button class="btn btn-resend" onclick="resendQuote('${c.phone}')">↺ Send another quote</button>
-      </div>
+      <div class="cd" style="font-size:12px;color:var(--muted);">${dateStr}${amtStr}</div>
+      <div class="cm">${typeTag}<span class="tag tag-lr">${reasonLabel}</span></div>
+      <div class="cta">${reEngageBtn}</div>
     </div>`;
   }).join('');
 }

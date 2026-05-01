@@ -103,6 +103,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
     <div id="behaviorContent"><div style="font-size:12px;color:var(--muted);padding:.5rem 0;">Loading…</div></div>
   </div>
 
+  <div class="funnel-panel" id="testCleanupPanel">
+    <div class="panel-title">🧹 Test Data Cleanup</div>
+    <div id="testCleanupContent">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem;">Finds records matching test names/phones (Tyler Fumero, Darlah Fumero, 9546103843, 9546157770).</div>
+      <button onclick="loadTestRecords()" style="padding:7px 16px;background:var(--border);color:var(--text);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Review test records →</button>
+      <div id="testRecordsList" style="margin-top:.75rem;"></div>
+    </div>
+  </div>
+
   <div class="footer">
     <strong>Bookmark this page</strong><br>
     iPhone: tap <strong>Share ⬆</strong> → <strong>Add to Home Screen</strong><br>
@@ -388,6 +397,60 @@ async function loadBehaviorInsights() {
     `;
   } catch(e) {
     el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Could not load behavior data.</div>';
+  }
+}
+
+const TEST_NAMES = ['tyler fumero','darlah fumero','darla fumero'];
+const TEST_PHONES = ['9546103843','9546157770'];
+
+async function loadTestRecords() {
+  const el = document.getElementById('testRecordsList');
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Loading…</div>';
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+    const data = await res.json();
+    const customers = (data.record || {}).customers || [];
+    const matches = customers.filter(c => {
+      const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
+      return TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone);
+    });
+    if (!matches.length) { el.innerHTML = '<div style="font-size:12px;color:var(--muted);">No test records found — all clean ✓</div>'; return; }
+    el.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${matches.length} test record(s) found:</div>
+      ${matches.map(c => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <input type="checkbox" id="tr-${c.phone}" data-phone="${c.phone}" checked>
+          <label for="tr-${c.phone}" style="flex:1;cursor:pointer;"><strong>${c.firstName||''} ${c.lastName||''}</strong> · ${c.phone} · ${c.city||''} · jobs: ${c.totalJobs||0} · $${(c.lifetimeSpend||0).toLocaleString()}</label>
+        </div>`).join('')}
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button onclick="deleteSelectedTestRecords()" style="padding:7px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Delete selected</button>
+        <button onclick="document.getElementById('testRecordsList').innerHTML=''" style="padding:7px 16px;background:var(--border);color:var(--text);border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
+      </div>`;
+    // store db for deletion
+    window._adminDbRecord = data.record;
+  } catch(e) { el.innerHTML = `<div style="font-size:12px;color:#dc2626;">Error: ${e.message}</div>`; }
+}
+
+async function deleteSelectedTestRecords() {
+  const checked = [...document.querySelectorAll('#testRecordsList input[type=checkbox]:checked')].map(cb => cb.dataset.phone);
+  if (!checked.length) return;
+  if (!confirm(`Delete ${checked.length} record(s)? This cannot be undone.`)) return;
+  const db = window._adminDbRecord;
+  if (!db) return;
+  const before = db.customers.length;
+  db.customers = db.customers.filter(c => !checked.includes(c.phone));
+  const removed = before - db.customers.length;
+  try {
+    await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
+      method:'PUT', mode:'cors',
+      headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
+      body:JSON.stringify(db)
+    });
+    sessionStorage.removeItem('pcpc_customer_db_cache');
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Deleted ${removed} record(s). Cache cleared.</div>`;
+    loadQuickStats();
+  } catch(e) {
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
   }
 }
 

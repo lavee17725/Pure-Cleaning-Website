@@ -595,7 +595,7 @@ async function approveQuote() {
   ]);
 
   // Background: mark approved in customer DB
-  if (quoteData.phone) updateQuoteApproved(quoteData.phone);
+  if (quoteData.phone) updateQuoteApproved(quoteData.phone, total);
 
   // Show success
   document.getElementById('quoteView').style.display = 'none';
@@ -620,7 +620,7 @@ function guessJobDuration() {
   return 2;
 }
 
-function updateQuoteApproved(phone) {
+function updateQuoteApproved(phone, approvedTotal) {
   const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
   const DB  = '69f2d8b6856a6821898c3bfb';
   const dur = guessJobDuration();
@@ -640,7 +640,7 @@ function updateQuoteApproved(phone) {
         state: 'needs_scheduling', scheduledDate: null, rig: null, crew: [],
         estimatedDuration: dur, jobNotes: svcStr, startTime: '09:00',
         customerSelectedDate: selectedDate ? selectedDate.val : null,
-        approvedAmount: total || null
+        approvedAmount: approvedTotal || null
       };
       return fetch('https://api.jsonbin.io/v3/b/' + DB, {
         method: 'PUT', mode: 'cors',

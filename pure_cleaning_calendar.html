@@ -48,6 +48,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:4px;}
 .jd{font-size:12px;color:var(--muted);line-height:1.5;}
 .drag-hint{font-size:10px;color:#b0bac8;margin-top:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+.card-del-btn{position:absolute;top:6px;right:6px;background:none;border:none;color:#d1d5db;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px;transition:color .15s,background .15s;}
+.card-del-btn:hover{color:#dc2626;background:#fee2e2;}
+.job-unscheduled{position:relative;}
 
 /* ── CALENDAR GRID ── */
 .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(175px,1fr));min-width:1225px;gap:0;}
@@ -274,6 +277,29 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
 </div>
 
+<!-- ── CONFIRM DELETE MODAL ── -->
+<div class="overlay hidden" id="confirmModal" onclick="if(event.target===this)closeConfirmModal()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title" id="cmTitle">Confirm</div>
+    <div id="cmBody" style="font-size:14px;color:#4b5563;line-height:1.6;margin-bottom:1rem;"></div>
+    <div class="modal-field" id="cmReasonWrap" style="display:none;">
+      <label>Reason</label>
+      <select id="cmReason" class="modal-input">
+        <option value="customer_canceled">Customer canceled</option>
+        <option value="reschedule_later">Customer rescheduled to later date</option>
+        <option value="weather">Weather delay</option>
+        <option value="tyler_canceled">Tyler canceled</option>
+        <option value="no_show">Customer no-show</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeConfirmModal()">Cancel</button>
+      <button id="cmConfirmBtn" style="flex:1;padding:12px;border-radius:10px;background:#dc2626;color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -317,7 +343,7 @@ const CREW_MEMBERS = [
   {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   halfRate:0,   role:'owner'}
 ];
 const RIGS = ['rig_1','rig_2','rig_3'];
-const RIG_LABELS = {rig_1:'Rig 1', rig_2:'Rig 2', rig_3:'Rig 3'};
+const RIG_LABELS = {rig_1:'Old Tacoma', rig_2:'New Tacoma', rig_3:'Chevy'};
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
 let dbRecord      = null;
@@ -343,7 +369,14 @@ function saveCalState() {
 }
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
+function renderShell() {
+  // Paint the calendar frame immediately (before DB loads) so it feels instant
+  document.getElementById('needsList').innerHTML = '<div style="padding:1rem;text-align:center;color:var(--muted);font-size:13px;">Loading jobs…</div>';
+  renderCalGrid(getWeekDates()); // renders with empty rig lanes (no jobs yet)
+}
+
 async function init() {
+  renderShell();
   try {
     dbRecord = (await getCachedCustomerDB()) || {};
     render();
@@ -443,6 +476,7 @@ function jobCardSidebar(c) {
     wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(fmt)}</div>`;
   }
   return `<div class="job-unscheduled" data-phone="${c.phone}" title="${name}">
+    <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
     <div class="jn-row"><div class="jn">${name}${alerts}</div>${amtHtml}</div>
     ${wantsLine}
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
@@ -861,8 +895,9 @@ function openJobModal(phone) {
 
   const isCompleted = ss.state === 'completed';
   document.getElementById('jmFooter').innerHTML = `
-    <button class="mbtn-cancel" onclick="unscheduleJob()">↩ Unschedule</button>
+    <button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>
     ${!isCompleted ? `<button class="mbtn-green" onclick="markComplete()">✓ Complete</button>` : ''}
+    <button style="flex:1;padding:10px;border-radius:10px;background:#fee2e2;color:#dc2626;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptCancelJob('${phone}')">✕ Cancel Job</button>
     <button class="mbtn-save" onclick="saveJobModal()">Save</button>
   `;
   document.getElementById('jobModal').classList.remove('hidden');
@@ -884,11 +919,145 @@ function saveJobModal() {
 function markComplete() {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
-  c.scheduledStatus.state = 'completed';
+  const ss = c.scheduledStatus;
+  ss.state = 'completed';
+  ss.completedDate = isoToday();
+  // Update customer history
+  const amt = ss.approvedAmount || 0;
+  if (amt > 0) c.lifetimeSpend = (c.lifetimeSpend || 0) + amt;
+  c.totalJobs = (c.totalJobs || 0) + 1;
+  c.lastService = isoToday();
   saveDb().catch(()=>{});
   closeJobModal();
   render();
-  showToast('✓ Job marked as completed');
+  showToast('✓ Job completed — customer history updated');
+}
+
+// ── DELETE / CANCEL FLOWS ──────────────────────────────────────────────────────
+let _confirmCallback = null;
+let _deletedSnapshot = null; // for undo
+
+function closeConfirmModal() {
+  document.getElementById('confirmModal').classList.add('hidden');
+  _confirmCallback = null;
+}
+
+function promptDeleteFromQueue(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const amt = (c.scheduledStatus||{}).approvedAmount;
+  const amtStr = amt ? ` · $${Number(amt).toLocaleString()}` : '';
+  document.getElementById('cmTitle').textContent = 'Remove from Queue';
+  document.getElementById('cmBody').innerHTML = `Remove <strong>${esc(name)}</strong> from the scheduling queue?${amtStr}<br><span style="color:#dc2626;font-size:12px;">This clears the job. The customer record is preserved.</span>`;
+  document.getElementById('cmReasonWrap').style.display = 'none';
+  document.getElementById('cmConfirmBtn').textContent = 'Remove';
+  _confirmCallback = () => executeDeleteFromQueue(phone);
+  document.getElementById('cmConfirmBtn').onclick = () => { closeConfirmModal(); _confirmCallback && _confirmCallback(); };
+  document.getElementById('confirmModal').classList.remove('hidden');
+}
+
+function executeDeleteFromQueue(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  // Clear job state but preserve customer record
+  if (c.lifetimeSpend > 0) {
+    c.quoteStatus = null;
+    c.scheduledStatus = null;
+  } else {
+    // Test/no-history record — clear entirely
+    c.quoteStatus = null;
+    c.scheduledStatus = null;
+  }
+  logEvent('job_deleted', phone, {name, reason:'removed_from_queue'});
+  saveDb().catch(()=>{});
+  render();
+  showToast(`🗑 ${esc(name)} removed`, 'Undo', () => undoDelete(phone));
+}
+
+function promptCancelJob(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const ss = c.scheduledStatus || {};
+  const dateStr = ss.scheduledDate ? new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '';
+  document.getElementById('cmTitle').textContent = 'Cancel Job';
+  document.getElementById('cmBody').innerHTML = `Cancel <strong>${esc(name)}</strong>${dateStr ? `'s job on ${dateStr}` : ''}?<br><span style="font-size:12px;color:var(--muted);">Customer record preserved. Choose a reason below.</span>`;
+  document.getElementById('cmReasonWrap').style.display = 'block';
+  document.getElementById('cmConfirmBtn').textContent = 'Cancel Job';
+  document.getElementById('cmConfirmBtn').onclick = () => {
+    const reason = document.getElementById('cmReason').value;
+    closeConfirmModal();
+    closeJobModal();
+    executeCancelJob(phone, reason);
+  };
+  document.getElementById('confirmModal').classList.remove('hidden');
+}
+
+function executeCancelJob(phone, reason) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+
+  if (reason === 'reschedule_later') {
+    // Return to queue rather than cancel
+    c.scheduledStatus.state = 'needs_scheduling';
+    c.scheduledStatus.scheduledDate = null;
+    c.scheduledStatus.rig = null;
+    logEvent('job_rescheduled', phone, {name, reason});
+    saveDb().catch(()=>{});
+    render();
+    showToast(`↺ ${esc(name)} returned to queue for rescheduling`, 'Undo', () => undoDelete(phone));
+    return;
+  }
+
+  c.scheduledStatus.state = 'canceled';
+  c.scheduledStatus.canceledDate = isoToday();
+  c.scheduledStatus.canceledReason = reason;
+
+  // Customer-initiated cancels trigger 6-month cooldown in reactivation
+  if (reason === 'customer_canceled' || reason === 'no_show') {
+    try {
+      const contacts = JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}');
+      const sixMonths = new Date(Date.now() + 6*30*24*60*60*1000);
+      contacts[phone] = { contactedAt: new Date().toISOString(), cooldownUntil: sixMonths.toISOString() };
+      localStorage.setItem('pcpc_reactivation_contacts', JSON.stringify(contacts));
+    } catch(e) {}
+  }
+
+  logEvent('job_canceled', phone, {name, reason});
+  saveDb().catch(()=>{});
+  render();
+  showToast(`✕ ${esc(name)}'s job canceled`, 'Undo', () => undoDelete(phone));
+}
+
+function undoDelete(phone) {
+  if (!_deletedSnapshot || _deletedSnapshot.phone !== phone) return;
+  const c = findCustomer(phone);
+  if (!c) return;
+  c.quoteStatus = _deletedSnapshot.quoteStatus;
+  c.scheduledStatus = _deletedSnapshot.scheduledStatus;
+  _deletedSnapshot = null;
+  saveDb().catch(()=>{});
+  render();
+  showToast('↩ Action undone');
+}
+
+function logEvent(type, phone, meta) {
+  const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+  const BIN = '69f41bfdaaba8821975a74fa';
+  (async () => {
+    try {
+      const r = await fetch('https://api.jsonbin.io/v3/b/'+BIN+'/latest',{headers:{'X-Master-Key':KEY}});
+      const rec = (await r.json()).record||{};
+      const evts = rec.events||[];
+      evts.push({id:'evt_'+Date.now(),timestamp:new Date().toISOString(),eventType:type,customerPhone:phone,metadata:meta||{}});
+      await fetch('https://api.jsonbin.io/v3/b/'+BIN,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({events:evts})});
+    } catch(e) {}
+  })();
 }
 
 function unscheduleJob() {
