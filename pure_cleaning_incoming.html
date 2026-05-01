@@ -72,8 +72,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 .btn-restore:disabled{opacity:.5;cursor:default;}
 .btn-cx{margin-left:auto;font-size:11px;color:var(--muted);text-decoration:none;font-weight:500;white-space:nowrap;}
 .btn-cx:hover{color:var(--sky);}
+.btn-delete{display:inline-flex;align-items:center;gap:4px;background:transparent;color:var(--red);border:1px solid rgba(229,62,62,.3);border-radius:8px;padding:8px 11px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn-delete:hover{background:rgba(229,62,62,.1);border-color:var(--red);}
 
 .quoted-pill{font-size:11px;color:var(--green);font-family:'DM Mono',monospace;background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.25);border-radius:6px;padding:4px 9px;white-space:nowrap;}
+
+/* ── Bulk selection ── */
+.bulk-cb{width:16px;height:16px;cursor:pointer;accent-color:var(--sky);flex-shrink:0;}
+.select-row{display:flex;align-items:center;gap:8px;padding:.375rem .25rem .625rem;font-size:12px;color:var(--muted);}
+.select-row label{cursor:pointer;user-select:none;}
+#bulkBar{display:none;position:fixed;bottom:0;left:0;right:0;padding:12px 1.25rem;background:#0a1628;border-top:1px solid var(--border);flex-direction:row;align-items:center;gap:10px;z-index:99;}
+.bulk-count{font-size:13px;font-weight:600;color:var(--text);flex:1;}
+.btn-bulk{padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;border:none;}
+.btn-bulk-dismiss{background:rgba(122,138,170,.12);border:1px solid rgba(122,138,170,.3);color:var(--muted);}
+.btn-bulk-dismiss:hover{border-color:var(--gold);color:var(--gold);}
+.btn-bulk-delete{background:rgba(229,62,62,.1);border:1px solid rgba(229,62,62,.3);color:var(--red);}
+.btn-bulk-delete:hover{background:rgba(229,62,62,.18);}
+.btn-bulk-restore{background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.3);color:var(--green);}
+.btn-bulk-restore:hover{background:rgba(29,158,117,.18);}
+.btn-bulk-clear{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:4px 8px;font-family:'DM Sans',sans-serif;}
+
+/* ── Undo toast ── */
+#undoToast{display:none;position:fixed;bottom:4.5rem;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:.75rem 1.25rem;flex-direction:row;align-items:center;gap:14px;z-index:200;min-width:260px;box-shadow:0 8px 24px rgba(0,0,0,.6);}
+.toast-msg{font-size:13px;font-weight:500;color:var(--text);flex:1;}
+.toast-undo{font-size:12px;font-weight:700;color:var(--sky);cursor:pointer;padding:5px 10px;border-radius:6px;background:rgba(45,125,210,.12);border:1px solid rgba(45,125,210,.3);font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.toast-undo:hover{background:rgba(45,125,210,.22);}
 </style>
 </head>
 <body>
@@ -89,14 +112,30 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 </div>
 
 <div class="tabs">
-  <div class="tab active" id="tab-new"      onclick="switchTab('new')">🔔 New <span class="cnt" id="cnt-new">0</span></div>
-  <div class="tab"        id="tab-quoted"   onclick="switchTab('quoted')">✓ Quoted <span class="cnt" id="cnt-quoted">0</span></div>
-  <div class="tab"        id="tab-waitlist" onclick="switchTab('waitlist')">⏳ Waitlist <span class="cnt" id="cnt-waitlist">0</span></div>
-  <div class="tab"        id="tab-ignored"  onclick="switchTab('ignored')">🗑 Ignored <span class="cnt" id="cnt-ignored">0</span></div>
+  <div class="tab active" id="tab-new"       onclick="switchTab('new')">🔔 New <span class="cnt" id="cnt-new">0</span></div>
+  <div class="tab"        id="tab-quoted"    onclick="switchTab('quoted')">✓ Quoted <span class="cnt" id="cnt-quoted">0</span></div>
+  <div class="tab"        id="tab-waitlist"  onclick="switchTab('waitlist')">⏳ Waitlist <span class="cnt" id="cnt-waitlist">0</span></div>
+  <div class="tab"        id="tab-dismissed" onclick="switchTab('dismissed')">🔇 Dismissed <span class="cnt" id="cnt-dismissed">0</span></div>
+  <div class="tab"        id="tab-all"       onclick="switchTab('all')">All <span class="cnt" id="cnt-all">0</span></div>
 </div>
 
 <div class="wrap" id="wrap">
   <div class="empty-state"><div class="e-icon">⏳</div><p>Loading requests…</p></div>
+</div>
+
+<!-- Undo toast -->
+<div id="undoToast">
+  <span class="toast-msg" id="toastMsg"></span>
+  <button class="toast-undo" onclick="doUndo()">Undo</button>
+</div>
+
+<!-- Bulk action bar -->
+<div id="bulkBar">
+  <span class="bulk-count" id="bulkCount">0 selected</span>
+  <button class="btn-bulk btn-bulk-dismiss"  onclick="bulkAction('dismiss')">Dismiss</button>
+  <button class="btn-bulk btn-bulk-delete"   onclick="bulkAction('delete')">Delete</button>
+  <button class="btn-bulk btn-bulk-restore"  id="bulkRestoreBtn" onclick="bulkAction('restore')" style="display:none;">Restore</button>
+  <button class="btn-bulk-clear" onclick="clearBulkSelection()">✕ Clear</button>
 </div>
 
 <script>
@@ -108,6 +147,8 @@ const NEW_CUSTOMER_URL    = '/pure_cleaning_new_customer.html';
 let allRequests = [];
 let activeTab   = 'new';
 let lastRefresh = null;
+let selectedIds = new Set();
+let _toastTimeout = null, _toastUndo = null, _toastCommit = null;
 
 // ── Service name → quote builder format ───────────────────────────
 const SVC_MAP = {
@@ -123,6 +164,154 @@ const SVC_MAP = {
   'Pool deck':                                   'Pool Deck',
 };
 function mapSvc(s) { return SVC_MAP[s] || s; }
+
+// ── Persist helpers ────────────────────────────────────────────────
+async function persistRequests() {
+  await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN_ID, {
+    method: 'PUT', mode: 'cors',
+    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
+    body: JSON.stringify({ requests: allRequests })
+  });
+}
+
+async function auditLog(eventType, data) {
+  try {
+    const EVENTS_BIN = '69f41bfdaaba8821975a74fa';
+    const r = await fetch('https://api.jsonbin.io/v3/b/' + EVENTS_BIN + '/latest', { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
+    const rec = (await r.json()).record || {};
+    const evts = rec.events || [];
+    evts.push({ id: 'ops_' + Date.now(), timestamp: new Date().toISOString(), eventType, metadata: data || {} });
+    await fetch('https://api.jsonbin.io/v3/b/' + EVENTS_BIN, {
+      method: 'PUT', mode: 'cors',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
+      body: JSON.stringify({ events: evts })
+    });
+  } catch(e) {}
+}
+
+// ── Undo toast ─────────────────────────────────────────────────────
+function showUndoToast(msg, undoFn, commitFn) {
+  if (_toastTimeout) { clearTimeout(_toastTimeout); _toastCommit && _toastCommit(); }
+  _toastUndo = undoFn; _toastCommit = commitFn;
+  document.getElementById('toastMsg').textContent = msg;
+  const toast = document.getElementById('undoToast');
+  toast.style.display = 'flex';
+  _toastTimeout = setTimeout(() => {
+    toast.style.display = 'none';
+    _toastCommit && _toastCommit();
+    _toastTimeout = _toastUndo = _toastCommit = null;
+  }, 5000);
+}
+
+function doUndo() {
+  if (_toastTimeout) clearTimeout(_toastTimeout);
+  document.getElementById('undoToast').style.display = 'none';
+  _toastUndo && _toastUndo();
+  _toastTimeout = _toastUndo = _toastCommit = null;
+}
+
+// ── Delete (permanent, with 5s undo) ──────────────────────────────
+function deleteRequest(id) {
+  const req = allRequests.find(r => r.id === id);
+  if (!req) return;
+  if (!confirm('Permanently delete this request?')) return;
+  allRequests = allRequests.filter(r => r.id !== id);
+  selectedIds.delete(id);
+  renderTab();
+  const snapshot = req;
+  let committed = false;
+  showUndoToast('Request deleted.', () => {
+    if (committed) return;
+    allRequests = [snapshot, ...allRequests];
+    renderTab();
+  }, async () => {
+    committed = true;
+    await persistRequests().catch(() => {});
+    auditLog('deleted_request', { id: snapshot.id, name: (snapshot.customerData?.firstName||'') + ' ' + (snapshot.customerData?.lastName||''), phone: snapshot.customerData?.phone || '' });
+  });
+}
+
+// ── Dismiss ────────────────────────────────────────────────────────
+function confirmDismiss(id, name, btn) {
+  if (!confirm(`Dismiss "${name}"?\n\nMoves to Dismissed tab — can be restored anytime.`)) return;
+  changeStatus(id, 'dismissed', btn);
+}
+
+// ── Bulk selection ─────────────────────────────────────────────────
+function toggleBulkSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  updateBulkBar();
+  // Update card outline
+  const card = document.getElementById('card-' + id);
+  if (card) card.style.outline = selectedIds.has(id) ? '2px solid var(--sky)' : '';
+  // Update select-all state
+  const tab = document.getElementById('wrap');
+  if (!tab) return;
+  const allCbs = tab.querySelectorAll('.bulk-cb[data-id]');
+  // We don't use data-id on the checkboxes (we pass id as arg), so just check via select-all cb
+  const allVisible = [...document.querySelectorAll('.req-card')].map(c => c.id.replace('card-',''));
+  const allSel = allVisible.length > 0 && allVisible.every(id2 => selectedIds.has(id2));
+  const saCb = document.getElementById('selectAllCb');
+  if (saCb) saCb.checked = allSel;
+}
+
+function toggleSelectAll() {
+  const cb = document.getElementById('selectAllCb');
+  const allVisible = [...document.querySelectorAll('.req-card')].map(c => c.id.replace('card-',''));
+  if (cb && cb.checked) allVisible.forEach(id => selectedIds.add(id));
+  else allVisible.forEach(id => selectedIds.delete(id));
+  // Re-render to reflect checkbox state + outlines
+  renderTab();
+}
+
+function clearBulkSelection() {
+  selectedIds.clear();
+  renderTab();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const cnt = document.getElementById('bulkCount');
+  if (!bar) return;
+  if (selectedIds.size === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  cnt.textContent = `${selectedIds.size} selected`;
+}
+
+async function bulkAction(action) {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  const verb = action === 'delete' ? 'Permanently delete' : action === 'dismiss' ? 'Dismiss' : 'Restore';
+  if (!confirm(`${verb} ${ids.length} request${ids.length > 1 ? 's' : ''}?`)) return;
+
+  if (action === 'delete') {
+    const snapshots = allRequests.filter(r => ids.includes(r.id));
+    allRequests = allRequests.filter(r => !ids.includes(r.id));
+    ids.forEach(id => selectedIds.delete(id));
+    renderTab();
+    let committed = false;
+    showUndoToast(`${snapshots.length} requests deleted.`, () => {
+      if (committed) return;
+      allRequests = [...snapshots, ...allRequests];
+      renderTab();
+    }, async () => {
+      committed = true;
+      await persistRequests().catch(() => {});
+      snapshots.forEach(s => auditLog('deleted_request', { id: s.id }));
+    });
+  } else {
+    const newStatus = action === 'dismiss' ? 'dismissed' : 'new';
+    ids.forEach(id => {
+      const req = allRequests.find(r => r.id === id);
+      if (req) { req.status = newStatus; if (action === 'restore') req.quotedAt = null; }
+    });
+    selectedIds.clear();
+    renderTab();
+    await persistRequests().catch(() => {});
+    ids.forEach(id => auditLog(action + '_request', { id }));
+  }
+}
 
 // ── Fetch ──────────────────────────────────────────────────────────
 async function loadRequests(silent) {
@@ -156,25 +345,33 @@ function renderTab() {
     .filter(r => r.status === s)
     .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
 
-  const newList      = byStatus('new');
-  const quotedList   = byStatus('quoted').sort((a,b) => (b.quotedAt||'').localeCompare(a.quotedAt||''));
-  const waitlistList = byStatus('waitlist');
-  const ignoredList  = byStatus('ignored');
+  const newList        = byStatus('new');
+  const quotedList     = byStatus('quoted').sort((a,b) => (b.quotedAt||'').localeCompare(a.quotedAt||''));
+  const waitlistList   = byStatus('waitlist');
+  const dismissedList  = allRequests.filter(r => r.status === 'ignored' || r.status === 'dismissed')
+                           .sort((a,b) => b.submittedAt.localeCompare(a.submittedAt));
+  const allList        = [...allRequests].sort((a,b) => b.submittedAt.localeCompare(a.submittedAt));
 
-  setCount('new',      newList.length,      true);
-  setCount('quoted',   quotedList.length,   false);
-  setCount('waitlist', waitlistList.length, waitlistList.length > 0);
-  setCount('ignored',  ignoredList.length,  false);
+  setCount('new',       newList.length,       true);
+  setCount('quoted',    quotedList.length,     false);
+  setCount('waitlist',  waitlistList.length,   waitlistList.length > 0);
+  setCount('dismissed', dismissedList.length,  false);
+  setCount('all',       allList.length,        false);
 
-  const lists = { new: newList, quoted: quotedList, waitlist: waitlistList, ignored: ignoredList };
+  const lists = { new: newList, quoted: quotedList, waitlist: waitlistList, dismissed: dismissedList, all: allList };
   const reqs  = lists[activeTab] || [];
 
   const EMPTY = {
-    new:      { icon: '✅', msg: 'No new requests — you\'re all caught up!' },
-    quoted:   { icon: '📋', msg: 'No quoted requests yet.' },
-    waitlist: { icon: '⏳', msg: 'No waitlist requests.' },
-    ignored:  { icon: '🗑', msg: 'Nothing ignored.' },
+    new:       { icon: '✅', msg: 'No new requests — you\'re all caught up!' },
+    quoted:    { icon: '📋', msg: 'No quoted requests yet.' },
+    waitlist:  { icon: '⏳', msg: 'No waitlist requests.' },
+    dismissed: { icon: '🔇', msg: 'Nothing dismissed.' },
+    all:       { icon: '📭', msg: 'No requests at all yet.' },
   };
+
+  // Show/hide bulk restore button only in dismissed tab
+  const restoreBtn = document.getElementById('bulkRestoreBtn');
+  if (restoreBtn) restoreBtn.style.display = activeTab === 'dismissed' ? '' : 'none';
 
   const wrap = document.getElementById('wrap');
   if (!reqs.length) {
@@ -184,9 +381,12 @@ function renderTab() {
   }
 
   const rt = lastRefresh ? lastRefresh.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '';
+  const selAll = reqs.every(r => selectedIds.has(r.id));
   let html = `<div class="refresh-row"><span class="refresh-info">Updated ${rt}</span><button class="refresh-btn" onclick="loadRequests(true)">↻ Refresh</button></div>`;
+  html += `<div class="select-row"><input class="bulk-cb" type="checkbox" id="selectAllCb" ${selAll?'checked':''} onchange="toggleSelectAll()"><label for="selectAllCb">Select all</label></div>`;
   reqs.forEach(r => { html += buildCard(r); });
   wrap.innerHTML = html;
+  updateBulkBar();
 }
 
 function setCount(tab, n, isNew) {
@@ -229,11 +429,14 @@ function buildCard(req) {
   // Actions
   let actions = '';
   const cxUrl = `${NEW_CUSTOMER_URL}?phone=${encodeURIComponent(phone)}`;
+  const delBtn = `<button class="btn-delete" onclick="deleteRequest('${req.id}')">✕ Delete</button>`;
   if (req.status === 'new') {
     const qUrl = buildQuoteUrl(req);
+    const name = esc((d.firstName||'')+' '+(d.lastName||'')).trim();
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
-      <button class="btn-ignore" onclick="confirmIgnore('${req.id}','${esc((d.firstName||'')+' '+(d.lastName||'')).trim()}',this)">🗑 Ignore</button>
+      <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
+      ${delBtn}
       <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
   } else if (req.status === 'quoted') {
     const qt = req.quotedAt
@@ -243,21 +446,27 @@ function buildCard(req) {
     actions = `
       <span class="quoted-pill">✓ Quoted ${qt}</span>
       <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)">↩ Back to New</button>
+      ${delBtn}
       <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
   } else if (req.status === 'waitlist') {
     actions = `
       <span style="font-size:11px;font-weight:600;color:#d97706;background:#fef9c3;padding:2px 8px;border-radius:10px;">⏳ Waitlist — wants ${esc(d.timeframe||'a specific week')}</span>
       <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)" style="margin-top:8px;">↩ Move to Active</button>
+      ${delBtn}
       <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
   } else {
+    // dismissed / ignored
     actions = `
       <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)">↩ Restore</button>
+      ${delBtn}
       <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
   }
 
-  return `<div class="req-card${isStale ? ' stale' : ''}" id="card-${req.id}">
+  const isSel = selectedIds.has(req.id);
+  return `<div class="req-card${isStale ? ' stale' : ''}${isSel ? ';outline:2px solid var(--sky)' : ''}" id="card-${req.id}">
     <div class="req-header">
       <div class="req-name-wrap">
+        <input class="bulk-cb" type="checkbox" ${isSel?'checked':''} onchange="toggleBulkSelect('${req.id}')" style="margin-right:6px;">
         <span class="req-name">${esc(d.firstName||'')} ${esc(d.lastName||'')}</span>
         ${isStale ? '<span class="stale-badge">⚠ Stale</span>' : ''}
       </div>
@@ -300,25 +509,19 @@ async function changeStatus(id, newStatus, btn) {
   const origText = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN_ID, {
-      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
-    const data = await res.json();
-    const db   = data.record || {};
-    const req  = (db.requests || []).find(r => r.id === id);
+    const req = allRequests.find(r => r.id === id);
     if (req) {
       req.status = newStatus;
-      if (newStatus === 'quoted' && !req.quotedAt) req.quotedAt = new Date().toISOString();
-      if (newStatus === 'new') req.quotedAt = null;
+      if (newStatus === 'quoted'    && !req.quotedAt)    req.quotedAt    = new Date().toISOString();
+      if (newStatus === 'dismissed' && !req.dismissedAt) req.dismissedAt = new Date().toISOString();
+      if (newStatus === 'new') { req.quotedAt = null; req.dismissedAt = null; }
     }
-    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN_ID, {
-      method: 'PUT', mode: 'cors',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
-      body: JSON.stringify(db)
-    });
-    allRequests = db.requests || [];
+    await persistRequests();
     lastRefresh = new Date();
+    selectedIds.delete(id);
     renderTab();
+    if (newStatus === 'dismissed') auditLog('dismissed_request', { id });
+    if (newStatus === 'new' && req) auditLog('restored_request', { id });
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = origText; }
     alert('Update failed — check connection and try again.');
@@ -326,10 +529,7 @@ async function changeStatus(id, newStatus, btn) {
 }
 
 // ── Utils ──────────────────────────────────────────────────────────
-function confirmIgnore(id, name, btn) {
-  if (!confirm(`Ignore "${name}"?\n\nThis moves them to the Ignored tab. You can restore anytime.`)) return;
-  changeStatus(id, 'ignored', btn);
-}
+function confirmIgnore(id, name, btn) { confirmDismiss(id, name, btn); } // legacy alias
 
 function timeAgo(iso) {
   if (!iso) return '';

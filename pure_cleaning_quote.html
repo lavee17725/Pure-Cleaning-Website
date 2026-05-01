@@ -699,6 +699,9 @@
   <h2>Request Sent!</h2>
   <p>Thanks! We'll review your request and get back to you same day with a quote and available dates.</p>
   <p style="margin-top:1rem;">Questions? Call us at <a href="tel:9543892642" style="color:var(--sky);font-weight:600;">954-389-2642</a></p>
+  <div id="incomingWarnMsg" style="display:none;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-top:1rem;font-size:13px;color:#92400e;text-align:left;">
+    ⚠️ We received your request but had a brief sync issue. To confirm, call us at <a href="tel:9543892642" style="font-weight:700;color:#92400e;">954-389-2642</a>.
+  </div>
 </div>
 
 <script>
@@ -1256,6 +1259,7 @@
     // Save to incoming requests inbox (fire and forget — doesn't block success UX)
     saveToIncomingBin({
       id:          Date.now().toString(),
+      customer_name: document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value,
       submittedAt: new Date().toISOString(),
       status:      'new',
       quotedAt:    null,
@@ -1275,7 +1279,11 @@
         notes:             document.getElementById('notes').value || '',
         otherServices:     document.getElementById('otherServices').value || ''
       }
-    }).catch(e => console.warn('[incoming save]', e.message));
+    }).catch(e => {
+      console.warn('[incoming save]', e.message);
+      const warn = document.getElementById('incomingWarnMsg');
+      if (warn) warn.style.display = 'block';
+    });
 
     try {
       // Fire both in parallel — email via Formspree, text via Zapier
