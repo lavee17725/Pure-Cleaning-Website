@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loading... | Pure Cleaning</title>
+  <style>
+    body {
+      font-family: -apple-system, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; background: #f9fafb; color: #1f2937;
+    }
+    .container { text-align: center; padding: 2rem; }
+    .spinner {
+      width: 40px; height: 40px; border: 3px solid #e5e7eb;
+      border-top-color: #c2410c; border-radius: 50%;
+      animation: spin 0.8s linear infinite; margin: 0 auto 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { color: #dc2626; }
+    a { color: #c2410c; text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="spinner"></div>
+    <p id="status">Loading your quote...</p>
+  </div>
+  <script>
+    const SHORT_LINKS_BIN_ID = '69f427af856a682189929e8c';
+    const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+
+    async function resolveLink() {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('id');
+
+      if (!id) {
+        showError('Invalid link');
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID + '/latest',
+          { headers: { 'X-Master-Key': JSONBIN_KEY } }
+        );
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = (await res.json()).record || {};
+        const links = data.links || {};
+        const longUrl = links[id];
+
+        if (!longUrl) {
+          showError('Link not found or expired');
+          return;
+        }
+
+        window.location.replace(longUrl);
+      } catch (e) {
+        console.error('Resolve error:', e);
+        showError('Could not load quote');
+      }
+    }
+
+    function showError(msg) {
+      document.querySelector('.spinner').style.display = 'none';
+      document.getElementById('status').className = 'error';
+      document.getElementById('status').innerHTML =
+        msg + '<br><br><a href="https://purecleaningpressurecleaning.com">' +
+        'Visit Pure Cleaning</a>';
+    }
+
+    resolveLink();
+  </script>
+</body>
+</html>

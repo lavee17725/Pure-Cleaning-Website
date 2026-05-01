@@ -318,6 +318,14 @@ const QUOTE_PAGE              = 'https://purecleaningpressurecleaning.com/pure_c
 const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
 const JSONBIN_KEY              = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const CUSTOMER_DB_BIN_ID       = '69f2d8b6856a6821898c3bfb';
+const SHORT_LINKS_BIN_ID       = '69f427af856a682189929e8c';
+const SHORT_CODE_ALPHABET      = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateShortCode() {
+  let code = '';
+  for (let i = 0; i < 8; i++) code += SHORT_CODE_ALPHABET[Math.floor(Math.random() * 32)];
+  return code;
+}
 
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
 async function getCachedCustomerDB() {
@@ -552,14 +560,27 @@ function updatePreview() {
 
 // ─── URL SHORTENER ───────────────────────────────────────────────
 async function shortenUrl(longUrl) {
+  const code = generateShortCode();
   try {
-    const res = await fetch('https://is.gd/create.php?format=simple&url=' + encodeURIComponent(longUrl));
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const shortUrl = (await res.text()).trim();
-    if (!shortUrl.startsWith('https://')) throw new Error('Invalid response: ' + shortUrl);
-    return shortUrl;
+    const getRes = await fetch(
+      'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID + '/latest',
+      { headers: { 'X-Master-Key': JSONBIN_KEY } }
+    );
+    const data = (await getRes.json()).record || {};
+    const links = data.links || {};
+    links[code] = longUrl;
+    const putRes = await fetch(
+      'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
+        body: JSON.stringify({ links })
+      }
+    );
+    if (!putRes.ok) throw new Error('HTTP ' + putRes.status);
+    return `https://purecleaningpressurecleaning.com/q.html?id=${code}`;
   } catch(e) {
-    console.warn('[shortener] is.gd failed, falling back to long URL:', e);
+    console.warn('[shortener] JSONbin failed, falling back to long URL:', e);
     return longUrl;
   }
 }
