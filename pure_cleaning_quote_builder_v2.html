@@ -325,13 +325,10 @@ select option{background:var(--navy2);}
 </div>
 
 <script>
-const ZAPIER                  = 'https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/';
-const QUOTE_PAGE              = 'https://purecleaningpressurecleaning.com/pure_cleaning_customer_quote.html';
-const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
-const JSONBIN_KEY              = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID       = '69f2d8b6856a6821898c3bfb';
-const SHORT_LINKS_BIN_ID       = '69f427af856a682189929e8c';
-const SHORT_CODE_ALPHABET      = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const ZAPIER             = 'https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/';
+const QUOTE_PAGE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_customer_quote.html';
+const PCPC_API           = 'https://purecleaning-api.tylerfumero.workers.dev';
+const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function generateShortCode() {
   let code = '';
@@ -355,11 +352,9 @@ async function getCachedCustomerDB() {
     }
   } catch(e) { console.warn('[customerDB] cache read failed:', e); }
   console.log('[customerDB] fetching fresh');
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
-    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
+  const res = await fetch(`${PCPC_API}/customers`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = (await res.json()).record;
+  const data = await res.json();
   try {
     sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
   } catch(e) { console.warn('[customerDB] cache write failed:', e); }
@@ -598,11 +593,9 @@ async function getShortLinksCache() {
     if (cached) return JSON.parse(cached);
   } catch(e) {}
   try {
-    const res = await fetch(
-      'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID + '/latest',
-      { headers: { 'X-Master-Key': JSONBIN_KEY } }
-    );
-    const links = ((await res.json()).record || {}).links || {};
+    const res = await fetch(`${PCPC_API}/links`);
+    const data = await res.json();
+    const links = data.links || {};
     sessionStorage.setItem(SHORT_LINKS_CACHE_KEY, JSON.stringify(links));
     return links;
   } catch(e) {
@@ -621,14 +614,11 @@ function shortenUrl(longUrl) {
       const links = await getShortLinksCache();
       links[code] = longUrl;
       sessionStorage.setItem(SHORT_LINKS_CACHE_KEY, JSON.stringify(links));
-      const putRes = await fetch(
-        'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
-          body: JSON.stringify({ links })
-        }
-      );
+      const putRes = await fetch(`${PCPC_API}/links`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ links })
+      });
       if (!putRes.ok) console.warn('[shortener] PUT failed:', putRes.status);
       else console.log('[shortener] link saved:', code);
     } catch(e) {
@@ -833,18 +823,15 @@ function setTimeframeBadge(tf) {
 async function markIncomingQuoted(reqId) {
   if (!reqId) return;
   try {
-    const res  = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
-    const data = await res.json();
-    const db   = data.record || {};
-    const req  = (db.requests || []).find(r => r.id === reqId);
+    const res = await fetch(`${PCPC_API}/incoming`);
+    const db  = await res.json();
+    const req = (db.requests || []).find(r => r.id === reqId);
     if (!req || req.status !== 'new') return;
     req.status   = 'quoted';
     req.quotedAt = new Date().toISOString();
-    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-      method: 'PUT', mode: 'cors',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+    await fetch(`${PCPC_API}/incoming`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(db)
     });
   } catch(e) { console.warn('[markIncomingQuoted]', e.message); }

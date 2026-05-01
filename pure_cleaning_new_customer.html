@@ -217,11 +217,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 </div>
 
 <script>
+// JSONBIN_KEY kept for _startPreGen / genLink (per-customer quote bins) — migrated in Phase 4D
 const JSONBIN_KEY        = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
+const PCPC_API           = 'https://purecleaning-api.tylerfumero.workers.dev';
 const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const SHORT_LINKS_BIN_ID = '69f427af856a682189929e8c';
 const _SL_ALPHA          = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function _genShortCode() {
@@ -230,16 +230,21 @@ function _genShortCode() {
   return c;
 }
 
-// Returns short URL immediately, writes mapping to shortener bin in background
+// Returns short URL immediately, writes mapping to Worker /links in background
 function shortenUrl(longUrl) {
   const code = _genShortCode();
   const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
   (async () => {
     try {
-      const r = await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID+'/latest', {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
-      const links = ((await r.json()).record||{}).links||{};
+      const r = await fetch(`${PCPC_API}/links`);
+      const data = await r.json();
+      const links = data.links || {};
       links[code] = longUrl;
-      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID, {method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+      await fetch(`${PCPC_API}/links`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ links })
+      });
     } catch(e) { console.warn('[shortenUrl]', e.message); }
   })();
   return short;
@@ -279,11 +284,9 @@ async function getCachedCustomerDB() {
     }
   } catch(e) { console.warn('[customerDB] cache read failed:', e); }
   console.log('[customerDB] fetching fresh');
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
-    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
+  const res = await fetch(`${PCPC_API}/customers`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = (await res.json()).record;
+  const data = await res.json();
   try {
     sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
   } catch(e) { console.warn('[customerDB] cache write failed:', e); }
@@ -334,9 +337,9 @@ async function init() {
 }
 
 async function saveDb() {
-  await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-    method:'PUT', mode:'cors',
-    headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
+  await fetch(`${PCPC_API}/customers`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(dbRecord)
   });
   sessionStorage.removeItem('pcpc_customer_db_cache');

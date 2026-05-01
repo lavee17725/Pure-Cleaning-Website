@@ -705,10 +705,10 @@
 </div>
 
 <script>
-  const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
-  const QUOTE_EVENTS_BIN_ID_Q = '69f41bfdaaba8821975a74fa';
+  // BLOCKED_WEEKS_BIN / _PCJKEY kept — loadBlockedWeeks() migrated in Phase 4C
   const BLOCKED_WEEKS_BIN = '69f4dda9856a68218995c805';
   const _PCJKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+  const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
   let _blockedWeeks = [];
   let selectedWeekValue = '';
   let selectedWeekStart = '';
@@ -837,18 +837,25 @@
     const btn = document.getElementById('waitlistBtn');
     btn.disabled = true; btn.textContent = 'Adding…';
     try {
-      const gr = await fetch('https://api.jsonbin.io/v3/b/'+INCOMING_REQUESTS_BIN_ID, {mode:'cors',keepalive:true,headers:{'X-Master-Key':_PCJKEY}});
-      const gd = await gr.json();
-      const reqs = ((gd.record||{}).requests)||[];
-      reqs.unshift({id:Date.now().toString(), submittedAt:new Date().toISOString(), status:'waitlist', quotedAt:null,
-        customerData:{firstName:name.split(' ')[0], lastName:name.split(' ').slice(1).join(' '),
-          phone, email:(document.getElementById('wl-email').value||'').trim(),
-          address:'', city:'', services:[], sealing:{requested:false,surfaces:[]},
-          rustRemoval:{requested:false,area:''}, timeframe:weekLabel,
-          notes:`Waitlist: wants ${weekLabel} (${weekStart})`}});
-      await fetch('https://api.jsonbin.io/v3/b/'+INCOMING_REQUESTS_BIN_ID, {method:'PUT',mode:'cors',keepalive:true,
-        headers:{'Content-Type':'application/json','X-Master-Key':_PCJKEY,'X-Bin-Versioning':'false'},
-        body:JSON.stringify({requests:reqs})});
+      await fetch(`${PCPC_API}/incoming`, {
+        method: 'POST', keepalive: true,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          id: Date.now().toString(),
+          submittedAt: new Date().toISOString(),
+          status: 'waitlist',
+          quotedAt: null,
+          customerData: {
+            firstName: name.split(' ')[0], lastName: name.split(' ').slice(1).join(' '),
+            phone, email: (document.getElementById('wl-email').value||'').trim(),
+            address: '', city: '', services: [],
+            sealing: {requested:false, surfaces:[]},
+            rustRemoval: {requested:false, area:''},
+            timeframe: weekLabel,
+            notes: `Waitlist: wants ${weekLabel} (${weekStart})`
+          }
+        })
+      });
       document.getElementById('wlSuccess').style.display = 'block';
       btn.style.display = 'none';
     } catch(e) {
@@ -861,39 +868,30 @@
   loadBlockedWeeks();
   async function trackQuoteEvent(eventType, phone, variantLabel, meta) {
     try {
-      const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + QUOTE_EVENTS_BIN_ID_Q + '/latest', { mode:'cors', headers:{'X-Master-Key':KEY} });
-      const getData = await getRes.json();
-      const rec = (getData.record || {});
-      const evts = rec.events || [];
-      evts.push({ id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8), timestamp: new Date().toISOString(), eventType, customerPhone: phone||null, variant: variantLabel||null, pageVersion:'v1', metadata: meta||{} });
-      await fetch('https://api.jsonbin.io/v3/b/' + QUOTE_EVENTS_BIN_ID_Q, { method:'PUT', mode:'cors', headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'}, body: JSON.stringify({ events: evts }) });
+      await fetch(`${PCPC_API}/events`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          id: 'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+          timestamp: new Date().toISOString(),
+          eventType,
+          customerPhone: phone||null,
+          variant: variantLabel||null,
+          pageVersion: 'v1',
+          metadata: meta||{}
+        })
+      });
     } catch(e) { console.warn('[trackQuoteEvent]', e.message); }
   }
 
   async function saveToIncomingBin(reqData) {
-    console.log('[incoming save] Starting write to bin', INCOMING_REQUESTS_BIN_ID);
-    const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-    try {
-      // keepalive:true ensures these requests complete even if the user closes the page
-      // before the JSONbin write finishes (common on mobile after seeing the success screen)
-      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-        mode: 'cors', keepalive: true, headers: { 'X-Master-Key': KEY }
-      });
-      if (!getRes.ok) throw new Error('Incoming bin GET failed: ' + getRes.status + ' ' + await getRes.text());
-      const data = await getRes.json();
-      const reqs = (data.record || {}).requests || [];
-      reqs.unshift(reqData);
-      const putRes = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-        method: 'PUT', mode: 'cors', keepalive: true,
-        headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY, 'X-Bin-Versioning': 'false' },
-        body: JSON.stringify({ requests: reqs })
-      });
-      if (!putRes.ok) throw new Error('Incoming bin PUT failed: ' + putRes.status + ' ' + await putRes.text());
-    } catch(e) {
-      console.error('[incoming save FAILED]', e.message, e.stack);
-      throw e;
-    }
+    // keepalive:true ensures the request completes even if the user closes the page on mobile
+    const res = await fetch(`${PCPC_API}/incoming`, {
+      method: 'POST', keepalive: true,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(reqData)
+    });
+    if (!res.ok) throw new Error('Incoming save failed: ' + res.status + ' ' + await res.text());
   }
 
   let returningCustomer = false;
@@ -1188,20 +1186,17 @@
 
   function markLinkViewed(phone, variantLabel) {
     trackQuoteEvent('viewed', phone, variantLabel || null);
-    const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-    const DB  = '69f2d8b6856a6821898c3bfb';
-    fetch('https://api.jsonbin.io/v3/b/' + DB, { mode: 'cors', headers: { 'X-Master-Key': KEY } })
+    fetch(`${PCPC_API}/customers`)
       .then(r => r.json())
       .then(data => {
-        const db = data.record || {};
-        const c  = (db.customers || []).find(x => x.phone === phone);
+        const c = (data.customers || []).find(x => x.phone === phone);
         if (!c || !c.quoteStatus || c.quoteStatus.state !== 'sent') return;
         c.quoteStatus.state      = 'viewed';
         c.quoteStatus.viewedDate = new Date().toISOString().split('T')[0];
-        return fetch('https://api.jsonbin.io/v3/b/' + DB, {
-          method: 'PUT', mode: 'cors',
-          headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY },
-          body: JSON.stringify(db)
+        return fetch(`${PCPC_API}/customers`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(data)
         });
       })
       .catch(e => console.warn('[view tracking]', e.message));
