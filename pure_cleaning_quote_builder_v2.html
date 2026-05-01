@@ -521,8 +521,22 @@ function updatePreview() {
   if (notes) { notesEl.textContent = notes; notesEl.style.display='block'; } else notesEl.style.display='none';
 }
 
+// ─── URL SHORTENER ───────────────────────────────────────────────
+async function shortenUrl(longUrl) {
+  try {
+    const res = await fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(longUrl));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const shortUrl = (await res.text()).trim();
+    if (!shortUrl.startsWith('https://')) throw new Error('Invalid response');
+    return shortUrl;
+  } catch(e) {
+    console.warn('[shortener] failed, falling back to long URL:', e);
+    return longUrl;
+  }
+}
+
 // ─── GENERATE ────────────────────────────────────────────────────
-function generateQuote() {
+async function generateQuote() {
   const first = document.getElementById('custFirst').value;
   if (!first) { alert('Please enter customer name.'); return; }
 
@@ -554,7 +568,14 @@ function generateQuote() {
   localStorage.setItem('pureCleaningQuotesV2', JSON.stringify(quotes));
 
   const encoded = btoa(JSON.stringify(quoteData).replace(/[^\x00-\x7F]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4)));
-  generatedUrl = `${QUOTE_PAGE}?q=${encodeURIComponent(encoded)}`;
+  const longUrl = `${QUOTE_PAGE}?q=${encodeURIComponent(encoded)}`;
+
+  const [btn1, btn2] = [document.getElementById('generateBtn'), document.getElementById('previewGenerateBtn')];
+  [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generating…'; b.disabled = true; } });
+
+  generatedUrl = await shortenUrl(longUrl);
+
+  [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generate Quote Link →'; b.disabled = false; } });
 
   document.getElementById('quoteLinkUrl').textContent = generatedUrl;
   document.getElementById('quoteLinkBox').classList.add('show');
