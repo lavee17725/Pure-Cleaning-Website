@@ -391,15 +391,18 @@
   <div class="hero-tag">Since 1995 · South Florida</div>
   <h1>Get Your Free<br><span>Quote Today</span></h1>
   <p>Fill out the form below and we'll send you a price and available dates the same day.</p>
-  <div style="display:flex;justify-content:center;gap:1rem;margin-top:1rem;flex-wrap:wrap;">
+  <div style="display:flex;justify-content:center;gap:1.5rem;margin-top:1rem;flex-wrap:wrap;">
     <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-      <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.8);">
-        <span style="color:#f4a620;">⭐⭐⭐⭐⭐</span> 100+ 5 star reviews on Google
+      <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.85);">
+        <span style="color:#f4a620;">⭐⭐⭐⭐⭐</span> <span id="googleReviewBadge">101</span>+ 5&#8209;star reviews on Google
       </div>
       <a href="https://share.google/ChFC1uAe9Xdveb8XN" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:underline;text-underline-offset:2px;font-weight:600;letter-spacing:.2px;">Read our Google reviews →</a>
     </div>
-    <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.8);">
-      <span style="color:#f4a620;">⭐⭐⭐⭐⭐</span> 350+ 5 star reviews on Angie's List
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,0.85);">
+        <span style="color:#f4a620;">⭐⭐⭐⭐⭐</span> 388 5&#8209;star reviews on Angi
+      </div>
+      <a href="https://www.angi.com/companylist/us/fl/ft-lauderdale/pure-cleaning-pressure-cleaning-reviews-2354397.htm" target="_blank" rel="noopener" style="font-size:11px;color:var(--gold);text-decoration:underline;text-underline-offset:2px;font-weight:600;letter-spacing:.2px;">Read our Angi reviews →</a>
     </div>
   </div>
 </div>
@@ -1306,7 +1309,33 @@
     }
   }
 
-  // Set min date removed - using timeframe selector instead
+  // ── LIVE GOOGLE REVIEW COUNT ──────────────────────────────────────
+  // Fetches from JSONbin (updated manually or via Places API when configured).
+  // When Tyler has a Google Cloud API key + Place ID, those can replace this.
+  (async () => {
+    const REVIEWS_BIN = '69f4f09836566621a8144a10';
+    const JKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+    const CACHE_KEY = 'pcpc_google_reviews_quote';
+    const TTL = 24 * 60 * 60 * 1000;
+    try {
+      let count = 101;
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < TTL && data.count) { count = data.count; }
+      } else {
+        const r = await fetch('https://api.jsonbin.io/v3/b/' + REVIEWS_BIN + '/latest',
+          { headers: { 'X-Master-Key': JKEY } });
+        const rec = (await r.json()).record || {};
+        if (rec.google && rec.google.count) {
+          count = rec.google.count;
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ data: rec.google, timestamp: Date.now() }));
+        }
+      }
+      const el = document.getElementById('googleReviewBadge');
+      if (el) el.textContent = count;
+    } catch(e) { /* keep fallback 101 */ }
+  })();
 </script>
 
 <!-- SEAL UPSELL CARD -->
