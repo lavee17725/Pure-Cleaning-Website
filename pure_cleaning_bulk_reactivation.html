@@ -65,6 +65,18 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .filter-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
 .filter-input{width:auto;padding:6px 10px;font-size:13px;}
 
+/* pool tabs */
+.pool-tabs{display:none;gap:8px;margin-top:.75rem;flex-wrap:wrap;}
+.pool-tabs.show{display:flex;}
+.pool-tab{padding:7px 14px;border:1.5px solid var(--border);border-radius:20px;background:var(--card);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.pool-tab:hover{border-color:var(--sky);}
+.pool-tab.active{border-color:var(--sky);background:#eff6ff;color:var(--sky);}
+.pool-badge{background:rgba(0,0,0,.1);border-radius:20px;padding:1px 6px;font-size:11px;}
+.pool-tab.active .pool-badge{background:rgba(45,125,210,.2);}
+.undo-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:3px;display:block;white-space:nowrap;}
+.undo-btn:hover{border-color:var(--red);color:var(--red);}
+.contact-info{font-size:11px;color:var(--muted);line-height:1.6;}
+
 /* table */
 .table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
 .table-wrap::-webkit-scrollbar{height:8px;}
@@ -267,6 +279,13 @@ td.money{font-family:'DM Mono',monospace;}
     <div id="excludedList" class="excluded-list" style="display:none;"></div>
   </div>
 
+  <!-- POOL TABS -->
+  <div class="pool-tabs" id="poolTabs">
+    <button class="pool-tab active" onclick="setPoolTab('active')">Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('contacted')">📲 Recently Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
+  </div>
+
   <!-- FILTERS -->
   <div class="filter-bar" id="filterBar">
     <div class="filter-row">
@@ -310,15 +329,6 @@ td.money{font-family:'DM Mono',monospace;}
         <option value="avgTicket">Avg ticket (highest first)</option>
         <option value="lastService">Last service date</option>
         <option value="totalJobs">Job count</option>
-      </select>
-    </div>
-    <div class="filter-row">
-      <span class="filter-label">Show:</span>
-      <select id="contactFilterSel" class="filter-input" style="min-width:180px;" onchange="setContactFilter(this.value)">
-        <option value="all">All customers</option>
-        <option value="not_texted">Not yet texted</option>
-        <option value="this_week">Texted this week</option>
-        <option value="any_time">Texted any time</option>
       </select>
     </div>
   </div>
@@ -436,7 +446,7 @@ let sealPhones = new Set(); // phones with any seal job history (used across pro
 let oldDbCustomers = []; // saved before update mode merge
 let updateMode = false; // true when re-processing CSVs to merge with existing DB
 let lastTotalRows = 0; // total raw rows from last processFiles run (stored for DB stats)
-let contactFilter = 'all'; // 'all' | 'not_texted' | 'this_week' | 'any_time'
+let poolTab       = 'active'; // 'active' | 'contacted' | 'all'
 let phoneFilter   = 'active'; // 'active' | 'all' | 'disconnected'
 let searchQuery   = '';
 let openRowMenu   = null; // phone of currently open ⋯ menu
@@ -588,6 +598,7 @@ async function tryLoadDatabase() {
     document.getElementById('statsBar').style.display = 'grid';
 
     document.getElementById('filterBar').style.display = 'block';
+    document.getElementById('poolTabs').classList.add('show');
     document.getElementById('tableWrap').style.display = 'block';
     document.getElementById('tableControls').classList.add('show');
 
@@ -961,8 +972,6 @@ async function processFiles() {
 function applyFilters() {
   const city = document.getElementById('cityFilter').value;
   const minSpend = parseFloat(document.getElementById('minSpend').value) || 0;
-  const contacts = contactFilter !== 'all' ? loadContacts() : null;
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const q = searchQuery.toLowerCase();
   const qDigits = q.replace(/\D/g, '');
 
@@ -972,12 +981,8 @@ function applyFilters() {
     if (c.lifetimeSpend < minSpend) return false;
     if (phoneFilter === 'active'       && c.phoneStatus === 'disconnected') return false;
     if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
-    if (contactFilter !== 'all') {
-      const iso = contacts[c.phone];
-      if (contactFilter === 'not_texted' && iso) return false;
-      if (contactFilter === 'this_week' && (!iso || new Date(iso) < weekAgo)) return false;
-      if (contactFilter === 'any_time' && !iso) return false;
-    }
+    if (poolTab === 'active'    && isInCooldown(c.phone))  return false;
+    if (poolTab === 'contacted' && !isInCooldown(c.phone)) return false;
     if (q) {
       const fullName = (c.fn + ' ' + c.ln).toLowerCase();
       const matches =
@@ -993,6 +998,7 @@ function applyFilters() {
   });
 
   applySort();
+  updateTabCounts();
 }
 
 function onSearchInput(val) {
@@ -1009,6 +1015,14 @@ function clearSearch() {
 }
 
 function applySort() {
+  if (poolTab === 'contacted') {
+    filteredCustomers.sort((a, b) => {
+      const ta = (loadContactRecord(a.phone) || {}).contactedAt || '';
+      const tb = (loadContactRecord(b.phone) || {}).contactedAt || '';
+      return tb.localeCompare(ta);
+    });
+    renderTable(); return;
+  }
   const key = document.getElementById('sortSel').value;
   const numericAsc = ['monthsSince'];
   filteredCustomers.sort((a, b) => {
@@ -1037,20 +1051,22 @@ function toggleTier(el) {
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
-  const contacts = loadContacts();
   tbody.innerHTML = filteredCustomers.map(c => {
     const checked = selectedPhones.has(c.phone);
     const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
     const tc = tierClass(c.tier);
     const sealIcon   = c.hasSeal ? '🛡️ ' : '';
     const alertBadge = renderAlertIcons(c.alerts);
-    const contactedIso = contacts[c.phone];
+    const rec     = loadContactRecord(c.phone);
+    const cooldown = isInCooldown(c.phone);
     const isDisc = c.phoneStatus === 'disconnected';
     const textBtn = isDisc
       ? `<button class="text-disconnected-btn" disabled title="Phone marked disconnected">📵 Disconnected</button>`
-      : contactedIso
-        ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(contactedIso)}</button>`
-        : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
+      : cooldown
+        ? `<div class="contact-info">📲 Texted ${formatContactDate(rec.contactedAt)}<br>Until ${new Date(rec.cooldownUntil).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'})}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`
+        : rec
+          ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(rec.contactedAt)}</button>`
+          : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
       <td>${textBtn}</td>
@@ -1119,7 +1135,9 @@ function contactStats() {
   const todayStr = now.toISOString().split('T')[0];
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   let today = 0, week = 0, allTime = 0;
-  for (const iso of Object.values(contacts)) {
+  for (const v of Object.values(contacts)) {
+    if (!v) continue;
+    const iso = typeof v === 'string' ? v : v.contactedAt;
     if (!iso) continue;
     allTime++;
     const d = new Date(iso);
@@ -1135,15 +1153,36 @@ function updateContactStats() {
   el.style.display = 'block';
   el.textContent = `📱 Texted today: ${today} · This week: ${week} · All time: ${allTime}`;
 }
-function updateContactButton(phone, iso) {
-  const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
-  if (!btn) return;
-  btn.className = 'texted-badge';
-  btn.textContent = `✓ Texted ${formatContactDate(iso)}`;
+function loadContactRecord(phone) {
+  try {
+    const v = loadContacts()[phone];
+    if (!v) return null;
+    return typeof v === 'string' ? { contactedAt: v, cooldownUntil: null } : v;
+  } catch { return null; }
 }
-function setContactFilter(val) {
-  contactFilter = val;
+function isInCooldown(phone) {
+  const r = loadContactRecord(phone);
+  return !!(r && r.cooldownUntil && new Date(r.cooldownUntil) > new Date());
+}
+function undoContact(phone) {
+  const c = loadContacts(); delete c[phone]; saveContacts(c);
   applyFilters();
+}
+function setPoolTab(tab) {
+  poolTab = tab;
+  document.querySelectorAll('.pool-tab').forEach((el, i) => {
+    el.classList.toggle('active', ['active','contacted','all'][i] === tab);
+  });
+  applyFilters();
+}
+function updateTabCounts() {
+  const el = document.getElementById('tabActiveCount');
+  if (!el || !allCustomers.length) return;
+  let active = 0, contacted = 0;
+  allCustomers.forEach(c => { isInCooldown(c.phone) ? contacted++ : active++; });
+  document.getElementById('tabActiveCount').textContent    = active;
+  document.getElementById('tabContactedCount').textContent = contacted;
+  document.getElementById('tabAllCount').textContent       = allCustomers.length;
 }
 async function textNow(phone) {
   const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
@@ -1220,10 +1259,12 @@ async function textNow(phone) {
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
+  const now = new Date();
+  const sixMonths = new Date(now.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);
   const contacts = loadContacts();
-  contacts[c.phone] = new Date().toISOString();
+  contacts[c.phone] = { contactedAt: now.toISOString(), cooldownUntil: sixMonths.toISOString() };
   saveContacts(contacts);
-  updateContactButton(phone, contacts[c.phone]);
+  applyFilters();
   updateContactStats();
 }
 
