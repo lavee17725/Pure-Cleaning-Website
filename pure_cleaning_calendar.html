@@ -52,6 +52,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:4px;}
 .jd{font-size:12px;color:var(--muted);line-height:1.5;}
 .drag-hint{font-size:10px;color:#b0bac8;margin-top:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+.card-sms-btn{font-size:10px;color:var(--sky);cursor:pointer;padding:3px 0 0;font-weight:600;letter-spacing:.2px;display:block;-webkit-tap-highlight-color:transparent;}
+.card-sms-btn:hover{text-decoration:underline;}
 .card-del-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:16px;line-height:1;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
 .card-del-btn:hover{color:#dc2626;background:#fee2e2;}
 .card-top-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
@@ -315,8 +317,35 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const JSONBIN_KEY        = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
+const QUOTE_BASE_CAL     = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const SHORT_LINKS_BIN_CAL= '69f427af856a682189929e8c';
+const _SL_ALP_CAL        = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function shortenUrlCal(longUrl) {
+  let code=''; for(let i=0;i<8;i++) code+=_SL_ALP_CAL[Math.floor(Math.random()*32)];
+  const short='https://purecleaningpressurecleaning.com/q.html?id='+code;
+  (async()=>{
+    try{
+      const r=await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_CAL+'/latest',{mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
+      const links=((await r.json()).record||{}).links||{};
+      links[code]=longUrl;
+      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_CAL,{method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+    }catch(e){console.warn('[shortenUrlCal]',e.message);}
+  })();
+  return short;
+}
+
+function openCardSms(phone) {
+  const c = findCustomer(phone);
+  if (!c || !c.linkCode || !c.linkBin) return;
+  const fn = (c.firstName||c.fn||'there');
+  const longUrl  = `${QUOTE_BASE_CAL}?c=${c.linkBin}.${c.linkCode}`;
+  const shortUrl = shortenUrlCal(longUrl);
+  const body = `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`;
+  window.location.href = `sms:+1${(c.phone||'').replace(/\D/g,'')}?&body=${encodeURIComponent(body)}`;
+}
 
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
 async function getCachedCustomerDB() {
@@ -502,6 +531,7 @@ function jobCardSidebar(c) {
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
     <div class="drag-hint">⠿ Drag to schedule</div>
+    ${c.linkCode && c.linkBin ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
   </div>`;
 }
 
@@ -750,7 +780,7 @@ function initSortables() {
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
-      filter: '.card-del-btn',
+      filter: '.card-del-btn,.card-sms-btn',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToSidebar(evt.item.dataset.phone, evt)
