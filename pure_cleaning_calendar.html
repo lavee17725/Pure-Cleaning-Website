@@ -40,6 +40,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .job-unscheduled{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:grab;transition:box-shadow .15s,border-color .15s;user-select:none;}
 .job-unscheduled:hover{border-color:var(--sky);box-shadow:0 4px 12px rgba(45,125,210,.15);}
 .job-unscheduled:active{cursor:grabbing;}
+@keyframes scheduleHighlight {
+  0%,100% { box-shadow:0 0 0 2px transparent; border-color:var(--border); }
+  50%      { box-shadow:0 0 0 3px var(--gold); border-color:var(--gold); }
+}
+.pulse-highlight { animation:scheduleHighlight 0.8s ease-in-out 3; }
 .jn{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:4px;}
 .jd{font-size:12px;color:var(--muted);line-height:1.5;}
 .drag-hint{font-size:10px;color:#b0bac8;margin-top:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
@@ -338,6 +343,21 @@ async function init() {
     render();
     showToast('⚠️ Could not load database — some data may be stale');
   }
+  const targetPhone = new URLSearchParams(window.location.search).get('phone');
+  if (targetPhone) highlightSidebarJob(targetPhone);
+}
+
+function highlightSidebarJob(phone) {
+  setTimeout(() => {
+    const card = document.querySelector(`.job-unscheduled[data-phone="${phone}"]`);
+    if (!card) {
+      showToast('Customer not in unscheduled list — they may already be scheduled');
+      return;
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('pulse-highlight');
+    setTimeout(() => card.classList.remove('pulse-highlight'), 2500);
+  }, 300);
 }
 
 async function saveDb() {
