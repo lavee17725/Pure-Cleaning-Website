@@ -642,9 +642,11 @@ function saveJob() {
       const longUrl  = `${QUOTE_BASE}?c=${code}`;
       const shortUrl = shortenUrl(longUrl);
 
-      // Build SMS body with the standard template
+      // Build SMS body — new customers get company-first template, returning get personal Tyler template
       const fn   = _firstName || 'there';
-      const body = `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`;
+      const body = isExisting
+        ? `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`
+        : `Hi ${fn}! This is Pure Cleaning Pressure Cleaning — South Florida's family-owned pressure washing company since 1995. Thanks for reaching out!\n\nWe've put together a simple way to get your quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`;
       _pendingSms = `sms:+1${_phone.replace(/\D/g,'')}?&body=${encodeURIComponent(body)}`;
 
       if (smsBtn) { smsBtn.disabled = false; smsBtn.textContent = '📱 Send Quote Link'; smsBtn.style.opacity = ''; }
