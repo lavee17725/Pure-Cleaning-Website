@@ -343,6 +343,31 @@
     .service-check.seal-opt { grid-column: span 1; }
     .reminder-grid { grid-template-columns: 1fr 1fr; }
   }
+  /* ── Week Selector ── */
+  .week-required-wrap{border-top:2px solid #c2410c;padding-top:1.5rem;margin-top:.5rem;}
+  .week-req-badge{font-size:11px;font-weight:700;color:#dc2626;background:#fee2e2;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle;}
+  .week-subhead{font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.5;}
+  .week-avail-banner{background:#fff8f5;border:1px solid #fbd0b8;border-radius:10px;padding:10px 14px;font-size:13px;color:#7c2d12;margin-bottom:12px;line-height:1.55;}
+  .week-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px;}
+  .week-card{border:1.5px solid var(--border);border-radius:12px;padding:14px 12px;cursor:pointer;transition:border-color .15s,background .15s;background:#fff;min-height:72px;display:flex;flex-direction:column;justify-content:center;-webkit-tap-highlight-color:transparent;user-select:none;}
+  .week-card:hover:not(.blocked):not(.selected){border-color:#c2410c;background:#fff8f5;}
+  .week-card.selected{border-color:#c2410c!important;background:#c2410c;color:#fff;}
+  .week-card.blocked{border-color:var(--border);background:#f9fafb;cursor:pointer;opacity:.75;}
+  .week-card.blocked:hover{border-color:#c2410c;background:#fff8f5;opacity:1;}
+  .wc-label{font-size:14px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .wc-range{font-size:12px;color:var(--muted);}
+  .week-card.selected .wc-range{color:rgba(255,255,255,.85);}
+  .wc-badge-booked{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#fee2e2;color:#991b1b;}
+  .wc-badge-flex{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#dbeafe;color:#1e40af;}
+  .week-card.selected .wc-badge-flex{background:rgba(255,255,255,.25);color:#fff;}
+  .wc-blocked-note{font-size:11px;color:#9ca3af;margin-top:3px;}
+  .week-error-msg{color:#dc2626;font-size:13px;margin-top:6px;font-weight:500;display:none;}
+  .waitlist-wrap{background:#f0f7ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px;margin-top:10px;display:none;}
+  .waitlist-title{font-size:13px;font-weight:600;color:#1e40af;margin-bottom:10px;}
+  .waitlist-input{width:100%;padding:10px 12px;border:1.5px solid #bfdbfe;border-radius:8px;font-size:14px;margin-bottom:8px;font-family:'DM Sans',sans-serif;color:var(--text);background:#fff;display:block;}
+  .waitlist-input:focus{outline:none;border-color:var(--sky);}
+  .waitlist-btn{width:100%;padding:10px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .waitlist-btn:hover{background:#1a65b8;}
 </style>
 </head>
 <body>
@@ -614,17 +639,22 @@
     </div>
   </div>
 
-  <div class="section-label">Preferred timeframe</div>
-  <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">We'll send you two available dates to choose from — just let us know roughly what works best.</p>
-  <div class="field">
-    <select id="timeframeSelect" onchange="selectedTimeframe = this.value; document.querySelectorAll('.timeframe-opt').forEach(r => r.classList.remove('selected'));" style="background:white;color:#1a1f2e;font-size:15px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;">
-      <option value="">Select a timeframe...</option>
-      <option value="This week">This week</option>
-      <option value="1 week out">1 week out</option>
-      <option value="2 weeks out">2 weeks out</option>
-      <option value="3 weeks out">3 weeks out</option>
-      <option value="Next month">Next month</option>
-    </select>
+  <div class="week-required-wrap">
+    <div class="section-label" style="border-top:none;margin-top:0;">When would you like service? <span class="week-req-badge">Required</span></div>
+    <p class="week-subhead">Choose a week — we'll confirm the exact day after reviewing your request.</p>
+    <div class="week-avail-banner" id="weekAvailBanner" style="display:none;"></div>
+    <div class="week-grid" id="weekGrid">
+      <div style="grid-column:span 2;text-align:center;padding:1.25rem;color:var(--muted);font-size:13px;">Loading availability…</div>
+    </div>
+    <div class="week-error-msg" id="weekError">Please choose a week so we can find a spot for you.</div>
+    <div class="waitlist-wrap" id="waitlistWrap">
+      <div class="waitlist-title" id="waitlistTitle">Get notified if a spot opens up</div>
+      <input class="waitlist-input" id="wl-name" placeholder="Your name" autocomplete="name" />
+      <input class="waitlist-input" id="wl-phone" placeholder="Phone number" type="tel" autocomplete="tel" />
+      <input class="waitlist-input" id="wl-email" placeholder="Email (optional)" type="email" autocomplete="email" style="margin-bottom:10px;" />
+      <button class="waitlist-btn" id="waitlistBtn" onclick="submitWaitlist()">Add me to the waitlist →</button>
+      <div id="wlSuccess" style="display:none;font-size:13px;color:#15803d;font-weight:600;margin-top:8px;text-align:center;">✓ Added — we'll reach out if a spot opens.</div>
+    </div>
   </div>
 
   <div style="background:var(--gray);border:1.5px solid var(--border);border-radius:12px;padding:14px 16px;">
@@ -671,6 +701,122 @@
 <script>
   const INCOMING_REQUESTS_BIN_ID = '69f39ce0856a682189900bdc';
   const QUOTE_EVENTS_BIN_ID_Q = '69f41bfdaaba8821975a74fa';
+  const BLOCKED_WEEKS_BIN = '69f4dda9856a68218995c805';
+  const _PCJKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+  let _blockedWeeks = [];
+  let selectedWeekValue = '';
+  let selectedWeekStart = '';
+
+  function getWeekOptions() {
+    const today = new Date();
+    const dow = today.getDay();
+    const daysToMon = dow === 0 ? -6 : 1 - dow;
+    const mon = new Date(today); mon.setDate(today.getDate() + daysToMon); mon.setHours(0,0,0,0);
+    const labels = ['This Week','Next Week','In 2 Weeks','In 3 Weeks'];
+    const vals   = ['This week','1 week out','2 weeks out','3 weeks out'];
+    const fmt = d => d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const opts = labels.map((lbl,i) => {
+      const s = new Date(mon); s.setDate(mon.getDate() + i*7);
+      const e = new Date(s); e.setDate(s.getDate() + 6);
+      return {label:lbl, value:vals[i], weekStart:s.toISOString().slice(0,10), weekEnd:e.toISOString().slice(0,10), dateRange:`${fmt(s)} – ${fmt(e)}`};
+    });
+    opts.push({label:'Flexible / Whenever', value:'Flexible / Whenever', weekStart:null, weekEnd:null, dateRange:'Any week works for me'});
+    return opts;
+  }
+
+  async function loadBlockedWeeks() {
+    try {
+      const res = await fetch('https://api.jsonbin.io/v3/b/'+BLOCKED_WEEKS_BIN+'/latest', {mode:'cors',headers:{'X-Master-Key':_PCJKEY}});
+      if (res.ok) { const d = await res.json(); _blockedWeeks = (d.record||{}).blockedWeeks||[]; }
+    } catch(e) {}
+    renderWeekGrid();
+  }
+
+  function renderWeekGrid() {
+    const opts = getWeekOptions();
+    const grid = document.getElementById('weekGrid');
+    if (!grid) return;
+    let bookedCount = 0, firstAvailRange = null;
+    grid.innerHTML = opts.map(opt => {
+      const blocked = opt.weekStart && _blockedWeeks.some(bw => bw.weekStart === opt.weekStart);
+      if (blocked) bookedCount++;
+      else if (!firstAvailRange && opt.weekStart) firstAvailRange = opt.dateRange;
+      const isSel = selectedWeekValue === opt.value;
+      const isFlex = !opt.weekStart;
+      if (blocked) {
+        return `<div class="week-card blocked" onclick="showWaitlist('${opt.weekStart}','${opt.label}')">
+          <div class="wc-label">${opt.label} <span class="wc-badge-booked">Full</span></div>
+          <div class="wc-range">${opt.dateRange}</div>
+          <div class="wc-blocked-note">Tap to join waitlist →</div>
+        </div>`;
+      }
+      return `<div class="week-card${isSel?' selected':''}" onclick="selectWeek('${opt.value}','${opt.weekStart||''}')">
+        <div class="wc-label">${opt.label}${isFlex?' <span class="wc-badge-flex">Any week</span>':''}</div>
+        <div class="wc-range">${opt.dateRange}</div>
+      </div>`;
+    }).join('');
+    const banner = document.getElementById('weekAvailBanner');
+    if (banner) {
+      if (bookedCount >= 2) {
+        const avail = firstAvailRange ? `<strong>${firstAvailRange}</strong> is open.` : 'Select an available week below.';
+        banner.innerHTML = `We're booked solid for some upcoming weeks. ${avail} For urgent service, call <a href="tel:9543892642" style="color:#c2410c;font-weight:700;">954-389-2642</a>.`;
+        banner.style.display = 'block';
+      } else banner.style.display = 'none';
+    }
+  }
+
+  function selectWeek(value, weekStart) {
+    selectedWeekValue = value; selectedWeekStart = weekStart;
+    document.getElementById('weekError').style.display = 'none';
+    document.getElementById('waitlistWrap').style.display = 'none';
+    renderWeekGrid();
+  }
+
+  function showWaitlist(weekStart, weekLabel) {
+    const wrap = document.getElementById('waitlistWrap');
+    if (!wrap) return;
+    wrap.style.display = 'block';
+    document.getElementById('waitlistTitle').textContent = `Notify me if ${weekLabel} opens up`;
+    wrap.dataset.weekStart = weekStart;
+    wrap.dataset.weekLabel = weekLabel;
+    document.getElementById('wlSuccess').style.display = 'none';
+    document.getElementById('waitlistBtn').style.display = '';
+    document.getElementById('waitlistBtn').disabled = false;
+    document.getElementById('waitlistBtn').textContent = 'Add me to the waitlist →';
+    wrap.scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  async function submitWaitlist() {
+    const name  = (document.getElementById('wl-name').value||'').trim();
+    const phone = (document.getElementById('wl-phone').value||'').replace(/\D/g,'');
+    if (!name || phone.length < 10) { alert('Please enter your name and a 10-digit phone number.'); return; }
+    const wrap = document.getElementById('waitlistWrap');
+    const weekStart = wrap.dataset.weekStart||''; const weekLabel = wrap.dataset.weekLabel||'';
+    const btn = document.getElementById('waitlistBtn');
+    btn.disabled = true; btn.textContent = 'Adding…';
+    try {
+      const gr = await fetch('https://api.jsonbin.io/v3/b/'+INCOMING_REQUESTS_BIN_ID, {mode:'cors',keepalive:true,headers:{'X-Master-Key':_PCJKEY}});
+      const gd = await gr.json();
+      const reqs = ((gd.record||{}).requests)||[];
+      reqs.unshift({id:Date.now().toString(), submittedAt:new Date().toISOString(), status:'waitlist', quotedAt:null,
+        customerData:{firstName:name.split(' ')[0], lastName:name.split(' ').slice(1).join(' '),
+          phone, email:(document.getElementById('wl-email').value||'').trim(),
+          address:'', city:'', services:[], sealing:{requested:false,surfaces:[]},
+          rustRemoval:{requested:false,area:''}, timeframe:weekLabel,
+          notes:`Waitlist: wants ${weekLabel} (${weekStart})`}});
+      await fetch('https://api.jsonbin.io/v3/b/'+INCOMING_REQUESTS_BIN_ID, {method:'PUT',mode:'cors',keepalive:true,
+        headers:{'Content-Type':'application/json','X-Master-Key':_PCJKEY,'X-Bin-Versioning':'false'},
+        body:JSON.stringify({requests:reqs})});
+      document.getElementById('wlSuccess').style.display = 'block';
+      btn.style.display = 'none';
+    } catch(e) {
+      alert('Could not add to waitlist. Please call 954-389-2642.');
+      btn.disabled = false; btn.textContent = 'Add me to the waitlist →';
+    }
+  }
+
+  // Load blocked weeks immediately (non-blocking — renders grid when done)
+  loadBlockedWeeks();
   async function trackQuoteEvent(eventType, phone, variantLabel, meta) {
     try {
       const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
@@ -1046,6 +1192,11 @@
     if (roofChecked && !selectedRoofMethod) { alert('Please select a roof cleaning method — Softwash, Traditional, or Water Only.'); document.getElementById('roofMethodSection').scrollIntoView({behavior:'smooth'}); return; }
     if (fenceChecked && !selectedFenceType) { alert('Please select your fence type — Wood, Plastic/Vinyl, or Metal.'); document.getElementById('fenceTypeSection').scrollIntoView({behavior:'smooth'}); return; }
     if (!valid) { alert('Please fill in all required fields.'); return; }
+    if (!selectedWeekValue) {
+      const wg = document.getElementById('weekError');
+      if (wg) { wg.style.display = 'block'; document.getElementById('weekGrid').scrollIntoView({behavior:'smooth'}); }
+      return;
+    }
 
     const sealServices = [...document.querySelectorAll('input[name=seal_service]:checked')].map(c => c.value);
 
@@ -1066,8 +1217,7 @@
     formData.append('Services Requested', servicesWithMethod.join(', '));
     formData.append('Sealing Quote For', sealServices.length ? sealServices.join(', ') : 'Not requested');
     formData.append('Returning Customer', returningCustomer ? 'Yes' : 'No');
-    const timeframeEl = document.getElementById('timeframeSelect');
-    const timeframeVal = (timeframeEl && timeframeEl.value) || selectedTimeframe || 'Not specified';
+    const timeframeVal = selectedWeekValue || 'Not specified';
     formData.append('Preferred Timeframe', timeframeVal);
     formData.append('Notes', document.getElementById('notes').value || 'None');
     const emailVal = document.getElementById('email').value.trim();
@@ -1117,7 +1267,7 @@
         services:          servicesWithMethod,
         sealing:           { requested: sealQuoteChecked, surfaces: sealServices },
         rustRemoval:       { requested: rustChecked,      area: selectedRustArea },
-        timeframe:         (timeframeEl && timeframeEl.value) || selectedTimeframe || '',
+        timeframe:         selectedWeekValue || '',
         reminderFrequency: '',
         notes:             document.getElementById('notes').value || '',
         otherServices:     document.getElementById('otherServices').value || ''

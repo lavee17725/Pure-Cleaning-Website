@@ -97,6 +97,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
     <div class="panel-title">Quick Stats · Customer Database</div>
     <div class="stats-grid">
       <span class="slabel">🔔 New requests waiting</span> <span class="sval" id="qs-incoming">…</span>
+      <span class="slabel">⏳ Waitlist requests</span>     <span class="sval" id="qs-waitlist">—</span>
       <span class="slabel">Total customers</span>   <span class="sval" id="qs-total">…</span>
       <span class="slabel">Last updated</span>       <span class="sval" id="qs-updated">…</span>
       <span class="slabel">💎 VIP Seal</span>        <span class="sval" id="qs-vip">…</span>
@@ -241,8 +242,11 @@ async function loadIncomingCount() {
     });
     if (!res.ok) { set('qs-incoming', '—'); return; }
     const data  = await res.json();
-    const count = ((data.record || {}).requests || []).filter(r => r.status === 'new').length;
+    const allReqs = ((data.record || {}).requests || []);
+    const count = allReqs.filter(r => r.status === 'new').length;
+    const waitCount = allReqs.filter(r => r.status === 'waitlist').length;
     set('qs-incoming', String(count));
+    set('qs-waitlist', waitCount > 0 ? String(waitCount) : '0');
     const statEl = document.getElementById('qs-incoming');
     if (statEl) statEl.style.color = count > 0 ? '#fc8181' : '';
     const badge = document.getElementById('incoming-badge');

@@ -19,6 +19,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .week-nav{display:flex;align-items:center;gap:6px;}
 .nav-btn{background:rgba(255,255,255,.12);border:none;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
 .nav-btn:hover{background:rgba(255,255,255,.22);}
+.block-week-btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap;}
+.block-week-btn:hover{background:rgba(255,255,255,.14);color:#e2e8f0;}
+.block-week-btn.is-blocked{background:var(--gold);color:var(--navy);border-color:var(--gold);}
+.block-week-btn.is-blocked:hover{background:#e09610;}
 .week-label{font-size:14px;font-weight:600;color:#fff;min-width:210px;text-align:center;}
 .topbar-sep{flex:1;}
 .topbar-action{background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.2);color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
@@ -190,6 +194,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="week-label" id="weekLabel">Loading…</div>
     <button class="nav-btn" onclick="changeWeek(1)">Next ›</button>
     <button class="nav-btn" onclick="goToday()">Today</button>
+    <button class="block-week-btn" id="blockWeekBtn" onclick="toggleWeekBlocked()">Mark Booked</button>
   </div>
   <div class="topbar-sep"></div>
   <button class="topbar-action" onclick="openDayOffModal()">+ Day Off</button>
@@ -392,6 +397,7 @@ function renderShell() {
 
 async function init() {
   renderShell();
+  loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
   try {
     dbRecord = (await getCachedCustomerDB()) || {};
     render();
@@ -1175,8 +1181,70 @@ function saveDayOff() {
 }
 
 // ── WEEK NAV ──────────────────────────────────────────────────────────────────
-function changeWeek(dir) { weekOffset += dir; render(); }
-function goToday()       { weekOffset = 0; render(); }
+function changeWeek(dir) { weekOffset += dir; render(); updateBlockWeekBtn(); }
+function goToday()       { weekOffset = 0; render(); updateBlockWeekBtn(); }
+
+// ── BLOCKED WEEKS ─────────────────────────────────────────────────────────────
+const BLOCKED_WEEKS_BIN_CAL = '69f4dda9856a68218995c805';
+let _calBlockedWeeks = [];
+
+async function loadBlockedWeeksCal() {
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/'+BLOCKED_WEEKS_BIN_CAL+'/latest', {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
+    if (res.ok) { const d = await res.json(); _calBlockedWeeks = (d.record||{}).blockedWeeks||[]; }
+  } catch(e) {}
+  updateBlockWeekBtn();
+}
+
+function getViewedWeekStart() {
+  const dates = getWeekDates();
+  return dates.find(d => new Date(d+'T12:00:00').getDay() === 1) || dates[1];
+}
+
+function isCurrentViewBlocked() {
+  const ws = getViewedWeekStart();
+  return _calBlockedWeeks.some(bw => bw.weekStart === ws);
+}
+
+function updateBlockWeekBtn() {
+  const btn = document.getElementById('blockWeekBtn');
+  if (!btn) return;
+  const blocked = isCurrentViewBlocked();
+  btn.textContent = blocked ? '✓ Week Booked' : 'Mark Booked';
+  btn.className = 'block-week-btn' + (blocked ? ' is-blocked' : '');
+}
+
+async function toggleWeekBlocked() {
+  const weekStart = getViewedWeekStart();
+  const dates = getWeekDates();
+  const fmt = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const label = `${fmt(dates[0])} – ${fmt(dates[6])}`;
+  const currently = isCurrentViewBlocked();
+  const msg = currently
+    ? `Unblock week of ${label}?\n\nCustomers will be able to request this week again on the quote form.`
+    : `Mark week of ${label} as fully booked?\n\nThis week will appear as unavailable on the customer quote form.`;
+  if (!confirm(msg)) return;
+  if (currently) {
+    _calBlockedWeeks = _calBlockedWeeks.filter(bw => bw.weekStart !== weekStart);
+  } else {
+    const dates7 = getWeekDates();
+    _calBlockedWeeks.push({weekStart, weekEnd:dates7[dates7.length-1], blockedDate:new Date().toISOString().slice(0,10)});
+  }
+  updateBlockWeekBtn();
+  try {
+    await fetch('https://api.jsonbin.io/v3/b/'+BLOCKED_WEEKS_BIN_CAL, {
+      method:'PUT', mode:'cors',
+      headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},
+      body:JSON.stringify({blockedWeeks:_calBlockedWeeks})
+    });
+    showToast(currently ? '✓ Week unblocked — now visible to customers' : '✓ Week marked booked — hidden from quote form');
+  } catch(e) {
+    showToast('⚠️ Could not save — try again');
+    if (currently) _calBlockedWeeks.push({weekStart, weekEnd:getWeekDates()[6], blockedDate:new Date().toISOString().slice(0,10)});
+    else _calBlockedWeeks = _calBlockedWeeks.filter(bw => bw.weekStart !== weekStart);
+    updateBlockWeekBtn();
+  }
+}
 
 // ── TOAST ─────────────────────────────────────────────────────────────────────
 let _toastTimer = null;
