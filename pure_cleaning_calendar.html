@@ -77,8 +77,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .job-scheduled:hover{box-shadow:0 3px 10px rgba(45,125,210,.18);}
 .job-scheduled.in_progress{border-left-color:var(--gold);border-color:#fef3c7;}
 .job-scheduled.completed{border-left-color:var(--green);border-color:#d1fae5;opacity:.75;}
-.js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;}
+.js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{color:var(--muted);margin-top:1px;}
+.job-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
+.job-amount.missing{color:var(--muted);font-weight:400;}
+.jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
+.jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
+.jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
+.rig-gross{font-size:11px;font-weight:700;color:#c2410c;padding:2px 8px 4px;letter-spacing:.2px;}
+.rig-gross.zero{color:var(--muted);font-weight:400;}
+.day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
+.day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
 .js-alerts{font-size:13px;margin-top:2px;}
 .sortable-ghost{opacity:.4;background:#dbeafe !important;border-style:dashed !important;}
 .sortable-chosen{box-shadow:0 6px 20px rgba(0,0,0,.2) !important;transform:rotate(1deg);}
@@ -404,6 +413,20 @@ function renderSidebar() {
   initSortables();
 }
 
+function jobAmount(c) {
+  const amt = (c.scheduledStatus || {}).approvedAmount;
+  if (!amt) return { html: '<span class="jn-amount missing">—</span>', val: 0 };
+  return { html: `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>`, val: Number(amt) };
+}
+
+function calculateRigTotal(date, rig) {
+  return getScheduledForRig(date, rig).reduce((s, c) => s + (jobAmount(c).val), 0);
+}
+
+function calculateDayTotal(date) {
+  return RIGS.reduce((s, rig) => s + calculateRigTotal(date, rig), 0);
+}
+
 function jobCardSidebar(c) {
   const name    = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
   const ss      = c.scheduledStatus || {};
@@ -412,6 +435,7 @@ function jobCardSidebar(c) {
   const alerts  = alertIcons(c.alerts||[]);
   const phone   = fmtPh(c.phone);
   const city    = formatCity(c.city || '');
+  const { html: amtHtml } = jobAmount(c);
   let wantsLine = '';
   if (ss.customerSelectedDate) {
     const d = new Date(ss.customerSelectedDate + 'T12:00:00');
@@ -419,7 +443,7 @@ function jobCardSidebar(c) {
     wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(fmt)}</div>`;
   }
   return `<div class="job-unscheduled" data-phone="${c.phone}" title="${name}">
-    <div class="jn">${name}${alerts}</div>
+    <div class="jn-row"><div class="jn">${name}${alerts}</div>${amtHtml}</div>
     ${wantsLine}
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
@@ -440,6 +464,10 @@ function renderCalGrid(dates) {
     const isToday = date === today;
     const labor = calcDailyLabor(date);
     const laborStr = labor > 0 ? `💰 $${labor.toLocaleString()}` : '';
+    const dayTotal = calculateDayTotal(date);
+    const dayGrossStr = dayTotal > 0
+      ? `$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} gross`
+      : '$0 gross';
     const rigsHtml = RIGS.map(rig => {
       const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
       const crewLabel = crew.map(id => CREW_MEMBERS.find(c=>c.id===id)?.name||id).join(' + ');
@@ -448,12 +476,18 @@ function renderCalGrid(dates) {
       const jobs = getScheduledForRig(date, rig);
       const jobsHtml = jobs.map(c => jobCardScheduled(c)).join('');
       const emptyClass = jobs.length ? '' : ' empty-hint';
+      const rigTotal = calculateRigTotal(date, rig);
+      const rigGrossStr = rigTotal > 0
+        ? `$${rigTotal.toLocaleString('en-US',{maximumFractionDigits:0})}`
+        : '$0';
+      const rigGrossCls = rigTotal > 0 ? 'rig-gross' : 'rig-gross zero';
       return `<div class="rig-section">
         <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
           <span class="rig-icon">🚛</span>
           <span class="rig-name">${RIG_LABELS[rig]}${halfBadge}</span>
           <span class="rig-crew-label">${crewLabel}</span>
         </div>
+        <div class="${rigGrossCls}">${RIG_LABELS[rig]}: ${rigGrossStr}</div>
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
       </div>`;
     }).join('');
@@ -461,6 +495,7 @@ function renderCalGrid(dates) {
       <div class="day-hdr">
         <div class="day-name">${dayName}</div>
         <div class="day-date${isToday?' today':''}">${dayLabel}</div>
+        <div class="day-gross${dayTotal===0?' zero':''}">${dayGrossStr}</div>
         ${labor>0 ? `<div class="day-labor has-cost">${laborStr}</div>` : '<div class="day-labor">&nbsp;</div>'}
       </div>
       ${rigsHtml}
@@ -479,8 +514,9 @@ function jobCardScheduled(c) {
   const alerts= alertIcons(c.alerts||[]);
   const city  = c.city ? esc(formatCity(c.city)) : '';
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
+  const { html: amtHtml } = jobAmount(c);
   return `<div class="job-scheduled ${state}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name">${badge}${name}${alerts}</div>
+    <div class="js-name"><span>${badge}${name}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
   </div>`;
 }
@@ -670,6 +706,7 @@ async function handleDropToRig(phone, date, rig) {
   showToast(`📅 ${esc(name)} → ${dateStr} · ${RIG_LABELS[rig]}`, 'Undo', () => { undoAction(phone, prev); });
 
   saveDb().catch(()=>{});
+  renderCalGrid(getWeekDates());
   renderCrewPanel(getWeekDates());
 }
 
@@ -686,6 +723,7 @@ async function handleDropToSidebar(phone, evt) {
   showToast(`↩ ${esc(name)} moved back to Needs Scheduling`, 'Undo', () => { undoAction(phone, prev); });
   document.getElementById('needsCount').textContent = getUnscheduled().length;
   saveDb().catch(()=>{});
+  renderCalGrid(getWeekDates());
   renderCrewPanel(getWeekDates());
 }
 
