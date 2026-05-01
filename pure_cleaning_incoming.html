@@ -229,7 +229,7 @@ function buildCard(req) {
     const qUrl = buildQuoteUrl(req);
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
-      <button class="btn-ignore" onclick="changeStatus('${req.id}','ignored',this)">🗑 Ignore</button>
+      <button class="btn-ignore" onclick="confirmIgnore('${req.id}','${esc((d.firstName||'')+' '+(d.lastName||'')).trim()}',this)">🗑 Ignore</button>
       <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
   } else if (req.status === 'quoted') {
     const qt = req.quotedAt
@@ -317,6 +317,11 @@ async function changeStatus(id, newStatus, btn) {
 }
 
 // ── Utils ──────────────────────────────────────────────────────────
+function confirmIgnore(id, name, btn) {
+  if (!confirm(`Ignore "${name}"?\n\nThis moves them to the Ignored tab. You can restore anytime.`)) return;
+  changeStatus(id, 'ignored', btn);
+}
+
 function timeAgo(iso) {
   if (!iso) return '';
   const m = Math.floor((Date.now() - new Date(iso)) / 60000);
@@ -334,7 +339,7 @@ function esc(s) {
 
 // ── Init ───────────────────────────────────────────────────────────
 loadRequests();
-setInterval(() => loadRequests(true), 60000);
+setInterval(() => loadRequests(true), 30000);
 </script>
 </body>
 </html>
