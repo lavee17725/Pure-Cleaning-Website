@@ -730,12 +730,48 @@
     return opts;
   }
 
-  async function loadBlockedWeeks() {
+  function loadBlockedWeeks() {
+    // 1. Try localStorage cache (5-min TTL) — render immediately if fresh
+    const CACHE_KEY = 'pcpc_blocked_weeks_v2';
+    const TTL = 5 * 60 * 1000;
     try {
-      const res = await fetch('https://api.jsonbin.io/v3/b/'+BLOCKED_WEEKS_BIN+'/latest', {mode:'cors',headers:{'X-Master-Key':_PCJKEY}});
-      if (res.ok) { const d = await res.json(); _blockedWeeks = (d.record||{}).blockedWeeks||[]; }
-    } catch(e) {}
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const { data, timestamp } = JSON.parse(cached);
+        if (Date.now() - timestamp < TTL) {
+          _blockedWeeks = data || [];
+          renderWeekGrid(); // instant — from cache
+          return;           // skip network call entirely
+        }
+      }
+    } catch(_) {}
+
+    // 2. No fresh cache — render all weeks available right now so the UI isn't blocked
     renderWeekGrid();
+
+    // 3. Fetch in background, update UI when ready
+    fetch('https://api.jsonbin.io/v3/b/' + BLOCKED_WEEKS_BIN + '/latest', {
+      mode: 'cors', headers: { 'X-Master-Key': _PCJKEY }
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => {
+        const fresh = (d.record || {}).blockedWeeks || [];
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: fresh, timestamp: Date.now() })); } catch(_) {}
+        _blockedWeeks = fresh;
+        // Only re-render if anything actually changed
+        if (fresh.length > 0) {
+          const wasSelected = selectedWeekStart && fresh.some(bw => bw.weekStart === selectedWeekStart);
+          renderWeekGrid();
+          if (wasSelected) {
+            // User had picked a now-blocked week — clear selection and alert them
+            selectedWeekValue = ''; selectedWeekStart = '';
+            renderWeekGrid();
+            const err = document.getElementById('weekError');
+            if (err) { err.textContent = 'That week just filled up — please pick another!'; err.style.display = 'block'; }
+          }
+        }
+      })
+      .catch(() => { /* graceful — all weeks stay available */ });
   }
 
   function renderWeekGrid() {
