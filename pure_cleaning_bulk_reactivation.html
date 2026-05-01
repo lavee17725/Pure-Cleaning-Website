@@ -80,6 +80,21 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .day-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
 .day-chip{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--muted);}
 .day-chip.has-sends{color:var(--sky);border-color:#93c5fd;}
+.tab-summary.ts-green{background:#dcfce7;border-color:#86efac;color:#14532d;}
+.tab-summary.ts-yellow{background:#fef9c3;border-color:#fde047;color:#713f12;}
+.tab-summary.ts-amber{background:#fed7aa;border-color:#fb923c;color:#7c2d12;}
+.tab-summary.ts-red{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d;}
+.hours-banner{background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:.75rem 1rem;font-size:13px;color:#92400e;margin-top:.75rem;text-align:center;display:none;}
+.compliance-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem;}
+.compliance-modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem;max-width:480px;width:100%;text-align:center;}
+.compliance-icon{font-size:3rem;margin-bottom:.5rem;}
+.compliance-reason{color:var(--text);font-size:14px;line-height:1.6;margin:1rem 0;}
+.compliance-warning{background:#fef3c7;border-left:3px solid #f59e0b;padding:1rem;border-radius:8px;text-align:left;margin:1rem 0;font-size:13px;color:#78350f;}
+.compliance-warning ul{margin:.5rem 0 0 1.25rem;padding:0;line-height:1.8;}
+.compliance-actions{display:flex;gap:.75rem;margin-top:1.5rem;}
+.compliance-actions button{flex:1;padding:.75rem;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;border:none;}
+.btn-cancel{background:var(--border);color:var(--text);}
+.btn-override{background:#dc2626;color:#fff;}
 
 /* table */
 .table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
@@ -281,6 +296,11 @@ td.money{font-family:'DM Mono',monospace;}
       <button class="collapsible-btn" id="excludedToggle" onclick="toggleExcluded()">(show)</button>
     </div>
     <div id="excludedList" class="excluded-list" style="display:none;"></div>
+  </div>
+
+  <!-- HOURS BANNER -->
+  <div class="hours-banner" id="hoursBanner">
+    ⏰ Outreach paused — Mon-Fri 9 AM to 7 PM ET only. Resumes <span id="resumesIn"></span>.
   </div>
 
   <!-- POOL TABS -->
@@ -685,6 +705,7 @@ async function tryLoadDatabase() {
     showDbBanner(db);
     applyFilters();
     updateContactStats();
+    updateHoursBanner();
   } catch(e) {
     bannerText.textContent = `⚠️ Could not load database — check connection and refresh. (${e.message})`;
     console.error('DB load error:', e);
@@ -1261,13 +1282,17 @@ function renderTabSummary(tab) {
   if (tab === 'today') {
     const n = records.filter(r => isContactedToday(r.iso)).length;
     const cap = 30, rem = Math.max(0, cap - n);
+    const cls = n >= 31 ? 'ts-red' : n >= 26 ? 'ts-amber' : n >= 16 ? 'ts-yellow' : 'ts-green';
+    const statusIcon = n >= 31 ? '🚫' : n >= 26 ? '⚠️' : '📲';
     bar.style.display = 'block';
-    bar.innerHTML = `<div class="tab-summary">📲 Sent today: <strong>${n}</strong> &nbsp;·&nbsp; Recommended cap: ${cap} &nbsp;·&nbsp; <strong>${rem}</strong> remaining</div>`;
+    bar.innerHTML = `<div class="tab-summary ${cls}">${statusIcon} Sent today: <strong>${n}</strong> &nbsp;·&nbsp; Daily cap: ${cap} &nbsp;·&nbsp; <strong>${rem >= 0 ? rem : 0}</strong> remaining</div>`;
     return;
   }
   const weekRecs = records.filter(r => isContactedThisWeek(r.iso));
   const n = weekRecs.length;
   const cap = 150, rem = Math.max(0, cap - n);
+  const wcls = n >= 151 ? 'ts-red' : n >= 131 ? 'ts-amber' : 'ts-green';
+  const wIcon = n >= 151 ? '🚫' : n >= 131 ? '⚠️' : '📅';
   const counts = {Mon:0, Tue:0, Wed:0, Thu:0, Fri:0, Sat:0, Sun:0};
   weekRecs.forEach(r => {
     const dn = new Date(r.iso).toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short'});
@@ -1276,8 +1301,134 @@ function renderTabSummary(tab) {
   const chips = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d =>
     `<span class="day-chip${counts[d] > 0 ? ' has-sends' : ''}">${d}: ${counts[d]}</span>`).join('');
   bar.style.display = 'block';
-  bar.innerHTML = `<div class="tab-summary">📊 This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem}</strong> remaining<div class="day-chips">${chips}</div></div>`;
+  bar.innerHTML = `<div class="tab-summary ${wcls}">${wIcon} This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem >= 0 ? rem : 0}</strong> remaining<div class="day-chips">${chips}</div></div>`;
 }
+// ─── COMPLIANCE ENFORCEMENT ──────────────────────────────────────────────────
+function isWithinSendingHours() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', hour12: false
+  }).formatToParts(now);
+  const weekday = parts.find(p => p.type === 'weekday').value;
+  const hour = parseInt(parts.find(p => p.type === 'hour').value);
+  return !['Sat','Sun'].includes(weekday) && hour >= 9 && hour < 19;
+}
+
+function getDailySendCount() {
+  return Object.values(loadContacts())
+    .map(v => typeof v === 'string' ? v : (v && v.contactedAt))
+    .filter(Boolean)
+    .filter(iso => isContactedToday(iso)).length;
+}
+
+function getWeeklySendCount() {
+  return Object.values(loadContacts())
+    .map(v => typeof v === 'string' ? v : (v && v.contactedAt))
+    .filter(Boolean)
+    .filter(iso => isContactedThisWeek(iso)).length;
+}
+
+function getNextSendingWindow() {
+  const now = new Date();
+  const wdParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'long'
+  }).formatToParts(now);
+  const weekday = wdParts.find(p => p.type === 'weekday').value;
+  const hour = parseInt(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', hour12: false
+  }).formatToParts(now).find(p => p.type === 'hour').value);
+  if (['Saturday','Sunday'].includes(weekday)) return 'Monday at 9 AM ET';
+  if (hour < 9) return 'Today at 9 AM ET';
+  if (hour >= 19) return weekday === 'Friday' ? 'Monday at 9 AM ET' : 'Tomorrow at 9 AM ET';
+  return 'now';
+}
+
+function checkCompliance() {
+  if (!isWithinSendingHours()) {
+    return {
+      allowed: false,
+      reason: `Sending paused — Mon-Fri 9 AM to 7 PM ET only. Resumes ${getNextSendingWindow()}.`,
+      override: true,
+      severity: 'time'
+    };
+  }
+  const dailyCount = getDailySendCount();
+  const weeklyCount = getWeeklySendCount();
+  if (dailyCount >= 100) {
+    return {
+      allowed: false,
+      reason: `Hard ceiling reached: ${dailyCount} sends today. Sending locked until midnight ET to protect your phone number.`,
+      override: false,
+      severity: 'hard_daily'
+    };
+  }
+  if (dailyCount >= 31) {
+    return {
+      allowed: false,
+      reason: `Daily cap reached: ${dailyCount}/30 sent today. Sending past 30 risks carrier flags on your business number.`,
+      override: true,
+      severity: 'soft_daily'
+    };
+  }
+  if (weeklyCount >= 151) {
+    return {
+      allowed: false,
+      reason: `Weekly cap reached: ${weeklyCount}/150 sent this week. Resumes Monday morning.`,
+      override: true,
+      severity: 'soft_weekly'
+    };
+  }
+  return { allowed: true };
+}
+
+function showComplianceBlock(compliance) {
+  const overrideHtml = compliance.override ? `
+    <div class="compliance-warning">
+      <strong>If you override:</strong>
+      <ul>
+        <li>TCPA violations cost $500–$1,500 per message</li>
+        <li>Carriers may flag your business number</li>
+        <li>Reply quality will suffer outside business hours</li>
+      </ul>
+    </div>
+    <div class="compliance-actions">
+      <button class="btn-cancel" onclick="this.closest('.compliance-modal-backdrop').remove()">Cancel</button>
+      <button class="btn-override" onclick="overrideAndSend('${currentTextNowPhone}')">Override &amp; Send Anyway</button>
+    </div>` : `
+    <div class="compliance-actions">
+      <button class="btn-cancel" style="width:100%" onclick="this.closest('.compliance-modal-backdrop').remove()">Got it</button>
+    </div>`;
+  const icon = compliance.severity === 'hard_daily' ? '🚫' : '⏰';
+  const modal = document.createElement('div');
+  modal.className = 'compliance-modal-backdrop';
+  modal.innerHTML = `<div class="compliance-modal">
+    <div class="compliance-icon">${icon}</div>
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:.25rem;">${compliance.severity === 'hard_daily' ? 'Sending Locked' : 'Sending Paused'}</h3>
+    <p class="compliance-reason">${compliance.reason}</p>
+    ${overrideHtml}
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+let currentTextNowPhone = null;
+
+function overrideAndSend(phone) {
+  document.querySelector('.compliance-modal-backdrop')?.remove();
+  executeTextNow(phone);
+}
+
+function updateHoursBanner() {
+  const banner = document.getElementById('hoursBanner');
+  const resumesEl = document.getElementById('resumesIn');
+  if (!banner) return;
+  if (isWithinSendingHours()) {
+    banner.style.display = 'none';
+  } else {
+    if (resumesEl) resumesEl.textContent = getNextSendingWindow();
+    banner.style.display = 'block';
+  }
+}
+
 function getNextVariant() {
   const lastIndex = parseInt(localStorage.getItem(VARIANT_CYCLE_KEY) || '-1');
   const nextIndex = (lastIndex + 1) % SMS_VARIANTS.length;
@@ -1382,7 +1533,17 @@ function updateTabCounts() {
   document.getElementById('tabContactedCount').textContent = contacted;
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
 }
-async function textNow(phone) {
+function textNow(phone) {
+  const compliance = checkCompliance();
+  if (!compliance.allowed) {
+    currentTextNowPhone = phone;
+    showComplianceBlock(compliance);
+    return;
+  }
+  executeTextNow(phone);
+}
+
+async function executeTextNow(phone) {
   const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
   const c = allCustomers.find(a => a.phone === phone);
   if (!c) return;
