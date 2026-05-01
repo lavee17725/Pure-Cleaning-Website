@@ -410,6 +410,54 @@ const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin
 const QUOTE_EVENTS_BIN_ID = '69f41bfdaaba8821975a74fa';
 const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const VARIANT_CYCLE_KEY = 'pcpc_sms_variant_cycle';
+const SMS_VARIANTS = [
+  {
+    label: 'A',
+    template: `Hey {firstName}, it's Tyler — Darla and Tony's son with Pure Cleaning.
+
+I've been taking on more of the business and built something I'm proud of: a simpler way for our customers to get a quote and get back on the books. Worked hard on it — would love for you to be one of the first to try it.
+
+It's been about {months} months since we cleaned for you. Your info is already loaded:
+
+{link}
+
+— Tyler
+954-389-2642
+
+Reply STOP to opt out.`
+  },
+  {
+    label: 'B',
+    template: `Hi {firstName}! Tyler here from Pure Cleaning — Darla and Tony's son.
+
+Running a spring special: $50 off any service $300 or more, through May 31. Been about {months} months since our last visit and figured this was the right time to reach out.
+
+Your quote with the discount applied:
+
+{link}
+
+— Tyler
+954-389-2642
+
+Reply STOP to opt out.`
+  },
+  {
+    label: 'C',
+    template: `{firstName}, hope you and the family are well.
+
+Tyler here — Darla and Tony's son. After 30 years of my parents keeping South Florida homes looking their best, I'm helping run more of Pure Cleaning these days. Same family, same care — just doing my part to carry it forward.
+
+It's been about {months} months since we last cleaned for you. Made it easy — your info is already loaded:
+
+{link}
+
+— Tyler
+954-389-2642
+
+Reply STOP to opt out.`
+  }
+];
 
 // ── EVENT TRACKING ────────────────────────────────────────────────
 const _tracked = new Set();
@@ -1230,6 +1278,35 @@ function renderTabSummary(tab) {
   bar.style.display = 'block';
   bar.innerHTML = `<div class="tab-summary">📊 This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem}</strong> remaining<div class="day-chips">${chips}</div></div>`;
 }
+function getNextVariant() {
+  const lastIndex = parseInt(localStorage.getItem(VARIANT_CYCLE_KEY) || '-1');
+  const nextIndex = (lastIndex + 1) % SMS_VARIANTS.length;
+  localStorage.setItem(VARIANT_CYCLE_KEY, nextIndex.toString());
+  return SMS_VARIANTS[nextIndex];
+}
+
+function buildVariantBody(variant, customer, link) {
+  const months = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  return variant.template
+    .replace(/{firstName}/g, customer.fn || 'there')
+    .replace(/{months}/g, months)
+    .replace(/{link}/g, link);
+}
+
+function showVariantToast(label) {
+  let toast = document.getElementById('variantToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'variantToast';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1d9e75;color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:700;letter-spacing:.5px;z-index:9999;pointer-events:none;transition:opacity .4s;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = `Sent variant ${label}`;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+}
+
 function buildMonthsText(ms) {
   const n = Math.round(ms);
   if (n <= 0) return 'a few weeks';
@@ -1369,20 +1446,15 @@ async function textNow(phone) {
     }
   }
 
-  const link = `${QUOTE_BASE}?c=${binId}.${code}`;
-  const monthsText = buildMonthsText(c.monthsSince);
-  const years = Math.floor(c.monthsSince / 12);
-  const body = (c.tier === 'DORMANT' || c.tier === 'ANCIENT')
-    ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in here:\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
-    : c.tier === 'VIP_SEAL'
-      ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — ${monthsText} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
-      : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home ${monthsText} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+  const baseLink = `${QUOTE_BASE}?c=${binId}.${code}`;
+  const variant = getNextVariant();
+  const linkWithVariant = `${baseLink}&v=${variant.label}`;
+  const body = buildVariantBody(variant, c, linkWithVariant);
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
-  const variant = c.tier === 'VIP_SEAL' ? 'vip' :
-                  (c.tier === 'DORMANT' || c.tier === 'ANCIENT') ? 'dormant' : 'standard';
-  trackQuoteEvent('sent', c.phone, variant, {tier: c.tier});
+  trackQuoteEvent('sent', c.phone, variant.label, {tier: c.tier});
+  showVariantToast(variant.label);
 
   const now = new Date();
   const sixMonths = new Date(now.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);

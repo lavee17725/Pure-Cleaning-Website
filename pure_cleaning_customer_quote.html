@@ -215,6 +215,7 @@ function loadFromParams() {
   const params = new URLSearchParams(window.location.search);
   const id = params.get('id');
   const encoded = params.get('q');
+  const variantFromUrl = params.get('v') || null;
 
   if (id) {
     console.log('[JSONbin GET] fetching id:', id);
@@ -233,6 +234,7 @@ function loadFromParams() {
         return;
       }
       quoteData = data.record;
+      quoteData.variant = quoteData.variant || variantFromUrl;
       renderQuote();
     })
     .catch(e => { console.error('[JSONbin GET] network error:', e.message || e); });
@@ -242,6 +244,7 @@ function loadFromParams() {
   if (encoded) {
     try {
       quoteData = JSON.parse(atob(encoded));
+      quoteData.variant = quoteData.variant || variantFromUrl;
       renderQuote();
       return;
     } catch(e) {}
