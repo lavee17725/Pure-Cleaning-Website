@@ -415,9 +415,25 @@ function checkCustomerAlerts(phone) {
   if (!phone || phone.length !== 10) return;
   getCachedCustomerDB().then(data => {
     const c = ((data||{}).customers||[]).find(x => x.phone === phone);
-    if (!c || !c.alerts || !c.alerts.length) return;
-    document.getElementById('custAlertList').innerHTML = c.alerts.map(a => `<div>${a.icon} <strong>${a.label}</strong>${a.note ? ' — ' + a.note : ''}</div>`).join('');
-    document.getElementById('custAlertBox').style.display = 'block';
+    if (!c) return;
+    if (c.optOut) {
+      const OPT_LABELS = {customer_request:'Customer request',wrong_number:'Wrong number',deceased:'Deceased',moved:'Moved away',do_not_contact:'Do not contact'};
+      const reason = OPT_LABELS[c.optOut.reason] || c.optOut.reason || 'Unknown';
+      let box = document.getElementById('optOutWarningBox');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'optOutWarningBox';
+        box.style.cssText = 'background:#fff1f2;border:2px solid #fca5a5;border-radius:12px;padding:12px 16px;margin-bottom:1rem;font-size:13px;color:#7f1d1d;line-height:1.6;';
+        const alertBox = document.getElementById('custAlertBox');
+        alertBox.parentNode.insertBefore(box, alertBox);
+      }
+      box.innerHTML = `<strong>⚠️ Opted-Out Customer</strong><br>${c.firstName} ${c.lastName} is marked opted out (${reason}). Proceed only if you have a legitimate reason to contact this customer.`;
+      box.style.display = 'block';
+    }
+    if (c.alerts && c.alerts.length) {
+      document.getElementById('custAlertList').innerHTML = c.alerts.map(a => `<div>${a.icon} <strong>${a.label}</strong>${a.note ? ' — ' + a.note : ''}</div>`).join('');
+      document.getElementById('custAlertBox').style.display = 'block';
+    }
   }).catch(() => {});
 }
 

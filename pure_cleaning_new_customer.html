@@ -104,9 +104,17 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     <!-- Duplicate callout -->
     <div class="dup-callout" id="dupCallout">
       <div class="dup-text" id="dupText"></div>
-      <div class="dup-row">
+      <div class="dup-row" id="dupRow">
         <button class="dup-yes" onclick="useDuplicate()">👋 Use their info →</button>
         <button class="dup-no"  onclick="skipDuplicate()">Continue as new</button>
+      </div>
+    </div>
+
+    <!-- Opted-out warning -->
+    <div class="dup-callout" id="optOutCallout" style="border-color:#fca5a5;background:#fff1f2;display:none;">
+      <div class="dup-text" style="color:#7f1d1d;" id="optOutText"></div>
+      <div class="dup-row">
+        <button class="dup-no" style="flex:1;" onclick="document.getElementById('optOutCallout').style.display='none'">Dismiss</button>
       </div>
     </div>
 
@@ -329,12 +337,23 @@ function onPhoneInput(input) {
   if (d.length !== 10 || !isNew) { document.getElementById('dupCallout').classList.remove('show'); return; }
   const dup = allCustomers.find(c => c.phone === d);
   if (dup) {
-    dupPhone = d;
-    document.getElementById('dupText').textContent = `👋 Looks like we already know ${dup.firstName} ${dup.lastName}! Tap below to use their info, or continue.`;
-    document.getElementById('dupCallout').classList.add('show');
+    document.getElementById('optOutCallout').style.display = 'none';
+    if (dup.optOut) {
+      const OPT_LABELS = {customer_request:'Customer request',wrong_number:'Wrong number',deceased:'Deceased',moved:'Moved away',do_not_contact:'Do not contact'};
+      const reason = OPT_LABELS[dup.optOut.reason] || dup.optOut.reason || 'Unknown';
+      document.getElementById('optOutText').textContent = `⚠️ ${dup.firstName} ${dup.lastName} is marked opted out (${reason}). Do not contact this customer.`;
+      document.getElementById('optOutCallout').style.display = 'block';
+      document.getElementById('dupCallout').classList.remove('show');
+      dupPhone = null;
+    } else {
+      dupPhone = d;
+      document.getElementById('dupText').textContent = `👋 Looks like we already know ${dup.firstName} ${dup.lastName}! Tap below to use their info, or continue.`;
+      document.getElementById('dupCallout').classList.add('show');
+    }
   } else {
     dupPhone = null;
     document.getElementById('dupCallout').classList.remove('show');
+    document.getElementById('optOutCallout').style.display = 'none';
   }
 }
 

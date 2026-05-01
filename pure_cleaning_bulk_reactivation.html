@@ -221,6 +221,9 @@ td.money{font-family:'DM Mono',monospace;}
 .row-menu-item:hover{background:rgba(255,255,255,.06);color:var(--text);}
 .row-menu-item.danger{color:#fc8181;}.row-menu-item.danger:hover{background:rgba(229,62,62,.1);}
 .row-menu-item.phone-act:hover{color:#fb923c;}
+.opted-out-badge{display:inline-block;background:rgba(229,62,62,.12);border:1px solid rgba(229,62,62,.35);color:#fc8181;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-left:4px;}
+.restore-btn{background:none;border:1px solid rgba(45,125,210,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--sky);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.restore-btn:hover{background:rgba(45,125,210,.12);}
 
 /* upload summary modal */
 .summary-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px;}
@@ -310,6 +313,7 @@ td.money{font-family:'DM Mono',monospace;}
     <button class="pool-tab" onclick="setPoolTab('week')">📅 This Week <span class="pool-badge" id="tabWeekCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('opted_out')" style="border-color:rgba(229,62,62,.35);color:#fc8181;">🚫 Opted Out <span class="pool-badge" id="tabOptedOutCount">0</span></button>
   </div>
 
   <!-- FILTERS -->
@@ -582,7 +586,8 @@ function customerToDbRecord(c) {
     lastTextedDate: c.lastTextedDate || null,
     quoteStatus: c.quoteStatus || null,
     scheduledStatus: c.scheduledStatus || null,
-    alerts: c.alerts || []
+    alerts: c.alerts || [],
+    optOut: c.optOut || null
   };
 }
 
@@ -603,7 +608,8 @@ function dbRecordToCustomer(r) {
     linkCode: r.linkCode || null, linkBin: r.linkBin || null, lastTextedDate: r.lastTextedDate || null,
     quoteStatus: r.quoteStatus || null,
     scheduledStatus: r.scheduledStatus || null,
-    alerts: r.alerts || []
+    alerts: r.alerts || [],
+    optOut: r.optOut || null
   };
 }
 
@@ -995,6 +1001,7 @@ async function processFiles() {
         newByPhone[phone].quoteStatus     = old.quoteStatus     || null;
         newByPhone[phone].scheduledStatus = old.scheduledStatus || null;
         newByPhone[phone].alerts          = old.alerts          || [];
+        newByPhone[phone].optOut          = old.optOut          || null;
       }
     }
     allCustomers = Object.values(newByPhone);
@@ -1077,6 +1084,8 @@ function applyFilters() {
   const qDigits = q.replace(/\D/g, '');
 
   filteredCustomers = allCustomers.filter(c => {
+    if (poolTab === 'opted_out') return !!c.optOut;
+    if (c.optOut) return false; // hide opted-out from all other tabs
     if (!activeTiers.has(c.tier)) return false;
     if (city && c.city !== city) return false;
     if (c.lifetimeSpend < minSpend) return false;
@@ -1157,12 +1166,22 @@ function toggleTier(el) {
   applyFilters();
 }
 
+const OPT_OUT_LABELS = {
+  customer_request: 'Customer request',
+  wrong_number: 'Wrong number',
+  deceased: 'Deceased',
+  moved: 'Moved away',
+  do_not_contact: 'Do not contact'
+};
+
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
-  if (filteredCustomers.length === 0 && (poolTab === 'today' || poolTab === 'week')) {
-    const label = poolTab === 'today' ? 'today' : 'this week';
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">No customers texted ${label} yet.</td></tr>`;
+  const emptyTabs = ['today','week','opted_out'];
+  if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
+    const label = poolTab === 'today' ? 'today' : poolTab === 'week' ? 'this week' : null;
+    const msg = label ? `No customers texted ${label} yet.` : 'No opted-out customers.';
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msg}</td></tr>`;
     updateSelInfo();
     document.getElementById('selectAll').checked = false;
     return;
@@ -1173,6 +1192,28 @@ function renderTable() {
     const tc = tierClass(c.tier);
     const sealIcon   = c.hasSeal ? '🛡️ ' : '';
     const alertBadge = renderAlertIcons(c.alerts);
+
+    // Opted-out tab: show reason + restore, no text button
+    if (poolTab === 'opted_out') {
+      const reasonLabel = OPT_OUT_LABELS[c.optOut && c.optOut.reason] || c.optOut.reason || 'Unknown';
+      const atStr = c.optOut.at ? new Date(c.optOut.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const textBtn = `<div class="contact-info">🚫 Opted out<br><span style="font-size:10px;">${reasonLabel}${atStr ? ' · ' + atStr : ''}</span></div><button class="restore-btn" onclick="restoreOptOut('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.7;">
+        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td>${textBtn}</td>
+        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${c.city || '—'}</td>
+        <td>${c.lastServiceStr}</td>
+        <td class="money">${c.totalJobs}</td>
+        <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="money">$${Math.round(c.avgTicket)}</td>
+        <td class="money">${mo}</td>
+        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }
+
     const rec     = loadContactRecord(c.phone);
     const cooldown = isInCooldown(c.phone);
     const isDisc = c.phoneStatus === 'disconnected';
@@ -1506,7 +1547,7 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','today','week','contacted','all'][i] === tab);
+    el.classList.toggle('active', ['active','today','week','contacted','all','opted_out'][i] === tab);
   });
   renderTabSummary(tab);
   applyFilters();
@@ -1514,8 +1555,9 @@ function setPoolTab(tab) {
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0, todayCt = 0, weekCt = 0;
+  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0;
   allCustomers.forEach(c => {
+    if (c.optOut) { optedOutCt++; return; }
     const rec = loadContactRecord(c.phone);
     if (isInCooldown(c.phone)) {
       contacted++;
@@ -1532,6 +1574,7 @@ function updateTabCounts() {
   document.getElementById('tabWeekCount').textContent      = weekCt;
   document.getElementById('tabContactedCount').textContent = contacted;
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
+  document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
 }
 function textNow(phone) {
   const compliance = checkCompliance();
@@ -1813,6 +1856,55 @@ function moveToActive(phone) {
   renderExcludedList();
   document.getElementById('sExcluded').textContent = excludedRecords.length;
   document.getElementById('sUnique').textContent = allCustomers.length;
+  applyFilters();
+}
+
+function promptOptOut(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  const name = `${c.fn} ${c.ln}`;
+  const modal = document.createElement('div');
+  modal.className = 'compliance-modal-backdrop';
+  modal.id = 'optOutModal';
+  modal.innerHTML = `<div class="compliance-modal" style="text-align:left;">
+    <div style="font-size:1.5rem;margin-bottom:.5rem;">🚫</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:.25rem;">Mark Opted Out</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">${name} — ${formatPhone(phone)}<br>Customer will be hidden from all reactivation views. Record is preserved.</p>
+    <div style="margin-bottom:1rem;">
+      <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px;">Reason</label>
+      <select id="optOutReasonSel" style="width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+        <option value="customer_request">Customer request</option>
+        <option value="wrong_number">Wrong number</option>
+        <option value="deceased">Deceased</option>
+        <option value="moved">Moved away</option>
+        <option value="do_not_contact">Do not contact</option>
+      </select>
+    </div>
+    <div class="compliance-actions">
+      <button class="btn-cancel" onclick="document.getElementById('optOutModal').remove()">Cancel</button>
+      <button class="btn-override" onclick="markOptedOut('${phone}', document.getElementById('optOutReasonSel').value)">Confirm Opt-Out</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function markOptedOut(phone, reason) {
+  document.getElementById('optOutModal')?.remove();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.optOut = { reason: reason || 'customer_request', at: new Date().toISOString() };
+  selectedPhones.delete(phone);
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function restoreOptOut(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.optOut = null;
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
 }
 
@@ -2135,8 +2227,13 @@ function toggleRowMenu(phone, btn) {
 
   const c = allCustomers.find(x => x.phone === phone);
   const isDisc = c && c.phoneStatus === 'disconnected';
+  const isOptedOut = c && !!c.optOut;
   const menu = document.getElementById('rowMenuDropdown');
   menu.innerHTML =
+    (isOptedOut
+      ? `<button class="row-menu-item" onclick="restoreOptOut('${phone}')">↩ Restore from opt-out</button>`
+      : `<button class="row-menu-item danger" onclick="promptOptOut('${phone}')">🚫 Mark opted out</button>`
+    ) +
     `<button class="row-menu-item danger" onclick="markCommercial('${phone}')">⊘ Exclude (commercial)</button>` +
     (isDisc
       ? `<button class="row-menu-item phone-act" onclick="markPhoneActive('${phone}')">📞 Mark phone active</button>`
