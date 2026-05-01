@@ -89,7 +89,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 .success-screen { display: none; text-align: center; padding: 3rem 1.5rem; }
 .success-screen.show { display: block; }
 .success-icon { font-size: 64px; margin-bottom: 1rem; }
-.success-title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; color: var(--navy); letter-spacing: 2px; margin-bottom: 0.5rem; }
+.success-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--navy); letter-spacing: 1.5px; margin-bottom: 0.5rem; line-height: 1.1; }
 .success-sub { font-size: 15px; color: var(--muted); line-height: 1.7; }
 .success-detail { background: white; border-radius: 12px; padding: 1rem; margin: 1.5rem 0; text-align: left; border: 0.5px solid var(--border); }
 .success-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
@@ -180,8 +180,8 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 
       <!-- Reschedule form (last resort) -->
       <div id="rescheduleView" style="display:none;">
-        <div class="card-title" style="margin-bottom:8px;">Request a new time</div>
-        <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Tell us when works — we'll call to confirm.</div>
+        <div class="card-title" style="margin-bottom:8px;">Request a different date</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Tell us which days work — we'll reach out to confirm.</div>
         <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Best days</div>
         <div class="day-chips" id="dayChips">
           <div class="day-chip" onclick="toggleDay(this,'Monday')">Mon</div>
@@ -191,13 +191,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
           <div class="day-chip" onclick="toggleDay(this,'Friday')">Fri</div>
           <div class="day-chip" onclick="toggleDay(this,'Saturday')">Sat</div>
         </div>
-        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Preferred time</div>
-        <div class="time-pref">
-          <div class="time-opt" onclick="selectTime(this,'Morning')">🌅 Morning</div>
-          <div class="time-opt" onclick="selectTime(this,'Afternoon')">☀️ Afternoon</div>
-          <div class="time-opt active" onclick="selectTime(this,'Flexible')">🤷 Flexible</div>
-        </div>
-        <textarea class="reschedule-notes" id="rescheduleNotes" placeholder="Gate code, dogs, best time to reach you..."></textarea>
+        <textarea class="reschedule-notes" id="rescheduleNotes" placeholder="Anything else? Gate code, dogs, or timing preferences..."></textarea>
         <button class="reschedule-btn" onclick="submitReschedule()">Send Request →</button>
         <div id="rescheduleSuccess" style="display:none;text-align:center;padding:1.5rem 0;">
           <div style="font-size:48px;margin-bottom:10px;">📅</div>
@@ -231,7 +225,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 <div class="success-screen" id="successScreen">
   <div class="success-icon">✓</div>
   <div class="success-title">Confirmed.</div>
-  <div class="success-sub">We'll call or text you the night before to confirm your appointment. Looking forward to seeing you!</div>
+  <div class="success-sub">We'll text or call you the night before to confirm the exact arrival time. Looking forward to it!</div>
   <div class="success-detail" id="successDetail"></div>
   <div style="font-size:14px;color:var(--muted);">Questions? Call or text us at<br><a href="tel:9543892642" style="color:var(--sky);font-weight:700;">954-389-2642</a></div>
 </div>
@@ -533,7 +527,8 @@ function renderQuote() {
     document.getElementById('primaryDateCard').innerHTML =
       `<div class="primary-date-label">Your appointment</div>
        <div class="primary-date-day">${pDay}</div>
-       <div class="primary-date-full">${pFull}</div>`;
+       <div class="primary-date-full">${pFull}</div>
+       <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:10px;">We'll confirm the exact time the day before</div>`;
     _primaryDateVal = primaryDate;
     _primaryDateFull = pFull;
     if (quoteData.phone) trackQuoteEvent('quote_primary_date_shown', quoteData.phone, quoteData.variant || null);
@@ -691,8 +686,12 @@ async function approveQuote() {
   document.getElementById('quoteView').style.display = 'none';
   const success = document.getElementById('successScreen');
   success.classList.add('show');
+  // Personalize success title with the confirmed date
+  const bookedDt = new Date(selectedDate.val + 'T12:00:00');
+  const bookedDay = bookedDt.toLocaleDateString('en-US', {weekday: 'long'});
+  const bookedMd  = bookedDt.toLocaleDateString('en-US', {month: 'long', day: 'numeric'});
+  document.querySelector('.success-title').textContent = `You're booked for ${bookedDay}, ${bookedMd}`;
   document.getElementById('successDetail').innerHTML = `
-    <div class="success-row"><span>Customer</span><span>${quoteData.name}</span></div>
     <div class="success-row"><span>Services</span><span style="text-align:right;max-width:180px;">${[...quoteData.services,...addedServices].join(', ')}</span></div>
     <div class="success-row"><span>Date</span><span>${selectedDate.full}</span></div>
     <div class="success-row"><span>Total</span><span>$${total.toLocaleString()}</span></div>
@@ -818,14 +817,14 @@ async function submitReschedule() {
     email: (quoteData && quoteData.email) || '',
     address: (quoteData && quoteData.address) || '',
     services: quoteData && Array.isArray(quoteData.services) ? quoteData.services.join(', ') : '',
-    notes: `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. Time: ${_rescheduleSelectedTime}. ${notes}`,
+    notes: `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. ${notes}`,
     timeframe: 'Flexible',
     source: 'quote_reschedule',
     created_at: new Date().toISOString()
   };
 
   if (quoteData && quoteData.phone) {
-    trackQuoteEvent('quote_reschedule_requested', quoteData.phone, quoteData.variant || null, { days, time: _rescheduleSelectedTime });
+    trackQuoteEvent('quote_reschedule_requested', quoteData.phone, quoteData.variant || null, { days });
   }
 
   const btn = document.querySelector('.reschedule-btn');
