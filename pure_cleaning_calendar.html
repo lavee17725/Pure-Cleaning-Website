@@ -87,8 +87,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
 .jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
-.rig-gross{font-size:11px;font-weight:700;color:#c2410c;padding:2px 8px 4px;letter-spacing:.2px;}
+.rig-gross{font-size:11px;font-weight:700;color:#c2410c;padding:2px 8px 2px;letter-spacing:.2px;}
 .rig-gross.zero{color:var(--muted);font-weight:400;}
+.rig-labor-net{font-size:10px;color:var(--muted);padding:0 8px 4px;line-height:1.5;}
+.rig-net-val{color:#16a34a;font-weight:700;}
 .day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
 .day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
 .js-alerts{font-size:13px;margin-top:2px;}
@@ -509,11 +511,14 @@ function renderCalGrid(dates) {
     const dayLabel = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
     const isToday = date === today;
     const labor = calcDailyLabor(date);
-    const laborStr = labor > 0 ? `💰 $${labor.toLocaleString()}` : '';
     const dayTotal = calculateDayTotal(date);
+    const dayNet = dayTotal - labor;
     const dayGrossStr = dayTotal > 0
       ? `$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} gross`
       : '$0 gross';
+    const dayLaborNetStr = labor > 0
+      ? `-$${labor.toLocaleString()} labor · $${dayNet.toLocaleString()} net`
+      : '';
     const rigsHtml = RIGS.map(rig => {
       const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
       const crewLabel = crew.map(id => CREW_MEMBERS.find(c=>c.id===id)?.name||id).join(' + ');
@@ -523,10 +528,15 @@ function renderCalGrid(dates) {
       const jobsHtml = jobs.map(c => jobCardScheduled(c)).join('');
       const emptyClass = jobs.length ? '' : ' empty-hint';
       const rigTotal = calculateRigTotal(date, rig);
+      const rigLabor = calcRigLabor(date, rig);
+      const rigNet   = rigTotal - rigLabor;
       const rigGrossStr = rigTotal > 0
         ? `$${rigTotal.toLocaleString('en-US',{maximumFractionDigits:0})}`
         : '$0';
       const rigGrossCls = rigTotal > 0 ? 'rig-gross' : 'rig-gross zero';
+      const rigLaborNetHtml = rigLabor > 0
+        ? `<div class="rig-labor-net">-$${rigLabor.toLocaleString()} labor · <span class="rig-net-val">$${rigNet.toLocaleString()} net</span></div>`
+        : '';
       return `<div class="rig-section">
         <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
           <span class="rig-icon">🚛</span>
@@ -534,6 +544,7 @@ function renderCalGrid(dates) {
           <span class="rig-crew-label">${crewLabel}</span>
         </div>
         <div class="${rigGrossCls}">${RIG_LABELS[rig]}: ${rigGrossStr}</div>
+        ${rigLaborNetHtml}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
       </div>`;
     }).join('');
@@ -542,7 +553,7 @@ function renderCalGrid(dates) {
         <div class="day-name">${dayName}</div>
         <div class="day-date${isToday?' today':''}">${dayLabel}</div>
         <div class="day-gross${dayTotal===0?' zero':''}">${dayGrossStr}</div>
-        ${labor>0 ? `<div class="day-labor has-cost">${laborStr}</div>` : '<div class="day-labor">&nbsp;</div>'}
+        ${labor>0 ? `<div class="day-labor has-cost">${dayLaborNetStr}</div>` : '<div class="day-labor">&nbsp;</div>'}
       </div>
       ${rigsHtml}
     </div>`;
@@ -662,6 +673,23 @@ function calcDailyLabor(date) {
       if (!cm) continue;
       total += dayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
     }
+  }
+  return total;
+}
+
+// Per-rig labor — deduplicates crew across rigs in RIGS order so sum = calcDailyLabor
+function calcRigLabor(date, rig) {
+  const seen = new Set();
+  for (const r of RIGS) {
+    if (r === rig) break;
+    for (const id of (((calState.rigCrew||{})[date]||{})[r]||[])) seen.add(id);
+  }
+  let total = 0;
+  const dayType = getRigDayType(date, rig);
+  for (const id of (((calState.rigCrew||{})[date]||{})[rig]||[])) {
+    if (seen.has(id)) continue;
+    const cm = CREW_MEMBERS.find(c=>c.id===id);
+    if (cm) total += dayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
   }
   return total;
 }
