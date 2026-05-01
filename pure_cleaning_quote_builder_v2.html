@@ -388,6 +388,10 @@ try {
   console.error('Init block threw:', initErr);
 }
 
+// Pre-warm caches in background so they're ready before user clicks Generate
+getCachedCustomerDB().catch(() => {});
+getShortLinksCache().catch(() => {});
+
 // ─── TAB SWITCHING ───────────────────────────────────────────────
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -559,30 +563,53 @@ function updatePreview() {
 }
 
 // ─── URL SHORTENER ───────────────────────────────────────────────
-async function shortenUrl(longUrl) {
-  const code = generateShortCode();
+const SHORT_LINKS_CACHE_KEY = 'pcpc_short_links_cache';
+
+async function getShortLinksCache() {
   try {
-    const getRes = await fetch(
+    const cached = sessionStorage.getItem(SHORT_LINKS_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch(e) {}
+  try {
+    const res = await fetch(
       'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID + '/latest',
       { headers: { 'X-Master-Key': JSONBIN_KEY } }
     );
-    const data = (await getRes.json()).record || {};
-    const links = data.links || {};
-    links[code] = longUrl;
-    const putRes = await fetch(
-      'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
-        body: JSON.stringify({ links })
-      }
-    );
-    if (!putRes.ok) throw new Error('HTTP ' + putRes.status);
-    return `https://purecleaningpressurecleaning.com/q.html?id=${code}`;
+    const links = ((await res.json()).record || {}).links || {};
+    sessionStorage.setItem(SHORT_LINKS_CACHE_KEY, JSON.stringify(links));
+    return links;
   } catch(e) {
-    console.warn('[shortener] JSONbin failed, falling back to long URL:', e);
-    return longUrl;
+    console.warn('[shortener] could not load links cache:', e);
+    return {};
   }
+}
+
+function shortenUrl(longUrl) {
+  const code = generateShortCode();
+  const shortUrl = `https://purecleaningpressurecleaning.com/q.html?id=${code}`;
+
+  // Write to JSONbin in background — return URL immediately
+  (async () => {
+    try {
+      const links = await getShortLinksCache();
+      links[code] = longUrl;
+      sessionStorage.setItem(SHORT_LINKS_CACHE_KEY, JSON.stringify(links));
+      const putRes = await fetch(
+        'https://api.jsonbin.io/v3/b/' + SHORT_LINKS_BIN_ID,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
+          body: JSON.stringify({ links })
+        }
+      );
+      if (!putRes.ok) console.warn('[shortener] PUT failed:', putRes.status);
+      else console.log('[shortener] link saved:', code);
+    } catch(e) {
+      console.warn('[shortener] background write failed:', e);
+    }
+  })();
+
+  return shortUrl;
 }
 
 // ─── GENERATE ────────────────────────────────────────────────────
@@ -623,7 +650,7 @@ async function generateQuote() {
   const [btn1, btn2] = [document.getElementById('generateBtn'), document.getElementById('previewGenerateBtn')];
   [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generating…'; b.disabled = true; } });
 
-  generatedUrl = await shortenUrl(longUrl);
+  generatedUrl = shortenUrl(longUrl);
 
   [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generate Quote Link →'; b.disabled = false; } });
 
