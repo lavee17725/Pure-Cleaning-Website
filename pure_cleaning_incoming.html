@@ -139,10 +139,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 </div>
 
 <script>
-const INCOMING_BIN_ID     = '69f39ce0856a682189900bdc';
-const JSONBIN_KEY         = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const QUOTE_BUILDER_URL   = '/pure_cleaning_quote_builder_v2.html';
-const NEW_CUSTOMER_URL    = '/pure_cleaning_new_customer.html';
+const PCPC_API          = 'https://purecleaning-api.tylerfumero.workers.dev';
+const QUOTE_BUILDER_URL = '/pure_cleaning_quote_builder_v2.html';
+const NEW_CUSTOMER_URL  = '/pure_cleaning_new_customer.html';
 
 let allRequests = [];
 let activeTab   = 'new';
@@ -167,26 +166,19 @@ function mapSvc(s) { return SVC_MAP[s] || s; }
 
 // ── Persist helpers ────────────────────────────────────────────────
 async function persistRequests() {
-  await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN_ID, {
-    method: 'PUT', mode: 'cors',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
+  await fetch(`${PCPC_API}/incoming`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ requests: allRequests })
   });
 }
 
-async function auditLog(eventType, data) {
-  try {
-    const EVENTS_BIN = '69f41bfdaaba8821975a74fa';
-    const r = await fetch('https://api.jsonbin.io/v3/b/' + EVENTS_BIN + '/latest', { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
-    const rec = (await r.json()).record || {};
-    const evts = rec.events || [];
-    evts.push({ id: 'ops_' + Date.now(), timestamp: new Date().toISOString(), eventType, metadata: data || {} });
-    await fetch('https://api.jsonbin.io/v3/b/' + EVENTS_BIN, {
-      method: 'PUT', mode: 'cors',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Versioning': 'false' },
-      body: JSON.stringify({ events: evts })
-    });
-  } catch(e) {}
+function auditLog(eventType, data) {
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'ops_' + Date.now(), timestamp: new Date().toISOString(), eventType, metadata: data || {} })
+  }).catch(() => {});
 }
 
 // ── Undo toast ─────────────────────────────────────────────────────
@@ -318,12 +310,10 @@ async function loadRequests(silent) {
   if (!silent) document.getElementById('wrap').innerHTML =
     '<div class="empty-state"><div class="e-icon">⏳</div><p>Loading requests…</p></div>';
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN_ID, {
-      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
+    const res = await fetch(`${PCPC_API}/incoming`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    allRequests = ((data.record || {}).requests || []);
+    allRequests = (data.requests || []);
     lastRefresh = new Date();
     renderTab();
   } catch(e) {

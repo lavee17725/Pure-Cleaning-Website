@@ -705,9 +705,6 @@
 </div>
 
 <script>
-  // BLOCKED_WEEKS_BIN / _PCJKEY kept — loadBlockedWeeks() migrated in Phase 4C
-  const BLOCKED_WEEKS_BIN = '69f4dda9856a68218995c805';
-  const _PCJKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
   const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
   let _blockedWeeks = [];
   let selectedWeekValue = '';
@@ -750,12 +747,10 @@
     renderWeekGrid();
 
     // 3. Fetch in background, update UI when ready
-    fetch('https://api.jsonbin.io/v3/b/' + BLOCKED_WEEKS_BIN + '/latest', {
-      mode: 'cors', headers: { 'X-Master-Key': _PCJKEY }
-    })
+    fetch(`${PCPC_API}/blocked-weeks`)
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(d => {
-        const fresh = (d.record || {}).blockedWeeks || [];
+        const fresh = d.blockedWeeks || [];
         try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: fresh, timestamp: Date.now() })); } catch(_) {}
         _blockedWeeks = fresh;
         // Only re-render if anything actually changed

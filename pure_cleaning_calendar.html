@@ -317,21 +317,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
-const JSONBIN_KEY        = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
-const QUOTE_BASE_CAL     = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
-const SHORT_LINKS_BIN_CAL= '69f427af856a682189929e8c';
-const _SL_ALP_CAL        = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const PCPC_API       = 'https://purecleaning-api.tylerfumero.workers.dev';
+const QUOTE_BASE_CAL = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const _SL_ALP_CAL    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function shortenUrlCal(longUrl) {
   let code=''; for(let i=0;i<8;i++) code+=_SL_ALP_CAL[Math.floor(Math.random()*32)];
   const short='https://purecleaningpressurecleaning.com/q.html?id='+code;
   (async()=>{
     try{
-      const r=await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_CAL+'/latest',{mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
-      const links=((await r.json()).record||{}).links||{};
-      links[code]=longUrl;
-      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_CAL,{method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+      const r = await fetch(`${PCPC_API}/links`);
+      const data = await r.json();
+      const links = data.links || {};
+      links[code] = longUrl;
+      await fetch(`${PCPC_API}/links`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ links })
+      });
     }catch(e){console.warn('[shortenUrlCal]',e.message);}
   })();
   return short;
@@ -363,21 +366,18 @@ async function getCachedCustomerDB() {
       if (age < TTL_MS && !cacheIsStale) {
         // Stale-while-revalidate: if cache is 30-60s old, serve it but refresh in background
         if (age > STALE_MS) {
-          fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
-            mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-          }).then(r => r.json()).then(d => {
-            if (d.record) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: d.record, timestamp: Date.now() }));
-          }).catch(()=>{});
+          fetch(`${PCPC_API}/customers`)
+            .then(r => r.json()).then(d => {
+              if (d) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: d, timestamp: Date.now() }));
+            }).catch(()=>{});
         }
         return data;
       }
     }
   } catch(e) { console.warn('[customerDB] cache read failed:', e); }
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
-    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
+  const res = await fetch(`${PCPC_API}/customers`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = (await res.json()).record;
+  const data = await res.json();
   try {
     sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
   } catch(e) { console.warn('[customerDB] cache write failed:', e); }
@@ -453,10 +453,10 @@ function highlightSidebarJob(phone) {
 }
 
 async function saveDb() {
-  await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-    method:'PUT', mode:'cors',
-    headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
-    body:JSON.stringify(dbRecord)
+  await fetch(`${PCPC_API}/customers`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(dbRecord)
   });
   sessionStorage.removeItem('pcpc_customer_db_cache');
 }
@@ -1124,17 +1124,17 @@ function undoDelete(phone) {
 }
 
 function logEvent(type, phone, meta) {
-  const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-  const BIN = '69f41bfdaaba8821975a74fa';
-  (async () => {
-    try {
-      const r = await fetch('https://api.jsonbin.io/v3/b/'+BIN+'/latest',{headers:{'X-Master-Key':KEY}});
-      const rec = (await r.json()).record||{};
-      const evts = rec.events||[];
-      evts.push({id:'evt_'+Date.now(),timestamp:new Date().toISOString(),eventType:type,customerPhone:phone,metadata:meta||{}});
-      await fetch('https://api.jsonbin.io/v3/b/'+BIN,{method:'PUT',headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({events:evts})});
-    } catch(e) {}
-  })();
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      id: 'evt_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      eventType: type,
+      customerPhone: phone,
+      metadata: meta || {}
+    })
+  }).catch(() => {});
 }
 
 function unscheduleJob() {
@@ -1215,13 +1215,12 @@ function changeWeek(dir) { weekOffset += dir; render(); updateBlockWeekBtn(); }
 function goToday()       { weekOffset = 0; render(); updateBlockWeekBtn(); }
 
 // ── BLOCKED WEEKS ─────────────────────────────────────────────────────────────
-const BLOCKED_WEEKS_BIN_CAL = '69f4dda9856a68218995c805';
 let _calBlockedWeeks = [];
 
 async function loadBlockedWeeksCal() {
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/'+BLOCKED_WEEKS_BIN_CAL+'/latest', {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
-    if (res.ok) { const d = await res.json(); _calBlockedWeeks = (d.record||{}).blockedWeeks||[]; }
+    const res = await fetch(`${PCPC_API}/blocked-weeks`);
+    if (res.ok) { const d = await res.json(); _calBlockedWeeks = d.blockedWeeks || []; }
   } catch(e) {}
   updateBlockWeekBtn();
 }
@@ -1262,10 +1261,10 @@ async function toggleWeekBlocked() {
   }
   updateBlockWeekBtn();
   try {
-    await fetch('https://api.jsonbin.io/v3/b/'+BLOCKED_WEEKS_BIN_CAL, {
-      method:'PUT', mode:'cors',
-      headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},
-      body:JSON.stringify({blockedWeeks:_calBlockedWeeks})
+    await fetch(`${PCPC_API}/blocked-weeks`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ blockedWeeks: _calBlockedWeeks })
     });
     showToast(currently ? '✓ Week unblocked — now visible to customers' : '✓ Week marked booked — hidden from quote form');
   } catch(e) {
