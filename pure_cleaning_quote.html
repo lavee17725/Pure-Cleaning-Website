@@ -734,11 +734,12 @@
   async function trackQuoteEvent(eventType, phone, variantLabel, meta) {
     try {
       const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + QUOTE_EVENTS_BIN_ID_Q, { mode:'cors', headers:{'X-Master-Key':KEY} });
+      const getRes = await fetch('https://api.jsonbin.io/v3/b/' + QUOTE_EVENTS_BIN_ID_Q + '/latest', { mode:'cors', headers:{'X-Master-Key':KEY} });
       const getData = await getRes.json();
-      const events = getData.record || [];
-      events.push({ ts: new Date().toISOString(), event: eventType, phone: phone||null, variant: variantLabel||null, pageVersion:'v1', metadata: meta||{} });
-      await fetch('https://api.jsonbin.io/v3/b/' + QUOTE_EVENTS_BIN_ID_Q, { method:'PUT', mode:'cors', headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'}, body: JSON.stringify(events) });
+      const rec = (getData.record || {});
+      const evts = rec.events || [];
+      evts.push({ id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8), timestamp: new Date().toISOString(), eventType, customerPhone: phone||null, variant: variantLabel||null, pageVersion:'v1', metadata: meta||{} });
+      await fetch('https://api.jsonbin.io/v3/b/' + QUOTE_EVENTS_BIN_ID_Q, { method:'PUT', mode:'cors', headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'}, body: JSON.stringify({ events: evts }) });
     } catch(e) { console.warn('[trackQuoteEvent]', e.message); }
   }
 
