@@ -76,6 +76,10 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .undo-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:3px;display:block;white-space:nowrap;}
 .undo-btn:hover{border-color:var(--red);color:var(--red);}
 .contact-info{font-size:11px;color:var(--muted);line-height:1.6;}
+.tab-summary{background:#f0f7ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-top:.75rem;font-size:13px;color:var(--text);}
+.day-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.day-chip{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--muted);}
+.day-chip.has-sends{color:var(--sky);border-color:#93c5fd;}
 
 /* table */
 .table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
@@ -281,8 +285,10 @@ td.money{font-family:'DM Mono',monospace;}
 
   <!-- POOL TABS -->
   <div class="pool-tabs" id="poolTabs">
-    <button class="pool-tab active" onclick="setPoolTab('active')">Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
-    <button class="pool-tab" onclick="setPoolTab('contacted')">📲 Recently Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
+    <button class="pool-tab active" onclick="setPoolTab('active')">🎯 Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('today')">📲 Today <span class="pool-badge" id="tabTodayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('week')">📅 This Week <span class="pool-badge" id="tabWeekCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
   </div>
 
@@ -343,6 +349,9 @@ td.money{font-family:'DM Mono',monospace;}
 
   <!-- CONTACT STATS -->
   <div class="contact-stats" id="contactStats" style="display:none;"></div>
+
+  <!-- TAB SUMMARY BAR (today / this week) -->
+  <div id="tabSummaryBar" style="display:none;"></div>
 
   <!-- TABLE -->
   <div class="table-wrap" id="tableWrap">
@@ -1006,6 +1015,14 @@ function applyFilters() {
     if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
     if (poolTab === 'active'    && isInCooldown(c.phone))  return false;
     if (poolTab === 'contacted' && !isInCooldown(c.phone)) return false;
+    if (poolTab === 'today') {
+      const rec = loadContactRecord(c.phone);
+      if (!rec || !rec.contactedAt || !isContactedToday(rec.contactedAt)) return false;
+    }
+    if (poolTab === 'week') {
+      const rec = loadContactRecord(c.phone);
+      if (!rec || !rec.contactedAt || !isContactedThisWeek(rec.contactedAt)) return false;
+    }
     if (q) {
       const fullName = (c.fn + ' ' + c.ln).toLowerCase();
       const matches =
@@ -1038,7 +1055,7 @@ function clearSearch() {
 }
 
 function applySort() {
-  if (poolTab === 'contacted') {
+  if (poolTab === 'contacted' || poolTab === 'today' || poolTab === 'week') {
     filteredCustomers.sort((a, b) => {
       const ta = (loadContactRecord(a.phone) || {}).contactedAt || '';
       const tb = (loadContactRecord(b.phone) || {}).contactedAt || '';
@@ -1074,6 +1091,13 @@ function toggleTier(el) {
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
+  if (filteredCustomers.length === 0 && (poolTab === 'today' || poolTab === 'week')) {
+    const label = poolTab === 'today' ? 'today' : 'this week';
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">No customers texted ${label} yet.</td></tr>`;
+    updateSelInfo();
+    document.getElementById('selectAll').checked = false;
+    return;
+  }
   tbody.innerHTML = filteredCustomers.map(c => {
     const checked = selectedPhones.has(c.phone);
     const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
@@ -1083,13 +1107,20 @@ function renderTable() {
     const rec     = loadContactRecord(c.phone);
     const cooldown = isInCooldown(c.phone);
     const isDisc = c.phoneStatus === 'disconnected';
-    const textBtn = isDisc
-      ? `<button class="text-disconnected-btn" disabled title="Phone marked disconnected">📵 Disconnected</button>`
-      : cooldown
-        ? `<div class="contact-info">📲 Texted ${formatContactDate(rec.contactedAt)}<br>Until ${new Date(rec.cooldownUntil).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'})}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`
-        : rec
-          ? `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(rec.contactedAt)}</button>`
-          : `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
+    let textBtn;
+    if (isDisc) {
+      textBtn = `<button class="text-disconnected-btn" disabled title="Phone marked disconnected">📵 Disconnected</button>`;
+    } else if (poolTab === 'today' && rec && rec.contactedAt) {
+      textBtn = `<div class="contact-info">📲 Sent at ${etTimeStr(rec.contactedAt)}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
+    } else if (poolTab === 'week' && rec && rec.contactedAt) {
+      textBtn = `<div class="contact-info">📲 ${etDayTimeStr(rec.contactedAt)}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
+    } else if (cooldown) {
+      textBtn = `<div class="contact-info">📲 Texted ${formatContactDate(rec.contactedAt)}<br>Until ${new Date(rec.cooldownUntil).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'})}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
+    } else if (rec) {
+      textBtn = `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(rec.contactedAt)}</button>`;
+    } else {
+      textBtn = `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
+    }
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
       <td>${textBtn}</td>
@@ -1146,6 +1177,59 @@ function saveContacts(c) {
 function formatContactDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+function etDateStr(d) {
+  return new Date(d).toLocaleDateString('en-US',
+    {timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'});
+}
+function etWeekKey(d) {
+  const [m,dd,y] = etDateStr(d).split('/').map(Number);
+  const date = new Date(y, m-1, dd);
+  const dow = date.getDay();
+  const toMon = dow === 0 ? -6 : 1 - dow;
+  const mon = new Date(date); mon.setDate(date.getDate() + toMon);
+  return `${mon.getFullYear()}-${mon.getMonth()+1}-${mon.getDate()}`;
+}
+function isContactedToday(iso) {
+  return !!iso && etDateStr(iso) === etDateStr(new Date());
+}
+function isContactedThisWeek(iso) {
+  return !!iso && etWeekKey(iso) === etWeekKey(new Date());
+}
+function etTimeStr(iso) {
+  return new Date(iso).toLocaleTimeString('en-US',
+    {timeZone:'America/New_York', hour:'numeric', minute:'2-digit', hour12:true});
+}
+function etDayTimeStr(iso) {
+  return new Date(iso).toLocaleString('en-US',
+    {timeZone:'America/New_York', weekday:'short', hour:'numeric', minute:'2-digit', hour12:true});
+}
+function renderTabSummary(tab) {
+  const bar = document.getElementById('tabSummaryBar');
+  if (!bar) return;
+  if (tab !== 'today' && tab !== 'week') { bar.style.display = 'none'; return; }
+  const records = Object.entries(loadContacts())
+    .map(([phone, v]) => ({phone, iso: typeof v === 'string' ? v : (v && v.contactedAt)}))
+    .filter(r => r.iso);
+  if (tab === 'today') {
+    const n = records.filter(r => isContactedToday(r.iso)).length;
+    const cap = 30, rem = Math.max(0, cap - n);
+    bar.style.display = 'block';
+    bar.innerHTML = `<div class="tab-summary">📲 Sent today: <strong>${n}</strong> &nbsp;·&nbsp; Recommended cap: ${cap} &nbsp;·&nbsp; <strong>${rem}</strong> remaining</div>`;
+    return;
+  }
+  const weekRecs = records.filter(r => isContactedThisWeek(r.iso));
+  const n = weekRecs.length;
+  const cap = 150, rem = Math.max(0, cap - n);
+  const counts = {Mon:0, Tue:0, Wed:0, Thu:0, Fri:0, Sat:0, Sun:0};
+  weekRecs.forEach(r => {
+    const dn = new Date(r.iso).toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short'});
+    if (counts[dn] !== undefined) counts[dn]++;
+  });
+  const chips = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d =>
+    `<span class="day-chip${counts[d] > 0 ? ' has-sends' : ''}">${d}: ${counts[d]}</span>`).join('');
+  bar.style.display = 'block';
+  bar.innerHTML = `<div class="tab-summary">📊 This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem}</strong> remaining<div class="day-chips">${chips}</div></div>`;
+}
 function buildMonthsText(ms) {
   const n = Math.round(ms);
   if (n <= 0) return 'a few weeks';
@@ -1194,16 +1278,30 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','contacted','all'][i] === tab);
+    el.classList.toggle('active', ['active','today','week','contacted','all'][i] === tab);
   });
+  renderTabSummary(tab);
   applyFilters();
 }
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0;
-  allCustomers.forEach(c => { isInCooldown(c.phone) ? contacted++ : active++; });
+  let active = 0, contacted = 0, todayCt = 0, weekCt = 0;
+  allCustomers.forEach(c => {
+    const rec = loadContactRecord(c.phone);
+    if (isInCooldown(c.phone)) {
+      contacted++;
+      if (rec && rec.contactedAt) {
+        if (isContactedToday(rec.contactedAt)) todayCt++;
+        if (isContactedThisWeek(rec.contactedAt)) weekCt++;
+      }
+    } else {
+      active++;
+    }
+  });
   document.getElementById('tabActiveCount').textContent    = active;
+  document.getElementById('tabTodayCount').textContent     = todayCt;
+  document.getElementById('tabWeekCount').textContent      = weekCt;
   document.getElementById('tabContactedCount').textContent = contacted;
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
 }
