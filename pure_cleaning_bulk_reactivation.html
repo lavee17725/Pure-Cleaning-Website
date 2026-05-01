@@ -437,8 +437,30 @@ td.money{font-family:'DM Mono',monospace;}
 const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
 const QUOTE_EVENTS_BIN_ID = '69f41bfdaaba8821975a74fa';
-const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
-const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const SHORT_LINKS_BIN_ID = '69f427af856a682189929e8c';
+const _SL_ALPHA_BR       = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function _genShortCodeBR() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += _SL_ALPHA_BR[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+function shortenUrl(longUrl) {
+  const code = _genShortCodeBR();
+  const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
+  (async () => {
+    try {
+      const r = await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID+'/latest', {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
+      const links = ((await r.json()).record||{}).links||{};
+      links[code] = longUrl;
+      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID, {method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+    } catch(e) { console.warn('[shortenUrl]', e.message); }
+  })();
+  return short;
+}
 const VARIANT_CYCLE_KEY = 'pcpc_sms_variant_cycle';
 const SMS_VARIANTS = [
   {
@@ -1685,7 +1707,8 @@ async function executeTextNow(phone) {
   const baseLink = `${QUOTE_BASE}?c=${binId}.${code}`;
   const variant = getNextVariant();
   const linkWithVariant = `${baseLink}&v=${variant.label}`;
-  const body = buildVariantBody(variant, c, linkWithVariant);
+  const shortLink = shortenUrl(linkWithVariant);
+  const body = buildVariantBody(variant, c, shortLink);
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
@@ -1743,14 +1766,15 @@ async function generateLinks() {
       let tries = 0;
       do { code = generateCode(); tries++; } while (records[code] && tries < 200);
       records[code] = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
-      const link = `${QUOTE_BASE}?c=${binId}.${code}`;
+      const longLink = `${QUOTE_BASE}?c=${binId}.${code}`;
+      const link = shortenUrl(longLink);
       const months = Math.round(c.monthsSince);
       const years  = Math.floor(c.monthsSince / 12);
       const sms = (c.tier === 'DORMANT' || c.tier === 'ANCIENT')
-        ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in here:\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
+        ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in:\n\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
         : c.tier === 'VIP_SEAL'
-          ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${months} month${months===1?'':'s'} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
-          : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home about ${months} month${months===1?'':'s'} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+          ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${months} month${months===1?'':'s'} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+          : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home about ${months} month${months===1?'':'s'} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in:\n\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
       generatedLinks.push({ customer: c, code, link, sms, months });
     }
 

@@ -217,10 +217,33 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 </div>
 
 <script>
-const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const JSONBIN_KEY        = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
-const QUOTE_BASE        = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
-const CHARSET           = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const SHORT_LINKS_BIN_ID = '69f427af856a682189929e8c';
+const _SL_ALPHA          = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function _genShortCode() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += _SL_ALPHA[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+// Returns short URL immediately, writes mapping to shortener bin in background
+function shortenUrl(longUrl) {
+  const code = _genShortCode();
+  const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
+  (async () => {
+    try {
+      const r = await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID+'/latest', {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
+      const links = ((await r.json()).record||{}).links||{};
+      links[code] = longUrl;
+      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID, {method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+    } catch(e) { console.warn('[shortenUrl]', e.message); }
+  })();
+  return short;
+}
 
 // Pre-generated link bin — created during page load so Save is instant
 let _preGen = null;  // Promise<{code,binId}|null>
@@ -527,9 +550,10 @@ async function genLink(customer) {
 // ── SUCCESS ───────────────────────────────────────────────────────────────────
 function showSuccess(customer, link, isNewCustomer) {
   const fn = customer.firstName||'there';
+  const shortLink = shortenUrl(link);
   const body = isNewCustomer
-    ? `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for calling us today!\n\nI built a simple new way for you to get a quote — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
-    : `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Always great to hear from you!\n\nI built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned today 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`;
+    ? `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for calling us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortLink}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
+    : `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Always great to hear from you!\n\nI built a simple new way to get quotes — your info is already filled in:\n\n${shortLink}\n\nJust tap to confirm what you'd like cleaned today 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`;
   const smsPhone = '+1' + (customer.phone||'').replace(/\D/g,'');
   pendingSms = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
   const name = ((customer.firstName||'') + ' ' + (customer.lastName||'')).trim();
