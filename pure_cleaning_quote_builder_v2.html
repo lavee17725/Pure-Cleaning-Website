@@ -65,10 +65,14 @@ select option{background:var(--navy2);}
 
 /* DATE CARDS */
 .date-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.date-alt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
 .date-card{background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;}
+.date-card.primary-card{border-color:var(--sky);background:#0d2040;}
 .date-card label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:block;margin-bottom:6px;}
+.date-card.primary-card label{color:var(--sky);}
 .date-card input{border:none;background:transparent;padding:4px 0;font-size:16px;font-weight:600;color:var(--white);-webkit-appearance:auto;appearance:auto;color-scheme:dark;width:100%;}
 .date-card input:focus{outline:none;}
+.date-alt-note{font-size:11px;color:var(--muted);margin:.5rem 0 .75rem;line-height:1.5;}
 
 /* ADDONS */
 .addon-builder-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;margin-bottom:8px;}
@@ -241,11 +245,19 @@ select option{background:var(--navy2);}
 
   <!-- DATES -->
   <div class="section">
-    <div class="section-title">Offer two dates</div>
+    <div class="section-title">Schedule dates</div>
     <div id="timeframeBadge" style="display:none;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:600;margin-bottom:10px;line-height:1;"></div>
-    <div class="date-cards">
-      <div class="date-card"><label>Option 1</label><input type="date" id="date1" oninput="updatePreview()"></div>
-      <div class="date-card"><label>Option 2</label><input type="date" id="date2" oninput="updatePreview()"></div>
+    <div class="date-card primary-card" style="margin-bottom:6px;">
+      <label>Recommended date <span style="color:#fc8181;font-style:normal;font-size:10px;">required</span></label>
+      <input type="date" id="primaryDate" oninput="updatePreview();autoFillAltDates();">
+    </div>
+    <div class="date-alt-note">This is the date the customer sees first — make it your best offer.</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px;">Backup dates <span style="text-transform:none;font-weight:400;">(optional)</span></div>
+    <div class="date-alt-note" style="margin-top:0;">Customer only sees these if the primary date doesn't work.</div>
+    <div class="date-alt-grid">
+      <div class="date-card"><label>Alt 1</label><input type="date" id="altDate1" oninput="updatePreview()"></div>
+      <div class="date-card"><label>Alt 2</label><input type="date" id="altDate2" oninput="updatePreview()"></div>
+      <div class="date-card"><label>Alt 3</label><input type="date" id="altDate3" oninput="updatePreview()"></div>
     </div>
   </div>
 
@@ -367,7 +379,7 @@ let incomingReqId = null; // set when opened from Incoming Requests inbox
 
 // ─── INIT ────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0];
-['date1','date2'].forEach(id => {
+['primaryDate','altDate1','altDate2','altDate3'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.min = today;
 });
@@ -538,28 +550,43 @@ function updatePreview() {
   document.getElementById('prevServices').innerHTML = services.map(s=>`<div class="preview-chip">${s}</div>`).join('');
 
   const addons = getEnabledAddons();
-  const d1 = document.getElementById('date1').value;
-  const d2 = document.getElementById('date2').value;
-  const d1f = d1 ? new Date(d1+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '';
-  const d2f = d2 ? new Date(d2+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '';
+  const primary = document.getElementById('primaryDate').value;
+  const alts = ['altDate1','altDate2','altDate3'].map(id => document.getElementById(id).value).filter(Boolean);
+  const primaryFmt = primary ? new Date(primary+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '';
 
   let textMsg = `Hey ${first||'there'}! It's Tyler from Pure Cleaning 💧\n\nYour quote for:\n${services.join(', ')||'—'}\n\n💰 Total: ${priceDisplay}`;
-  if (d1f||d2f) { textMsg+=`\n\n📅 Available dates:`; if(d1f) textMsg+=`\n  Option 1: ${d1f}`; if(d2f) textMsg+=`\n  Option 2: ${d2f}`; }
+  if (primaryFmt) { textMsg+=`\n\n📅 Recommended date: ${primaryFmt}`; if(alts.length) textMsg+=`\n(+ ${alts.length} backup date${alts.length>1?'s':''} if needed)`; }
   if (addons.length) { textMsg+=`\n\n➕ Optional add-ons:`; addons.forEach(a=>textMsg+=`\n  ${a.icon} ${a.label} — +$${a.price}`); }
   if (notes) { textMsg+=`\n\n📋 ${notes}`; }
   textMsg += `\n\nTap to view & approve:\n[quote link]\n\n— Tyler | 954-389-2642`;
   document.getElementById('textPreview').textContent = textMsg;
 
   const datesEl = document.getElementById('prevDates');
-  if (d1||d2) {
-    datesEl.innerHTML = [d1,d2].filter(Boolean).map(d => {
+  if (primary||alts.length) {
+    const allDates = [primary,...alts].filter(Boolean);
+    datesEl.innerHTML = allDates.map((d,i) => {
       const dt = new Date(d+'T12:00:00');
-      return `<div class="preview-date-pill" style="background:var(--blue);color:var(--sky);">📅 ${dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</div>`;
+      const isPrimary = i === 0;
+      return `<div class="preview-date-pill" style="background:${isPrimary?'var(--sky)':'var(--blue)'};color:white;">${isPrimary?'🎯':'📅'} ${dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</div>`;
     }).join('');
   } else datesEl.innerHTML = '<div style="font-size:12px;color:var(--muted);">No dates selected</div>';
 
   const notesEl = document.getElementById('prevNotes');
   if (notes) { notesEl.textContent = notes; notesEl.style.display='block'; } else notesEl.style.display='none';
+}
+
+// ─── AUTO-FILL ALT DATES ─────────────────────────────────────────
+function autoFillAltDates() {
+  const primary = document.getElementById('primaryDate').value;
+  if (!primary) return;
+  const base = new Date(primary + 'T12:00:00');
+  [3, 7, 10].forEach((days, i) => {
+    const el = document.getElementById('altDate' + (i + 1));
+    if (!el || el.value) return; // don't overwrite already-set
+    const d = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+    el.value = d.toISOString().split('T')[0];
+  });
+  updatePreview();
 }
 
 // ─── URL SHORTENER ───────────────────────────────────────────────
@@ -620,6 +647,9 @@ async function generateQuote() {
   const price = document.getElementById('quotePricePressure').value;
   if (!price || services.length === 0) { alert('Please add services and set a price.'); return; }
 
+  const primaryDate = document.getElementById('primaryDate').value;
+  if (!primaryDate) { alert('Please select a recommended date for the customer.'); return; }
+
   const quoteData = {
     id: Date.now(),
     type: 'pressure',
@@ -631,8 +661,8 @@ async function generateQuote() {
     services,
     price: Number(price),
     addons: getEnabledAddons(),
-    date1: document.getElementById('date1').value,
-    date2: document.getElementById('date2').value,
+    primaryDate,
+    backupDates: ['altDate1','altDate2','altDate3'].map(id => document.getElementById(id).value).filter(Boolean),
     notes: document.getElementById('customerNotes').value,
     internalNotes: document.getElementById('internalNotes').value,
     zapierWebhook: ZAPIER,

@@ -97,6 +97,27 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 
 @keyframes bump { 0%{transform:scale(1)} 50%{transform:scale(1.05)} 100%{transform:scale(1)} }
 .bump { animation: bump 0.3s ease; }
+
+/* PRIMARY DATE CARD */
+.primary-date-card { background: linear-gradient(135deg, #0a1628 0%, #1a4a8a 100%); border-radius: 14px; padding: 1.5rem; margin-bottom: 1rem; color: white; text-align: center; }
+.primary-date-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: rgba(255,255,255,.6); margin-bottom: 8px; }
+.primary-date-day { font-family: 'Bebas Neue', sans-serif; font-size: 44px; letter-spacing: 2px; color: white; line-height: 1; margin-bottom: 4px; }
+.primary-date-full { font-size: 15px; color: rgba(255,255,255,.75); }
+.confirm-btn { width: 100%; padding: 18px; background: #2d7dd2; color: white; border: none; border-radius: 14px; font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 2px; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
+.confirm-btn:hover { background: #2470c0; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(45,125,210,.3); }
+.alt-trigger { display: block; text-align: center; font-size: 13px; color: var(--muted); text-decoration: none; padding: 4px 0 8px; transition: color .15s; }
+.alt-trigger:hover { color: var(--sky); }
+
+/* RESCHEDULE */
+.day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1rem; }
+.day-chip { padding: 8px 14px; border: 2px solid var(--border); border-radius: 20px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; transition: all .15s; user-select: none; }
+.day-chip.active { border-color: var(--sky); color: var(--sky); background: #eff6ff; }
+.time-pref { display: flex; gap: 8px; margin-bottom: 1rem; }
+.time-opt { flex: 1; padding: 10px 6px; border: 2px solid var(--border); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; text-align: center; transition: all .15s; user-select: none; }
+.time-opt.active { border-color: var(--sky); color: var(--sky); background: #eff6ff; }
+.reschedule-notes { width: 100%; padding: 10px 12px; border: 2px solid var(--border); border-radius: 10px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text); margin-bottom: 1rem; resize: none; height: 80px; box-sizing: border-box; }
+.reschedule-notes:focus { outline: none; border-color: var(--sky); }
+.reschedule-btn { width: 100%; padding: 15px; background: var(--sky); color: white; border: none; border-radius: 12px; font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 2px; cursor: pointer; transition: all .2s; }
 </style>
 </head>
 <body>
@@ -141,16 +162,56 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
     </div>
 
     <div class="dates-card" id="sec-dates">
-      <div class="card-title">Choose your date</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">We're holding both dates for you. Pick the one that works best.</div>
-      <div id="datesList"></div>
+      <!-- Primary date (default view) -->
+      <div id="primaryDateView">
+        <div class="card-title">Your scheduled date</div>
+        <div id="primaryDateCard" class="primary-date-card"></div>
+        <button class="confirm-btn" onclick="confirmPrimaryDate()">Confirm This Date ✓</button>
+        <a href="#" class="alt-trigger" onclick="revealAlternateDates(event)">This date doesn't work for me →</a>
+      </div>
+
+      <!-- Backup dates (revealed on request) -->
+      <div id="backupDatesView" style="display:none;">
+        <div class="card-title" style="margin-bottom:12px;">Backup dates</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick the one that works best.</div>
+        <div id="backupDatesList"></div>
+        <a href="#" class="alt-trigger" id="noneWorkLink" onclick="revealReschedule(event)">None of these work for me →</a>
+      </div>
+
+      <!-- Reschedule form (last resort) -->
+      <div id="rescheduleView" style="display:none;">
+        <div class="card-title" style="margin-bottom:8px;">Request a new time</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Tell us when works — we'll call to confirm.</div>
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Best days</div>
+        <div class="day-chips" id="dayChips">
+          <div class="day-chip" onclick="toggleDay(this,'Monday')">Mon</div>
+          <div class="day-chip" onclick="toggleDay(this,'Tuesday')">Tue</div>
+          <div class="day-chip" onclick="toggleDay(this,'Wednesday')">Wed</div>
+          <div class="day-chip" onclick="toggleDay(this,'Thursday')">Thu</div>
+          <div class="day-chip" onclick="toggleDay(this,'Friday')">Fri</div>
+          <div class="day-chip" onclick="toggleDay(this,'Saturday')">Sat</div>
+        </div>
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Preferred time</div>
+        <div class="time-pref">
+          <div class="time-opt" onclick="selectTime(this,'Morning')">🌅 Morning</div>
+          <div class="time-opt" onclick="selectTime(this,'Afternoon')">☀️ Afternoon</div>
+          <div class="time-opt active" onclick="selectTime(this,'Flexible')">🤷 Flexible</div>
+        </div>
+        <textarea class="reschedule-notes" id="rescheduleNotes" placeholder="Gate code, dogs, best time to reach you..."></textarea>
+        <button class="reschedule-btn" onclick="submitReschedule()">Send Request →</button>
+        <div id="rescheduleSuccess" style="display:none;text-align:center;padding:1.5rem 0;">
+          <div style="font-size:48px;margin-bottom:10px;">📅</div>
+          <div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:6px;">Got it!</div>
+          <div style="font-size:14px;color:var(--muted);line-height:1.6;">We'll reach out within 24 hours to lock in a time that works for you.</div>
+        </div>
+      </div>
     </div>
 
     <div class="notes-card" id="notesCard">
       <strong>📋 Note from us:</strong> <span id="notesText"></span>
     </div>
 
-    <div id="sec-approve">
+    <div id="sec-approve" style="display:none;">
       <button class="approve-btn" id="approveBtn" onclick="approveQuote()" disabled>
         Select a Date to Approve
       </button>
@@ -352,6 +413,12 @@ let selectedDate = null;
 let selectedAddons = new Set();
 let basePrice = 0;
 
+// Primary date state
+let _primaryDateVal = null;
+let _primaryDateFull = null;
+let _rescheduleSelectedDays = new Set();
+let _rescheduleSelectedTime = 'Flexible';
+
 function loadFromParams() {
   const params = new URLSearchParams(window.location.search);
   const id = params.get('id');
@@ -455,24 +522,46 @@ function renderQuote() {
     `).join('');
   }
 
-  // Dates
-  const datesEl = document.getElementById('datesList');
-  const dates = [quoteData.date1, quoteData.date2].filter(Boolean);
-  datesEl.innerHTML = dates.map((d,i) => {
-    const dt = new Date(d+'T12:00:00');
-    const day = dt.toLocaleDateString('en-US',{weekday:'long'});
-    const full = dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-    return `
-      <div class="date-opt" id="dateOpt_${i}" onclick="selectDate(${i}, '${d}', '${full}')">
+  // Dates — primary + backup flow (backward-compat: also handle old date1/date2)
+  const primaryDate = quoteData.primaryDate || quoteData.date1 || null;
+  const backupDates = quoteData.backupDates || (quoteData.date2 ? [quoteData.date2] : []);
+
+  if (primaryDate) {
+    const dt = new Date(primaryDate + 'T12:00:00');
+    const pDay = dt.toLocaleDateString('en-US', {weekday: 'long'});
+    const pFull = dt.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'});
+    document.getElementById('primaryDateCard').innerHTML =
+      `<div class="primary-date-label">Your appointment</div>
+       <div class="primary-date-day">${pDay}</div>
+       <div class="primary-date-full">${pFull}</div>`;
+    _primaryDateVal = primaryDate;
+    _primaryDateFull = pFull;
+    if (quoteData.phone) trackQuoteEvent('quote_primary_date_shown', quoteData.phone, quoteData.variant || null);
+  } else {
+    document.getElementById('primaryDateView').style.display = 'none';
+  }
+
+  if (backupDates.length) {
+    document.getElementById('backupDatesList').innerHTML = backupDates.map((d, i) => {
+      const dt2 = new Date(d + 'T12:00:00');
+      const bDay = dt2.toLocaleDateString('en-US', {weekday: 'long'});
+      const bFull = dt2.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'});
+      return `<div class="date-opt" id="backupOpt_${i}" onclick="selectBackupDate(${i},'${d}','${bFull}')">
         <div class="date-radio"><div class="date-radio-inner"></div></div>
-        <div class="date-info">
-          <div class="date-day">${day}</div>
-          <div class="date-full">${full}</div>
-        </div>
+        <div class="date-info"><div class="date-day">${bDay}</div><div class="date-full">${bFull}</div></div>
         <div style="font-size:20px;">📅</div>
-      </div>
-    `;
-  }).join('');
+      </div>`;
+    }).join('');
+  } else {
+    // No backups — hide "none work" link
+    const noneLink = document.getElementById('noneWorkLink');
+    if (noneLink) noneLink.style.display = 'none';
+  }
+
+  // If no primary and no backups, go straight to reschedule fallback
+  if (!primaryDate && !backupDates.length) {
+    document.getElementById('rescheduleView').style.display = 'block';
+  }
 
   // Notes
   if (quoteData.notes) {
@@ -549,12 +638,13 @@ async function approveQuote() {
     addons_added: addedServices.join(', ') || 'None',
     final_total: total,
     selected_date: selectedDate.full,
+    alternate_date_used: selectedDate.source === 'alternate',
     approved_at: new Date().toLocaleString('en-US')
   };
 
   trackQuoteEvent('approved', quoteData.phone||null, quoteData.variant||null,
-    {total, selectedDate: selectedDate.full});
-  BT.trackApprove(total);
+    {total, selectedDate: selectedDate.full, source: selectedDate.source || 'unknown'});
+  if (selectedDate.source !== 'primary') BT.trackApprove(total);
 
   // Fire Zapier + Formspree + JSONbin simultaneously
   const formspreeData = new FormData();
@@ -653,6 +743,108 @@ function updateQuoteApproved(phone, approvedTotal) {
       try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
     })
     .catch(e => console.warn('[approval tracking]', e.message));
+}
+
+// ── PRIMARY DATE FLOW ─────────────────────────────────────────────
+function confirmPrimaryDate() {
+  if (!_primaryDateVal) return;
+  selectedDate = { val: _primaryDateVal, full: _primaryDateFull, source: 'primary' };
+  if (quoteData && quoteData.phone) {
+    trackQuoteEvent('quote_primary_confirmed', quoteData.phone, quoteData.variant || null, { date: _primaryDateVal });
+    BT.trackApprove(basePrice);
+  }
+  approveQuote();
+}
+
+function revealAlternateDates(e) {
+  e.preventDefault();
+  if (quoteData && quoteData.phone) trackQuoteEvent('quote_alternate_revealed', quoteData.phone, quoteData.variant || null);
+  const backupDates = (quoteData && quoteData.backupDates) || (quoteData && quoteData.date2 ? [quoteData.date2] : []);
+  document.getElementById('primaryDateView').style.display = 'none';
+  if (backupDates.length) {
+    document.getElementById('backupDatesView').style.display = 'block';
+    document.getElementById('sec-approve').style.display = 'block';
+  } else {
+    document.getElementById('rescheduleView').style.display = 'block';
+  }
+}
+
+function selectBackupDate(idx, dateVal, dateFull) {
+  fireEngagement();
+  BT.trackDate(dateVal);
+  document.querySelectorAll('[id^="backupOpt_"]').forEach(d => d.classList.remove('selected'));
+  const opt = document.getElementById('backupOpt_' + idx);
+  if (opt) opt.classList.add('selected');
+  selectedDate = { val: dateVal, full: dateFull, source: 'alternate' };
+  if (quoteData && quoteData.phone) trackQuoteEvent('quote_alternate_confirmed', quoteData.phone, quoteData.variant || null, { date: dateVal });
+  const btn = document.getElementById('approveBtn');
+  btn.textContent = `Approve & Book ${dateFull.split(',')[0]}`;
+  btn.disabled = false;
+}
+
+function revealReschedule(e) {
+  e.preventDefault();
+  document.getElementById('backupDatesView').style.display = 'none';
+  document.getElementById('rescheduleView').style.display = 'block';
+}
+
+function toggleDay(el, day) {
+  if (_rescheduleSelectedDays.has(day)) {
+    _rescheduleSelectedDays.delete(day);
+    el.classList.remove('active');
+  } else {
+    _rescheduleSelectedDays.add(day);
+    el.classList.add('active');
+  }
+}
+
+function selectTime(el, time) {
+  _rescheduleSelectedTime = time;
+  document.querySelectorAll('.time-opt').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+async function submitReschedule() {
+  const days = Array.from(_rescheduleSelectedDays);
+  const notes = (document.getElementById('rescheduleNotes').value || '').trim();
+  const INCOMING_BIN = '69f39ce0856a682189900bdc';
+  const JKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+
+  const payload = {
+    id: 'resc_' + Date.now(),
+    status: 'new',
+    customer_name: (quoteData && quoteData.name) || '',
+    phone: (quoteData && quoteData.phone) || '',
+    email: (quoteData && quoteData.email) || '',
+    address: (quoteData && quoteData.address) || '',
+    services: quoteData && Array.isArray(quoteData.services) ? quoteData.services.join(', ') : '',
+    notes: `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. Time: ${_rescheduleSelectedTime}. ${notes}`,
+    timeframe: 'Flexible',
+    source: 'quote_reschedule',
+    created_at: new Date().toISOString()
+  };
+
+  if (quoteData && quoteData.phone) {
+    trackQuoteEvent('quote_reschedule_requested', quoteData.phone, quoteData.variant || null, { days, time: _rescheduleSelectedTime });
+  }
+
+  const btn = document.querySelector('.reschedule-btn');
+  if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
+
+  try {
+    const r = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN, { headers: { 'X-Master-Key': JKEY } });
+    const rec = (await r.json()).record || {};
+    const requests = rec.requests || [];
+    requests.unshift(payload);
+    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JKEY, 'X-Bin-Versioning': 'false' },
+      body: JSON.stringify({ ...rec, requests })
+    });
+  } catch(e) { console.warn('[reschedule]', e.message); }
+
+  if (btn) btn.style.display = 'none';
+  document.getElementById('rescheduleSuccess').style.display = 'block';
 }
 
 loadFromParams();
