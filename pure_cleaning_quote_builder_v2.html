@@ -524,13 +524,13 @@ function updatePreview() {
 // ─── URL SHORTENER ───────────────────────────────────────────────
 async function shortenUrl(longUrl) {
   try {
-    const res = await fetch('https://tinyurl.com/api-create.php?url=' + encodeURIComponent(longUrl));
+    const res = await fetch('https://is.gd/create.php?format=simple&url=' + encodeURIComponent(longUrl));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const shortUrl = (await res.text()).trim();
-    if (!shortUrl.startsWith('https://')) throw new Error('Invalid response');
+    if (!shortUrl.startsWith('https://')) throw new Error('Invalid response: ' + shortUrl);
     return shortUrl;
   } catch(e) {
-    console.warn('[shortener] failed, falling back to long URL:', e);
+    console.warn('[shortener] is.gd failed, falling back to long URL:', e);
     return longUrl;
   }
 }
