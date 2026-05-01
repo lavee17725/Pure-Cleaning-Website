@@ -134,9 +134,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 </div>
 
 <script>
-const JSONBIN_KEY       = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
-const QUOTE_BASE        = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 
 let dbRecord   = null;  // full JSONbin record
 let allQuotes  = [];    // customers with quoteStatus
@@ -155,11 +153,9 @@ async function getCachedCustomerDB() {
       if (Date.now() - timestamp < TTL_MS) return data;
     }
   } catch(e) {}
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
-    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
+  const res = await fetch('https://purecleaning-api.tylerfumero.workers.dev/customers');
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = (await res.json()).record;
+  const data = await res.json();
   try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() })); } catch(e) {}
   return data;
 }
@@ -197,10 +193,10 @@ async function init() {
 
 async function saveDb() {
   sessionStorage.removeItem('pcpc_customer_db_cache');
-  await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-    method: 'PUT', mode: 'cors',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
-    body: JSON.stringify(dbRecord)
+  await fetch('https://purecleaning-api.tylerfumero.workers.dev/customers', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dbRecord),
   });
 }
 

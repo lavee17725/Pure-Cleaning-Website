@@ -273,9 +273,7 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
 </main>
 
 <script>
-const KEY  = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const DB_BIN     = '69f2d8b6856a6821898c3bfb';
-const EVENTS_BIN = '69f41bfdaaba8821975a74fa';
+const PCPC_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
 const CACHE_TTL  = 60_000;
 
 let dbRecord   = null;
@@ -371,13 +369,13 @@ async function loadData(force=false) {
 
   // Parallel fetches — halves cold-load time vs sequential awaits
   const [dbFetch, evFetch] = await Promise.all([
-    needDb ? fetch('https://api.jsonbin.io/v3/b/'+DB_BIN+'/latest',    {mode:'cors',headers:{'X-Master-Key':KEY}}) : null,
-    needEv ? fetch('https://api.jsonbin.io/v3/b/'+EVENTS_BIN+'/latest',{mode:'cors',headers:{'X-Master-Key':KEY}}) : null,
+    needDb ? fetch(`${PCPC_BASE}/customers`) : null,
+    needEv ? fetch(`${PCPC_BASE}/events`)    : null,
   ]);
 
   if (needDb && dbFetch) {
     const j = await dbFetch.json();
-    dbRecord = j.record || {};
+    dbRecord = j || {};
     set('pci_db', JSON.stringify(dbRecord));
     set('pci_db_ts', String(now));
   } else if (!needDb) {
@@ -386,7 +384,7 @@ async function loadData(force=false) {
 
   if (needEv && evFetch) {
     const j2 = await evFetch.json();
-    eventsData = ((j2.record||{}).events) || [];
+    eventsData = (j2.events) || [];
     set('pci_ev', JSON.stringify(eventsData));
     set('pci_ev_ts', String(now));
   } else if (!needEv) {
