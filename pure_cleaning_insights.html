@@ -155,9 +155,9 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   <div class="period-tabs">
     <button class="period-tab" data-p="today">Today</button>
     <button class="period-tab" data-p="week">This Week</button>
-    <button class="period-tab active" data-p="month">This Month</button>
+    <button class="period-tab" data-p="month">This Month</button>
     <button class="period-tab" data-p="quarter">This Quarter</button>
-    <button class="period-tab" data-p="ytd">YTD</button>
+    <button class="period-tab active" data-p="ytd">YTD</button>
     <button class="period-tab" data-p="all">All Time</button>
   </div>
 </div>
@@ -280,7 +280,7 @@ const CACHE_TTL  = 60_000;
 
 let dbRecord   = null;
 let eventsData = [];
-let activePeriod = 'month';
+let activePeriod = 'ytd';
 let charts = {};
 
 const TODAY = new Date();
@@ -343,6 +343,21 @@ function fmt$(n) {
 function fmtFull(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
 function avgTicket(c){ return (c.lifetimeSpend||0) / Math.max(c.totalJobs||1, 1); }
 
+// Revenue for a single customer in a period — prefers new-system approvedAmount over legacy avgTicket
+function custRevInBounds(c, bounds) {
+  const ss = c.scheduledStatus || {}, qs = c.quoteStatus || {};
+  // New system: has an approved amount and a date in bounds
+  if ((ss.approvedAmount || 0) > 0) {
+    if (inPeriod(ss.scheduledDate, bounds) || inPeriod(qs.approvedDate, bounds)) return ss.approvedAmount;
+    return 0;
+  }
+  // Legacy: lastService in period
+  if (inPeriod(c.lastService, bounds)) return avgTicket(c);
+  return 0;
+}
+// True if this customer counts as a job in the period
+function custInBounds(c, bounds) { return custRevInBounds(c, bounds) > 0; }
+
 // ─── Data loading ────────────────────────────────────────────────────────────
 async function loadData(force=false) {
   const now = Date.now();
@@ -379,55 +394,79 @@ async function loadData(force=false) {
 
 // ─── S1: Hero Metrics ────────────────────────────────────────────────────────
 function renderHero() {
-  const custs   = dbRecord.customers || [];
-  const bounds  = getPeriodBounds(activePeriod);
-  const prev    = getPrevBounds(activePeriod);
+  const custs  = dbRecord.customers || [];
+  const bounds = getPeriodBounds(activePeriod);
+  const prev   = getPrevBounds(activePeriod);
 
-  const inCur   = custs.filter(c => inPeriod(c.lastService, bounds));
-  const inPrv   = custs.filter(c => inPeriod(c.lastService, prev));
-  const revEarned = inCur.reduce((s,c)=>s+avgTicket(c),0);
-  const revPrev   = inPrv.reduce((s,c)=>s+avgTicket(c),0);
-  const jobs      = inCur.length;
-  const jobsPrev  = inPrv.length;
-  const at        = jobs>0 ? revEarned/jobs : 0;
-  const atPrev    = jobsPrev>0 ? revPrev/jobsPrev : 0;
+  // ── Revenue & jobs: legacy (lastService/avgTicket) + new-system (scheduledStatus.approvedAmount)
+  const revEarned = custs.reduce((s,c) => s + custRevInBounds(c, bounds), 0);
+  const revPrev   = custs.reduce((s,c) => s + custRevInBounds(c, prev),   0);
 
-  const approvedEv = new Set(eventsData.filter(e=>e.eventType==='approved' && inPeriod(e.timestamp?.slice(0,10),bounds)).map(e=>e.customerPhone));
-  const sentEv     = new Set(eventsData.filter(e=>e.eventType==='sent'     && inPeriod(e.timestamp?.slice(0,10),bounds)).map(e=>e.customerPhone));
-  const prevSentEv = new Set(eventsData.filter(e=>e.eventType==='sent'     && inPeriod(e.timestamp?.slice(0,10),prev)).map(e=>e.customerPhone));
-  const convRate   = sentEv.size>0 ? Math.round(approvedEv.size/sentEv.size*100) : null;
+  // "Jobs Completed" = legacy lastService jobs + new-system state==='completed'
+  const legacyJobsCur = custs.filter(c => !(c.scheduledStatus?.approvedAmount > 0) && inPeriod(c.lastService, bounds)).length;
+  const legacyJobsPrv = custs.filter(c => !(c.scheduledStatus?.approvedAmount > 0) && inPeriod(c.lastService, prev)).length;
+  const newDoneCur    = custs.filter(c => c.scheduledStatus?.state === 'completed' && inPeriod(c.scheduledStatus.scheduledDate, bounds)).length;
+  const newDonePrv    = custs.filter(c => c.scheduledStatus?.state === 'completed' && inPeriod(c.scheduledStatus.scheduledDate, prev)).length;
+  const jobs     = legacyJobsCur + newDoneCur;
+  const jobsPrev = legacyJobsPrv + newDonePrv;
+  const at       = jobs > 0 ? revEarned / jobs : (revEarned > 0 ? revEarned : 0);
+  const atPrev   = jobsPrev > 0 ? revPrev / jobsPrev : 0;
 
-  const totalC   = custs.length;
-  const repeatC  = custs.filter(c=>(c.totalJobs||0)>1).length;
-  const repeatRt = totalC>0 ? Math.round(repeatC/totalC*100) : 0;
+  // ── Quote funnel: customer records (primary) + events bin (supplement)
+  // Sent: quoteStatus.sentDate on record, or 'sent' event
+  const sentPhones = new Set(custs.filter(c => inPeriod(c.quoteStatus?.sentDate, bounds)).map(c => c.phone));
+  eventsData.filter(e => e.eventType === 'sent' && inPeriod(e.timestamp?.slice(0,10), bounds)).forEach(e => e.customerPhone && sentPhones.add(e.customerPhone));
+
+  const prevSentPhones = new Set(custs.filter(c => inPeriod(c.quoteStatus?.sentDate, prev)).map(c => c.phone));
+  eventsData.filter(e => e.eventType === 'sent' && inPeriod(e.timestamp?.slice(0,10), prev)).forEach(e => e.customerPhone && prevSentPhones.add(e.customerPhone));
+
+  // Approved: quoteStatus.state==='approved' on record, or 'approved' event
+  const approvedPhones = new Set(custs.filter(c => c.quoteStatus?.state === 'approved' && inPeriod(c.quoteStatus?.approvedDate, bounds)).map(c => c.phone));
+  eventsData.filter(e => e.eventType === 'approved' && inPeriod(e.timestamp?.slice(0,10), bounds)).forEach(e => e.customerPhone && approvedPhones.add(e.customerPhone));
+
+  const convRate = sentPhones.size > 0 ? Math.round(approvedPhones.size / sentPhones.size * 100) : null;
+
+  // ── Active Customers: any quote or job activity in period
+  const activeSet = new Set([...sentPhones, ...approvedPhones]);
+  custs.filter(c => custInBounds(c, bounds)).forEach(c => activeSet.add(c.phone));
+  const activeCount = activeSet.size;
+
+  // ── Repeat Rate (all-time, period-independent)
+  const totalC  = custs.length;
+  const repeatC = custs.filter(c => (c.totalJobs || 0) > 1).length;
+  const repeatRt = totalC > 0 ? Math.round(repeatC / totalC * 100) : 0;
 
   const delta = (cur, prv) => {
-    if (!prv || prv===0) return `<span class="delta-n">— no prev data</span>`;
-    const pct = (cur-prv)/prv*100;
-    const cls = pct>=0?'delta-up':'delta-dn';
-    return `<span class="${cls}">${pct>=0?'↑':'↓'} ${Math.abs(Math.round(pct))}% vs prev</span>`;
+    if (!prv || prv === 0) return `<span class="delta-n">— no prev data</span>`;
+    const pct = (cur - prv) / prv * 100;
+    const cls = pct >= 0 ? 'delta-up' : 'delta-dn';
+    return `<span class="${cls}">${pct >= 0 ? '↑' : '↓'} ${Math.abs(Math.round(pct))}% vs prev</span>`;
   };
 
-  const noDataNote = inCur.length===0 && activePeriod==='month'
-    ? `<div style="font-size:10px;color:var(--muted);margin-top:4px;">No jobs in period — try YTD</div>` : '';
+  // Contextual note at bottom of grid
+  const hasNewJobs = custs.some(c => c.scheduledStatus?.state === 'scheduled');
+  const noDataNote = (revEarned === 0 && sentPhones.size === 0)
+    ? `<div style="font-size:10px;color:var(--muted);grid-column:1/-1;text-align:center;margin-top:4px;padding:.5rem;">No activity recorded in this period yet — switch to All Time to see historical data once imported.</div>` : '';
+  const pendingNote = (hasNewJobs && jobs === 0)
+    ? `<div style="font-size:10px;color:var(--amber);grid-column:1/-1;text-align:center;margin-top:4px;padding:.5rem;">💡 Jobs Completed = 0 because no jobs are marked complete yet. Revenue shows approved amount.</div>` : '';
 
   const cards = [
-    { lbl:'Revenue Earned',    val: revEarned>0 ? fmt$(revEarned) : '—',   delta: delta(revEarned,revPrev) },
-    { lbl:'Jobs Completed',    val: String(jobs),                            delta: delta(jobs,jobsPrev) },
-    { lbl:'Avg Ticket',        val: at>0 ? fmt$(at) : '—',                  delta: delta(at,atPrev) },
-    { lbl:'Quotes Sent',       val: sentEv.size>0?String(sentEv.size):'—',  delta: delta(sentEv.size,prevSentEv.size) },
-    { lbl:'Conversion Rate',   val: convRate!==null?convRate+'%':'—',       delta:'<span class="delta-n">Digital only</span>' },
-    { lbl:'Quotes Approved',   val: approvedEv.size>0?String(approvedEv.size):'—', delta:'<span class="delta-n">Digital only</span>' },
-    { lbl:'Active Customers',  val: String(jobs),                            delta:'<span class="delta-n">Jobs in period</span>' },
-    { lbl:'Repeat Rate',       val: repeatRt+'%',                           delta:`<span class="delta-n">${repeatC.toLocaleString()} of ${totalC.toLocaleString()}</span>` },
+    { lbl:'Revenue (Approved)',  val: revEarned > 0 ? fmt$(revEarned) : '—',              delta: delta(revEarned, revPrev) },
+    { lbl:'Jobs Completed',      val: String(jobs),                                         delta: delta(jobs, jobsPrev) },
+    { lbl:'Avg Ticket',          val: at > 0 ? fmt$(at) : '—',                             delta: delta(at, atPrev) },
+    { lbl:'Quotes Sent',         val: sentPhones.size > 0 ? String(sentPhones.size) : '—', delta: delta(sentPhones.size, prevSentPhones.size) },
+    { lbl:'Conversion Rate',     val: convRate !== null ? convRate + '%' : '—',            delta: '<span class="delta-n">Digital quotes only</span>' },
+    { lbl:'Quotes Approved',     val: approvedPhones.size > 0 ? String(approvedPhones.size) : '—', delta: '<span class="delta-n">Digital quotes only</span>' },
+    { lbl:'Active Customers',    val: String(activeCount),                                  delta: '<span class="delta-n">Any activity in period</span>' },
+    { lbl:'Repeat Rate',         val: repeatRt + '%',                                       delta: `<span class="delta-n">${repeatC} of ${totalC} customers</span>` },
   ];
 
-  document.getElementById('metricGrid').innerHTML = cards.map(c=>`
+  document.getElementById('metricGrid').innerHTML = cards.map(c => `
     <div class="metric-card">
       <div class="metric-lbl">${c.lbl}</div>
       <div class="metric-val">${c.val}</div>
       <div class="metric-delta">${c.delta}</div>
-    </div>`).join('') + noDataNote;
+    </div>`).join('') + (noDataNote || pendingNote);
 }
 
 // ─── S2: Revenue Growth Chart ────────────────────────────────────────────────
@@ -438,10 +477,24 @@ function renderRevenue() {
 
   const monthly = {};
   custs.forEach(c => {
-    const d = parseDate(c.lastService);
-    if (!d || d.getFullYear() < lastYr) return;
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
-    monthly[key] = (monthly[key]||0) + avgTicket(c);
+    // Legacy jobs: lastService date + avgTicket estimate
+    if (!(c.scheduledStatus?.approvedAmount > 0)) {
+      const d = parseDate(c.lastService);
+      if (d && d.getFullYear() >= lastYr) {
+        const key = `${d.getFullYear()}-${d.getMonth()}`;
+        monthly[key] = (monthly[key]||0) + avgTicket(c);
+      }
+    }
+    // New-system jobs: scheduledDate or approvedDate + approvedAmount
+    const ss = c.scheduledStatus || {}, qs = c.quoteStatus || {};
+    const amt = ss.approvedAmount || 0;
+    if (amt > 0) {
+      const d2 = parseDate(ss.scheduledDate || qs.approvedDate);
+      if (d2 && d2.getFullYear() >= lastYr) {
+        const key2 = `${d2.getFullYear()}-${d2.getMonth()}`;
+        monthly[key2] = (monthly[key2]||0) + amt;
+      }
+    }
   });
 
   const mo12 = i => monthly[`${lastYr}-${i}`]||0;
@@ -490,14 +543,14 @@ function renderRevenue() {
   // Stats below chart
   const ytdB  = {start:new Date(yr,0,1), end:TODAY};
   const ytdBL = {start:new Date(lastYr,0,1), end:new Date(lastYr,TODAY.getMonth(),TODAY.getDate(),12)};
-  const revYtd  = custs.filter(c=>inPeriod(c.lastService,ytdB)).reduce((s,c)=>s+avgTicket(c),0);
-  const revYtdL = custs.filter(c=>inPeriod(c.lastService,ytdBL)).reduce((s,c)=>s+avgTicket(c),0);
+  const revYtd  = custs.reduce((s,c) => s + custRevInBounds(c, ytdB),  0);
+  const revYtdL = custs.reduce((s,c) => s + custRevInBounds(c, ytdBL), 0);
   const yoyPct  = revYtdL>0 ? (revYtd-revYtdL)/revYtdL*100 : 0;
 
   const q1B   = {start:new Date(yr,0,1), end:new Date(yr,2,31,23,59,59)};
   const q4LB  = {start:new Date(lastYr,9,1), end:new Date(lastYr,11,31,23,59,59)};
-  const q1Rev = custs.filter(c=>inPeriod(c.lastService,q1B)).reduce((s,c)=>s+avgTicket(c),0);
-  const q4Rev = custs.filter(c=>inPeriod(c.lastService,q4LB)).reduce((s,c)=>s+avgTicket(c),0);
+  const q1Rev = custs.reduce((s,c) => s + custRevInBounds(c, q1B),  0);
+  const q4Rev = custs.reduce((s,c) => s + custRevInBounds(c, q4LB), 0);
   const qoq   = q4Rev>0 ? (q1Rev-q4Rev)/q4Rev*100 : 0;
 
   const daysPass = Math.max(Math.floor((TODAY - new Date(yr,0,1))/(864e5)),1);
@@ -598,7 +651,7 @@ function renderVariantPie() {
 function renderServiceMix() {
   const custs = dbRecord.customers||[];
   const bounds= getPeriodBounds(activePeriod);
-  const sample= (activePeriod==='all'||custs.filter(c=>inPeriod(c.lastService,bounds)).length<5) ? custs : custs.filter(c=>inPeriod(c.lastService,bounds));
+  const sample= (activePeriod==='all'||custs.filter(c=>custInBounds(c,bounds)).length<5) ? custs : custs.filter(c=>custInBounds(c,bounds));
   let roofR=0,sealR=0,surfR=0,otherR=0;
   sample.forEach(c=>{
     const t=avgTicket(c);
@@ -719,8 +772,8 @@ function renderHeatmap() {
 function renderGeo() {
   const custs=dbRecord.customers||[];
   const bounds=getPeriodBounds(activePeriod);
-  const sample=(activePeriod==='all'||custs.filter(c=>inPeriod(c.lastService,bounds)).length<10)
-    ? custs : custs.filter(c=>inPeriod(c.lastService,bounds));
+  const sample=(activePeriod==='all'||custs.filter(c=>custInBounds(c,bounds)).length<10)
+    ? custs : custs.filter(c=>custInBounds(c,bounds));
   const cd={};
   sample.forEach(c=>{
     const city=normCity(c.city);
