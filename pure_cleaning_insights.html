@@ -364,27 +364,33 @@ async function loadData(force=false) {
   const get  = k => { try { return sessionStorage.getItem(k); } catch { return null; } };
   const set  = (k,v) => { try { sessionStorage.setItem(k,v); } catch {} };
 
-  // Customer DB
   const dbRaw = get('pci_db'); const dbTs = parseInt(get('pci_db_ts')||'0');
-  if (!force && dbRaw && (now-dbTs) < CACHE_TTL) {
-    dbRecord = JSON.parse(dbRaw);
-  } else {
-    const r = await fetch('https://api.jsonbin.io/v3/b/'+DB_BIN+'/latest', {mode:'cors',headers:{'X-Master-Key':KEY}});
-    const j = await r.json();
+  const evRaw = get('pci_ev'); const evTs = parseInt(get('pci_ev_ts')||'0');
+  const needDb = force || !dbRaw || (now-dbTs) >= CACHE_TTL;
+  const needEv = force || !evRaw || (now-evTs) >= CACHE_TTL;
+
+  // Parallel fetches — halves cold-load time vs sequential awaits
+  const [dbFetch, evFetch] = await Promise.all([
+    needDb ? fetch('https://api.jsonbin.io/v3/b/'+DB_BIN+'/latest',    {mode:'cors',headers:{'X-Master-Key':KEY}}) : null,
+    needEv ? fetch('https://api.jsonbin.io/v3/b/'+EVENTS_BIN+'/latest',{mode:'cors',headers:{'X-Master-Key':KEY}}) : null,
+  ]);
+
+  if (needDb && dbFetch) {
+    const j = await dbFetch.json();
     dbRecord = j.record || {};
     set('pci_db', JSON.stringify(dbRecord));
     set('pci_db_ts', String(now));
+  } else if (!needDb) {
+    dbRecord = JSON.parse(dbRaw);
   }
-  // Events
-  const evRaw = get('pci_ev'); const evTs = parseInt(get('pci_ev_ts')||'0');
-  if (!force && evRaw && (now-evTs) < CACHE_TTL) {
-    eventsData = JSON.parse(evRaw);
-  } else {
-    const r2 = await fetch('https://api.jsonbin.io/v3/b/'+EVENTS_BIN+'/latest', {mode:'cors',headers:{'X-Master-Key':KEY}});
-    const j2 = await r2.json();
+
+  if (needEv && evFetch) {
+    const j2 = await evFetch.json();
     eventsData = ((j2.record||{}).events) || [];
     set('pci_ev', JSON.stringify(eventsData));
     set('pci_ev_ts', String(now));
+  } else if (!needEv) {
+    eventsData = JSON.parse(evRaw);
   }
   if (dbRecord.lastUpdated) {
     const ts = new Date(dbRecord.lastUpdated).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
