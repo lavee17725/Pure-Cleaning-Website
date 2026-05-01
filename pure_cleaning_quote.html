@@ -687,15 +687,17 @@
     console.log('[incoming save] Starting write to bin', INCOMING_REQUESTS_BIN_ID);
     const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
     try {
+      // keepalive:true ensures these requests complete even if the user closes the page
+      // before the JSONbin write finishes (common on mobile after seeing the success screen)
       const getRes = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-        mode: 'cors', headers: { 'X-Master-Key': KEY }
+        mode: 'cors', keepalive: true, headers: { 'X-Master-Key': KEY }
       });
       if (!getRes.ok) throw new Error('Incoming bin GET failed: ' + getRes.status + ' ' + await getRes.text());
       const data = await getRes.json();
       const reqs = (data.record || {}).requests || [];
       reqs.unshift(reqData);
       const putRes = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_REQUESTS_BIN_ID, {
-        method: 'PUT', mode: 'cors',
+        method: 'PUT', mode: 'cors', keepalive: true,
         headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY, 'X-Bin-Versioning': 'false' },
         body: JSON.stringify({ requests: reqs })
       });
