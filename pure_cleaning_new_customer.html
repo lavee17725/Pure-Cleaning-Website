@@ -118,6 +118,14 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
     </div>
 
+    <!-- Moved-away warning -->
+    <div class="dup-callout" id="movedAwayCallout" style="border-color:#5eead4;background:#f0fdfa;display:none;">
+      <div class="dup-text" style="color:#134e4a;" id="movedAwayText"></div>
+      <div class="dup-row">
+        <button class="dup-no" style="flex:1;" onclick="document.getElementById('movedAwayCallout').style.display='none'">Dismiss</button>
+      </div>
+    </div>
+
     <div class="field-row">
       <div class="field">
         <label>First name<span class="field-req">*</span></label>
@@ -338,7 +346,15 @@ function onPhoneInput(input) {
   const dup = allCustomers.find(c => c.phone === d);
   if (dup) {
     document.getElementById('optOutCallout').style.display = 'none';
-    if (dup.optOut) {
+    document.getElementById('movedAwayCallout').style.display = 'none';
+    if (dup.movedAway) {
+      const loc = dup.movedAway.location ? ` · Last known location: ${dup.movedAway.location}` : '';
+      const atStr = dup.movedAway.at ? ' on ' + new Date(dup.movedAway.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      document.getElementById('movedAwayText').textContent = `🏠 MOVED AWAY — ${dup.firstName} ${dup.lastName} was marked as moved away${atStr}${loc}. This customer is outside the service area.`;
+      document.getElementById('movedAwayCallout').style.display = 'block';
+      document.getElementById('dupCallout').classList.remove('show');
+      dupPhone = null;
+    } else if (dup.optOut) {
       const OPT_LABELS = {customer_request:'Customer request',wrong_number:'Wrong number',deceased:'Deceased',moved:'Moved away',do_not_contact:'Do not contact'};
       const reason = OPT_LABELS[dup.optOut.reason] || dup.optOut.reason || 'Unknown';
       document.getElementById('optOutText').textContent = `⚠️ ${dup.firstName} ${dup.lastName} is marked opted out (${reason}). Do not contact this customer.`;
@@ -354,6 +370,7 @@ function onPhoneInput(input) {
     dupPhone = null;
     document.getElementById('dupCallout').classList.remove('show');
     document.getElementById('optOutCallout').style.display = 'none';
+    document.getElementById('movedAwayCallout').style.display = 'none';
   }
 }
 

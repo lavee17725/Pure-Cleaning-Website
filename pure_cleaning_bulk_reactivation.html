@@ -224,6 +224,10 @@ td.money{font-family:'DM Mono',monospace;}
 .opted-out-badge{display:inline-block;background:rgba(229,62,62,.12);border:1px solid rgba(229,62,62,.35);color:#fc8181;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-left:4px;}
 .restore-btn{background:none;border:1px solid rgba(45,125,210,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--sky);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .restore-btn:hover{background:rgba(45,125,210,.12);}
+.moved-away-badge{display:inline-block;background:rgba(20,184,166,.1);border:1px solid rgba(20,184,166,.35);color:#2dd4bf;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-left:4px;}
+.restore-moved-btn{background:none;border:1px solid rgba(20,184,166,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:#2dd4bf;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.restore-moved-btn:hover{background:rgba(20,184,166,.1);}
+.row-menu-item.moved-act{color:#2dd4bf;}.row-menu-item.moved-act:hover{background:rgba(20,184,166,.08);}
 
 /* upload summary modal */
 .summary-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px;}
@@ -312,8 +316,9 @@ td.money{font-family:'DM Mono',monospace;}
     <button class="pool-tab" onclick="setPoolTab('today')">📲 Today <span class="pool-badge" id="tabTodayCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('week')">📅 This Week <span class="pool-badge" id="tabWeekCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
-    <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
     <button class="pool-tab" onclick="setPoolTab('opted_out')" style="border-color:rgba(229,62,62,.35);color:#fc8181;">🚫 Opted Out <span class="pool-badge" id="tabOptedOutCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('moved_away')" style="border-color:rgba(20,184,166,.35);color:#2dd4bf;">🏠 Moved Away <span class="pool-badge" id="tabMovedAwayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
   </div>
 
   <!-- FILTERS -->
@@ -587,7 +592,8 @@ function customerToDbRecord(c) {
     quoteStatus: c.quoteStatus || null,
     scheduledStatus: c.scheduledStatus || null,
     alerts: c.alerts || [],
-    optOut: c.optOut || null
+    optOut: c.optOut || null,
+    movedAway: c.movedAway || null
   };
 }
 
@@ -609,7 +615,8 @@ function dbRecordToCustomer(r) {
     quoteStatus: r.quoteStatus || null,
     scheduledStatus: r.scheduledStatus || null,
     alerts: r.alerts || [],
-    optOut: r.optOut || null
+    optOut: r.optOut || null,
+    movedAway: r.movedAway || null
   };
 }
 
@@ -1002,6 +1009,7 @@ async function processFiles() {
         newByPhone[phone].scheduledStatus = old.scheduledStatus || null;
         newByPhone[phone].alerts          = old.alerts          || [];
         newByPhone[phone].optOut          = old.optOut          || null;
+        newByPhone[phone].movedAway       = old.movedAway       || null;
       }
     }
     allCustomers = Object.values(newByPhone);
@@ -1084,8 +1092,10 @@ function applyFilters() {
   const qDigits = q.replace(/\D/g, '');
 
   filteredCustomers = allCustomers.filter(c => {
-    if (poolTab === 'opted_out') return !!c.optOut;
-    if (c.optOut) return false; // hide opted-out from all other tabs
+    if (poolTab === 'opted_out')   return !!c.optOut;
+    if (poolTab === 'moved_away')  return !!c.movedAway;
+    if (c.optOut)    return false;
+    if (c.movedAway) return false;
     if (!activeTiers.has(c.tier)) return false;
     if (city && c.city !== city) return false;
     if (c.lifetimeSpend < minSpend) return false;
@@ -1177,11 +1187,10 @@ const OPT_OUT_LABELS = {
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
-  const emptyTabs = ['today','week','opted_out'];
+  const emptyTabs = ['today','week','opted_out','moved_away'];
   if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
-    const label = poolTab === 'today' ? 'today' : poolTab === 'week' ? 'this week' : null;
-    const msg = label ? `No customers texted ${label} yet.` : 'No opted-out customers.';
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msg}</td></tr>`;
+    const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.'};
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msgs[poolTab]}</td></tr>`;
     updateSelInfo();
     document.getElementById('selectAll').checked = false;
     return;
@@ -1192,6 +1201,27 @@ function renderTable() {
     const tc = tierClass(c.tier);
     const sealIcon   = c.hasSeal ? '🛡️ ' : '';
     const alertBadge = renderAlertIcons(c.alerts);
+
+    // Moved-away tab: show address, move date, location, restore
+    if (poolTab === 'moved_away') {
+      const atStr = c.movedAway.at ? new Date(c.movedAway.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const loc = c.movedAway.location ? ` → ${c.movedAway.location}` : '';
+      const textBtn = `<div class="contact-info">🏠 Moved away${atStr ? ' · ' + atStr : ''}${loc}</div><button class="restore-moved-btn" onclick="restoreMovedAway('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.7;">
+        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td>${textBtn}</td>
+        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${c.city || '—'}</td>
+        <td>${c.lastServiceStr}</td>
+        <td class="money">${c.totalJobs}</td>
+        <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="money">$${Math.round(c.avgTicket)}</td>
+        <td class="money">${mo}</td>
+        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }
 
     // Opted-out tab: show reason + restore, no text button
     if (poolTab === 'opted_out') {
@@ -1547,7 +1577,7 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','today','week','contacted','all','opted_out'][i] === tab);
+    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','all'][i] === tab);
   });
   renderTabSummary(tab);
   applyFilters();
@@ -1555,9 +1585,10 @@ function setPoolTab(tab) {
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0;
+  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0;
   allCustomers.forEach(c => {
-    if (c.optOut) { optedOutCt++; return; }
+    if (c.optOut)    { optedOutCt++;   return; }
+    if (c.movedAway) { movedAwayCt++;  return; }
     const rec = loadContactRecord(c.phone);
     if (isInCooldown(c.phone)) {
       contacted++;
@@ -1575,6 +1606,7 @@ function updateTabCounts() {
   document.getElementById('tabContactedCount').textContent = contacted;
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
   document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
+  document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
 }
 function textNow(phone) {
   const compliance = checkCompliance();
@@ -1908,6 +1940,49 @@ function restoreOptOut(phone) {
   applyFilters();
 }
 
+function promptMovedAway(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  const modal = document.createElement('div');
+  modal.className = 'compliance-modal-backdrop';
+  modal.id = 'movedAwayModal';
+  modal.innerHTML = `<div class="compliance-modal" style="text-align:left;">
+    <div style="font-size:1.5rem;margin-bottom:.5rem;">🏠</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:.25rem;">Mark as Moved Away</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">${c.fn} ${c.ln} — ${formatPhone(phone)}<br>
+    This permanently removes them from all reactivation outreach. Customer record is preserved.</p>
+    <div style="margin-bottom:1rem;">
+      <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px;">Where did they move? <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+      <input id="movedAwayLocation" type="text" placeholder="e.g. Tampa, FL or Out of state" style="width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+    </div>
+    <div class="compliance-actions">
+      <button class="btn-cancel" onclick="document.getElementById('movedAwayModal').remove()">Cancel</button>
+      <button style="flex:1;padding:.75rem;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;border:none;background:#0d9488;color:#fff;" onclick="markMovedAway('${phone}', document.getElementById('movedAwayLocation').value.trim())">Mark as Moved</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function markMovedAway(phone, location) {
+  document.getElementById('movedAwayModal')?.remove();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.movedAway = { at: new Date().toISOString(), location: location || null };
+  selectedPhones.delete(phone);
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function restoreMovedAway(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.movedAway = null;
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
 function markCommercial(phone) {
   manualOverrides[phone] = 'exclude';
   saveOverrides();
@@ -2228,11 +2303,16 @@ function toggleRowMenu(phone, btn) {
   const c = allCustomers.find(x => x.phone === phone);
   const isDisc = c && c.phoneStatus === 'disconnected';
   const isOptedOut = c && !!c.optOut;
+  const isMovedAway = c && !!c.movedAway;
   const menu = document.getElementById('rowMenuDropdown');
   menu.innerHTML =
     (isOptedOut
       ? `<button class="row-menu-item" onclick="restoreOptOut('${phone}')">↩ Restore from opt-out</button>`
       : `<button class="row-menu-item danger" onclick="promptOptOut('${phone}')">🚫 Mark opted out</button>`
+    ) +
+    (isMovedAway
+      ? `<button class="row-menu-item moved-act" onclick="restoreMovedAway('${phone}')">↩ Restore (un-mark moved)</button>`
+      : `<button class="row-menu-item moved-act" onclick="promptMovedAway('${phone}')">🏠 Mark as moved away</button>`
     ) +
     `<button class="row-menu-item danger" onclick="markCommercial('${phone}')">⊘ Exclude (commercial)</button>` +
     (isDisc

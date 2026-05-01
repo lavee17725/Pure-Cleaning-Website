@@ -88,6 +88,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
       <span class="slabel">✅ Booked this week</span>    <span class="sval" id="qs-booked-week">—</span>
       <span class="slabel">📅 Jobs scheduled this week</span> <span class="sval" id="qs-sched">—</span>
       <span class="slabel">✓ Completed this week</span>       <span class="sval" id="qs-done">—</span>
+      <span class="slabel">🚫 Opted out</span>                 <span class="sval" id="qs-opted-out">—</span>
+      <span class="slabel">🏠 Moved away</span>                <span class="sval" id="qs-moved-away">—</span>
     </div>
   </div>
 
@@ -182,6 +184,8 @@ async function loadQuickStats() {
     const withSched = (db.customers||[]).filter(c => c.scheduledStatus && c.scheduledStatus.scheduledDate);
     set('qs-sched', String(withSched.filter(c => c.scheduledStatus.state === 'scheduled' && inWeek(c.scheduledStatus.scheduledDate)).length));
     set('qs-done',  String(withSched.filter(c => c.scheduledStatus.state === 'completed'  && inWeek(c.scheduledStatus.scheduledDate)).length));
+    set('qs-opted-out',  String((db.customers||[]).filter(c => c.optOut).length));
+    set('qs-moved-away', String((db.customers||[]).filter(c => c.movedAway).length));
   } catch(e) {
     clearStats();
   }
@@ -195,7 +199,7 @@ async function loadQuickStats() {
 
 function set(id, val) { document.getElementById(id).textContent = val; }
 function clearStats() {
-  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week','qs-sched','qs-done'].forEach(id => set(id, '—'));
+  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week','qs-sched','qs-done','qs-opted-out','qs-moved-away'].forEach(id => set(id, '—'));
 }
 
 async function loadIncomingCount() {
