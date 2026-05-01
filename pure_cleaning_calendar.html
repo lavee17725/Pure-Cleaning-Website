@@ -424,11 +424,24 @@ function renderShell() {
   renderCalGrid(getWeekDates()); // renders with empty rig lanes (no jobs yet)
 }
 
+function cleanStaleSchedulingStates() {
+  // Reset any customer stuck in 'scheduled' state with no scheduledDate — these are
+  // orphaned states from mid-drag page reloads or failed drop handlers.
+  (dbRecord.customers || []).forEach(c => {
+    const ss = c.scheduledStatus;
+    if (ss && ss.state === 'scheduled' && !ss.scheduledDate) {
+      ss.state = 'needs_scheduling';
+      ss.rig = null;
+    }
+  });
+}
+
 async function init() {
   renderShell();
   loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
   try {
     dbRecord = (await getCachedCustomerDB()) || {};
+    cleanStaleSchedulingStates();
     render();
   } catch(e) {
     dbRecord = {customers:[]};
@@ -819,23 +832,28 @@ async function handleDropToRig(phone, date, rig) {
   saveDb().catch(()=>{});
   renderCalGrid(getWeekDates());
   renderCrewPanel(getWeekDates());
+  renderSidebar(); // keep sidebar in sync — "All caught up!" when last card is scheduled
 }
 
 async function handleDropToSidebar(phone, evt) {
   const c = findCustomer(phone);
   if (!c) return;
   const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  // Only clear scheduling-specific fields — never touch name, phone, amount, quoteStatus, etc.
   if (c.scheduledStatus) {
     c.scheduledStatus.state = 'needs_scheduling';
     c.scheduledStatus.scheduledDate = null;
     c.scheduledStatus.rig = null;
+  } else {
+    c.scheduledStatus = { state: 'needs_scheduling', scheduledDate: null, rig: null };
   }
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   showToast(`↩ ${esc(name)} moved back to Needs Scheduling`, 'Undo', () => { undoAction(phone, prev); });
-  document.getElementById('needsCount').textContent = getUnscheduled().length;
   saveDb().catch(()=>{});
   renderCalGrid(getWeekDates());
   renderCrewPanel(getWeekDates());
+  // Re-render sidebar with proper sidebar card HTML — fixes stuck calendar card + missing X button
+  renderSidebar();
 }
 
 function undoAction(phone, prevStatus) {
