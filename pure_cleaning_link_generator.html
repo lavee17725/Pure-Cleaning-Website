@@ -128,61 +128,19 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 </div>
 
 <script>
-const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const PCPC_API_LG = 'https://purecleaning-api.tylerfumero.workers.dev';
 const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 // Safe charset: uppercase letters + digits, no 0/O/1/I/L
 const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 function generateCode() {
   let c = '';
-  for (let i = 0; i < 5; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+  for (let i = 0; i < 8; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
   return c;
 }
 
-async function getOrCreateBin() {
-  let binId = localStorage.getItem('pcpc_customer_links_bin_id');
-  if (binId) return binId;
-  const res = await fetch('https://api.jsonbin.io/v3/b', {
-    method: 'POST',
-    mode: 'cors',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Master-Key': JSONBIN_KEY,
-      'X-Bin-Private': 'false',
-      'X-Bin-Name': 'PureCleaningCustomerLinks'
-    },
-    body: JSON.stringify({})
-  });
-  const data = await res.json();
-  if (!data.metadata || !data.metadata.id) throw new Error('Failed to create bin: ' + JSON.stringify(data));
-  binId = data.metadata.id;
-  localStorage.setItem('pcpc_customer_links_bin_id', binId);
-  return binId;
-}
-
-async function fetchRecords(binId) {
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-    mode: 'cors',
-    headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
-  const data = await res.json();
-  return data.record || {};
-}
-
-async function saveRecords(binId, records) {
-  await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-    method: 'PUT',
-    mode: 'cors',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Master-Key': JSONBIN_KEY
-    },
-    body: JSON.stringify(records)
-  });
-}
-
-function buildLink(binId, code) {
-  return QUOTE_BASE + '?c=' + binId + '.' + code;
+function buildLink(code) {
+  return QUOTE_BASE + '?c=' + code;
 }
 
 function buildSms(fn, months, link) {
@@ -208,14 +166,8 @@ async function generateLink() {
   btn.disabled = true;
 
   try {
-    const binId = await getOrCreateBin();
-    const records = await fetchRecords(binId);
-
-    let code;
-    let attempts = 0;
-    do { code = generateCode(); attempts++; } while (records[code] && attempts < 100);
-
-    records[code] = {
+    const code = generateCode();
+    const record = {
       fn,
       ln: document.getElementById('ln').value.trim(),
       ph: document.getElementById('ph').value.trim(),
@@ -226,10 +178,13 @@ async function generateLink() {
       lastService: document.getElementById('lastService').value || null,
       created: new Date().toISOString()
     };
+    await fetch(`${PCPC_API_LG}/quote/${code}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record)
+    });
 
-    await saveRecords(binId, records);
-
-    const link = buildLink(binId, code);
+    const link = buildLink(code);
     const months = document.getElementById('months').value.trim() || '6 months';
     const sms = buildSms(fn, months, link);
 
@@ -258,8 +213,6 @@ async function bulkGenerate() {
   btn.disabled = true;
 
   try {
-    const binId = await getOrCreateBin();
-    const records = await fetchRecords(binId);
     const output = [];
 
     const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g,'_'));
@@ -272,11 +225,8 @@ async function bulkGenerate() {
       const ph = vals[col('phone')] || '';
       if (!fn) continue;
 
-      let code;
-      let attempts = 0;
-      do { code = generateCode(); attempts++; } while (records[code] && attempts < 100);
-
-      records[code] = {
+      const code = generateCode();
+      const record = {
         fn, ln, ph,
         em: vals[col('email')] || '',
         addr: vals[col('address')] || '',
@@ -284,12 +234,15 @@ async function bulkGenerate() {
         zip: vals[col('zip')] || '',
         created: new Date().toISOString()
       };
+      await fetch(`${PCPC_API_LG}/quote/${code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record)
+      });
 
-      const link = buildLink(binId, code);
+      const link = buildLink(code);
       output.push((fn + ' ' + ln).trim() + ' — ' + ph + ' — ' + link);
     }
-
-    await saveRecords(binId, records);
 
     document.getElementById('bulkBox').value = output.join('\n');
     document.getElementById('bulkOutputCard').classList.add('show');

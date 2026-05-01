@@ -95,6 +95,33 @@ window.pcpcApi = {
     return r.json();
   },
 
+  async getQuote(quoteCode) {
+    const r = await fetch(`${PCPC_API_BASE}/quote/${quoteCode}`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`API error: ${r.status}`);
+    return r.json();
+  },
+
+  async saveQuote(quoteCode, data) {
+    const r = await fetch(`${PCPC_API_BASE}/quote/${quoteCode}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error(`API error: ${r.status}`);
+    return r.json();
+  },
+
+  async updateQuote(quoteCode, partial) {
+    const r = await fetch(`${PCPC_API_BASE}/quote/${quoteCode}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partial),
+    });
+    if (!r.ok) throw new Error(`API error: ${r.status}`);
+    return r.json();
+  },
+
   _cache: {},
 
   async getCachedCustomers(maxAgeMs = 60000) {

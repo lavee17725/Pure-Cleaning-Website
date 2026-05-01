@@ -217,8 +217,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 </div>
 
 <script>
-// JSONBIN_KEY kept for _startPreGen / genLink (per-customer quote bins) — migrated in Phase 4D
-const JSONBIN_KEY        = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const PCPC_API           = 'https://purecleaning-api.tylerfumero.workers.dev';
 const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -250,22 +248,11 @@ function shortenUrl(longUrl) {
   return short;
 }
 
-// Pre-generated link bin — created during page load so Save is instant
-let _preGen = null;  // Promise<{code,binId}|null>
-
-async function _startPreGen() {
-  try {
-    const code = generateCode();
-    const res = await fetch('https://api.jsonbin.io/v3/b', {
-      method:'POST', mode:'cors',
-      headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Private':'false','X-Bin-Name':'PCCustomerLink'},
-      body: JSON.stringify({[code]:{_r:1}})
-    });
-    const d = await res.json();
-    if (!d.metadata?.id) return null;
-    console.log('[preGen] link bin ready:', d.metadata.id, code);
-    return {code, binId: d.metadata.id};
-  } catch(e) { console.warn('[preGen] failed:', e.message); return null; }
+function generateQuoteCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let c = '';
+  for (let i = 0; i < 8; i++) c += chars[Math.floor(Math.random() * 32)];
+  return c;
 }
 
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
@@ -322,7 +309,6 @@ let dupPhone     = null;
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   buildPresetGrid();
-  _preGen = _startPreGen();  // fire immediately — runs in parallel with DB load
   try {
     const data   = await getCachedCustomerDB();
     dbRecord     = data || {};
@@ -488,17 +474,17 @@ async function submitForm() {
       customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
       if (customer) { customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city; if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts]; }
     } else {
-      customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, linkBin:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null };
+      customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null };
       if (!dbRecord) dbRecord = {customers:[]};
       if (!dbRecord.customers) dbRecord.customers=[];
       dbRecord.customers.push(customer);
       allCustomers.push(customer);
     }
-    const {code, binId} = await genLink(customer);
-    customer.linkCode = code; customer.linkBin = binId;
+    const code = await genLink(customer);
+    customer.linkCode = code;
     customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
     // Show success immediately — DB write happens in background
-    showSuccess(customer, `${QUOTE_BASE}?c=${binId}.${code}`, isNew);
+    showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
     saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
   } catch(e) {
     alert('Error: ' + e.message);
@@ -507,47 +493,20 @@ async function submitForm() {
 }
 
 // ── LINK GENERATION ───────────────────────────────────────────────────────────
-function generateCode() {
-  let c=''; for(let i=0;i<5;i++) c+=CHARSET[Math.floor(Math.random()*CHARSET.length)]; return c;
-}
-
 function _linkRec(c) {
   return {fn:c.firstName, ln:c.lastName, ph:c.phone, em:c.email||'', addr:c.address, city:c.city, zip:c.zip||'', lastService:c.lastService, totalJobs:c.totalJobs, lifetimeSpend:c.lifetimeSpend, created:new Date().toISOString()};
 }
 
 async function genLink(customer) {
-  // Fast path: existing customer already has a link
-  if (customer.linkCode && customer.linkBin) return {code:customer.linkCode, binId:customer.linkBin};
-
-  // Happy path: pre-gen bin was created during page load — should resolve instantly
-  if (_preGen) {
-    const pg = await _preGen;
-    _preGen = _startPreGen();  // immediately start pre-gen for the next customer
-    if (pg) {
-      // Update the placeholder with real customer data — fire-and-forget
-      const rec = _linkRec(customer);
-      fetch('https://api.jsonbin.io/v3/b/'+pg.binId, {
-        method:'PUT', mode:'cors',
-        headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},
-        body:JSON.stringify({[pg.code]:rec})
-      }).catch(e => console.warn('[link PUT]', e.message));
-      console.log('[genLink] pre-gen used — 0 blocking network calls');
-      return {code:pg.code, binId:pg.binId};
-    }
-  }
-
-  // Fallback: pre-gen failed or wasn't ready — create bin now (original behavior)
-  console.warn('[genLink] pre-gen unavailable — creating bin inline');
-  const code = generateCode();
-  const rec  = _linkRec(customer);
-  const res  = await fetch('https://api.jsonbin.io/v3/b', {
-    method:'POST', mode:'cors',
-    headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Private':'false','X-Bin-Name':'PCCustomerLink'},
-    body:JSON.stringify({[code]:rec})
-  });
-  const data = await res.json();
-  if (!data.metadata?.id) throw new Error('Could not create link bin: '+JSON.stringify(data));
-  return {code, binId:data.metadata.id};
+  if (customer.linkCode) return customer.linkCode;
+  const code = generateQuoteCode();
+  const rec = _linkRec(customer);
+  fetch(`${PCPC_API}/quote/${code}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(rec)
+  }).catch(e => console.warn('[link PUT]', e.message));
+  return code;
 }
 
 // ── SUCCESS ───────────────────────────────────────────────────────────────────

@@ -1148,35 +1148,46 @@
     });
   });
 
-  // ── Customer pre-fill from ?c=BINID.CODE link ───────────────────
+  // ── Customer pre-fill from ?c=CODE or legacy ?c=BINID.CODE link ─
   document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     const cParam = urlParams.get('c');
     const variantFromUrl = urlParams.get('v') || null;
-    if (!cParam || !cParam.includes('.')) return;
-    const dotIdx = cParam.indexOf('.');
-    const binId = cParam.slice(0, dotIdx);
-    const code = cParam.slice(dotIdx + 1);
-    if (!binId || !code) return;
-    fetch('https://api.jsonbin.io/v3/b/' + binId, { mode: 'cors' })
-      .then(r => r.json())
-      .then(data => {
-        const r = data.record && data.record[code];
-        if (!r) return;
-        const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
-        set('firstName', r.fn);
-        set('lastName', r.ln);
-        set('phone', r.ph);
-        set('email', r.em);
-        set('address', r.addr);
-        set('city', r.city);
-        set('zip', r.zip);
-        const banner = document.getElementById('welcomeBanner');
-        const nameEl = document.getElementById('welcomeName');
-        if (banner && nameEl) { nameEl.textContent = r.fn || 'there'; banner.style.display = 'block'; }
-        if (r.ph) markLinkViewed(r.ph, variantFromUrl);
-      })
-      .catch(() => {});
+    if (!cParam) return;
+
+    function applyRecord(r) {
+      if (!r) return;
+      const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+      set('firstName', r.fn);
+      set('lastName', r.ln);
+      set('phone', r.ph);
+      set('email', r.em);
+      set('address', r.addr);
+      set('city', r.city);
+      set('zip', r.zip);
+      const banner = document.getElementById('welcomeBanner');
+      const nameEl = document.getElementById('welcomeName');
+      if (banner && nameEl) { nameEl.textContent = r.fn || 'there'; banner.style.display = 'block'; }
+      if (r.ph) markLinkViewed(r.ph, variantFromUrl);
+    }
+
+    if (cParam.includes('.')) {
+      // Legacy BINID.CODE format — read from JSONbin
+      const dotIdx = cParam.indexOf('.');
+      const binId = cParam.slice(0, dotIdx);
+      const code = cParam.slice(dotIdx + 1);
+      if (!binId || !code) return;
+      fetch('https://api.jsonbin.io/v3/b/' + binId, { mode: 'cors' })
+        .then(r => r.json())
+        .then(data => applyRecord(data.record && data.record[code]))
+        .catch(() => {});
+    } else {
+      // New QUOTECODE format — read from Cloudflare Worker
+      fetch('https://purecleaning-api.tylerfumero.workers.dev/quote/' + cParam)
+        .then(r => r.ok ? r.json() : null)
+        .then(r => applyRecord(r))
+        .catch(() => {});
+    }
   });
 
   function markLinkViewed(phone, variantLabel) {
@@ -1344,11 +1355,8 @@
   }
 
   // ── LIVE GOOGLE REVIEW COUNT ──────────────────────────────────────
-  // Fetches from JSONbin (updated manually or via Places API when configured).
-  // When Tyler has a Google Cloud API key + Place ID, those can replace this.
+  // Fetches review count from Worker (update via wrangler kv:key put reviews_data when count changes)
   (async () => {
-    const REVIEWS_BIN = '69f4f09836566621a8144a10';
-    const JKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
     const CACHE_KEY = 'pcpc_google_reviews_quote';
     const TTL = 24 * 60 * 60 * 1000;
     try {
@@ -1358,12 +1366,11 @@
         const { data, timestamp } = JSON.parse(cached);
         if (Date.now() - timestamp < TTL && data.count) { count = data.count; }
       } else {
-        const r = await fetch('https://api.jsonbin.io/v3/b/' + REVIEWS_BIN + '/latest',
-          { headers: { 'X-Master-Key': JKEY } });
-        const rec = (await r.json()).record || {};
-        if (rec.google && rec.google.count) {
-          count = rec.google.count;
-          localStorage.setItem(CACHE_KEY, JSON.stringify({ data: rec.google, timestamp: Date.now() }));
+        const r = await fetch('https://purecleaning-api.tylerfumero.workers.dev/reviews');
+        const rec = await r.json();
+        if (rec && rec.count) {
+          count = rec.count;
+          localStorage.setItem(CACHE_KEY, JSON.stringify({ data: rec, timestamp: Date.now() }));
         }
       }
       const el = document.getElementById('googleReviewBadge');

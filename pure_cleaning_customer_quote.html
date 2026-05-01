@@ -231,8 +231,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 </div>
 
 <script>
-const QUOTE_EVENTS_BIN_ID = '69f41bfdaaba8821975a74fa';
-const _JKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+const PCPC_API_CQ = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 // ── EVENT TRACKING ────────────────────────────────────────────────
 const _tracked = new Set();
@@ -244,15 +243,11 @@ async function trackQuoteEvent(eventType, phone, variant, meta) {
     const evt = { id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
       timestamp:new Date().toISOString(), eventType, customerPhone:phone||null,
       variant:variant||null, pageVersion:'v1', metadata:meta||{} };
-    const r = await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID+'/latest',
-      {headers:{'X-Master-Key':_JKEY}});
-    const rec = (await r.json()).record || {};
-    const evts = rec.events || [];
-    evts.push(evt);
-    await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID,
-      {method:'PUT', headers:{'Content-Type':'application/json',
-       'X-Master-Key':_JKEY,'X-Bin-Versioning':'false'},
-       body:JSON.stringify({events:evts})});
+    await fetch(`${PCPC_API_CQ}/events`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(evt)
+    });
   } catch(e) { console.warn('[track]', e.message); }
 }
 
@@ -265,8 +260,6 @@ function fireEngagement() {
 
 // ── BEHAVIORAL TRACKING ──────────────────────────────────────────────────────
 const BT = (() => {
-  const BIN = '69f41bfdaaba8821975a74fa';
-  const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
   const sessId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
   const t0 = Date.now();
   const device = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
@@ -290,13 +283,13 @@ const BT = (() => {
     const batch = buf.splice(0);
     flushing = true;
     try {
-      const r = await fetch('https://api.jsonbin.io/v3/b/'+BIN+'/latest',{headers:{'X-Master-Key':KEY}});
-      const rec = (await r.json()).record || {};
-      const evts = rec.events || [];
-      evts.push(...batch);
-      await fetch('https://api.jsonbin.io/v3/b/'+BIN,{method:'PUT',
-        headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'},
-        body:JSON.stringify({events:evts})});
+      await Promise.all(batch.map(evt =>
+        fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(evt)
+        })
+      ));
     } catch(e) { buf.unshift(...batch); }
     flushing = false;
   }
@@ -666,15 +659,9 @@ async function approveQuote() {
       body: formspreeData,
       headers: { 'Accept': 'application/json' }
     }).catch(() => {}),
-    fetch('https://api.jsonbin.io/v3/b', {
+    fetch(`${PCPC_API_CQ}/events`, {
       method: 'POST',
-      mode: 'cors',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Master-Key': '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i',
-        'X-Bin-Private': 'false',
-        'X-Bin-Name': 'PureCleaningBookings'
-      },
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ ...approval, quote: quoteData })
     }).catch(() => {})
   ]);
@@ -710,17 +697,14 @@ function guessJobDuration() {
 }
 
 function updateQuoteApproved(phone, approvedTotal) {
-  const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-  const DB  = '69f2d8b6856a6821898c3bfb';
   const dur = guessJobDuration();
   const svcStr = quoteData && quoteData.services
     ? (Array.isArray(quoteData.services) ? quoteData.services.join(', ') : String(quoteData.services))
     : '';
-  fetch('https://api.jsonbin.io/v3/b/' + DB, { mode: 'cors', headers: { 'X-Master-Key': KEY } })
+  fetch(`${PCPC_API_CQ}/customers`)
     .then(r => r.json())
-    .then(data => {
-      const db = data.record || {};
-      const c  = (db.customers || []).find(x => x.phone === phone);
+    .then(db => {
+      const c = (db.customers || []).find(x => x.phone === phone);
       if (!c) return;
       if (!c.quoteStatus) c.quoteStatus = {};
       c.quoteStatus.state        = 'approved';
@@ -731,9 +715,9 @@ function updateQuoteApproved(phone, approvedTotal) {
         customerSelectedDate: selectedDate ? selectedDate.val : null,
         approvedAmount: approvedTotal || null
       };
-      return fetch('https://api.jsonbin.io/v3/b/' + DB, {
-        method: 'PUT', mode: 'cors',
-        headers: { 'Content-Type': 'application/json', 'X-Master-Key': KEY },
+      return fetch(`${PCPC_API_CQ}/customers`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(db)
       });
     })
@@ -806,9 +790,6 @@ function selectTime(el, time) {
 async function submitReschedule() {
   const days = Array.from(_rescheduleSelectedDays);
   const notes = (document.getElementById('rescheduleNotes').value || '').trim();
-  const INCOMING_BIN = '69f39ce0856a682189900bdc';
-  const JKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-
   const payload = {
     id: 'resc_' + Date.now(),
     status: 'new',
@@ -831,14 +812,13 @@ async function submitReschedule() {
   if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
 
   try {
-    const r = await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN, { headers: { 'X-Master-Key': JKEY } });
-    const rec = (await r.json()).record || {};
-    const requests = rec.requests || [];
+    const inc = await fetch(`${PCPC_API_CQ}/incoming`).then(r => r.json());
+    const requests = inc.requests || [];
     requests.unshift(payload);
-    await fetch('https://api.jsonbin.io/v3/b/' + INCOMING_BIN, {
+    await fetch(`${PCPC_API_CQ}/incoming`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JKEY, 'X-Bin-Versioning': 'false' },
-      body: JSON.stringify({ ...rec, requests })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ...inc, requests })
     });
   } catch(e) { console.warn('[reschedule]', e.message); }
 

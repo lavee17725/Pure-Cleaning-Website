@@ -434,12 +434,9 @@ td.money{font-family:'DM Mono',monospace;}
 
 <script>
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
-const QUOTE_EVENTS_BIN_ID = '69f41bfdaaba8821975a74fa';
+const PCPC_API_BR = 'https://purecleaning-api.tylerfumero.workers.dev';
 const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const SHORT_LINKS_BIN_ID = '69f427af856a682189929e8c';
 const _SL_ALPHA_BR       = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function _genShortCodeBR() {
@@ -453,10 +450,10 @@ function shortenUrl(longUrl) {
   const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
   (async () => {
     try {
-      const r = await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID+'/latest', {mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
-      const links = ((await r.json()).record||{}).links||{};
+      const sl = await fetch(`${PCPC_API_BR}/links`).then(r => r.json());
+      const links = sl.links || {};
       links[code] = longUrl;
-      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID, {method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+      await fetch(`${PCPC_API_BR}/links`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
     } catch(e) { console.warn('[shortenUrl]', e.message); }
   })();
   return short;
@@ -520,15 +517,11 @@ async function trackQuoteEvent(eventType, phone, variant, meta) {
     const evt = { id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
       timestamp:new Date().toISOString(), eventType, customerPhone:phone||null,
       variant:variant||null, pageVersion:'v1', metadata:meta||{} };
-    const r = await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID+'/latest',
-      {headers:{'X-Master-Key':JSONBIN_KEY}});
-    const rec = (await r.json()).record || {};
-    const evts = rec.events || [];
-    evts.push(evt);
-    await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID,
-      {method:'PUT', headers:{'Content-Type':'application/json',
-       'X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},
-       body:JSON.stringify({events:evts})});
+    await fetch(`${PCPC_API_BR}/events`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(evt)
+    });
   } catch(e) { console.warn('[track]', e.message); }
 }
 const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
@@ -552,11 +545,9 @@ async function getCachedCustomerDB() {
     }
   } catch(e) { console.warn('[customerDB] cache read failed:', e); }
   console.log('[customerDB] fetching fresh');
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
-    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-  });
+  const res = await fetch(`${PCPC_API_BR}/customers`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = (await res.json()).record;
+  const data = await res.json();
   try {
     sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
   } catch(e) { console.warn('[customerDB] cache write failed:', e); }
@@ -663,14 +654,14 @@ async function saveDatabase() {
     customers: allCustomers.map(customerToDbRecord),
     excluded: excludedRecords.map(e => ({ name: e.displayName, reason: e.reason, phone: e.phone || null }))
   };
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-    method: 'PUT', mode: 'cors',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+  const res = await fetch(`${PCPC_API_BR}/customers`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(db)
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`JSONbin save failed (${res.status}): ${err.message || JSON.stringify(err)}`);
+    throw new Error(`Worker save failed (${res.status}): ${err.message || JSON.stringify(err)}`);
   }
   sessionStorage.removeItem('pcpc_customer_db_cache');
   return db;
@@ -1646,9 +1637,8 @@ async function executeTextNow(phone) {
   if (!c) return;
 
   let code = c.linkCode;
-  let binId = c.linkBin;
 
-  if (!code || !binId) {
+  if (!code) {
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     try {
       code = generateCode();
@@ -1657,44 +1647,13 @@ async function executeTextNow(phone) {
         city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
         totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
       };
-
-      const existingBinId = localStorage.getItem('pcpc_customer_links_bin_id');
-      if (existingBinId) {
-        // Bin exists — fetch records, avoid code collisions, then PUT
-        binId = existingBinId;
-        const getRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-          mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-        });
-        const getData = await getRes.json();
-        console.log('[textNow] GET bin status:', getRes.status);
-        const records = getData.record || {};
-        let tries = 0;
-        do { code = generateCode(); tries++; } while (records[code] && tries < 200);
-        records[code] = customerRecord;
-        const putRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-          method: 'PUT', mode: 'cors',
-          headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
-          body: JSON.stringify(records)
-        });
-        console.log('[textNow] PUT status:', putRes.status);
-      } else {
-        // No bin yet — create it with the customer record already in the body
-        const postBody = JSON.stringify({ [code]: customerRecord });
-        console.log('[textNow] Creating bin, body length:', postBody.length, 'body:', postBody);
-        const res = await fetch('https://api.jsonbin.io/v3/b', {
-          method: 'POST', mode: 'cors',
-          headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Private': 'false', 'X-Bin-Name': 'PureCleaningCustomerLinks' },
-          body: postBody
-        });
-        const data = await res.json();
-        console.log('[textNow] POST bin status:', res.status, 'response:', JSON.stringify(data));
-        if (!data.metadata?.id) throw new Error('Could not create JSONbin: ' + JSON.stringify(data));
-        binId = data.metadata.id;
-        localStorage.setItem('pcpc_customer_links_bin_id', binId);
-      }
+      await fetch(`${PCPC_API_BR}/quote/${code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customerRecord)
+      });
 
       c.linkCode = code;
-      c.linkBin  = binId;
       c.quoteStatus = { state: 'sent', sentDate: new Date().toISOString().split('T')[0], viewedDate: null, approvedDate: null, lostDate: null, lostReason: null, notes: null };
       saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
     } catch(e) {
@@ -1704,7 +1663,7 @@ async function executeTextNow(phone) {
     }
   }
 
-  const baseLink = `${QUOTE_BASE}?c=${binId}.${code}`;
+  const baseLink = `${QUOTE_BASE}?c=${code}`;
   const variant = getNextVariant();
   const linkWithVariant = `${baseLink}&v=${variant.label}`;
   const shortLink = shortenUrl(linkWithVariant);
@@ -1727,23 +1686,8 @@ async function executeTextNow(phone) {
 // ─── LINK GENERATION ─────────────────────────────────────────────────────────
 function generateCode() {
   let c = '';
-  for (let i = 0; i < 5; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+  for (let i = 0; i < 8; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
   return c;
-}
-
-async function getOrCreateBin() {
-  let binId = localStorage.getItem('pcpc_customer_links_bin_id');
-  if (binId) return binId;
-  const res = await fetch('https://api.jsonbin.io/v3/b', {
-    method: 'POST', mode: 'cors',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY, 'X-Bin-Private': 'false', 'X-Bin-Name': 'PureCleaningCustomerLinks' },
-    body: JSON.stringify({ _v: 1 })
-  });
-  const data = await res.json();
-  console.log('[getOrCreateBin] status:', res.status, 'response:', JSON.stringify(data));
-  if (!data.metadata?.id) throw new Error('Could not create JSONbin: ' + JSON.stringify(data));
-  localStorage.setItem('pcpc_customer_links_bin_id', data.metadata.id);
-  return data.metadata.id;
 }
 
 async function generateLinks() {
@@ -1755,18 +1699,16 @@ async function generateLinks() {
   btn.disabled = true;
 
   try {
-    const binId = await getOrCreateBin();
-    const getRes = await fetch('https://api.jsonbin.io/v3/b/' + binId, { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
-    const getData = await getRes.json();
-    const records = getData.record || {};
-
     generatedLinks = [];
     for (const c of selected) {
-      let code;
-      let tries = 0;
-      do { code = generateCode(); tries++; } while (records[code] && tries < 200);
-      records[code] = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
-      const longLink = `${QUOTE_BASE}?c=${binId}.${code}`;
+      const code = generateCode();
+      const customerRecord = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
+      await fetch(`${PCPC_API_BR}/quote/${code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customerRecord)
+      });
+      const longLink = `${QUOTE_BASE}?c=${code}`;
       const link = shortenUrl(longLink);
       const months = Math.round(c.monthsSince);
       const years  = Math.floor(c.monthsSince / 12);
@@ -1778,16 +1720,10 @@ async function generateLinks() {
       generatedLinks.push({ customer: c, code, link, sms, months });
     }
 
-    await fetch('https://api.jsonbin.io/v3/b/' + binId, {
-      method: 'PUT', mode: 'cors',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
-      body: JSON.stringify(records)
-    });
-
     // Stamp link codes onto allCustomers so DB save preserves them
     for (const g of generatedLinks) {
       const customer = allCustomers.find(a => a.phone === g.customer.phone);
-      if (customer) { customer.linkCode = g.code; customer.linkBin = binId; }
+      if (customer) { customer.linkCode = g.code; }
     }
     saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
 

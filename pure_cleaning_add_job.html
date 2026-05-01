@@ -291,13 +291,11 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 </div><!-- /wrap -->
 
 <script>
-const JSONBIN_KEY        = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
+const PCPC_API_AJ        = 'https://purecleaning-api.tylerfumero.workers.dev';
 const CACHE_KEY          = 'pcpc_customer_db_cache';
 const PENDING_KEY        = 'pcpc_pending_manual_jobs';
 const ENTERED_BY_KEY     = 'pcpc_entered_by';
 const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
-const SHORT_LINKS_BIN_ID = '69f427af856a682189929e8c';
 const _SL_ALP            = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const _CL_ALP            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -308,27 +306,21 @@ function shortenUrl(longUrl) {
   const short = 'https://purecleaningpressurecleaning.com/q.html?id='+code;
   (async()=>{
     try {
-      const r = await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID+'/latest',{mode:'cors',headers:{'X-Master-Key':JSONBIN_KEY}});
-      const links = ((await r.json()).record||{}).links||{};
+      const sl = await fetch(`${PCPC_API_AJ}/links`).then(r => r.json());
+      const links = sl.links || {};
       links[code] = longUrl;
-      await fetch('https://api.jsonbin.io/v3/b/'+SHORT_LINKS_BIN_ID,{method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({links})});
+      await fetch(`${PCPC_API_AJ}/links`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
     } catch(e){console.warn('[shortenUrl]',e.message);}
   })();
   return short;
 }
 
-// Pre-generate a customer link bin during page load so the SMS button is instant
-let _preGenAJ   = null;
 let _pendingSms = null;
 
-async function _startPreGenAJ() {
-  try {
-    let c=''; for(let i=0;i<5;i++) c+=_CL_ALP[Math.floor(Math.random()*_CL_ALP.length)];
-    const res = await fetch('https://api.jsonbin.io/v3/b',{method:'POST',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Private':'false','X-Bin-Name':'PCCustomerLink'},body:JSON.stringify({[c]:{_r:1}})});
-    const d = await res.json();
-    if(!d.metadata?.id) return null;
-    return {code:c, binId:d.metadata.id};
-  } catch(e){console.warn('[preGenAJ]',e.message);return null;}
+function generateQuoteCodeAJ() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += _CL_ALP[Math.floor(Math.random() * 32)];
+  return c;
 }
 
 function openSms() {
@@ -353,7 +345,6 @@ let selectedSvcs = new Set();
 async function init() {
   loadEnteredBy();
   setDefaultDate();
-  _preGenAJ = _startPreGenAJ();  // fire during page load — ready before user finishes form
   checkPendingJobs();
   try {
     const cached = sessionStorage.getItem(CACHE_KEY);
@@ -363,9 +354,8 @@ async function init() {
     }
   } catch(e) {}
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest',
-      { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
-    dbRecord = (await res.json()).record || {};
+    const res = await fetch(`${PCPC_API_AJ}/customers`);
+    dbRecord = await res.json();
     try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: dbRecord, timestamp: Date.now() })); } catch(e) {}
   } catch(e) { console.warn('[AddJob] DB load failed:', e.message); }
 }
@@ -642,30 +632,14 @@ function saveJob() {
     const smsBtn = document.getElementById('smsBtn');
     try {
       // Use pre-gen bin (already created during page load)
-      const pg = _preGenAJ ? await _preGenAJ : null;
-      _preGenAJ = _startPreGenAJ();  // immediately start pre-gen for the next customer
-
-      let code, binId;
+      const code = generateQuoteCodeAJ();
       const linkRec = {fn:_firstName, ln:_cr.lastName||'', ph:_phone, em:_cr.email||'', addr:_cr.address||'', city:_cr.city||'', zip:_cr.zip||'', lastService:null, totalJobs:0, lifetimeSpend:0, created:new Date().toISOString()};
+      fetch(`${PCPC_API_AJ}/quote/${code}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(linkRec)}).catch(()=>{});
 
-      if (pg) {
-        code = pg.code; binId = pg.binId;
-        // Update placeholder with real customer data (fire-and-forget)
-        fetch('https://api.jsonbin.io/v3/b/'+binId,{method:'PUT',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},body:JSON.stringify({[code]:linkRec})}).catch(()=>{});
-      } else {
-        // Fallback: create bin now
-        let c=''; for(let i=0;i<5;i++) c+=_CL_ALP[Math.floor(Math.random()*_CL_ALP.length)];
-        const r = await fetch('https://api.jsonbin.io/v3/b',{method:'POST',mode:'cors',headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Bin-Private':'false','X-Bin-Name':'PCCustomerLink'},body:JSON.stringify({[c]:linkRec})});
-        const d = await r.json();
-        if (!d.metadata?.id) throw new Error('bin create failed');
-        code = c; binId = d.metadata.id;
-      }
-
-      // Store linkCode/linkBin on the record for "send later" from calendar
-      _cr.linkCode = code; _cr.linkBin = binId;
+      _cr.linkCode = code;
 
       // Short URL (returned instantly, written to shortener bin in background)
-      const longUrl  = `${QUOTE_BASE}?c=${binId}.${code}`;
+      const longUrl  = `${QUOTE_BASE}?c=${code}`;
       const shortUrl = shortenUrl(longUrl);
 
       // Build SMS body with the standard template
@@ -684,9 +658,9 @@ function saveJob() {
 }
 
 async function writeToJsonbin(db) {
-  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-    method: 'PUT', mode: 'cors',
-    headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },
+  const res = await fetch(`${PCPC_API_AJ}/customers`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(db)
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -705,9 +679,8 @@ async function checkPendingJobs() {
     const pend = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
     if (!pend.length) return;
     // Try to flush pending
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest',
-      { mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY } });
-    const db = (await res.json()).record || {};
+    const res = await fetch(`${PCPC_API_AJ}/customers`);
+    const db = await res.json();
     if (!db.customers) db.customers = [];
     for (const job of pend) {
       if (job.isExisting) {

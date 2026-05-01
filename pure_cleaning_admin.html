@@ -139,8 +139,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 </div>
 
 <script>
-const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
-const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 const TOOLS = [
   { icon: '🔔', name: 'New Quote Requests',   description: 'Build quotes from incoming customer form submissions',           url: '/pure_cleaning_incoming.html',          category: 'incoming',  badgeId: 'incoming-badge' },
@@ -193,12 +192,9 @@ function renderTools() {
 
 async function loadQuickStats() {
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
+    const res = await fetch(`${PCPC_API}/customers`);
     if (!res.ok) { clearStats(); return; }
-    const data = await res.json();
-    const db = data.record || {};
+    const db = await res.json();
     const s = db.stats || {};
     set('qs-total',   s.uniqueCustomers != null ? s.uniqueCustomers.toLocaleString() : '—');
     set('qs-updated', db.lastUpdated
@@ -237,12 +233,10 @@ function clearStats() {
 
 async function loadIncomingCount() {
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/69f39ce0856a682189900bdc', {
-      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
+    const res = await fetch(`${PCPC_API}/incoming`);
     if (!res.ok) { set('qs-incoming', '—'); return; }
     const data  = await res.json();
-    const allReqs = ((data.record || {}).requests || []);
+    const allReqs = (data.requests || []);
     const count = allReqs.filter(r => r.status === 'new').length;
     const waitCount = allReqs.filter(r => r.status === 'waitlist').length;
     set('qs-incoming', String(count));
@@ -263,10 +257,9 @@ async function loadQuoteAnalytics(preloadedEvents) {
   try {
     let allEvents = preloadedEvents;
     if (!allEvents) {
-      const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
-        {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+      const res = await fetch(`${PCPC_API}/events`);
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      allEvents = ((await res.json()).record || {}).events || [];
+      allEvents = (await res.json()).events || [];
     }
     const cutoff = new Date(Date.now() - 30*24*60*60*1000);
     const events = allEvents.filter(e => new Date(e.timestamp) >= cutoff);
@@ -338,10 +331,9 @@ async function loadBehaviorInsights(preloadedEvents) {
     const cutoff = new Date(Date.now() - 30*24*60*60*1000);
     let allEvts = preloadedEvents;
     if (!allEvts) {
-      const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
-        {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+      const res = await fetch(`${PCPC_API}/events`);
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      allEvts = ((await res.json()).record || {}).events || [];
+      allEvts = (await res.json()).events || [];
     }
     const evts = allEvts.filter(e => new Date(e.timestamp) >= cutoff);
     const btEvts = evts.filter(e => e.sessionId); // behavioral events have sessionId
@@ -435,9 +427,9 @@ async function loadTestRecords() {
   const el = document.getElementById('testRecordsList');
   el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Loading…</div>';
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+    const res = await fetch(`${PCPC_API}/customers`);
     const data = await res.json();
-    const customers = (data.record || {}).customers || [];
+    const customers = data.customers || [];
     const matches = customers.filter(c => {
       const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
       return TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone);
@@ -455,7 +447,7 @@ async function loadTestRecords() {
         <button onclick="document.getElementById('testRecordsList').innerHTML=''" style="padding:7px 16px;background:var(--border);color:var(--text);border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
       </div>`;
     // store db for deletion
-    window._adminDbRecord = data.record;
+    window._adminDbRecord = data;
   } catch(e) { el.innerHTML = `<div style="font-size:12px;color:#dc2626;">Error: ${e.message}</div>`; }
 }
 
@@ -469,10 +461,10 @@ async function deleteSelectedTestRecords() {
   db.customers = db.customers.filter(c => !checked.includes(c.phone));
   const removed = before - db.customers.length;
   try {
-    await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-      method:'PUT', mode:'cors',
-      headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY},
-      body:JSON.stringify(db)
+    await fetch(`${PCPC_API}/customers`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(db)
     });
     sessionStorage.removeItem('pcpc_customer_db_cache');
     document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Deleted ${removed} record(s). Cache cleared.</div>`;
@@ -488,9 +480,8 @@ renderTools();
 // Fetch events bin once, share result between both analytics functions
 async function loadAllAnalytics() {
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
-      {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
-    const allEvents = res.ok ? (((await res.json()).record || {}).events || []) : [];
+    const res = await fetch(`${PCPC_API}/events`);
+    const allEvents = res.ok ? ((await res.json()).events || []) : [];
     loadQuoteAnalytics(allEvents);
     loadBehaviorInsights(allEvents);
   } catch(e) {
