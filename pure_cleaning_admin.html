@@ -98,6 +98,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
     <div id="funnelContent"><div style="font-size:12px;color:var(--muted);padding:.5rem 0;">Loading…</div></div>
   </div>
 
+  <div class="funnel-panel" id="behaviorPanel">
+    <div class="panel-title">🔍 Customer Behavior Insights · Last 30 Days</div>
+    <div id="behaviorContent"><div style="font-size:12px;color:var(--muted);padding:.5rem 0;">Loading…</div></div>
+  </div>
+
   <div class="footer">
     <strong>Bookmark this page</strong><br>
     iPhone: tap <strong>Share ⬆</strong> → <strong>Add to Home Screen</strong><br>
@@ -292,10 +297,105 @@ function renderFunnel(el, sent, viewed, engaged, approved, vars) {
     (varRows ? `<div class="var-section"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;">By Variant</div>${varRows}</div>` : '');
 }
 
+async function loadBehaviorInsights() {
+  const el = document.getElementById('behaviorContent');
+  if (!el) return;
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
+      {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const cutoff = new Date(Date.now() - 30*24*60*60*1000);
+    const allEvts = ((await res.json()).record || {}).events || [];
+    const evts = allEvts.filter(e => new Date(e.timestamp) >= cutoff);
+    const btEvts = evts.filter(e => e.sessionId); // behavioral events have sessionId
+
+    if (!btEvts.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:.5rem 0;">No behavioral data yet — will populate after first customer quote views.</div>';
+      return;
+    }
+
+    // ── A: SECTION INTEREST ──────────────────────────────────────────────────
+    const SEC_LABELS = {'sec-hero':'Hero','sec-price':'Price Card','sec-services':'Services',
+      'sec-addons':'Add-Ons','sec-dates':'Date Selection','sec-approve':'Approve Button','sec-trust':'Trust Footer'};
+    const viewed = {}, expanded = {}, addonToggled = {};
+    btEvts.forEach(e => {
+      if (e.eventType === 'section_viewed' && e.sectionId) viewed[e.sectionId] = (viewed[e.sectionId]||0)+1;
+      if (e.eventType === 'section_expanded' && e.sectionId) expanded[e.sectionId] = (expanded[e.sectionId]||0)+1;
+      if (e.eventType === 'addon_toggled' && e.metadata?.newState) addonToggled[e.metadata.addon] = (addonToggled[e.metadata.addon]||0)+1;
+    });
+    const sectionRows = Object.entries(SEC_LABELS).map(([id, label]) => {
+      const v = viewed[id]||0, ex = expanded[id]||0;
+      const curioPct = v > 0 ? Math.round(ex/v*100) : null;
+      return `<div class="var-row">${label}: <strong>${v}</strong> viewed${ex ? ` · ${ex} expanded (${curioPct}% curiosity)` : ''}</div>`;
+    }).join('');
+
+    // ── B: SCROLL DEPTH ──────────────────────────────────────────────────────
+    const sessions = new Set(btEvts.map(e=>e.sessionId));
+    const total = sessions.size;
+    const depthCounts = {};
+    [25,50,75,100].forEach(d => {
+      const sessWithDepth = new Set(btEvts.filter(e=>e.eventType==='scroll_depth_'+d).map(e=>e.sessionId));
+      depthCounts[d] = sessWithDepth.size;
+    });
+    const depthRows = [25,50,75,100].map(d =>
+      `<div class="var-row">${d}% depth: <strong>${depthCounts[d]}</strong>/${total} sessions (${total>0?Math.round(depthCounts[d]/total*100):0}%)</div>`
+    ).join('');
+
+    // ── C: HESITATION ────────────────────────────────────────────────────────
+    const hovered = new Set(btEvts.filter(e=>e.eventType==='approve_hovered').map(e=>e.sessionId)).size;
+    const collapsed = btEvts.filter(e=>e.eventType==='section_collapsed').length;
+    const addonUntoggled = btEvts.filter(e=>e.eventType==='addon_toggled'&&!e.metadata?.newState).length;
+    const addonAdded = btEvts.filter(e=>e.eventType==='addon_toggled'&&e.metadata?.newState).length;
+
+    // ── D: RETURN VISITORS ───────────────────────────────────────────────────
+    const returnSess = new Set(btEvts.filter(e=>e.eventType==='page_returned').map(e=>e.sessionId)).size;
+    const returnPct = total > 0 ? Math.round(returnSess/total*100) : 0;
+
+    // ── E: AVG TIME ON PAGE ──────────────────────────────────────────────────
+    const topEvts = btEvts.filter(e=>e.eventType==='time_on_page'&&e.metadata?.seconds>0);
+    const avgSecs = topEvts.length ? Math.round(topEvts.reduce((s,e)=>s+(e.metadata.seconds||0),0)/topEvts.length) : null;
+
+    // ── F: BY VARIANT ────────────────────────────────────────────────────────
+    const vData = {};
+    btEvts.forEach(e => {
+      const v = e.variant || 'unknown';
+      if (!vData[v]) vData[v] = {sessions:new Set(), scrolled50:new Set(), approved:new Set()};
+      vData[v].sessions.add(e.sessionId);
+    });
+    btEvts.filter(e=>e.eventType==='scroll_depth_50').forEach(e => { const v=e.variant||'unknown'; if(vData[v]) vData[v].scrolled50.add(e.sessionId); });
+    btEvts.filter(e=>e.eventType==='approve_clicked').forEach(e => { const v=e.variant||'unknown'; if(vData[v]) vData[v].approved.add(e.sessionId); });
+    const variantRows = Object.entries(vData).sort().map(([v,d]) => {
+      const s=d.sessions.size, sc=d.scrolled50.size, ap=d.approved.size;
+      return `<div class="var-row">Variant ${v}: ${s} sessions · ${s>0?Math.round(sc/s*100):0}% scrolled 50% · ${s>0?Math.round(ap/s*100):0}% approved</div>`;
+    }).join('') || '<div class="var-row" style="color:var(--muted);">No variant data yet</div>';
+
+    el.innerHTML = `
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;">${total} sessions tracked</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:.75rem 0 4px;">A — Section Views</div>
+      ${sectionRows}
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:.75rem 0 4px;">B — Scroll Depth</div>
+      ${depthRows}
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:.75rem 0 4px;">C — Hesitation Signals</div>
+      <div class="var-row">Hovered approve without clicking: <strong>${hovered}</strong> sessions</div>
+      <div class="var-row">Expanded section then collapsed: <strong>${collapsed}</strong> times</div>
+      <div class="var-row">Add-on toggled ON: <strong>${addonAdded}</strong> · Toggled back OFF: <strong>${addonUntoggled}</strong></div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:.75rem 0 4px;">D — Return Visitors</div>
+      <div class="var-row"><strong>${returnSess}</strong> sessions returned to same quote (${returnPct}% of total)</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:.75rem 0 4px;">E — Time on Page</div>
+      <div class="var-row">${avgSecs !== null ? `Avg: <strong>${avgSecs}s</strong> across ${topEvts.length} sessions` : 'No time_on_page data yet'}</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin:.75rem 0 4px;">F — By Variant</div>
+      ${variantRows}
+    `;
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Could not load behavior data.</div>';
+  }
+}
+
 renderTools();
 loadQuickStats();
 loadIncomingCount();
 loadQuoteAnalytics();
+loadBehaviorInsights();
 </script>
 </body>
 </html>

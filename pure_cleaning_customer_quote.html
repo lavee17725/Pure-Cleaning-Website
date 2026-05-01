@@ -115,7 +115,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 
 <!-- MAIN QUOTE -->
 <div id="quoteView" style="display:none;">
-  <div class="hero">
+  <div class="hero" id="sec-hero">
     <div class="hero-sub">Your quote is ready</div>
     <h1 id="heroName">Hi there!</h1>
     <div class="hero-addr" id="heroAddr"></div>
@@ -123,24 +123,24 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 
   <div class="wrap">
 
-    <div class="price-card">
+    <div class="price-card" id="sec-price">
       <div class="price-label">Your total</div>
       <div class="price-total" id="displayTotal">$0</div>
       <div class="price-expiry" id="priceExpiry"></div>
     </div>
 
-    <div class="services-card">
+    <div class="services-card" id="sec-services">
       <div class="card-title">What's included</div>
       <div id="servicesList"></div>
     </div>
 
-    <div class="addons-card" id="addonsSection" style="display:none;">
+    <div class="addons-card" id="sec-addons" style="display:none;">
       <div class="card-title">Want to add anything?</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Tap to include — your total updates instantly.</div>
       <div id="addonsList"></div>
     </div>
 
-    <div class="dates-card">
+    <div class="dates-card" id="sec-dates">
       <div class="card-title">Choose your date</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">We're holding both dates for you. Pick the one that works best.</div>
       <div id="datesList"></div>
@@ -150,15 +150,18 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
       <strong>📋 Note from us:</strong> <span id="notesText"></span>
     </div>
 
-    <button class="approve-btn" id="approveBtn" onclick="approveQuote()" disabled>
-      Select a Date to Approve
-    </button>
+    <div id="sec-approve">
+      <button class="approve-btn" id="approveBtn" onclick="approveQuote()" disabled>
+        Select a Date to Approve
+      </button>
+    </div>
 
-    <div class="trust-row">
+    <div class="trust-row" id="sec-trust">
       <div class="trust-item"><div class="trust-dot"></div>Family owned since 1995</div>
       <div class="trust-item"><div class="trust-dot"></div>South Florida's best</div>
       <div class="trust-item"><div class="trust-dot"></div>Same-day response</div>
     </div>
+    <div style="text-align:center;margin-top:.75rem;font-size:11px;color:var(--muted);">We track which sections you view and interact with to improve our quotes.</div>
 
   </div>
 </div>
@@ -204,6 +207,144 @@ function fireEngagement() {
   hasEngaged = true;
   trackQuoteEvent('engaged', quoteData.phone||null, quoteData.variant||null);
 }
+
+// ── BEHAVIORAL TRACKING ──────────────────────────────────────────────────────
+const BT = (() => {
+  const BIN = '69f41bfdaaba8821975a74fa';
+  const KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+  const sessId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  const t0 = Date.now();
+  const device = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+  let _phone = null, _variant = null, _isReturn = false;
+  let buf = [], flushing = false, flushTid = null;
+  let scrollFired = new Set(), dwellTids = {}, dwellStart = {};
+  let hiddenAt = null, hoverTid = null, dateSelected = false;
+
+  function mk(type, section, meta) {
+    return { id:'bt_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),
+      timestamp: new Date().toISOString(), eventType: type, customerPhone: _phone,
+      variant: _variant, sessionId: sessId, sectionId: section||null,
+      secondsSincePageLoad: Math.round((Date.now()-t0)/1000),
+      deviceType: device, isReturnVisit: _isReturn, pageVersion:'v1', metadata: meta||{} };
+  }
+
+  function push(type, section, meta) { buf.push(mk(type, section, meta)); }
+
+  async function flush() {
+    if (!buf.length || flushing) return;
+    const batch = buf.splice(0);
+    flushing = true;
+    try {
+      const r = await fetch('https://api.jsonbin.io/v3/b/'+BIN+'/latest',{headers:{'X-Master-Key':KEY}});
+      const rec = (await r.json()).record || {};
+      const evts = rec.events || [];
+      evts.push(...batch);
+      await fetch('https://api.jsonbin.io/v3/b/'+BIN,{method:'PUT',
+        headers:{'Content-Type':'application/json','X-Master-Key':KEY,'X-Bin-Versioning':'false'},
+        body:JSON.stringify({events:evts})});
+    } catch(e) { buf.unshift(...batch); }
+    flushing = false;
+  }
+
+  function tick() { flush(); flushTid = setTimeout(tick, 10000); }
+
+  function setupScroll() {
+    window.addEventListener('scroll', () => {
+      const pct = Math.round((window.scrollY + window.innerHeight) / Math.max(1, document.body.scrollHeight) * 100);
+      [25,50,75,100].forEach(d => { if (pct >= d && !scrollFired.has(d)) { scrollFired.add(d); push('scroll_depth_'+d, null, {depth:d}); }});
+    }, {passive:true});
+  }
+
+  function setupSections() {
+    const SECS = ['sec-hero','sec-price','sec-services','sec-addons','sec-dates','sec-approve','sec-trust'];
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        const sid = e.target.dataset.bt;
+        if (e.isIntersecting) {
+          if (!dwellTids[sid]) {
+            dwellStart[sid] = Date.now();
+            dwellTids[sid] = setTimeout(() => { push('section_viewed', sid); }, 2000);
+          }
+        } else {
+          if (dwellTids[sid]) {
+            clearTimeout(dwellTids[sid]); delete dwellTids[sid];
+            const ms = Date.now() - (dwellStart[sid]||Date.now());
+            if (ms > 500) push('section_abandoned', sid, {dwellMs:ms});
+          }
+          delete dwellStart[sid];
+        }
+      });
+    }, {threshold:0.5});
+    SECS.forEach(id => { const el=document.getElementById(id); if(el){el.dataset.bt=id; obs.observe(el);} });
+  }
+
+  function setupHesitation() {
+    const btn = document.getElementById('approveBtn');
+    if (!btn) return;
+    const start = () => { hoverTid = setTimeout(() => { if(!btn.disabled) push('approve_hovered','sec-approve'); }, 3000); };
+    const stop  = () => clearTimeout(hoverTid);
+    btn.addEventListener('mouseenter', start); btn.addEventListener('mouseleave', stop);
+    btn.addEventListener('touchstart', start, {passive:true}); btn.addEventListener('touchend', stop);
+  }
+
+  function setupVisibility() {
+    const urlKey = 'pcpc_seen_' + (new URLSearchParams(window.location.search).get('id') ||
+      (new URLSearchParams(window.location.search).get('q')||'').slice(0,20));
+    if (urlKey.length > 10 && localStorage.getItem(urlKey)) {
+      _isReturn = true; push('page_returned', null, {trigger:'new_session'});
+    }
+    if (urlKey.length > 10) localStorage.setItem(urlKey, Date.now().toString());
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { hiddenAt = Date.now(); }
+      else if (hiddenAt) {
+        const ms = Date.now() - hiddenAt;
+        if (ms > 5000) push('page_returned', null, {trigger:'tab_refocus', hiddenSeconds: Math.round(ms/1000)});
+        hiddenAt = null;
+      }
+    });
+  }
+
+  function setupUnload() {
+    window.addEventListener('pagehide', () => {
+      push('time_on_page', null, {seconds: Math.round((Date.now()-t0)/1000)});
+      // Store any unflushed events in localStorage for next page load to flush
+      if (buf.length) {
+        try {
+          const pend = JSON.parse(localStorage.getItem('pcpc_bt_pending')||'[]');
+          pend.push(...buf); buf = [];
+          localStorage.setItem('pcpc_bt_pending', JSON.stringify(pend.slice(-60)));
+        } catch(e) {}
+      }
+    });
+  }
+
+  function flushStoredPending() {
+    try {
+      const pend = JSON.parse(localStorage.getItem('pcpc_bt_pending')||'[]');
+      if (pend.length) { buf.push(...pend); localStorage.removeItem('pcpc_bt_pending'); }
+    } catch(e) {}
+  }
+
+  return {
+    init(phone, variant) {
+      _phone = phone; _variant = variant;
+      flushStoredPending();
+      setupScroll(); setupVisibility(); setupHesitation();
+      setTimeout(() => { setupSections(); tick(); }, 600);
+      setupUnload();
+    },
+    trackAddon(id, on) { push('addon_toggled','sec-addons',{addon:id,newState:on}); },
+    trackDate(val) { push(dateSelected?'date_changed':'date_selected','sec-dates',{date:val}); dateSelected=true; },
+    trackApprove(total) {
+      push('approve_clicked','sec-approve',{total});
+      push('time_to_approve',null,{seconds:Math.round((Date.now()-t0)/1000),total});
+      flush();
+    },
+    trackExpand(sid) { push('section_expanded',sid); },
+    trackCollapse(sid) { push('section_collapsed',sid); }
+  };
+})();
 
 // Quote data — injected by builder or loaded from URL params
 let quoteData = null;
@@ -296,7 +437,7 @@ function renderQuote() {
 
   // Add-ons
   if (quoteData.addons && quoteData.addons.length) {
-    document.getElementById('addonsSection').style.display = 'block';
+    document.getElementById('sec-addons').style.display = 'block';
     const addEl = document.getElementById('addonsList');
     addEl.innerHTML = quoteData.addons.map(a => `
       <div class="addon-item" id="addonItem_${a.id}" onclick="toggleAddon('${a.id}')">
@@ -347,6 +488,7 @@ function renderQuote() {
         fireEngagement(); window.removeEventListener('scroll', onScroll);
       }
     }, {passive:true});
+    BT.init(quoteData.phone, quoteData.variant||null);
   }
 }
 
@@ -365,7 +507,6 @@ function updateTotal() {
 function toggleAddon(id) {
   fireEngagement();
   const item = document.getElementById('addonItem_'+id);
-  const check = document.getElementById('addonCheck_'+id);
   if (selectedAddons.has(id)) {
     selectedAddons.delete(id);
     item.classList.remove('selected');
@@ -373,11 +514,13 @@ function toggleAddon(id) {
     selectedAddons.add(id);
     item.classList.add('selected');
   }
+  BT.trackAddon(id, selectedAddons.has(id));
   updateTotal();
 }
 
 function selectDate(idx, dateVal, dateFull) {
   fireEngagement();
+  BT.trackDate(dateVal);
   document.querySelectorAll('.date-opt').forEach(d => d.classList.remove('selected'));
   document.getElementById('dateOpt_'+idx).classList.add('selected');
   selectedDate = { val: dateVal, full: dateFull };
@@ -411,6 +554,7 @@ async function approveQuote() {
 
   trackQuoteEvent('approved', quoteData.phone||null, quoteData.variant||null,
     {total, selectedDate: selectedDate.full});
+  BT.trackApprove(total);
 
   // Fire Zapier + Formspree + JSONbin simultaneously
   const formspreeData = new FormData();
