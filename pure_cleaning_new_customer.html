@@ -450,8 +450,9 @@ async function submitForm() {
     const {code, binId} = await genLink(customer);
     customer.linkCode = code; customer.linkBin = binId;
     customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
-    await saveDb();
+    // Show success immediately — DB write happens in background
     showSuccess(customer, `${QUOTE_BASE}?c=${binId}.${code}`, isNew);
+    saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
   } catch(e) {
     alert('Error: ' + e.message);
     btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';

@@ -144,15 +144,30 @@ let activeTab  = 'waiting';
 let lostPhone  = null;
 let lostReason = null;
 
+// ── CACHED DB FETCH ───────────────────────────────────────────────────────────
+async function getCachedCustomerDB() {
+  const CACHE_KEY = 'pcpc_customer_db_cache';
+  const TTL_MS    = 60 * 1000;
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < TTL_MS) return data;
+    }
+  } catch(e) {}
+  const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
+    mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = (await res.json()).record;
+  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() })); } catch(e) {}
+  return data;
+}
+
 // ── LOAD ──────────────────────────────────────────────────────────────────────
 async function init() {
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
-      mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    dbRecord = data.record || {};
+    dbRecord = await getCachedCustomerDB() || {};
     const customers = dbRecord.customers || [];
 
     // Auto-age: sent/viewed quotes 14+ days old → lost
@@ -181,6 +196,7 @@ async function init() {
 }
 
 async function saveDb() {
+  sessionStorage.removeItem('pcpc_customer_db_cache');
   await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID, {
     method: 'PUT', mode: 'cors',
     headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_KEY },

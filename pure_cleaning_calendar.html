@@ -314,19 +314,29 @@ const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb';
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
 async function getCachedCustomerDB() {
   const CACHE_KEY = 'pcpc_customer_db_cache';
-  const TTL_MS    = 5 * 60 * 1000;
+  const TTL_MS    = 60 * 1000;       // 60s — approved jobs appear within 1 minute
+  const STALE_MS  = 30 * 1000;       // background-refresh after 30s even if still valid
   try {
     const cached = sessionStorage.getItem(CACHE_KEY);
     if (cached) {
       const { data, timestamp } = JSON.parse(cached);
-      if (Date.now() - timestamp < TTL_MS) {
-        console.log('[customerDB] cache hit, age:', Math.round((Date.now() - timestamp)/1000) + 's');
+      const age = Date.now() - timestamp;
+      // Also bust if a DB write happened after this cache was written
+      const writeTs = parseInt(localStorage.getItem('pcpc_db_write_ts') || '0');
+      const cacheIsStale = writeTs > timestamp;
+      if (age < TTL_MS && !cacheIsStale) {
+        // Stale-while-revalidate: if cache is 30-60s old, serve it but refresh in background
+        if (age > STALE_MS) {
+          fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
+            mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
+          }).then(r => r.json()).then(d => {
+            if (d.record) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: d.record, timestamp: Date.now() }));
+          }).catch(()=>{});
+        }
         return data;
       }
-      console.log('[customerDB] cache expired, refetching');
     }
   } catch(e) { console.warn('[customerDB] cache read failed:', e); }
-  console.log('[customerDB] fetching fresh');
   const res = await fetch('https://api.jsonbin.io/v3/b/' + CUSTOMER_DB_BIN_ID + '/latest', {
     mode: 'cors', headers: { 'X-Master-Key': JSONBIN_KEY }
   });

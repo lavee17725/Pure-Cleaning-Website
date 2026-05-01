@@ -648,6 +648,10 @@ function updateQuoteApproved(phone, approvedTotal) {
         body: JSON.stringify(db)
       });
     })
+    .then(() => {
+      // Bust calendar/quotes cache so Tyler sees the new job within 1 reload
+      try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
+    })
     .catch(e => console.warn('[approval tracking]', e.message));
 }
 

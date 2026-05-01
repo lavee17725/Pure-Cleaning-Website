@@ -252,14 +252,17 @@ async function loadIncomingCount() {
   } catch(e) { set('qs-incoming', '—'); }
 }
 
-async function loadQuoteAnalytics() {
+async function loadQuoteAnalytics(preloadedEvents) {
   const el = document.getElementById('funnelContent');
   if (!el) return;
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
-      {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const allEvents = ((await res.json()).record || {}).events || [];
+    let allEvents = preloadedEvents;
+    if (!allEvents) {
+      const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
+        {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      allEvents = ((await res.json()).record || {}).events || [];
+    }
     const cutoff = new Date(Date.now() - 30*24*60*60*1000);
     const events = allEvents.filter(e => new Date(e.timestamp) >= cutoff);
     if (!events.length) {
@@ -323,15 +326,18 @@ function renderFunnel(el, sent, viewed, engaged, approved, vars) {
     (varRows ? `<div class="var-section"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;">By Variant</div>${varRows}</div>` : '');
 }
 
-async function loadBehaviorInsights() {
+async function loadBehaviorInsights(preloadedEvents) {
   const el = document.getElementById('behaviorContent');
   if (!el) return;
   try {
-    const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
-      {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
-    if (!res.ok) throw new Error('HTTP ' + res.status);
     const cutoff = new Date(Date.now() - 30*24*60*60*1000);
-    const allEvts = ((await res.json()).record || {}).events || [];
+    let allEvts = preloadedEvents;
+    if (!allEvts) {
+      const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
+        {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      allEvts = ((await res.json()).record || {}).events || [];
+    }
     const evts = allEvts.filter(e => new Date(e.timestamp) >= cutoff);
     const btEvts = evts.filter(e => e.sessionId); // behavioral events have sessionId
 
@@ -473,10 +479,25 @@ async function deleteSelectedTestRecords() {
 
 document.getElementById('adminEnteredBy').value = localStorage.getItem('pcpc_entered_by') || 'Mom';
 renderTools();
+
+// Fetch events bin once, share result between both analytics functions
+async function loadAllAnalytics() {
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
+      {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+    const allEvents = res.ok ? (((await res.json()).record || {}).events || []) : [];
+    loadQuoteAnalytics(allEvents);
+    loadBehaviorInsights(allEvents);
+  } catch(e) {
+    loadQuoteAnalytics([]);
+    loadBehaviorInsights([]);
+  }
+}
+
+// Run all fetches in parallel
 loadQuickStats();
 loadIncomingCount();
-loadQuoteAnalytics();
-loadBehaviorInsights();
+loadAllAnalytics();
 </script>
 </body>
 </html>
