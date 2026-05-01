@@ -220,50 +220,46 @@
     background: var(--white);
     user-select: none;
   }
-  .service-check:hover { border-color: var(--sky); background: #f0f7ff; }
+  .service-check:hover { border-color: #c2410c; background: #fff5f0; }
   .service-check input { display: none; }
   .service-check .cb {
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--border);
-    border-radius: 5px;
+    width: 22px;
+    height: 22px;
+    border: 2px solid #cbd5e1;
+    border-radius: 6px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 700;
     color: transparent;
+    background: #f8fafc;
   }
+  /* Strong selected contrast for checkbox labels */
   .service-check input:checked ~ .cb {
-    background: var(--sky);
-    border-color: var(--sky);
+    background: #c2410c;
+    border-color: #c2410c;
     color: white;
+    transform: scale(1.1);
+  }
+  .service-check:has(input:checked) {
+    border-color: #c2410c;
+    background: #fff5f0;
+  }
+  /* Selected state for JS-toggled service checks (roof, fence, rust, seal) */
+  .service-check.selected {
+    border-color: #c2410c !important;
+    background: #fff5f0 !important;
+  }
+  .service-check.selected .cb {
+    background: #c2410c;
+    border-color: #c2410c;
+    color: white;
+    transform: scale(1.1);
   }
   .service-check span { font-size: 13px; font-weight: 500; }
-
-  /* SEAL CHECKBOX SPECIAL */
-  .service-check.seal-opt {
-    border-color: var(--gold);
-    background: var(--seal-bg);
-    grid-column: span 2;
-  }
-  .service-check.seal-opt:hover { background: #fff0d0; }
-  .service-check.seal-opt input:checked ~ .cb {
-    background: var(--gold);
-    border-color: var(--gold-dark);
-  }
-  .seal-badge {
-    margin-left: auto;
-    font-size: 10px;
-    font-weight: 700;
-    background: var(--gold);
-    color: var(--navy);
-    padding: 2px 8px;
-    border-radius: 20px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
 
   /* REMINDER OPTIONS */
   .reminder-grid {
@@ -455,7 +451,7 @@
   <div class="section-label">Services needed</div>
 
   <div class="services-grid">
-    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleRoof()">
+    <div class="service-check" id="roofCard" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleRoof()">
       <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
         <div class="cb" id="roofCb">✓</div>
         <span style="font-weight:600;">Roof cleaning</span>
@@ -531,7 +527,7 @@
     <label class="service-check"><input type="checkbox" name="service" value="Entranceway"><div class="cb">✓</div><span>Entranceway</span></label>
     <label class="service-check"><input type="checkbox" name="service" value="Screen enclosure"><div class="cb">✓</div><span>Screen enclosure</span></label>
     <label class="service-check"><input type="checkbox" name="service" value="Balcony"><div class="cb">✓</div><span>Balcony</span></label>
-    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleFence()">
+    <div class="service-check" id="fenceCard" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleFence()">
       <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
         <div class="cb" id="fenceCb">✓</div>
         <span style="font-weight:600;">Fence</span>
@@ -559,21 +555,21 @@
       </div>
     </div>
 
-    <!-- SEALING QUOTE EXPANDABLE -->
-    <div style="grid-column:span 2;border:1.5px solid var(--seal-border);border-radius:12px;overflow:hidden;background:var(--seal-bg);">
-      <div style="padding:14px 16px;">
-        <div style="font-weight:700;color:#1a1f2e;font-size:15px;margin-bottom:6px;">Interested in sealing?</div>
-        <p style="font-size:13px;color:#6b7280;line-height:1.6;margin-bottom:5px;">We quote sealing in person — typically 24–48 hours after we pressure clean, once your pavers or concrete are fully dry.</p>
-        <p style="font-size:13px;color:#6b7280;line-height:1.6;margin-bottom:12px;">Sealing helps prevent cracks, locks in joint sand, and protects against stains and weather damage. Tap below if you'd like us to take a look while we're there.</p>
-        <button type="button" id="sealingInterestBtn" onclick="toggleSealQuote()" style="width:100%;padding:12px;background:#c2410c;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">✓ I'm interested in sealing — quote in person</button>
+    <!-- SEALING QUOTE -->
+    <div style="grid-column:span 2;">
+      <div class="service-check" id="sealCard" onclick="toggleSealQuote()" style="border-color:var(--seal-border);background:var(--seal-bg);">
+        <div class="cb" id="sealCb">✓</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#1a1f2e;">Sealing</div>
+          <div style="font-size:12px;color:#7a5c00;margin-top:2px;">Optional — we'll discuss pricing in person when we visit</div>
+        </div>
       </div>
-      <div id="sealQuoteSection" style="display:none;border-top:1.5px solid var(--seal-border);padding:14px 16px;background:white;">
+      <div id="sealQuoteSection" style="display:none;border:1.5px solid var(--seal-border);border-top:none;border-radius:0 0 12px 12px;padding:14px 16px;background:white;margin-top:-2px;">
         <div style="font-size:12px;font-weight:600;color:#7a5c00;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Which surface(s)?</div>
         <div class="services-grid" style="margin-bottom:10px;">
           <label class="service-check"><input type="checkbox" name="seal_service" value="Driveway"><div class="cb">✓</div><span>Driveway</span></label>
           <label class="service-check"><input type="checkbox" name="seal_service" value="Patio"><div class="cb">✓</div><span>Patio</span></label>
         </div>
-        <!-- Sand in joints upsell -->
         <div style="background:var(--gray);border:1.5px solid var(--border);border-radius:10px;padding:12px;">
           <label class="service-check" style="border:none;padding:0;">
             <input type="checkbox" name="seal_service" value="Sand in joints">
@@ -588,9 +584,9 @@
     </div>
 
     <!-- RUST REMOVAL -->
-    <div class="service-check" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;background:#fff5ed;border-color:#c2410c;" onclick="toggleRust()">
+    <div class="service-check" id="rustCard" style="grid-column:span 2;flex-direction:column;align-items:flex-start;gap:0;cursor:pointer;" onclick="toggleRust()">
       <div style="display:flex;align-items:center;gap:10px;width:100%;pointer-events:none;">
-        <div class="cb" id="rustCb" style="border-color:#c2410c;">✓</div>
+        <div class="cb" id="rustCb">✓</div>
         <span style="font-weight:600;color:#1a1f2e;">Rust removal</span>
       </div>
     </div>
@@ -910,15 +906,18 @@
 
   function toggleSealQuote() {
     sealQuoteChecked = !sealQuoteChecked;
-    const btn = document.getElementById('sealingInterestBtn');
+    const card = document.getElementById('sealCard');
+    const cb   = document.getElementById('sealCb');
     const section = document.getElementById('sealQuoteSection');
     if (sealQuoteChecked) {
-      btn.textContent = '✓ Selected — we\'ll discuss in person';
-      btn.style.background = '#15803d';
+      card.classList.add('selected');
+      cb.style.background = '#c2410c'; cb.style.borderColor = '#c2410c';
+      cb.style.color = 'white'; cb.style.transform = 'scale(1.1)';
       section.style.display = 'block';
     } else {
-      btn.textContent = '✓ I\'m interested in sealing — quote in person';
-      btn.style.background = '#c2410c';
+      card.classList.remove('selected');
+      cb.style.background = ''; cb.style.borderColor = '';
+      cb.style.color = ''; cb.style.transform = '';
       section.style.display = 'none';
     }
   }
@@ -928,24 +927,25 @@
 
   function toggleRust() {
     rustChecked = !rustChecked;
+    const card = document.getElementById('rustCard');
     const cb = document.getElementById('rustCb');
     const section = document.getElementById('rustSection');
     if (rustChecked) {
-      cb.style.background = '#c2410c';
-      cb.style.borderColor = '#c2410c';
-      cb.style.color = 'white';
+      card.classList.add('selected');
+      cb.style.background = '#c2410c'; cb.style.borderColor = '#c2410c';
+      cb.style.color = 'white'; cb.style.transform = 'scale(1.1)';
       section.style.display = 'block';
     } else {
-      cb.style.background = '';
-      cb.style.borderColor = '#c2410c';
-      cb.style.color = '';
+      card.classList.remove('selected');
+      cb.style.background = ''; cb.style.borderColor = '';
+      cb.style.color = ''; cb.style.transform = '';
       section.style.display = 'none';
       selectedRustArea = '';
       ['Walls','Floors','Both'].forEach(a => {
-        document.getElementById('rustArea'+a) && (document.getElementById('rustArea'+a).style.background = '');
         document.getElementById('radioRust'+a).innerHTML = '';
         document.getElementById('radioRust'+a).style.borderColor = '#e2e8f0';
         document.getElementById('rust'+a).style.borderColor = '#e2e8f0';
+        document.getElementById('rust'+a).style.background = '#f9fafb';
       });
     }
   }
@@ -972,17 +972,18 @@
 
   function toggleFence() {
     fenceChecked = !fenceChecked;
+    const card = document.getElementById('fenceCard');
     const cb = document.getElementById('fenceCb');
     const section = document.getElementById('fenceTypeSection');
     if (fenceChecked) {
-      cb.style.background = 'var(--sky)';
-      cb.style.borderColor = 'var(--sky)';
-      cb.style.color = 'white';
+      card.classList.add('selected');
+      cb.style.background = '#c2410c'; cb.style.borderColor = '#c2410c';
+      cb.style.color = 'white'; cb.style.transform = 'scale(1.1)';
       section.style.display = 'block';
     } else {
-      cb.style.background = '';
-      cb.style.borderColor = '';
-      cb.style.color = '';
+      card.classList.remove('selected');
+      cb.style.background = ''; cb.style.borderColor = '';
+      cb.style.color = ''; cb.style.transform = '';
       section.style.display = 'none';
       selectedFenceType = '';
       document.getElementById('fenceTypeLabel').textContent = '';
@@ -1014,24 +1015,25 @@
   }
   function toggleRoof() {
     roofChecked = !roofChecked;
+    const card = document.getElementById('roofCard');
     const cb = document.getElementById('roofCb');
     const section = document.getElementById('roofMethodSection');
     const rinseInput = document.getElementById('rinseWallsCbInput');
     const rinseLabel = document.getElementById('rinseWallsLabel');
     const rinseBadge = document.getElementById('rinseWallsBadge');
     if (roofChecked) {
-      cb.style.background = 'var(--sky)';
-      cb.style.borderColor = 'var(--sky)';
-      cb.style.color = 'white';
+      card.classList.add('selected');
+      cb.style.background = '#c2410c'; cb.style.borderColor = '#c2410c';
+      cb.style.color = 'white'; cb.style.transform = 'scale(1.1)';
       section.style.display = 'block';
       rinseInput.checked = true;
       rinseLabel.style.borderColor = '#22c55e';
       rinseLabel.style.background = '#f0fff4';
       rinseBadge.style.display = 'inline-block';
     } else {
-      cb.style.background = '';
-      cb.style.borderColor = '';
-      cb.style.color = '';
+      card.classList.remove('selected');
+      cb.style.background = ''; cb.style.borderColor = '';
+      cb.style.color = ''; cb.style.transform = '';
       section.style.display = 'none';
       selectedRoofMethod = '';
       document.getElementById('roofMethodLabel').textContent = '';
@@ -1136,14 +1138,13 @@
     });
     ctaBtn.addEventListener('click', () => {
       card.style.display = 'none';
-      const cb = document.getElementById('sealQuoteCheckboxInput');
-      if (cb) cb.click();
-      const sealOpt = document.querySelector('.service-check.seal-opt');
-      if (sealOpt) {
-        sealOpt.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        sealOpt.style.outline = '3px solid var(--gold)';
-        sealOpt.style.transition = 'outline 0.3s';
-        setTimeout(() => { sealOpt.style.outline = ''; }, 2000);
+      const sealCard = document.getElementById('sealCard');
+      if (sealCard && !sealQuoteChecked) toggleSealQuote();
+      if (sealCard) {
+        sealCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        sealCard.style.outline = '3px solid var(--gold)';
+        sealCard.style.transition = 'outline 0.3s';
+        setTimeout(() => { sealCard.style.outline = ''; }, 2000);
       }
     });
   });
