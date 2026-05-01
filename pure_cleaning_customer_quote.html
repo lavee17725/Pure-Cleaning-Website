@@ -173,6 +173,38 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 </div>
 
 <script>
+const QUOTE_EVENTS_BIN_ID = '69f41bfdaaba8821975a74fa';
+const _JKEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
+
+// ── EVENT TRACKING ────────────────────────────────────────────────
+const _tracked = new Set();
+async function trackQuoteEvent(eventType, phone, variant, meta) {
+  const key = eventType + ':' + (phone || 'anon');
+  if (_tracked.has(key)) return;
+  _tracked.add(key);
+  try {
+    const evt = { id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+      timestamp:new Date().toISOString(), eventType, customerPhone:phone||null,
+      variant:variant||null, pageVersion:'v1', metadata:meta||{} };
+    const r = await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID+'/latest',
+      {headers:{'X-Master-Key':_JKEY}});
+    const rec = (await r.json()).record || {};
+    const evts = rec.events || [];
+    evts.push(evt);
+    await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID,
+      {method:'PUT', headers:{'Content-Type':'application/json',
+       'X-Master-Key':_JKEY,'X-Bin-Versioning':'false'},
+       body:JSON.stringify({events:evts})});
+  } catch(e) { console.warn('[track]', e.message); }
+}
+
+let hasEngaged = false;
+function fireEngagement() {
+  if (hasEngaged || !quoteData) return;
+  hasEngaged = true;
+  trackQuoteEvent('engaged', quoteData.phone||null, quoteData.variant||null);
+}
+
 // Quote data — injected by builder or loaded from URL params
 let quoteData = null;
 let selectedDate = null;
@@ -303,6 +335,16 @@ function renderQuote() {
     document.getElementById('notesText').textContent = quoteData.notes;
     document.getElementById('notesCard').classList.add('show');
   }
+
+  // Track viewed (real quotes only, not demo)
+  if (quoteData.phone) {
+    trackQuoteEvent('viewed', quoteData.phone, quoteData.variant||null);
+    window.addEventListener('scroll', function onScroll() {
+      if ((window.scrollY / document.body.scrollHeight) > 0.25) {
+        fireEngagement(); window.removeEventListener('scroll', onScroll);
+      }
+    }, {passive:true});
+  }
 }
 
 function updateTotal() {
@@ -318,6 +360,7 @@ function updateTotal() {
 }
 
 function toggleAddon(id) {
+  fireEngagement();
   const item = document.getElementById('addonItem_'+id);
   const check = document.getElementById('addonCheck_'+id);
   if (selectedAddons.has(id)) {
@@ -331,6 +374,7 @@ function toggleAddon(id) {
 }
 
 function selectDate(idx, dateVal, dateFull) {
+  fireEngagement();
   document.querySelectorAll('.date-opt').forEach(d => d.classList.remove('selected'));
   document.getElementById('dateOpt_'+idx).classList.add('selected');
   selectedDate = { val: dateVal, full: dateFull };
@@ -361,6 +405,9 @@ async function approveQuote() {
     selected_date: selectedDate.full,
     approved_at: new Date().toLocaleString('en-US')
   };
+
+  trackQuoteEvent('approved', quoteData.phone||null, quoteData.variant||null,
+    {total, selectedDate: selectedDate.full});
 
   // Fire Zapier + Formspree + JSONbin simultaneously
   const formspreeData = new FormData();

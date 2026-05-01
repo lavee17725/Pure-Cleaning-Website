@@ -398,8 +398,31 @@ td.money{font-family:'DM Mono',monospace;}
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JSONBIN_KEY = '$2a$10$CPlkZPaDq7IChEHDKrwWBeF5ltP4WsR1XQgcachhQUdf2Penp7f/i';
 const CUSTOMER_DB_BIN_ID = '69f2d8b6856a6821898c3bfb'; // hardcoded — same bin for all devices
+const QUOTE_EVENTS_BIN_ID = '69f41bfdaaba8821975a74fa';
 const QUOTE_BASE = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+// ── EVENT TRACKING ────────────────────────────────────────────────
+const _tracked = new Set();
+async function trackQuoteEvent(eventType, phone, variant, meta) {
+  const key = eventType + ':' + (phone || 'anon');
+  if (_tracked.has(key)) return;
+  _tracked.add(key);
+  try {
+    const evt = { id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+      timestamp:new Date().toISOString(), eventType, customerPhone:phone||null,
+      variant:variant||null, pageVersion:'v1', metadata:meta||{} };
+    const r = await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID+'/latest',
+      {headers:{'X-Master-Key':JSONBIN_KEY}});
+    const rec = (await r.json()).record || {};
+    const evts = rec.events || [];
+    evts.push(evt);
+    await fetch('https://api.jsonbin.io/v3/b/'+QUOTE_EVENTS_BIN_ID,
+      {method:'PUT', headers:{'Content-Type':'application/json',
+       'X-Master-Key':JSONBIN_KEY,'X-Bin-Versioning':'false'},
+       body:JSON.stringify({events:evts})});
+  } catch(e) { console.warn('[track]', e.message); }
+}
 const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
 const PROPERTY_MANAGERS = ['karen niece','nelson faguaga','patrick willis','alex rosales','maria eganez','patricia calderon','bob better'];
 const BUILDING_KEYWORDS = ['the edge','lakewood condo','pine ridge','pine island','country gardens','racquet club','lakeview','lighthouse cove','sabal palm','palm springs','pembroke lakes','stirling','town center','shopping plaza','davie square','realmanage','university parc','parc residences','residences'];
@@ -1258,6 +1281,10 @@ async function textNow(phone) {
       : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home ${monthsText} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
+
+  const variant = c.tier === 'VIP_SEAL' ? 'vip' :
+                  (c.tier === 'DORMANT' || c.tier === 'ANCIENT') ? 'dormant' : 'standard';
+  trackQuoteEvent('sent', c.phone, variant, {tier: c.tier});
 
   const now = new Date();
   const sixMonths = new Date(now.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);

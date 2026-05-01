@@ -49,6 +49,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 
 .footer{text-align:center;padding:1.75rem 1rem 3rem;font-size:12px;color:var(--muted);line-height:2;}
 .footer strong{color:var(--text);}
+.funnel-panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1rem 1.25rem;margin-top:1.75rem;}
+.funnel-row{display:grid;grid-template-columns:76px 1fr 64px;align-items:center;gap:8px;margin-bottom:8px;}
+.funnel-stage{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);}
+.funnel-bar-wrap{background:var(--border);border-radius:4px;height:9px;overflow:hidden;}
+.funnel-bar{height:100%;border-radius:4px;transition:width .4s ease;}
+.f-sent{background:var(--sky);}
+.f-viewed{background:#38bdf8;}
+.f-engaged{background:var(--gold);}
+.f-approved{background:var(--green);}
+.funnel-num{font-family:'DM Mono',monospace;font-size:12px;color:var(--text);text-align:right;white-space:nowrap;}
+.funnel-pct{color:var(--muted);font-size:10px;margin-left:2px;}
+.dropoff-list{font-size:11px;color:var(--muted);margin-top:.875rem;line-height:2;}
+.var-section{margin-top:.75rem;}
+.var-row{font-size:12px;color:var(--muted);line-height:1.9;}
 </style>
 </head>
 <body>
@@ -75,6 +89,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
       <span class="slabel">📅 Jobs scheduled this week</span> <span class="sval" id="qs-sched">—</span>
       <span class="slabel">✓ Completed this week</span>       <span class="sval" id="qs-done">—</span>
     </div>
+  </div>
+
+  <div class="funnel-panel">
+    <div class="panel-title">📊 Quote Funnel · Last 30 Days</div>
+    <div id="funnelContent"><div style="font-size:12px;color:var(--muted);padding:.5rem 0;">Loading…</div></div>
   </div>
 
   <div class="footer">
@@ -198,9 +217,81 @@ async function loadIncomingCount() {
   } catch(e) { set('qs-incoming', '—'); }
 }
 
+async function loadQuoteAnalytics() {
+  const el = document.getElementById('funnelContent');
+  if (!el) return;
+  try {
+    const res = await fetch('https://api.jsonbin.io/v3/b/69f41bfdaaba8821975a74fa/latest',
+      {mode:'cors', headers:{'X-Master-Key':JSONBIN_KEY}});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const allEvents = ((await res.json()).record || {}).events || [];
+    const cutoff = new Date(Date.now() - 30*24*60*60*1000);
+    const events = allEvents.filter(e => new Date(e.timestamp) >= cutoff);
+    if (!events.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:.5rem 0;">No events yet — send a quote to start tracking.</div>';
+      return;
+    }
+    const order = {sent:1, viewed:2, engaged:3, approved:4};
+    const byPhone = {};
+    events.forEach(e => {
+      const p = e.customerPhone || '_anon';
+      if (!byPhone[p]) byPhone[p] = {max:0, variant: null};
+      const s = order[e.eventType] || 0;
+      if (s > byPhone[p].max) byPhone[p].max = s;
+      if (e.eventType === 'sent' && e.variant) byPhone[p].variant = e.variant;
+    });
+    const custs    = Object.values(byPhone);
+    const sent     = custs.filter(c => c.max >= 1).length;
+    const viewed   = custs.filter(c => c.max >= 2).length;
+    const engaged  = custs.filter(c => c.max >= 3).length;
+    const approved = custs.filter(c => c.max >= 4).length;
+    const vars = {};
+    events.filter(e => e.eventType === 'sent').forEach(e => {
+      const v = e.variant || 'standard';
+      if (!vars[v]) vars[v] = {sent:0, approved:0};
+      vars[v].sent++;
+    });
+    events.filter(e => e.eventType === 'approved').forEach(e => {
+      const rec = byPhone[e.customerPhone || '_anon'];
+      if (rec) { const v = rec.variant || 'standard'; if (vars[v]) vars[v].approved++; }
+    });
+    renderFunnel(el, sent, viewed, engaged, approved, vars);
+  } catch(e) {
+    document.getElementById('funnelContent').innerHTML =
+      '<div style="font-size:12px;color:var(--muted);padding:.5rem 0;">Could not load analytics.</div>';
+  }
+}
+
+function renderFunnel(el, sent, viewed, engaged, approved, vars) {
+  const pct = (a, b) => b > 0 ? Math.round(a/b*100) + '%' : '—';
+  const bar = (n, max, label, cls, sub) => {
+    const w = max > 0 ? Math.max(2, Math.round(n/max*100)) : 0;
+    return `<div class="funnel-row">
+      <div class="funnel-stage">${label}</div>
+      <div class="funnel-bar-wrap"><div class="funnel-bar ${cls}" style="width:${w}%"></div></div>
+      <div class="funnel-num">${n}${sub ? `<span class="funnel-pct">${sub}</span>` : ''}</div>
+    </div>`;
+  };
+  const d1 = sent    > 0 ? Math.round((1 - viewed/sent)   * 100) + '%' : '—';
+  const d2 = viewed  > 0 ? Math.round((1 - engaged/viewed) * 100) + '%' : '—';
+  const d3 = engaged > 0 ? Math.round((1 - approved/engaged)*100) + '%' : '—';
+  const varRows = Object.entries(vars)
+    .sort((a,b) => (b[1].approved/Math.max(1,b[1].sent)) - (a[1].approved/Math.max(1,a[1].sent)))
+    .map(([v,d],i) => `<div class="var-row">${v}: ${d.sent} sent → ${d.approved} approved (${pct(d.approved,d.sent)})${i===0?' 🏆':''}</div>`)
+    .join('');
+  el.innerHTML =
+    bar(sent,     sent, 'SENT',     'f-sent',     '') +
+    bar(viewed,   sent, 'VIEWED',   'f-viewed',   pct(viewed,sent)) +
+    bar(engaged,  sent, 'ENGAGED',  'f-engaged',  pct(engaged,sent)) +
+    bar(approved, sent, 'APPROVED', 'f-approved', pct(approved,sent)) +
+    `<div class="dropoff-list">Drop-off: <strong>${d1}</strong> didn't view &nbsp;·&nbsp; <strong>${d2}</strong> viewed, didn't engage &nbsp;·&nbsp; <strong>${d3}</strong> engaged, didn't approve</div>` +
+    (varRows ? `<div class="var-section"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:4px;">By Variant</div>${varRows}</div>` : '');
+}
+
 renderTools();
 loadQuickStats();
 loadIncomingCount();
+loadQuoteAnalytics();
 </script>
 </body>
 </html>
