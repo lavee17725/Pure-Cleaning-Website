@@ -84,6 +84,14 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .mbtn-c{flex:1;padding:14px;border:2px solid var(--border);border-radius:11px;background:none;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;color:var(--muted);}
 .mbtn-a{flex:2;padding:14px;border:none;border-radius:11px;background:var(--navy);color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
 .mbtn-a:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+.path-toggle{background:var(--white);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.25rem;}
+.path-opt{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
+.path-opt:not(:last-child){border-bottom:1px solid var(--border);}
+.path-opt.active{background:#eff6ff;border-left:3px solid var(--sky);}
+.path-opt:not(.active):hover{background:#fafafa;}
+.path-radio{font-size:18px;flex-shrink:0;color:var(--sky);}
+.path-title{font-size:15px;font-weight:600;color:var(--text);line-height:1.3;}
+.path-sub{font-size:12px;color:var(--muted);margin-top:2px;}
 </style>
 </head>
 <body>
@@ -99,6 +107,24 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   <div class="wrap">
     <div class="greeting" style="margin-bottom:1.25rem;">
       <h1 id="formTitle">📞 Add New Customer</h1>
+    </div>
+
+    <!-- Path toggle -->
+    <div class="path-toggle">
+      <div id="pathPhone" class="path-opt active" onclick="setPath('phone')">
+        <div class="path-radio" id="radioPhone">⦿</div>
+        <div>
+          <div class="path-title">📞 Quoted on the phone — book it now</div>
+          <div class="path-sub">Services agreed — log it and send a confirmation text</div>
+        </div>
+      </div>
+      <div id="pathDigital" class="path-opt" onclick="setPath('digital')">
+        <div class="path-radio" id="radioDigital">○</div>
+        <div>
+          <div class="path-title">💻 Send digital quote</div>
+          <div class="path-sub">Customer reviews options and confirms online</div>
+        </div>
+      </div>
     </div>
 
     <!-- Duplicate callout -->
@@ -149,6 +175,24 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <input id="nCity" class="fi" type="text" placeholder="Weston" oninput="checkReq()">
     </div>
 
+    <!-- Phone-quote fields (hidden for digital path) -->
+    <div id="phoneFields">
+      <div class="field" style="margin-top:.75rem;">
+        <label>Services agreed<span class="field-req">*</span></label>
+        <textarea id="pServices" class="notes-box" style="min-height:70px;" placeholder="e.g. Driveway + front walk, house wash" oninput="checkReq()"></textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Hours estimated</label>
+          <input id="pHours" class="fi" type="number" placeholder="3" min="0.5" step="0.5">
+        </div>
+        <div class="field">
+          <label>Price agreed<span class="field-req">*</span></label>
+          <input id="pPrice" class="fi" type="number" placeholder="350" oninput="checkReq()">
+        </div>
+      </div>
+    </div>
+
     <button class="acc-btn" onclick="toggleOpt(this)"><span id="optArrow">▶</span> More info (email, zip)</button>
     <div class="acc-body" id="optFields">
       <div class="field-row">
@@ -185,7 +229,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </label>
     </div>
     <div style="margin-top:1.5rem;">
-      <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✨ Send Them a Quote Link</button>
+      <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✅ Book It — I'll Text Them</button>
     </div>
   </div>
 </div>
@@ -202,6 +246,34 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <button class="btn btn-gold" onclick="openSms()">📱 Send Text to <span id="sName"></span></button>
       <button class="btn btn-outline" onclick="startNew()">Add Another Customer</button>
       <a href="/pure_cleaning_admin.html" class="s-home">← Back to Admin Home</a>
+    </div>
+  </div>
+</div>
+
+<!-- STATE: PHONE QUOTE SUCCESS -->
+<div id="state-phone-success" class="state">
+  <div class="wrap">
+    <div class="success-wrap">
+      <span class="s-emoji">✅</span>
+      <div class="s-title">Booked!</div>
+      <div class="s-sub" id="psSub">Customer added to "Needs Scheduling" queue.</div>
+    </div>
+    <div class="s-actions">
+      <button class="btn btn-gold" onclick="startNew()">Add Another Customer</button>
+      <a href="/pure_cleaning_admin.html" class="s-home">← Back to Admin Home</a>
+    </div>
+  </div>
+</div>
+
+<!-- PHONE QUOTE CONFIRMATION TEXT MODAL -->
+<div class="moverlay hidden" id="confirmTextModal">
+  <div class="msheet">
+    <div class="msheet-title">📱 Send confirmation text?</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:.75rem;">Customer saved. Here's a draft — tap Send to open your messages app.</p>
+    <div id="confirmTextPreview" style="font-size:13px;color:#374151;line-height:1.6;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:1rem;white-space:pre-line;font-family:'DM Sans',sans-serif;"></div>
+    <div class="mfoot">
+      <button class="mbtn-c" onclick="skipConfirmText()">Skip for now</button>
+      <button class="mbtn-a" onclick="sendConfirmText()">Send Text 📱</button>
     </div>
   </div>
 </div>
@@ -314,6 +386,8 @@ let pendingSms   = '';
 let chooserCtx   = 'new';
 let selPreset    = null;
 let dupPhone     = null;
+let currentPath  = 'phone';
+let _confirmSms  = '';
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -362,6 +436,7 @@ function startNew() {
   dupPhone = null;
   pendingAlerts = [];
   resetForm();
+  setPath('phone');
   document.getElementById('formTitle').textContent = '📞 Add New Customer';
   document.getElementById('nPhone').readOnly = false;
   document.getElementById('nPhone').style.cssText = '';
@@ -369,11 +444,23 @@ function startNew() {
 }
 
 function resetForm() {
-  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes'].forEach(id => {
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pServices','pHours','pPrice'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
   document.getElementById('dupCallout').classList.remove('show');
   renderNewAlerts();
+  checkReq();
+}
+
+function setPath(path) {
+  currentPath = path;
+  document.getElementById('pathPhone').classList.toggle('active', path === 'phone');
+  document.getElementById('pathDigital').classList.toggle('active', path === 'digital');
+  document.getElementById('radioPhone').textContent   = path === 'phone'   ? '⦿' : '○';
+  document.getElementById('radioDigital').textContent = path === 'digital' ? '⦿' : '○';
+  document.getElementById('phoneFields').style.display = path === 'phone' ? 'block' : 'none';
+  const btn = document.getElementById('submitBtn');
+  if (btn) btn.textContent = path === 'phone' ? "✅ Book It — I'll Text Them" : '✨ Send Them a Quote Link';
   checkReq();
 }
 
@@ -446,7 +533,13 @@ function checkReq() {
   const addr = (document.getElementById('nAddr').value||'').trim();
   const city = (document.getElementById('nCity').value||'').trim();
   const btn  = document.getElementById('submitBtn');
-  if (btn) btn.disabled = !(fn && ln && ph.length===10 && addr && city);
+  let ok = !!(fn && ln && ph.length===10 && addr && city);
+  if (ok && currentPath === 'phone') {
+    const services = (document.getElementById('pServices').value||'').trim();
+    const price    = (document.getElementById('pPrice').value||'').trim();
+    ok = !!(services && price);
+  }
+  if (btn) btn.disabled = !ok;
 }
 
 function renderNewAlerts() {
@@ -467,7 +560,67 @@ function renderNewAlerts() {
 }
 
 async function submitForm() {
-  const btn  = document.getElementById('submitBtn');
+  if (currentPath === 'phone') {
+    await submitPhonePath();
+  } else {
+    await submitDigitalPath();
+  }
+}
+
+async function submitPhonePath() {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const fn      = document.getElementById('nFn').value.trim();
+  const ln      = document.getElementById('nLn').value.trim();
+  const ph      = document.getElementById('nPhone').value.replace(/\D/g,'');
+  const addr    = document.getElementById('nAddr').value.trim();
+  const city    = document.getElementById('nCity').value.trim();
+  const email   = document.getElementById('nEmail').value.trim();
+  const zip     = document.getElementById('nZip').value.trim();
+  const notes   = document.getElementById('nNotes').value.trim();
+  const services = document.getElementById('pServices').value.trim();
+  const hours    = parseFloat(document.getElementById('pHours').value) || null;
+  const price    = parseFloat(document.getElementById('pPrice').value);
+  try {
+    let customer;
+    if (!isNew && currentCustomer) {
+      customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
+      if (customer) {
+        customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
+        if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
+        customer.source = 'phone_quoted';
+        customer.quoteStatus = { state:'phone_quoted_approved', approvedDate:today(), approvedAmount:price, notes:services };
+        if (!customer.scheduledStatus) customer.scheduledStatus = {};
+        customer.scheduledStatus.state = 'needs_scheduling';
+        if (hours) customer.scheduledStatus.estimatedDuration = hours;
+        customer.scheduledStatus.jobNotes = services;
+      }
+    } else {
+      const isTestChecked = document.getElementById('isTestRecord')?.checked;
+      customer = {
+        phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes,
+        lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
+        linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
+        source: 'phone_quoted',
+        quoteStatus: { state:'phone_quoted_approved', approvedDate:today(), approvedAmount:price, notes:services },
+        scheduledStatus: { state:'needs_scheduling', estimatedDuration:hours, jobNotes:services },
+        ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {})
+      };
+      if (!dbRecord) dbRecord = {customers:[]};
+      if (!dbRecord.customers) dbRecord.customers=[];
+      dbRecord.customers.push(customer);
+      allCustomers.push(customer);
+    }
+    saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
+    showPhoneConfirmModal(customer, services, price);
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled=false; btn.textContent="✅ Book It — I'll Text Them";
+  }
+}
+
+async function submitDigitalPath() {
+  const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const fn   = document.getElementById('nFn').value.trim();
   const ln   = document.getElementById('nLn').value.trim();
@@ -494,13 +647,32 @@ async function submitForm() {
     const code = await genLink(customer);
     customer.linkCode = code;
     customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
-    // Show success immediately — DB write happens in background
     showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
     saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
   } catch(e) {
     alert('Error: ' + e.message);
     btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';
   }
+}
+
+function showPhoneConfirmModal(customer, services, price) {
+  const fn = customer.firstName || 'there';
+  const body = `Hi ${fn}! This is Pure Cleaning Pressure Cleaning confirming the job we discussed:\n\nService: ${services}\nPrice: $${price}\n\nWe'll text or call the night before with a rough arrival time.\n\nThanks for choosing us!\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`;
+  _confirmSms = `sms:+1${customer.phone}?&body=${encodeURIComponent(body)}`;
+  document.getElementById('confirmTextPreview').textContent = body;
+  document.getElementById('psSub').textContent = `${customer.firstName} ${customer.lastName} added to "Needs Scheduling" queue.`;
+  document.getElementById('confirmTextModal').classList.remove('hidden');
+}
+
+function sendConfirmText() {
+  document.getElementById('confirmTextModal').classList.add('hidden');
+  showState('phone-success');
+  if (_confirmSms) setTimeout(() => { window.location.href = _confirmSms; }, 150);
+}
+
+function skipConfirmText() {
+  document.getElementById('confirmTextModal').classList.add('hidden');
+  showState('phone-success');
 }
 
 // ── LINK GENERATION ───────────────────────────────────────────────────────────
