@@ -111,6 +111,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .callout-gray{background:#f8fafc;border-color:#cbd5e1;color:#475569;}
 .callout-green{background:#f0fdf4;border-color:#86efac;color:#14532d;}
 
+/* ── Property Measurements (Phase 1 GPS/Pricing Intel) ── */
+.prop-panel{background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;}
+.prop-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.125rem;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;}
+.prop-header:hover{background:var(--bg);}
+.prop-title{font-size:13px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px;}
+.prop-body{padding:1rem 1.125rem;border-top:1px solid var(--border);}
+.prop-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:.875rem;}
+@media(max-width:480px){.prop-grid{grid-template-columns:1fr;}}
+.prop-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.prop-input-wrap{display:flex;align-items:center;gap:6px;}
+.prop-input{flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;transition:border-color .15s;}
+.prop-input:focus{border-color:var(--sky);}
+.prop-unit{font-size:12px;color:var(--muted);white-space:nowrap;flex-shrink:0;}
+.prop-radio-row{display:flex;gap:12px;flex-wrap:wrap;margin:.625rem 0;}
+.prop-radio{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:500;cursor:pointer;}
+.prop-geo{font-size:12px;color:var(--muted);padding:.5rem .75rem;background:var(--bg);border-radius:8px;margin-top:.5rem;}
+
 /* ── Main Layout ── */
 .main-content{max-width:1100px;margin:20px auto;padding:0 16px;display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start;}
 @media(max-width:767px){.main-content{grid-template-columns:1fr;}}
@@ -282,6 +299,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   <!-- Callouts -->
   <div class="callouts" id="callouts"></div>
+
+  <!-- Property Measurements (Phase 1 GPS/Pricing Intelligence) -->
+  <div style="max-width:1100px;margin:10px auto 0;padding:0 16px;" id="propertyMeasurementsSection"></div>
 
   <!-- Main two-column -->
   <div class="main-content">
@@ -717,6 +737,9 @@ function renderProfile(customer, events){
   }
   predRow.innerHTML = renderPredictions(c);
 
+  // ── Property Measurements (Phase 1) ──
+  renderPropertyMeasurements(c);
+
   // ── Timeline ──
   const entries=buildTimeline(c, events);
   const filters=[
@@ -879,6 +902,147 @@ async function saveNote(){
   } finally{
     btn.disabled=false; btn.textContent='Save Note';
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 1: PROPERTY MEASUREMENTS + ADDRESS GEOCODING
+// GPS Pricing Intelligence — Foundation Layer
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _propExpanded = false;
+
+function renderPropertyMeasurements(c) {
+  const el = document.getElementById('propertyMeasurementsSection');
+  if (!el) return;
+  const prop = c.property || {};
+  const geo  = c.geocoded || {};
+  const isMeasured = prop.roofSqFt || prop.drivewaySqFt || prop.patioSqFt || prop.walkwaysSqFt;
+  const measuredBy = prop.measuredBy || 'estimate';
+  const measuredAt = prop.measuredAt
+    ? new Date(prop.measuredAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : null;
+  const geoLine = geo.lat
+    ? `<div class="prop-geo">📍 ${Number(geo.lat).toFixed(5)}, ${Number(geo.lng).toFixed(5)} · ${geo.accuracy||''} · ${geo.geocodedAt?new Date(geo.geocodedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''}</div>`
+    : `<div class="prop-geo" id="geoStatus">📍 Address not yet geocoded — will auto-geocode on next save.</div>`;
+  const fields = [
+    {id:'propRoof',     label:'Roof',       val:prop.roofSqFt     ?? '', unit:'sq ft',     tip:'Measure at ground level walking the perimeter'},
+    {id:'propDriveway', label:'Driveway',   val:prop.drivewaySqFt ?? '', unit:'sq ft',     tip:''},
+    {id:'propPatio',    label:'Patio',      val:prop.patioSqFt    ?? '', unit:'sq ft',     tip:''},
+    {id:'propWalkways', label:'Walkways',   val:prop.walkwaysSqFt ?? '', unit:'sq ft',     tip:''},
+    {id:'propPoolDeck', label:'Pool Deck',  val:prop.poolDeckSqFt ?? '', unit:'sq ft',     tip:'0 if not applicable'},
+    {id:'propFence',    label:'Fence',      val:prop.fenceLinearFt?? '', unit:'linear ft', tip:'Total fence run in feet'},
+  ];
+  el.innerHTML = `
+    <div class="prop-panel">
+      <div class="prop-header" onclick="togglePropPanel()">
+        <div class="prop-title">📐 Property Measurements
+          ${isMeasured
+            ? `<span style="font-size:11px;font-weight:600;color:var(--green);background:#f0fdf4;padding:2px 8px;border-radius:10px;">Measured</span>`
+            : `<span style="font-size:11px;color:var(--muted);">Not yet measured</span>`}
+        </div>
+        <span style="font-size:16px;color:var(--muted);" id="propChevron">${_propExpanded?'▲':'▼'}</span>
+      </div>
+      <div id="propBody" style="display:${_propExpanded?'block':'none'};">
+        <div class="prop-body">
+          <div class="prop-grid">
+            ${fields.map(f=>`
+              <div class="prop-field">
+                <label>${esc(f.label)}${f.tip?` <span title="${esc(f.tip)}" style="cursor:help;color:var(--sky);font-size:13px;">?</span>`:''}</label>
+                <div class="prop-input-wrap">
+                  <input type="number" id="${f.id}" class="prop-input" value="${f.val!==''?f.val:''}" min="0" step="1" placeholder="0">
+                  <span class="prop-unit">${f.unit}</span>
+                </div>
+              </div>`).join('')}
+          </div>
+          <div class="prop-field" style="margin-bottom:.875rem;">
+            <label>Property Notes</label>
+            <textarea id="propNotes" style="width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;resize:vertical;min-height:58px;transition:border-color .15s;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'" placeholder="e.g. Pavers in front, concrete in back. Second-story access needed.">${esc(prop.propertyNotes||'')}</textarea>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Measured by</label>
+            <div class="prop-radio-row">
+              ${['Tony','Tyler','Estimate','Satellite'].map(m=>`
+                <label class="prop-radio">
+                  <input type="radio" name="propMeasuredBy" value="${m.toLowerCase()}" ${measuredBy===m.toLowerCase()?'checked':''}> ${m}
+                </label>`).join('')}
+            </div>
+            ${measuredAt?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">Last measured: ${measuredAt}</div>`:''}
+          </div>
+          ${geoLine}
+          <div style="margin-top:1rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <button onclick="savePropertyMeasurements()" style="padding:9px 22px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Measurements</button>
+            <span id="propSaveStatus" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function togglePropPanel() {
+  _propExpanded = !_propExpanded;
+  const body = document.getElementById('propBody');
+  const chev = document.getElementById('propChevron');
+  if (body) body.style.display = _propExpanded ? 'block' : 'none';
+  if (chev) chev.textContent = _propExpanded ? '▲' : '▼';
+}
+
+async function savePropertyMeasurements() {
+  const status = document.getElementById('propSaveStatus');
+  status.textContent = 'Saving…';
+  const prop = {
+    roofSqFt:       parseFloat(document.getElementById('propRoof')?.value)      || null,
+    drivewaySqFt:   parseFloat(document.getElementById('propDriveway')?.value)  || null,
+    patioSqFt:      parseFloat(document.getElementById('propPatio')?.value)     || null,
+    walkwaysSqFt:   parseFloat(document.getElementById('propWalkways')?.value)  || null,
+    poolDeckSqFt:   parseFloat(document.getElementById('propPoolDeck')?.value)  || null,
+    fenceLinearFt:  parseFloat(document.getElementById('propFence')?.value)     || null,
+    propertyNotes:  (document.getElementById('propNotes')?.value || '').trim(),
+    measuredBy:     document.querySelector('input[name="propMeasuredBy"]:checked')?.value || 'estimate',
+    measuredAt:     new Date().toISOString(),
+  };
+  try {
+    const dbRes = await fetch(`${API}/customers`);
+    const db    = await dbRes.json();
+    const cust  = (db.customers || []).find(c => c.phone === _customer.phone);
+    if (!cust) throw new Error('Customer not found');
+    cust.property = prop;
+    // Auto-geocode if address exists and hasn't been geocoded yet
+    if (!cust.geocoded?.lat && cust.address) {
+      const geo = await geocodeAddress(cust.address, cust.city || '', cust.zip || '');
+      if (geo) {
+        cust.geocoded = geo;
+        _customer.geocoded = geo;
+        const geoEl = document.getElementById('geoStatus');
+        if (geoEl) geoEl.textContent = `📍 ${Number(geo.lat).toFixed(5)}, ${Number(geo.lng).toFixed(5)} · ${geo.accuracy||''}`;
+      }
+    }
+    await fetch(`${API}/customers`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(db)
+    });
+    _customer.property = prop;
+    try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
+    status.textContent = '✓ Saved';
+    setTimeout(() => { status.textContent = ''; }, 2500);
+    // Re-render section to show "Measured" badge and updated timestamp
+    renderPropertyMeasurements(_customer);
+  } catch(e) {
+    status.textContent = '✗ ' + e.message;
+  }
+}
+
+// US Census Bureau Geocoder — free, no API key, works for all US addresses
+async function geocodeAddress(address, city, zip) {
+  try {
+    const params = new URLSearchParams({
+      street: address, city: city || '', state: 'FL', zip: zip || '',
+      benchmark: 'Public_AR_Current', format: 'json'
+    });
+    const res  = await fetch(`https://geocoding.geo.census.gov/geocoder/locations/address?${params}`);
+    const data = await res.json();
+    const m    = (data?.result?.addressMatches || [])[0];
+    if (!m) return null;
+    return { lat: m.coordinates.y, lng: m.coordinates.x, accuracy: 'ROOFTOP', formattedAddress: m.matchedAddress || '', geocodedAt: new Date().toISOString() };
+  } catch(e) { console.warn('[geocode]', e.message); return null; }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
