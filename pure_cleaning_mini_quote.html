@@ -607,6 +607,35 @@ async function init() {
     quoteData = await quoteRes.json();
     addonsConfig = addonsRes.ok ? await addonsRes.json() : { addons: [], sealing: {} };
 
+    // If the quote has custom data built by the mini quote builder, merge it into addonsConfig
+    // so the rest of the rendering logic (renderAddons, renderSealing) uses customer-specific data.
+    const customData = quoteData.miniQuoteCustomData;
+    if (customData) {
+      // Build addonsConfig from custom data — only show enabled add-ons
+      const enabledAddOns = (customData.addOns || []).filter(a => a.enabled).map(a => ({
+        id: a.id,
+        name: a.name,
+        bundle: a.bundle,
+        standalone: a.standalone,
+        description: a.note || '',
+        icon: a.icon || '🔹',
+      }));
+      const customEnabled = (customData.customAddOns || []).filter(a => a.enabled).map(a => ({
+        id: a.id,
+        name: a.name,
+        bundle: a.bundle,
+        standalone: a.standalone,
+        description: a.note || '',
+        icon: '✨',
+      }));
+      addonsConfig = {
+        addons: [...enabledAddOns, ...customEnabled],
+        sealing: addonsConfig.sealing || {},
+        sealingEnabled: customData.sealingEnabled || false,
+        customNote: customData.customNote || '',
+      };
+    }
+
     renderPage();
     showState('main');
     logEvent('mini_quote_opened', { userAgent: navigator.userAgent });
@@ -646,15 +675,29 @@ function renderPage() {
   document.getElementById('greeting').textContent =
     `Hi ${quoteData.fn}! Here's your booking with Pure Cleaning.`;
 
-  // Booking card
-  document.getElementById('booking-services').textContent = quoteData.services || '';
+  // Booking card — use mainServices/mainAmount from new flow, or legacy services/approvedAmount
+  document.getElementById('booking-services').textContent =
+    quoteData.mainServices || quoteData.services || '';
+  if (!quoteData.approvedAmount && quoteData.mainAmount) {
+    quoteData.approvedAmount = quoteData.mainAmount;
+  }
   refreshBookingCard();
+
+  // Custom note (from mini quote builder)
+  if (addonsConfig.customNote) {
+    const noteEl = document.createElement('div');
+    noteEl.style.cssText = 'background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:.875rem 1.125rem;margin-bottom:1.75rem;font-size:14px;color:#78350f;line-height:1.6;';
+    noteEl.textContent = addonsConfig.customNote;
+    document.getElementById('addons-section').insertAdjacentElement('beforebegin', noteEl);
+  }
 
   // Add-ons
   renderAddons();
 
-  // Sealing
-  renderSealing();
+  // Sealing — only show if enabled (custom) or if legacy mode (always show)
+  if (addonsConfig.sealingEnabled !== undefined ? addonsConfig.sealingEnabled : true) {
+    renderSealing();
+  }
 }
 
 function refreshBookingCard() {
@@ -728,7 +771,8 @@ function renderSealing() {
   const config = (addonsConfig.sealing) || {};
 
   sealingEl.style.display = 'block';
-  document.getElementById('sealing-description').textContent = config.description || '';
+  document.getElementById('sealing-description').textContent =
+    config.description || 'After we clean your surfaces, sealing locks in the clean look and protects against stains and mildew regrowth. Tony will quote sealing in person on the day of cleaning.';
 
   if (quoteData.sealingInterest) {
     sealingEl.classList.add('captured');

@@ -229,7 +229,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </label>
     </div>
     <div style="margin-top:1.5rem;">
-      <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✅ Book It — I'll Text Them</button>
+      <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✅ Save Customer</button>
     </div>
   </div>
 </div>
@@ -255,25 +255,25 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   <div class="wrap">
     <div class="success-wrap">
       <span class="s-emoji">✅</span>
-      <div class="s-title">Booked!</div>
-      <div class="s-sub" id="psSub">Customer added to "Needs Scheduling" queue.</div>
+      <div class="s-title">Saved!</div>
+      <div class="s-sub" id="psSub">Customer added to the "Needs Mini Quote" queue.</div>
     </div>
     <div class="s-actions">
-      <button class="btn btn-gold" onclick="startNew()">Add Another Customer</button>
+      <button class="btn btn-gold" id="psBuildBtn" onclick="buildMQFromSuccess()">Build Mini Quote Now →</button>
+      <button class="btn btn-outline" onclick="startNew()">Add Another Customer</button>
       <a href="/pure_cleaning_admin.html" class="s-home">← Back to Admin Home</a>
     </div>
   </div>
 </div>
 
-<!-- PHONE QUOTE CONFIRMATION TEXT MODAL -->
-<div class="moverlay hidden" id="confirmTextModal">
+<!-- BUILD MINI QUOTE MODAL -->
+<div class="moverlay hidden" id="buildMQModal">
   <div class="msheet">
-    <div class="msheet-title">📱 Send confirmation text?</div>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:.75rem;">Customer saved. Here's a draft — tap Send to open your messages app.</p>
-    <div id="confirmTextPreview" style="font-size:13px;color:#374151;line-height:1.6;background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:1rem;white-space:pre-line;font-family:'DM Sans',sans-serif;"></div>
+    <div class="msheet-title">✅ Customer saved!</div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:1.25rem;">Build their mini quote to set custom pricing and send a confirmation text — or save for later.</p>
     <div class="mfoot">
-      <button class="mbtn-c" onclick="skipConfirmText()">Skip for now</button>
-      <button class="mbtn-a" onclick="sendConfirmText()">Send Text 📱</button>
+      <button class="mbtn-c" onclick="buildMQLater()">Save &amp; Build Later</button>
+      <button class="mbtn-a" onclick="buildMQNow()">Build Mini Quote Now →</button>
     </div>
   </div>
 </div>
@@ -462,7 +462,7 @@ function setPath(path) {
   document.getElementById('radioDigital').textContent = path === 'digital' ? '⦿' : '○';
   document.getElementById('phoneFields').style.display = path === 'phone' ? 'block' : 'none';
   const btn = document.getElementById('submitBtn');
-  if (btn) btn.textContent = path === 'phone' ? "✅ Book It — I'll Text Them" : '✨ Send Them a Quote Link';
+  if (btn) btn.textContent = path === 'phone' ? '✅ Save Customer' : '✨ Send Them a Quote Link';
   checkReq();
 }
 
@@ -592,12 +592,14 @@ async function submitPhonePath() {
         customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
         if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
-        customer.quoteStatus = { state:'phone_quoted_approved', approvedDate:today(), approvedAmount:price, notes:services };
-        if (!customer.scheduledStatus) customer.scheduledStatus = {};
-        customer.scheduledStatus.state = 'needs_scheduling';
-        customer.scheduledStatus.approvedAmount = price;
-        if (hours) customer.scheduledStatus.estimatedDuration = hours;
-        customer.scheduledStatus.jobNotes = services;
+        customer.quoteStatus = {
+          state: 'phone_quoted_pending_mini_quote',
+          mainAmount: price,
+          mainServices: services,
+          estimatedHours: hours,
+          quotedDate: new Date().toISOString(),
+          miniQuoteCustomData: null
+        };
       }
     } else {
       const isTestChecked = document.getElementById('isTestRecord')?.checked;
@@ -606,8 +608,14 @@ async function submitPhonePath() {
         lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
         linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
         source: 'phone_quoted',
-        quoteStatus: { state:'phone_quoted_approved', approvedDate:today(), approvedAmount:price, notes:services },
-        scheduledStatus: { state:'needs_scheduling', approvedAmount:price, estimatedDuration:hours, jobNotes:services },
+        quoteStatus: {
+          state: 'phone_quoted_pending_mini_quote',
+          mainAmount: price,
+          mainServices: services,
+          estimatedHours: hours,
+          quotedDate: new Date().toISOString(),
+          miniQuoteCustomData: null
+        },
         ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {})
       };
       if (!dbRecord) dbRecord = {customers:[]};
@@ -615,20 +623,12 @@ async function submitPhonePath() {
       dbRecord.customers.push(customer);
       allCustomers.push(customer);
     }
-    // Generate mini-quote link and store in KV
-    const mqCode = generateQuoteCode();
-    const mqData = { fn, ln, ph, services, approvedAmount:price, addOns:[], sealingInterest:false, source:'mini_quote', created:new Date().toISOString() };
-    fetch(`${PCPC_API}/quote/${mqCode}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(mqData) })
-      .catch(e => console.warn('[mini_quote PUT]', e.message));
-    customer.miniQuoteCode = mqCode;
-    const mqLong = `https://purecleaningpressurecleaning.com/pure_cleaning_mini_quote.html?c=${mqCode}`;
-    const mqShort = shortenUrl(mqLong);
     _lastSavedCustomer = customer;
     saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
-    showPhoneConfirmModal(customer, services, price, mqShort);
+    showBuildMiniQuoteModal(customer);
   } catch(e) {
     alert('Error: ' + e.message);
-    btn.disabled=false; btn.textContent="✅ Book It — I'll Text Them";
+    btn.disabled=false; btn.textContent='✅ Save Customer';
   } finally { _saving = false; }
 }
 
@@ -668,40 +668,32 @@ async function submitDigitalPath() {
   }
 }
 
-function showPhoneConfirmModal(customer, services, price, mqLink) {
-  const fn = customer.firstName || 'there';
-  const linkLine = mqLink ? `\nWant to add anything? Take a look:\n${mqLink}\n` : '';
-  const body = `Hi ${fn}! This is Pure Cleaning Pressure Cleaning confirming the job we discussed:\n\n📋 Service: ${services}\n💰 Price: $${price}${linkLine}\nWe'll text or call the night before with a rough arrival time.\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`;
-  _confirmSms = `sms:+1${customer.phone}?&body=${encodeURIComponent(body)}`;
-  document.getElementById('confirmTextPreview').textContent = body;
-  document.getElementById('psSub').textContent = `${customer.firstName} ${customer.lastName} added to "Needs Scheduling" queue.`;
-  document.getElementById('confirmTextModal').classList.remove('hidden');
+function showBuildMiniQuoteModal(customer) {
+  document.getElementById('psSub').textContent = `${customer.firstName} ${customer.lastName} added to "Needs Mini Quote" queue.`;
+  document.getElementById('psBuildBtn').dataset.phone = customer.phone;
+  document.getElementById('buildMQModal').classList.remove('hidden');
 }
 
-function sendConfirmText() {
-  document.getElementById('confirmTextModal').classList.add('hidden');
-  showState('phone-success');
+function buildMQNow() {
+  document.getElementById('buildMQModal').classList.add('hidden');
   if (_lastSavedCustomer) {
-    const c = _lastSavedCustomer;
-    fetch(`${PCPC_API}/events`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        eventType: 'phone_quote_sms_sent',
-        customer: { fn: c.firstName, ln: c.lastName, ph: c.phone },
-        approvedAmount: (c.quoteStatus || {}).approvedAmount,
-        services: (c.quoteStatus || {}).notes,
-        miniQuoteCode: c.miniQuoteCode,
-        sentAt: new Date().toISOString()
-      })
-    }).catch(() => {});
+    window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(_lastSavedCustomer.phone || '');
   }
-  if (_confirmSms) setTimeout(() => { window.location.href = _confirmSms; }, 150);
 }
 
-function skipConfirmText() {
-  document.getElementById('confirmTextModal').classList.add('hidden');
+function buildMQLater() {
+  document.getElementById('buildMQModal').classList.add('hidden');
   showState('phone-success');
+}
+
+function buildMQFromSuccess() {
+  const btn = document.getElementById('psBuildBtn');
+  const phone = btn && btn.dataset.phone;
+  if (phone) {
+    window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(phone);
+  } else if (_lastSavedCustomer) {
+    window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(_lastSavedCustomer.phone || '');
+  }
 }
 
 // ── LINK GENERATION ───────────────────────────────────────────────────────────

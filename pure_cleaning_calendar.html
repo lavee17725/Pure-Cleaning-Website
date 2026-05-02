@@ -232,8 +232,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <!-- THREE-COLUMN LAYOUT -->
 <div class="layout" id="mainLayout">
 
-  <!-- LEFT: NEEDS SCHEDULING -->
+  <!-- LEFT: NEEDS MINI QUOTE + NEEDS SCHEDULING -->
   <div class="left-col">
+    <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
+    <div class="needs-list" id="mqList"></div>
     <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
     <div style="padding:.5rem .75rem .25rem;">
       <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
@@ -665,6 +667,20 @@ function render() {
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
 function renderSidebar() {
+  // Needs Mini Quote queue
+  const mqJobs = getMiniQuoteNeeded();
+  const mqHdr = document.getElementById('mqHdr');
+  const mqEl  = document.getElementById('mqList');
+  document.getElementById('mqCount').textContent = mqJobs.length;
+  if (mqJobs.length) {
+    mqHdr.style.display = '';
+    mqEl.innerHTML = mqJobs.map(c => jobCardMiniQuote(c)).join('');
+  } else {
+    mqHdr.style.display = 'none';
+    mqEl.innerHTML = '';
+  }
+
+  // Needs Scheduling queue
   const jobs = getUnscheduled();
   document.getElementById('needsCount').textContent = jobs.length;
   const el = document.getElementById('needsList');
@@ -674,6 +690,36 @@ function renderSidebar() {
     el.innerHTML = jobs.map(c => jobCardSidebar(c)).join('');
   }
   initSortables();
+}
+
+function getMiniQuoteNeeded() {
+  const seen = new Set();
+  return (dbRecord.customers||[]).filter(x => {
+    if (!x.phone || seen.has(x.phone)) return false;
+    const match = x.quoteStatus && x.quoteStatus.state === 'phone_quoted_pending_mini_quote';
+    if (match) seen.add(x.phone);
+    return match;
+  });
+}
+
+function jobCardMiniQuote(c) {
+  const name = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const qs   = c.quoteStatus || {};
+  const amt  = qs.mainAmount || qs.approvedAmount;
+  const svc  = esc(qs.mainServices || qs.notes || '');
+  const savedAt = qs.quotedDate
+    ? new Date(qs.quotedDate).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+    : '';
+  const testBadge = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
+  return `<div class="job-unscheduled" data-phone="${c.phone}" style="border-left:3px solid var(--gold);cursor:default;" title="${name}">
+    <div class="jcard-top">
+      <div class="jcard-name">${name}${testBadge}</div>
+      <span class="phone-badge">📞 Phone</span>
+    </div>
+    ${svc || amt ? `<div class="jd" style="font-weight:600;color:var(--navy);">${svc}${amt ? ' — $'+Number(amt).toLocaleString() : ''}</div>` : ''}
+    ${savedAt ? `<div class="jd">Saved ${savedAt}</div>` : ''}
+    <a href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" style="display:inline-block;margin-top:7px;padding:5px 13px;background:var(--gold);color:var(--navy);border-radius:7px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.2px;" onclick="event.stopPropagation();">Build Mini Quote →</a>
+  </div>`;
 }
 
 function jobAmount(c) {
