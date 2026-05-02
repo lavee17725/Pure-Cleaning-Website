@@ -124,6 +124,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
     </div>
   </div>
 
+  <div class="funnel-panel" id="addonsConfigPanel">
+    <div class="panel-title">📦 Add-On Pricing Config</div>
+    <div id="addonsConfigContent">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem;">Bundle prices shown to customers in the mini quote link after a phone-quoted job.</div>
+      <button onclick="loadAddonsConfig()" style="padding:7px 16px;background:var(--border);color:var(--text);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Edit add-on prices →</button>
+      <div id="addonsEditor" style="margin-top:.75rem;display:none;"></div>
+    </div>
+  </div>
+
   <div class="footer">
     <strong>Bookmark this page</strong><br>
     iPhone: tap <strong>Share ⬆</strong> → <strong>Add to Home Screen</strong><br>
@@ -513,6 +522,66 @@ async function loadAllAnalytics() {
     loadBehaviorInsights([]);
   }
 }
+
+// ── ADD-ONS CONFIG ────────────────────────────────────────────────────────────
+let _addonsConfig = null;
+
+async function loadAddonsConfig() {
+  document.querySelector('#addonsConfigPanel button').textContent = 'Loading…';
+  try {
+    const res = await fetch(`${PCPC_API}/addons-config`);
+    _addonsConfig = res.ok ? await res.json() : null;
+    if (!_addonsConfig) { alert('Could not load add-on config'); return; }
+    renderAddonsEditor();
+  } catch(e) { alert('Error: ' + e.message); }
+  document.querySelector('#addonsConfigPanel button').textContent = 'Edit add-on prices →';
+}
+
+function renderAddonsEditor() {
+  const el = document.getElementById('addonsEditor');
+  el.style.display = 'block';
+  const addons = _addonsConfig.addons || [];
+  const baseStyle = 'width:64px;padding:6px 8px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:"DM Mono",monospace;font-size:13px;text-align:right;';
+  let rows = addons.map((a, i) => `
+    <div style="display:grid;grid-template-columns:1fr 64px 64px;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="font-size:13px;color:var(--text);">${a.icon} ${escAdmin(a.name)}</div>
+      <input type="number" value="${a.bundle}" data-i="${i}" data-field="bundle" onchange="onAddonPriceChange(this)" style="${baseStyle}" title="Bundle price">
+      <input type="number" value="${a.standalone}" data-i="${i}" data-field="standalone" onchange="onAddonPriceChange(this)" style="${baseStyle}" title="Standalone price">
+    </div>`).join('');
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 64px 64px;gap:8px;margin-bottom:4px;">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Service</span>
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Bundle</span>
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Regular</span>
+    </div>
+    ${rows}
+    <button onclick="saveAddonsConfig()" style="margin-top:.75rem;padding:8px 20px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Save Prices</button>
+    <span id="addonsSaveStatus" style="font-size:12px;color:var(--muted);margin-left:10px;"></span>`;
+}
+
+function onAddonPriceChange(input) {
+  const i = parseInt(input.dataset.i);
+  const field = input.dataset.field;
+  if (_addonsConfig && _addonsConfig.addons[i]) {
+    _addonsConfig.addons[i][field] = parseFloat(input.value) || 0;
+  }
+}
+
+async function saveAddonsConfig() {
+  const statusEl = document.getElementById('addonsSaveStatus');
+  statusEl.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${PCPC_API}/addons-config`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(_addonsConfig)
+    });
+    statusEl.textContent = res.ok ? '✓ Saved' : '✗ Error';
+    setTimeout(() => { statusEl.textContent = ''; }, 2500);
+  } catch(e) { statusEl.textContent = '✗ ' + e.message; }
+}
+
+function escAdmin(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // Run all fetches in parallel
 loadQuickStats();

@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Your Booking — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy: #0a1628;
+  --gold: #f4a620;
+  --green: #1d9e75;
+  --bg: #fdf8f2;
+  --white: #fff;
+  --text: #1a1f2e;
+  --muted: #6b7280;
+  --border: #e8e2d8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.header {
+  background: var(--navy);
+  padding: 0.875rem 1.25rem;
+  display: flex;
+  align-items: center;
+}
+.logo {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+.logo span { color: var(--gold); }
+
+/* ── Layout ── */
+.wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+/* ── States ── */
+#state-loading,
+#state-error,
+#state-main { display: none; }
+#state-loading.active,
+#state-error.active,
+#state-main.active { display: block; }
+
+/* ── Loading ── */
+.loading-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5rem 2rem;
+  gap: 1rem;
+}
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--navy);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ── Error ── */
+.error-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5rem 2rem;
+  gap: 0.75rem;
+  text-align: center;
+}
+.error-icon { font-size: 40px; }
+.error-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+.error-sub {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ── Greeting ── */
+.greeting {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 1.25rem;
+  line-height: 1.45;
+}
+
+/* ── Booking Card ── */
+.booking-card {
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: 14px;
+  padding: 1.125rem 1.25rem;
+  margin-bottom: 1.75rem;
+}
+.booking-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--green);
+  margin-bottom: 0.625rem;
+}
+.booking-check { font-size: 14px; }
+.booking-services {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 0.375rem;
+  line-height: 1.45;
+}
+.booking-price {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 0.25rem;
+  letter-spacing: -0.5px;
+}
+.booking-addons-list {
+  margin-top: 0.5rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid #bbf7d0;
+}
+.booking-total-line {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+  margin-bottom: 0.25rem;
+}
+.booking-addon-line {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 400;
+  line-height: 1.7;
+}
+.booking-note {
+  font-size: 12.5px;
+  color: #4b7a5e;
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid #bbf7d0;
+  line-height: 1.5;
+}
+
+/* ── Section Header ── */
+.section-header {
+  margin-bottom: 0.875rem;
+}
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.section-sub {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* ── Add-on Cards ── */
+.addons-section { margin-bottom: 1.75rem; }
+
+.addon-card {
+  background: var(--white);
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 2px 10px rgba(10,22,40,0.07);
+  border: 1.5px solid transparent;
+  transition: border-color 0.2s, opacity 0.2s;
+}
+.addon-card.added {
+  opacity: 0.65;
+  border-color: var(--green);
+}
+.addon-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 0.75rem;
+}
+.addon-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+.addon-info { flex: 1; }
+.addon-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.2rem;
+}
+.addon-description {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+.addon-pricing { font-size: 13px; color: var(--text); line-height: 1.6; }
+.addon-pricing strong { color: var(--navy); font-weight: 700; }
+.addon-pricing .savings { color: var(--green); font-weight: 600; }
+.addon-pricing .regular { color: var(--muted); }
+
+.addon-btn {
+  display: block;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  background: var(--navy);
+  color: var(--gold);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  letter-spacing: 0.2px;
+  transition: opacity 0.15s;
+}
+.addon-btn:active { opacity: 0.85; }
+
+.added-badge {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0.75rem 1rem;
+  background: #f0fdf4;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--green);
+  border: 1.5px solid #86efac;
+}
+.addon-card.added .addon-btn { display: none; }
+.addon-card.added .added-badge { display: flex; }
+
+/* ── Sealing Section ── */
+.sealing-section { margin-bottom: 1.75rem; }
+
+.sealing-card {
+  background: var(--white);
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 2px 10px rgba(10,22,40,0.07);
+}
+.sealing-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.625rem;
+}
+.sealing-description {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 0.875rem;
+}
+.sealing-bullets {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+}
+.sealing-bullets li {
+  font-size: 13px;
+  color: var(--text);
+  padding: 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sealing-bullets li::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  flex-shrink: 0;
+}
+
+.sealing-btn {
+  display: block;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  background: var(--navy);
+  color: var(--gold);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  letter-spacing: 0.2px;
+  transition: opacity 0.15s;
+}
+.sealing-btn:active { opacity: 0.85; }
+
+.sealing-captured {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0.875rem 1rem;
+  background: #f0fdf4;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--green);
+  border: 1.5px solid #86efac;
+  line-height: 1.45;
+}
+.sealing-section.captured .sealing-btn { display: none; }
+.sealing-section.captured .sealing-captured { display: flex; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(-80px);
+  background: var(--navy);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 0.625rem 1.25rem;
+  border-radius: 100px;
+  white-space: nowrap;
+  z-index: 9999;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(10,22,40,0.25);
+}
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+/* ── Modal Overlay ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,22,40,0.55);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* ── Bottom Sheet ── */
+.sheet {
+  background: var(--white);
+  border-radius: 20px 20px 0 0;
+  padding: 1.5rem 1.5rem 2.5rem;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.modal-overlay.open .sheet {
+  transform: translateY(0);
+}
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0 auto 1.25rem;
+}
+.sheet-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.sheet-body {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+.sheet-body strong {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.sheet-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+.btn-cancel {
+  flex: 1;
+  padding: 0.875rem;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.btn-confirm {
+  flex: 2;
+  padding: 0.875rem;
+  background: var(--navy);
+  color: var(--gold);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.btn-full {
+  width: 100%;
+  padding: 0.875rem;
+  background: var(--navy);
+  color: var(--gold);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="logo">🌴 Pure <span>Cleaning</span></div>
+</header>
+
+<!-- Loading State -->
+<div id="state-loading">
+  <div class="loading-center">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading your booking…</div>
+  </div>
+</div>
+
+<!-- Error State -->
+<div id="state-error">
+  <div class="error-center">
+    <div class="error-icon">🔗</div>
+    <div class="error-title">Link not found</div>
+    <div class="error-sub">This link has expired or is invalid.<br>Please contact Pure Cleaning directly.</div>
+  </div>
+</div>
+
+<!-- Main State -->
+<div id="state-main">
+  <div class="wrap">
+
+    <!-- Greeting -->
+    <p class="greeting" id="greeting"></p>
+
+    <!-- Confirmed Booking Card -->
+    <div class="booking-card" id="booking-card">
+      <div class="booking-label">
+        <span class="booking-check">✓</span>
+        <span>Your Booking</span>
+      </div>
+      <div class="booking-services" id="booking-services"></div>
+      <div class="booking-price" id="booking-price"></div>
+      <div class="booking-addons-list" id="booking-addons-list" style="display:none;"></div>
+      <div class="booking-note">We'll text or call the night before with a rough arrival time.</div>
+    </div>
+
+    <!-- Add-ons Section -->
+    <div class="addons-section" id="addons-section" style="display:none;">
+      <div class="section-header">
+        <div class="section-title">Want to add to your booking?</div>
+        <div class="section-sub">Bundle pricing — only available today with this job.</div>
+      </div>
+      <div id="addons-list"></div>
+    </div>
+
+    <!-- Sealing Section -->
+    <div class="sealing-section" id="sealing-section" style="display:none;">
+      <div class="sealing-card">
+        <div class="sealing-card-title">💎 Interested in Sealing?</div>
+        <div class="sealing-description" id="sealing-description"></div>
+        <ul class="sealing-bullets">
+          <li>Oil and grease stains</li>
+          <li>Mildew regrowth</li>
+          <li>Color fading</li>
+        </ul>
+        <button class="sealing-btn" id="sealing-btn" onclick="onSealingClick()">I'm interested — quote me in person</button>
+        <div class="sealing-captured">
+          <span>✓</span>
+          <span>Got it. Tony will quote sealing on the day of cleaning.</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Add-on Confirmation Modal -->
+<div class="modal-overlay" id="addon-modal" onclick="onModalOverlayClick(event, 'addon-modal')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="addon-modal-title"></div>
+    <div class="sheet-body" id="addon-modal-body"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeModal('addon-modal')">Cancel</button>
+      <button class="btn-confirm" id="addon-modal-confirm">Yes, add it</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sealing Interest Modal -->
+<div class="modal-overlay" id="sealing-modal" onclick="onModalOverlayClick(event, 'sealing-modal')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Got it!</div>
+    <div class="sheet-body">
+      Tony will bring sealing samples and quote you on the day of cleaning. No commitment until you see the price.
+    </div>
+    <div class="sheet-actions">
+      <button class="btn-full" onclick="onSealingConfirm()">Got it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+let quoteCode = null;
+let quoteData = null;
+let addonsConfig = null;
+let pendingAddOn = null;
+let pageOpenTime = Date.now();
+let actionTaken = false;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+async function init() {
+  showState('loading');
+
+  const params = new URLSearchParams(window.location.search);
+  quoteCode = params.get('c');
+
+  if (!quoteCode) {
+    showState('error');
+    return;
+  }
+
+  try {
+    const [quoteRes, addonsRes] = await Promise.all([
+      fetch(`${PCPC_API}/quote/${quoteCode}`),
+      fetch(`${PCPC_API}/addons-config`)
+    ]);
+
+    if (!quoteRes.ok) {
+      showState('error');
+      return;
+    }
+
+    quoteData = await quoteRes.json();
+    addonsConfig = addonsRes.ok ? await addonsRes.json() : { addons: [], sealing: {} };
+
+    renderPage();
+    showState('main');
+    logEvent('mini_quote_opened');
+
+  } catch (err) {
+    showState('error');
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function renderPage() {
+  // Greeting
+  document.getElementById('greeting').textContent =
+    `Hi ${quoteData.fn}! Here's your booking with Pure Cleaning.`;
+
+  // Booking card
+  document.getElementById('booking-services').textContent = quoteData.services || '';
+  refreshBookingCard();
+
+  // Add-ons
+  renderAddons();
+
+  // Sealing
+  renderSealing();
+}
+
+function refreshBookingCard() {
+  const addedAddons = quoteData.addOns || [];
+  const base = quoteData._baseAmount || quoteData.approvedAmount;
+  const total = quoteData.approvedAmount;
+
+  if (addedAddons.length > 0) {
+    document.getElementById('booking-price').textContent = `$${base}`;
+
+    const listEl = document.getElementById('booking-addons-list');
+    listEl.style.display = 'block';
+
+    let html = `<div class="booking-total-line">$${total} total</div>`;
+    addedAddons.forEach(ao => {
+      html += `<div class="booking-addon-line">+ ${ao.name} (+$${ao.bundle})</div>`;
+    });
+    listEl.innerHTML = html;
+  } else {
+    document.getElementById('booking-price').textContent = `$${total}`;
+    document.getElementById('booking-addons-list').style.display = 'none';
+  }
+}
+
+function renderAddons() {
+  const allAddons = (addonsConfig.addons || []);
+  const addedIds = (quoteData.addOns || []).map(a => a.id);
+
+  // Only show section if there are any addons at all
+  if (allAddons.length === 0) return;
+
+  document.getElementById('addons-section').style.display = 'block';
+
+  const listEl = document.getElementById('addons-list');
+  listEl.innerHTML = '';
+
+  allAddons.forEach(addon => {
+    const isAdded = addedIds.includes(addon.id);
+    const savings = addon.standalone - addon.bundle;
+    const card = document.createElement('div');
+    card.className = 'addon-card' + (isAdded ? ' added' : '');
+    card.id = `addon-card-${addon.id}`;
+
+    const descHtml = addon.description
+      ? `<div class="addon-description">${escHtml(addon.description)}</div>`
+      : '';
+
+    card.innerHTML = `
+      <div class="addon-card-top">
+        <div class="addon-icon">${addon.icon}</div>
+        <div class="addon-info">
+          <div class="addon-name">${escHtml(addon.name)}</div>
+          ${descHtml}
+          <div class="addon-pricing">
+            Bundle price: <strong>$${addon.bundle}</strong><br>
+            <span class="regular">Regularly: $${addon.standalone} standalone</span> —
+            <span class="savings">save $${savings}</span>
+          </div>
+        </div>
+      </div>
+      <button class="addon-btn" onclick="onAddAddonClick(${JSON.stringify(addon.id)})">+ Add to my booking</button>
+      <div class="added-badge">✓ Added</div>
+    `;
+
+    listEl.appendChild(card);
+  });
+}
+
+function renderSealing() {
+  const sealingEl = document.getElementById('sealing-section');
+  const config = (addonsConfig.sealing) || {};
+
+  sealingEl.style.display = 'block';
+  document.getElementById('sealing-description').textContent = config.description || '';
+
+  if (quoteData.sealingInterest) {
+    sealingEl.classList.add('captured');
+  }
+}
+
+// ── Add-on Flow ───────────────────────────────────────────────────────────────
+
+function onAddAddonClick(addonId) {
+  const addon = (addonsConfig.addons || []).find(a => a.id === addonId);
+  if (!addon) return;
+
+  const currentTotal = quoteData.approvedAmount;
+  const newTotal = currentTotal + addon.bundle;
+
+  document.getElementById('addon-modal-title').textContent = `Add ${addon.name}?`;
+  document.getElementById('addon-modal-body').innerHTML =
+    `New total: <strong>$${currentTotal} + $${addon.bundle} = $${newTotal}</strong>`;
+
+  pendingAddOn = addon;
+
+  document.getElementById('addon-modal-confirm').onclick = () => confirmAddAddon();
+
+  openModal('addon-modal');
+}
+
+async function confirmAddAddon() {
+  closeModal('addon-modal');
+
+  if (!pendingAddOn) return;
+  actionTaken = true;
+
+  const addon = pendingAddOn;
+  pendingAddOn = null;
+
+  // Save base amount before first addon
+  if (!quoteData._baseAmount) {
+    quoteData._baseAmount = quoteData.approvedAmount;
+  }
+
+  const newAddOns = [...(quoteData.addOns || []), { id: addon.id, name: addon.name, bundle: addon.bundle }];
+  const newTotal = quoteData.approvedAmount + addon.bundle;
+
+  // Optimistic UI update
+  quoteData.addOns = newAddOns;
+  quoteData.approvedAmount = newTotal;
+
+  refreshBookingCard();
+  markAddonAdded(addon.id);
+  showToast(`✓ Added! New total: $${newTotal}`);
+
+  logEvent('addon_added', { addonId: addon.id, addonName: addon.name, newTotal });
+
+  try {
+    await fetch(`${PCPC_API}/quote/${quoteCode}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addOns: newAddOns, approvedAmount: newTotal })
+    });
+  } catch (_) {}
+
+  updateCustomerDb({
+    'scheduledStatus.approvedAmount': newTotal,
+    'quoteStatus.approvedAmount': newTotal,
+    addOns: newAddOns
+  }).catch(() => {});
+}
+
+function markAddonAdded(addonId) {
+  const card = document.getElementById(`addon-card-${addonId}`);
+  if (card) card.classList.add('added');
+}
+
+// ── Sealing Flow ──────────────────────────────────────────────────────────────
+
+function onSealingClick() {
+  openModal('sealing-modal');
+}
+
+async function onSealingConfirm() {
+  closeModal('sealing-modal');
+  actionTaken = true;
+
+  const now = new Date().toISOString();
+
+  quoteData.sealingInterest = true;
+  quoteData.sealingInterestDate = now;
+
+  document.getElementById('sealing-section').classList.add('captured');
+
+  logEvent('sealing_interest', { sealingInterestDate: now });
+
+  try {
+    await fetch(`${PCPC_API}/quote/${quoteCode}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sealingInterest: true, sealingInterestDate: now })
+    });
+  } catch (_) {}
+
+  updateCustomerDb({ sealingInterest: true, sealingInterestDate: now }).catch(() => {});
+}
+
+// ── Customer DB Update ────────────────────────────────────────────────────────
+
+async function updateCustomerDb(updates) {
+  const res = await fetch(`${PCPC_API}/customers`);
+  const db = await res.json();
+  const customer = (db.customers || []).find(c => c.phone === quoteData.ph);
+  if (customer) {
+    // Support dot-notation keys and flat keys
+    Object.keys(updates).forEach(key => {
+      if (key.includes('.')) {
+        const [obj, prop] = key.split('.');
+        if (customer[obj] && typeof customer[obj] === 'object') {
+          customer[obj][prop] = updates[key];
+        }
+      } else {
+        customer[key] = updates[key];
+      }
+    });
+    await fetch(`${PCPC_API}/customers`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(db)
+    });
+  }
+}
+
+// ── Event Logging ─────────────────────────────────────────────────────────────
+
+async function logEvent(eventType, extra = {}) {
+  const data = quoteData || {};
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      eventType,
+      customer: { fn: data.fn, ln: data.ln, ph: data.ph },
+      ...extra,
+      loggedAt: new Date().toISOString()
+    })
+  }).catch(() => {});
+}
+
+// ── Modal Helpers ─────────────────────────────────────────────────────────────
+
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.style.display = 'flex';
+    // Force reflow for transition
+    el.getBoundingClientRect();
+    el.classList.add('open');
+  }
+}
+
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.classList.remove('open');
+    setTimeout(() => { el.style.display = 'none'; }, 280);
+  }
+}
+
+function onModalOverlayClick(event, modalId) {
+  // Close if clicking the backdrop (not the sheet itself)
+  if (event.target === document.getElementById(modalId)) {
+    closeModal(modalId);
+  }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+let toastTimer = null;
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+function showState(name) {
+  ['loading', 'error', 'main'].forEach(s => {
+    document.getElementById(`state-${s}`).classList.toggle('active', s === name);
+  });
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ── Beforeunload tracking ─────────────────────────────────────────────────────
+
+window.addEventListener('beforeunload', () => {
+  if (!actionTaken && quoteData) {
+    const viewDurationMs = Date.now() - pageOpenTime;
+    logEvent('mini_quote_no_action', { viewDurationMs });
+  }
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
+init();
+</script>
+</body>
+</html>

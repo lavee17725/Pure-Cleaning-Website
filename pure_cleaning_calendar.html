@@ -58,6 +58,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .card-del-btn:hover{color:#dc2626;background:#fee2e2;}
 .test-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .phone-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+.seal-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .test-expiry{font-size:10px;color:#b45309;margin-top:2px;}
 .card-top-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
 
@@ -582,6 +583,7 @@ function jobCardSidebar(c) {
   const { html: amtHtml } = jobAmount(c);
   const testBadge  = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
   const phoneBadge = c.source === 'phone_quoted' ? ' <span class="phone-badge">📞 Phone quoted</span>' : '';
+  const sealBadge  = c.sealingInterest ? ' <span class="seal-badge">💎 Seal int</span>' : '';
   const testExpiry = c.isTest && c.testExpiresAt
     ? `<div class="test-expiry">Auto-removes ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
     : '';
@@ -591,11 +593,15 @@ function jobCardSidebar(c) {
     const fmt = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
     wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(fmt)}</div>`;
   }
+  const addOnsLine = (c.addOns && c.addOns.length)
+    ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
+    : '';
   return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
-    <div class="jn-row"><div class="jn">${name}${testBadge}${phoneBadge}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
+    <div class="jn-row"><div class="jn">${name}${testBadge}${phoneBadge}${sealBadge}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
     ${testExpiry}
     ${wantsLine}
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
+    ${addOnsLine}
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
     <div class="drag-hint">⠿ Drag to schedule</div>
     ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
