@@ -243,21 +243,6 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
     </div>
   </div>
 
-  <!-- S7: TEAM -->
-  <div class="sec-hdr">Team Performance</div>
-  <div class="two-col">
-    <div class="card">
-      <div class="card-title">Quoter Performance</div>
-      <div class="card-sub">Jobs quoted · revenue · win rate</div>
-      <div id="quoterTable"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Data Entry Volume</div>
-      <div class="card-sub">Manual entries by team member</div>
-      <div class="ch-200"><canvas id="entryChart"></canvas></div>
-      <div id="entryStats"></div>
-    </div>
-  </div>
 
   <!-- S8: REACTIVATION -->
   <div class="sec-hdr">Reactivation Campaign Health</div>
@@ -921,42 +906,6 @@ function renderLifecycle() {
     </div>`;
 }
 
-// ─── S7: Team Performance ────────────────────────────────────────────────────
-function renderTeam() {
-  const custs=dbRecord.customers||[];
-  const quoters={};
-  custs.forEach(c=>{
-    const qb=c.quotedBy||c.enteredBy; if(!qb)return;
-    if(!quoters[qb])quoters[qb]={quoted:0,revenue:0,approved:0};
-    quoters[qb].quoted++;
-    quoters[qb].revenue+=(c.lifetimeSpend||0);
-    if((c.quoteStatus||{}).state==='approved')quoters[qb].approved++;
-  });
-  const qEl=document.getElementById('quoterTable');
-  if(qEl) qEl.innerHTML=Object.keys(quoters).length===0
-    ?`<div class="empty"><div class="empty-icon">👤</div><div class="empty-title">Quoter tracking not yet active</div><div class="empty-body">Performance data appears here once quotes are submitted with a team member name selected in Admin.</div></div>`
-    :`<table class="data-table"><thead><tr><th>Member</th><th>Quoted</th><th>Revenue</th><th>Win Rate</th></tr></thead><tbody>
-      ${Object.entries(quoters).map(([n,d])=>`<tr><td>${n}</td><td class="mono">${d.quoted}</td><td class="mono">${fmt$(d.revenue)}</td><td class="mono">${d.quoted>0?Math.round(d.approved/d.quoted*100):0}%</td></tr>`).join('')}
-      </tbody></table>`;
-
-  const entryByP={};
-  custs.forEach(c=>{if(!c.enteredBy)return; entryByP[c.enteredBy]=(entryByP[c.enteredBy]||0)+1;});
-  const ec=document.getElementById('entryChart'), es=document.getElementById('entryStats');
-  if(!Object.keys(entryByP).length){
-    if(ec)ec.style.display='none';
-    if(es)es.innerHTML=`<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">No entry tracking yet</div><div class="empty-body">New customers added via "Add New Customer" will track who entered them.</div></div>`;
-  } else {
-    if(ec)ec.style.display='';
-    const names=Object.keys(entryByP), counts=names.map(n=>entryByP[n]);
-    if(charts.entry){charts.entry.destroy();charts.entry=null;}
-    if(ec)charts.entry=new Chart(ec,{
-      type:'bar',data:{labels:names,datasets:[{label:'Entries',data:counts,backgroundColor:'#c2410c',borderRadius:6}]},
-      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
-        scales:{y:{ticks:{font:{family:'DM Mono',size:10}}},x:{ticks:{font:{family:'DM Sans',size:11}}}}}
-    });
-    if(es)es.innerHTML=`<div style="font-size:12px;color:var(--muted);margin-top:.75rem;">Total tracked entries: ${counts.reduce((a,b)=>a+b,0)}</div>`;
-  }
-}
 
 // ─── S8: Reactivation Health ─────────────────────────────────────────────────
 function renderReactivation() {
@@ -1112,7 +1061,6 @@ function renderAll() {
   renderHeatmap();
   renderGeo();
   renderLifecycle();
-  renderTeam();
   renderReactivation();
   renderActions();
 }

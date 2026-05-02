@@ -73,8 +73,6 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .success-title{font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--white);letter-spacing:2px;margin-bottom:.5rem;}
 .success-sub{font-size:14px;color:var(--muted);line-height:1.7;margin-bottom:2rem;}
 .success-actions{display:flex;flex-direction:column;gap:10px;}
-.logged-in-bar{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:1.5rem;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;}
-.logged-in-bar select{width:auto;padding:4px 8px;font-size:12px;background:var(--input-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);}
 </style>
 </head>
 <body>
@@ -91,17 +89,6 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 
   <!-- FORM SECTIONS -->
   <div id="formView">
-
-    <div class="logged-in-bar">
-      <span>Adding as:</span>
-      <select id="enteredBySel" onchange="saveEnteredBy()">
-        <option value="Mom">Mom</option>
-        <option value="Tony">Tony</option>
-        <option value="Tyler">Tyler</option>
-        <option value="Steph">Steph</option>
-        <option value="Sister">Sister</option>
-      </select>
-    </div>
 
     <!-- STEP 1: PHONE -->
     <div class="section-title">Customer Phone</div>
@@ -303,7 +290,6 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 const PCPC_API_AJ        = 'https://purecleaning-api.tylerfumero.workers.dev';
 const CACHE_KEY          = 'pcpc_customer_db_cache';
 const PENDING_KEY        = 'pcpc_pending_manual_jobs';
-const ENTERED_BY_KEY     = 'pcpc_entered_by';
 const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const _SL_ALP            = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const _CL_ALP            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -352,7 +338,6 @@ let selectedSvcs = new Set();
 
 // ── INIT ─────────────────────────────────────────────────────────────────────
 async function init() {
-  loadEnteredBy();
   setDefaultDate();
   // checkPendingJobs(); — disabled until campaign data is meaningful (re-enable Week 2)
   try {
@@ -369,14 +354,6 @@ async function init() {
   } catch(e) { console.warn('[AddJob] DB load failed:', e.message); }
 }
 
-function loadEnteredBy() {
-  const val = localStorage.getItem(ENTERED_BY_KEY) || 'Mom';
-  document.getElementById('enteredBySel').value = val;
-}
-function saveEnteredBy() {
-  localStorage.setItem(ENTERED_BY_KEY, document.getElementById('enteredBySel').value);
-}
-function getEnteredBy() { return localStorage.getItem(ENTERED_BY_KEY) || 'Mom'; }
 
 function setDefaultDate() {
   // Next weekday
@@ -560,7 +537,6 @@ function saveJob() {
   const jobNotesVal = document.getElementById('jobNotes').value.trim();
   const hasSeal = svcs.some(s => s.toLowerCase().includes('seal'));
   const today  = isoToday();
-  const by     = getEnteredBy();
 
   let schedStatus;
   let routeMsg;
@@ -604,13 +580,13 @@ function saveJob() {
       linkCode: null, linkBin: null, lastTextedDate: null,
       alerts: [], optOut: null, movedAway: null,
       quoteStatus, scheduledStatus: schedStatus,
-      source: 'manual_phone', enteredBy: by, enteredDate: today
+      source: 'manual_phone', enteredDate: today
     };
     const isTestChecked = document.getElementById('isTestRecord')?.checked;
     if (isTestChecked) {
       customerRecord.isTest = true;
       customerRecord.testExpiresAt = new Date(Date.now() + 24*60*60*1000).toISOString();
-      customerRecord.testCreatedBy = by;
+      customerRecord.testCreatedBy = 'system';
     }
   }
 
