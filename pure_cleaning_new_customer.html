@@ -388,6 +388,7 @@ let selPreset    = null;
 let dupPhone     = null;
 let currentPath  = 'phone';
 let _confirmSms  = '';
+let _lastSavedCustomer = null;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -620,6 +621,7 @@ async function submitPhonePath() {
     customer.miniQuoteCode = mqCode;
     const mqLong = `https://purecleaningpressurecleaning.com/pure_cleaning_mini_quote.html?c=${mqCode}`;
     const mqShort = shortenUrl(mqLong);
+    _lastSavedCustomer = customer;
     saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
     showPhoneConfirmModal(customer, services, price, mqShort);
   } catch(e) {
@@ -677,6 +679,21 @@ function showPhoneConfirmModal(customer, services, price, mqLink) {
 function sendConfirmText() {
   document.getElementById('confirmTextModal').classList.add('hidden');
   showState('phone-success');
+  if (_lastSavedCustomer) {
+    const c = _lastSavedCustomer;
+    fetch(`${PCPC_API}/events`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        eventType: 'phone_quote_sms_sent',
+        customer: { fn: c.firstName, ln: c.lastName, ph: c.phone },
+        approvedAmount: (c.quoteStatus || {}).approvedAmount,
+        services: (c.quoteStatus || {}).notes,
+        miniQuoteCode: c.miniQuoteCode,
+        sentAt: new Date().toISOString()
+      })
+    }).catch(() => {});
+  }
   if (_confirmSms) setTimeout(() => { window.location.href = _confirmSms; }, 150);
 }
 

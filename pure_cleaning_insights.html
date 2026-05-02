@@ -252,7 +252,31 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
     <div id="reactivationMetrics"></div>
   </div>
 
-  <!-- S9: ACTION ITEMS -->
+  <!-- S9: PHONE-QUOTE FUNNEL -->
+  <div class="sec-hdr">📞 Phone-Quote Funnel</div>
+  <div id="phoneQuoteFunnelSection">
+    <div class="card" style="margin-bottom:.75rem;">
+      <div class="card-title">Funnel · SMS → Add-On Conversion</div>
+      <div class="card-sub">From confirmation text sent through add-on added</div>
+      <div id="pqFunnel" style="margin-top:.5rem;"></div>
+    </div>
+    <div class="two-col" style="margin-bottom:.75rem;">
+      <div class="card">
+        <div class="card-title">Key Metrics</div>
+        <div id="pqMetrics" style="margin-top:.5rem;"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Drop-Off Analysis</div>
+        <div id="pqDropoff" style="margin-top:.5rem;font-size:13px;color:var(--muted);line-height:1.8;"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Add-On Breakdown</div>
+      <div id="pqAddons" style="margin-top:.5rem;overflow-x:auto;"></div>
+    </div>
+  </div>
+
+  <!-- S10: ACTION ITEMS -->
   <div class="sec-hdr">Action Items · Auto-Generated</div>
   <div class="action-list" id="actionItems"></div>
 </main>
@@ -1051,6 +1075,114 @@ function renderSkeletons() {
 }
 
 // ─── Master render ───────────────────────────────────────────────────────────
+function renderPhoneQuoteFunnel() {
+  const ev = eventsData || [];
+  const bounds = getPeriodBounds(activePeriod);
+  function inEv(e) {
+    const ts = e.loggedAt || e.createdAt;
+    if (!ts) return true; // no date = include
+    try { const d = new Date(ts); return d >= bounds.start && d <= bounds.end; } catch { return false; }
+  }
+  const sent   = ev.filter(e => e.eventType === 'phone_quote_sms_sent' && inEv(e));
+  const opened = ev.filter(e => e.eventType === 'mini_quote_opened'    && inEv(e));
+  const viewed = ev.filter(e => e.eventType === 'mini_quote_viewed'    && inEv(e));
+  const secVw  = ev.filter(e => e.eventType === 'addon_section_viewed' && inEv(e));
+  const tapped = ev.filter(e => e.eventType === 'addon_tap_initiated'  && inEv(e));
+  const confd  = ev.filter(e => e.eventType === 'addon_confirmed'      && inEv(e));
+  const seali  = ev.filter(e => e.eventType === 'sealing_interest_confirmed' && inEv(e));
+
+  const n = (a, b) => b > 0 ? Math.round(a/b*100) : 0;
+  const base = sent.length || 1;
+  const steps = [
+    { label:'SMS sent',            count: sent.length,   pct: 100 },
+    { label:'Link opened',         count: opened.length, pct: n(opened.length, base) },
+    { label:'Viewed 5+ sec',       count: viewed.length, pct: n(viewed.length, base) },
+    { label:'Add-on section seen', count: secVw.length,  pct: n(secVw.length, base) },
+    { label:'Add-on tapped',       count: tapped.length, pct: n(tapped.length, base) },
+    { label:'Add-on confirmed',    count: confd.length,  pct: n(confd.length, base) },
+    { label:'Sealing interest',    count: seali.length,  pct: n(seali.length, base) },
+  ];
+
+  // Funnel bars
+  const COLORS = ['#0ea5e9','#38bdf8','#7dd3fc','#f4a620','#fb923c','#16a34a','#a855f7'];
+  const funnelEl = document.getElementById('pqFunnel');
+  if (sent.length === 0) {
+    funnelEl.innerHTML = '<p style="font-size:13px;color:var(--muted);padding:.5rem 0;">No phone-quote SMS events yet. Data will appear once customers receive confirmation texts.</p>';
+  } else {
+    funnelEl.innerHTML = steps.map((s, i) => `
+      <div style="display:grid;grid-template-columns:160px 1fr 60px;align-items:center;gap:8px;margin-bottom:6px;">
+        <span style="font-size:11px;font-weight:600;color:var(--muted);">${s.label}</span>
+        <div style="background:var(--border);border-radius:4px;height:10px;overflow:hidden;">
+          <div style="width:${s.pct}%;height:100%;background:${COLORS[i]};border-radius:4px;transition:width .4s;"></div>
+        </div>
+        <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text);text-align:right;">${s.count} <span style="color:var(--muted);font-size:10px;">${s.pct}%</span></span>
+      </div>`).join('');
+  }
+
+  // Key metrics
+  const totalRevLift = confd.reduce((s, e) => s + (parseFloat(e.bundlePrice) || 0), 0);
+  const avgOpen = (() => {
+    const times = opened.map(e => parseFloat(e.timeFromOpenSeconds)||0).filter(t => t > 0);
+    return times.length ? Math.round(times.reduce((a,b)=>a+b,0)/times.length/60) : null;
+  })();
+  const metricsEl = document.getElementById('pqMetrics');
+  const metRow = (lbl, val) => `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="color:var(--muted);">${lbl}</span><span style="font-family:'DM Mono',monospace;font-weight:600;">${val}</span></div>`;
+  metricsEl.innerHTML = [
+    metRow('SMS sent', sent.length),
+    metRow('Open rate', sent.length ? n(opened.length, sent.length)+'%' : '—'),
+    metRow('Avg time to open', avgOpen != null ? avgOpen+'m' : '—'),
+    metRow('Add-on attach rate', sent.length ? n(confd.length, sent.length)+'%' : '—'),
+    metRow('Sealing interest rate', sent.length ? n(seali.length, sent.length)+'%' : '—'),
+    metRow('Avg revenue lift', confd.length ? '$'+Math.round(totalRevLift/confd.length) : '—'),
+    metRow('Total add-on revenue', '$'+totalRevLift.toLocaleString()),
+  ].join('');
+
+  // Drop-off
+  const dropEl = document.getElementById('pqDropoff');
+  if (sent.length === 0) { dropEl.textContent = 'No data yet.'; }
+  else {
+    let biggest = steps.slice(1).reduce((max, s, i) => {
+      const drop = steps[i].pct - s.pct;
+      return drop > max.drop ? { drop, label: `${steps[i].label} → ${s.label}` } : max;
+    }, { drop: 0, label: '' });
+    dropEl.innerHTML = biggest.drop > 5
+      ? `🔍 <strong>Biggest drop-off:</strong> ${biggest.label} (${biggest.drop}% lost). ${biggest.label.includes('section') ? 'Section may be below the fold.' : biggest.label.includes('tapped') ? 'Consider simplifying the add-on card copy.' : 'Follow up to understand barrier.'}`
+      : '✓ Funnel looks healthy — no single large drop-off.';
+  }
+
+  // Add-on breakdown table
+  const addonsEl = document.getElementById('pqAddons');
+  const addonMap = {};
+  tapped.forEach(e => {
+    const id = e.addonId || 'unknown';
+    if (!addonMap[id]) addonMap[id] = { name: e.addonName||id, taps:0, confirms:0, revenue:0 };
+    addonMap[id].taps++;
+  });
+  confd.forEach(e => {
+    const id = e.addonId || 'unknown';
+    if (!addonMap[id]) addonMap[id] = { name: e.addonName||id, taps:0, confirms:0, revenue:0 };
+    addonMap[id].confirms++;
+    addonMap[id].revenue += parseFloat(e.bundlePrice) || 0;
+  });
+  const rows = Object.values(addonMap);
+  if (!rows.length) {
+    addonsEl.innerHTML = '<p style="font-size:13px;color:var(--muted);">No add-on events yet.</p>';
+  } else {
+    addonsEl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="border-bottom:1px solid var(--border);">
+        ${['Add-on','Tapped','Confirmed','Conv %','Revenue'].map(h=>`<th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:10px;">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>${rows.map(r=>`<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px;font-weight:600;">${r.name}</td>
+        <td style="padding:8px;font-family:'DM Mono',monospace;">${r.taps}</td>
+        <td style="padding:8px;font-family:'DM Mono',monospace;">${r.confirms}</td>
+        <td style="padding:8px;font-family:'DM Mono',monospace;">${r.taps?Math.round(r.confirms/r.taps*100)+'%':'—'}</td>
+        <td style="padding:8px;font-family:'DM Mono',monospace;">$${r.revenue.toLocaleString()}</td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+  }
+}
+
 function renderAll() {
   renderHero();
   renderRevenue();
@@ -1062,6 +1194,7 @@ function renderAll() {
   renderGeo();
   renderLifecycle();
   renderReactivation();
+  renderPhoneQuoteFunnel();
   renderActions();
 }
 

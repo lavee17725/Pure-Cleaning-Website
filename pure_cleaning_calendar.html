@@ -59,6 +59,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .test-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .phone-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .seal-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+.updated-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#ecfdf5;color:#065f46;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+/* Alert toasts — bottom-right, persistent */
+#alertContainer{position:fixed;bottom:1.5rem;right:1.25rem;z-index:9998;display:flex;flex-direction:column;gap:10px;max-width:340px;}
+@keyframes alertIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.alert-toast{background:#0d1e35;border:1px solid rgba(244,166,32,.3);border-radius:13px;padding:.875rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,.5);animation:alertIn .3s ease;color:#e8edf5;}
+.alert-toast-type{font-size:10px;font-weight:700;letter-spacing:1px;color:#f4a620;margin-bottom:.3rem;}
+.alert-toast-body{font-size:13px;line-height:1.5;margin-bottom:.625rem;}
+.alert-toast-actions{display:flex;gap:8px;}
+.alert-view-btn{flex:1;padding:6px;background:rgba(244,166,32,.15);color:#f4a620;border:1px solid rgba(244,166,32,.25);border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.alert-dismiss-btn{flex:1;padding:6px;background:none;color:#7a8aaa;border:1px solid #1e2e4a;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
 .test-expiry{font-size:10px;color:#b45309;margin-top:2px;}
 .card-top-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
 
@@ -318,6 +328,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+<div id="alertContainer"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
@@ -484,6 +495,90 @@ async function cleanupExpiredTestRecords() {
   showToast(`🧪 Cleaned ${expired.length} expired test record${expired.length > 1 ? 's' : ''}`);
 }
 
+// ── LIVE UPDATES ──────────────────────────────────────────────────────────────
+const _justUpdated = new Map(); // phone → expiry timestamp
+
+async function pollCustomerUpdates() {
+  try {
+    const res = await fetch(`${PCPC_API}/customers`);
+    if (!res.ok) return;
+    const newDb = await res.json();
+    const newCusts = newDb.customers || [];
+    const oldCusts = dbRecord.customers || [];
+    let anyChange = false;
+    newCusts.forEach(nc => {
+      const old = oldCusts.find(c => c.phone === nc.phone);
+      if (!old) return;
+      const changed =
+        (nc.scheduledStatus?.approvedAmount !== old.scheduledStatus?.approvedAmount) ||
+        (nc.sealingInterest !== old.sealingInterest) ||
+        (JSON.stringify(nc.addOns) !== JSON.stringify(old.addOns));
+      if (changed) {
+        _justUpdated.set(nc.phone, Date.now() + 30_000);
+        anyChange = true;
+        Object.assign(old, nc);
+      }
+    });
+    if (anyChange) {
+      dbRecord = newDb;
+      renderSidebar();
+      setTimeout(() => { _justUpdated.clear(); renderSidebar(); }, 30_000);
+    }
+  } catch(e) { console.warn('[pollCustomerUpdates]', e.message); }
+}
+
+// ── TOAST ALERT SYSTEM ─────────────────────────────────────────────────────────
+const _ALERT_SINCE_KEY = 'pcpc_alert_since';
+const _ALERT_SEEN_KEY  = 'pcpc_alert_seen';
+const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
+
+async function checkAlerts() {
+  const since = sessionStorage.getItem(_ALERT_SINCE_KEY)
+    || new Date(Date.now() - 24*60*60*1000).toISOString();
+  const seen  = JSON.parse(sessionStorage.getItem(_ALERT_SEEN_KEY) || '[]');
+  sessionStorage.setItem(_ALERT_SINCE_KEY, new Date().toISOString());
+  try {
+    const res = await fetch(`${PCPC_API}/events?since=${encodeURIComponent(since)}`);
+    if (!res.ok) return;
+    const { events = [] } = await res.json();
+    const newEvts = events.filter(e => _ALERT_TYPES.includes(e.eventType) && !seen.includes(e.id));
+    if (!newEvts.length) return;
+    sessionStorage.setItem(_ALERT_SEEN_KEY, JSON.stringify([...seen, ...newEvts.map(e => e.id)]));
+    newEvts.forEach(showAlertToast);
+  } catch {}
+}
+
+function showAlertToast(evt) {
+  const isAddon = evt.eventType === 'addon_confirmed';
+  const cust = evt.customer || {};
+  const name = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
+  const ph   = cust.ph || '';
+  const title = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
+  let body;
+  if (isAddon) {
+    body = `<strong>${_ea(name)}</strong><br>Added: ${_ea(evt.addonName||'')} ($${evt.bundlePrice||''})<br>New total: $${evt.newAmount||''}`;
+  } else {
+    body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+  }
+  const id = 'at-' + (evt.id || Date.now());
+  const el = document.createElement('div');
+  el.id = id; el.className = 'alert-toast';
+  el.innerHTML = `<div class="alert-toast-type">${title}</div><div class="alert-toast-body">${body}</div><div class="alert-toast-actions">${ph?`<button class="alert-view-btn" onclick="_alertView('${ph}','${id}')">View Card</button>`:''}<button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
+  document.getElementById('alertContainer').appendChild(el);
+}
+
+function _alertView(phone, toastId) {
+  document.getElementById(toastId)?.remove();
+  const card = document.querySelector(`.job-unscheduled[data-phone="${phone}"]`);
+  if (card) {
+    card.scrollIntoView({behavior:'smooth', block:'center'});
+    card.style.outline = '2px solid var(--gold)';
+    setTimeout(() => { card.style.outline = ''; }, 2500);
+  }
+}
+
+function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
 async function init() {
   renderShell();
   loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
@@ -497,8 +592,20 @@ async function init() {
     render();
     showToast('⚠️ Could not load database — some data may be stale');
   }
-  const targetPhone = new URLSearchParams(window.location.search).get('phone');
-  if (targetPhone) highlightSidebarJob(targetPhone);
+  // URL-based highlight (from toast "View Card" or direct link)
+  const hlPhone = new URLSearchParams(window.location.search).get('highlight') ||
+                  new URLSearchParams(window.location.search).get('phone');
+  if (hlPhone) highlightSidebarJob(hlPhone);
+
+  // Poll for customer changes every 60 seconds
+  setInterval(pollCustomerUpdates, 60_000);
+  // Cross-tab trigger: mini_quote page sets localStorage after updating customer
+  window.addEventListener('storage', e => {
+    if (e.key === 'pcpc_db_changed_at') pollCustomerUpdates();
+  });
+  // Alert toast polling every 60 seconds
+  checkAlerts();
+  setInterval(checkAlerts, 60_000);
 }
 
 function highlightSidebarJob(phone) {
@@ -584,6 +691,7 @@ function jobCardSidebar(c) {
   const testBadge  = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
   const phoneBadge = c.source === 'phone_quoted' ? ' <span class="phone-badge">📞 Phone quoted</span>' : '';
   const sealBadge  = c.sealingInterest ? ' <span class="seal-badge">💎 Seal int</span>' : '';
+  const updBadge   = (_justUpdated.has(c.phone) && _justUpdated.get(c.phone) > Date.now()) ? ' <span class="updated-badge">💫 Just updated</span>' : '';
   const testExpiry = c.isTest && c.testExpiresAt
     ? `<div class="test-expiry">Auto-removes ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
     : '';
@@ -597,7 +705,7 @@ function jobCardSidebar(c) {
     ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
     : '';
   return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
-    <div class="jn-row"><div class="jn">${name}${testBadge}${phoneBadge}${sealBadge}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
+    <div class="jn-row"><div class="jn">${name}${testBadge}${phoneBadge}${sealBadge}${updBadge}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
     ${testExpiry}
     ${wantsLine}
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>

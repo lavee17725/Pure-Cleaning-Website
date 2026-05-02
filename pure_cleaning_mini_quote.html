@@ -547,7 +547,7 @@ body {
     <div class="sheet-title" id="addon-modal-title"></div>
     <div class="sheet-body" id="addon-modal-body"></div>
     <div class="sheet-actions">
-      <button class="btn-cancel" onclick="closeModal('addon-modal')">Cancel</button>
+      <button class="btn-cancel" onclick="cancelAddAddon()">Cancel</button>
       <button class="btn-confirm" id="addon-modal-confirm">Yes, add it</button>
     </div>
   </div>
@@ -576,6 +576,9 @@ let addonsConfig = null;
 let pendingAddOn = null;
 let pageOpenTime = Date.now();
 let actionTaken = false;
+let maxScrollDepthPct = 0;
+let addonSectionViewed = false;
+let viewedLogged = false;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -606,7 +609,30 @@ async function init() {
 
     renderPage();
     showState('main');
-    logEvent('mini_quote_opened');
+    logEvent('mini_quote_opened', { userAgent: navigator.userAgent });
+
+    // mini_quote_viewed — fires after 5 seconds of visibility
+    setTimeout(() => {
+      if (!viewedLogged) { viewedLogged = true; logEvent('mini_quote_viewed'); }
+    }, 5000);
+
+    // Scroll depth tracker
+    window.addEventListener('scroll', () => {
+      const el = document.documentElement;
+      const pct = Math.round((el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight)) * 100);
+      if (pct > maxScrollDepthPct) maxScrollDepthPct = pct;
+    }, { passive: true });
+
+    // addon_section_viewed — IntersectionObserver
+    const addonsEl = document.getElementById('addons-section');
+    if (addonsEl) {
+      new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !addonSectionViewed) {
+          addonSectionViewed = true;
+          logEvent('addon_section_viewed', { scrollDepthPct: maxScrollDepthPct });
+        }
+      }, { threshold: 0.3 }).observe(addonsEl);
+    }
 
   } catch (err) {
     showState('error');
@@ -715,6 +741,11 @@ function onAddAddonClick(addonId) {
   const addon = (addonsConfig.addons || []).find(a => a.id === addonId);
   if (!addon) return;
 
+  logEvent('addon_tap_initiated', {
+    addonId: addon.id, addonName: addon.name,
+    bundlePrice: addon.bundle, standalonePrice: addon.standalone
+  });
+
   const currentTotal = quoteData.approvedAmount;
   const newTotal = currentTotal + addon.bundle;
 
@@ -754,7 +785,13 @@ async function confirmAddAddon() {
   markAddonAdded(addon.id);
   showToast(`✓ Added! New total: $${newTotal}`);
 
-  logEvent('addon_added', { addonId: addon.id, addonName: addon.name, newTotal });
+  logEvent('addon_confirmed', {
+    addonId: addon.id, addonName: addon.name,
+    bundlePrice: addon.bundle, standalonePrice: addon.standalone,
+    oldAmount: quoteData.approvedAmount - addon.bundle, newAmount: newTotal,
+    timeFromOpenSeconds: Math.round((Date.now() - pageOpenTime) / 1000)
+  });
+  try { localStorage.setItem('pcpc_db_changed_at', Date.now().toString()); } catch {}
 
   try {
     await fetch(`${PCPC_API}/quote/${quoteCode}`, {
@@ -779,7 +816,16 @@ function markAddonAdded(addonId) {
 // ── Sealing Flow ──────────────────────────────────────────────────────────────
 
 function onSealingClick() {
+  logEvent('sealing_interest_tapped');
   openModal('sealing-modal');
+}
+
+function cancelAddAddon() {
+  if (pendingAddOn) {
+    logEvent('addon_cancelled', { addonId: pendingAddOn.id, addonName: pendingAddOn.name });
+  }
+  pendingAddOn = null;
+  closeModal('addon-modal');
 }
 
 async function onSealingConfirm() {
@@ -793,7 +839,8 @@ async function onSealingConfirm() {
 
   document.getElementById('sealing-section').classList.add('captured');
 
-  logEvent('sealing_interest', { sealingInterestDate: now });
+  logEvent('sealing_interest_confirmed', { sealingInterestDate: now });
+  try { localStorage.setItem('pcpc_db_changed_at', Date.now().toString()); } catch {}
 
   try {
     await fetch(`${PCPC_API}/quote/${quoteCode}`, {
@@ -906,9 +953,15 @@ function escHtml(str) {
 // ── Beforeunload tracking ─────────────────────────────────────────────────────
 
 window.addEventListener('beforeunload', () => {
-  if (!actionTaken && quoteData) {
-    const viewDurationMs = Date.now() - pageOpenTime;
-    logEvent('mini_quote_no_action', { viewDurationMs });
+  if (quoteData) {
+    const totalTimeSec = Math.round((Date.now() - pageOpenTime) / 1000);
+    const addOnsAdded = (quoteData.addOns || []).length;
+    logEvent('mini_quote_closed', {
+      totalTimeOnPageSeconds: totalTimeSec,
+      addOnsAdded,
+      scrollDepthPct: maxScrollDepthPct,
+      sealingInterest: quoteData.sealingInterest || false
+    });
   }
 });
 
