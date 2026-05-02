@@ -390,6 +390,103 @@ let _customer = null;
 let _allEvents = [];
 let _tlFilter = 'all';
 
+// ── Intelligence Scoring Functions (Phase 4) ──────────────────────────────────
+function normCity(city) {
+  if (!city || !city.trim()) return 'Other';
+  let c = city.trim();
+  if (/^(sw\s*ranches?|s\.?\s*w\.?\s*ranches?|southwest\s+ranches?|south\s+west\s+ranches?)$/i.test(c)) return 'Southwest Ranches';
+  if (/^(ft\.?\s*lauderdale|fort\s+lauderdale)$/i.test(c)) return 'Fort Lauderdale';
+  return (c.replace(/\s*[-–—]\s*.+$/,'').trim()) || 'Other';
+}
+
+function estimateCycleDays(c) {
+  const spend = c.lifetimeSpend || 0;
+  const jobs  = Math.max(c.totalJobs || 1, 1);
+  const avg   = spend / jobs;
+  if (c.hasSealHistory) return 365;
+  if (avg > 400) return 480;
+  if (avg > 250) return 365;
+  return 270;
+}
+
+function calcChurnRisk(c) {
+  if (c.movedAway) return 100;
+  if (c.optOut) return 90;
+  if (!c.lastService) return (c.lifetimeSpend || 0) > 0 ? 55 : 50;
+  const daysSince = (Date.now() - new Date(c.lastService + 'T12:00:00').getTime()) / 86400000;
+  const cycleDays = estimateCycleDays(c);
+  const ratio     = daysSince / cycleDays;
+  let score = 0;
+  if      (ratio < 0.7) score = 5;
+  else if (ratio < 1.0) score = 15;
+  else if (ratio < 1.5) score = 30;
+  else if (ratio < 2.0) score = 50;
+  else if (ratio < 3.0) score = 70;
+  else                  score = 85;
+  if (c.sealingInterest) score -= 15;
+  if ((c.totalJobs || 0) >= 5) score -= 5;
+  const qs = c.quoteStatus || {};
+  if (['phone_quoted_pending_mini_quote','phone_quoted_mini_quote_sent'].includes(qs.state)) score -= 10;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function churnLabel(score) {
+  if (score <= 20) return { label: 'HEALTHY', color: '#16a34a' };
+  if (score <= 50) return { label: 'WATCH',   color: '#d97706' };
+  if (score <= 75) return { label: 'AT RISK', color: '#ea580c' };
+  return { label: 'CRITICAL', color: '#dc2626' };
+}
+
+function calcSealingReceptivity(c) {
+  if (c.hasSealHistory)  return 95;
+  if (c.sealingInterest) return 85;
+  let score = 20;
+  const spend = c.lifetimeSpend || 0;
+  if (spend >= 1500) score += 20;
+  else if (spend >= 800) score += 10;
+  const jobs = c.totalJobs || 0;
+  if (jobs >= 4) score += 15;
+  else if (jobs >= 2) score += 8;
+  const city = normCity(c.city || '').toLowerCase();
+  const premiumCities = ['weston','southwest ranches','davie','plantation','parkland','coral springs','pembroke pines'];
+  if (premiumCities.some(pc => city.includes(pc))) score += 15;
+  return Math.min(100, score);
+}
+
+function predictNextService(c) {
+  if (!c.lastService) return null;
+  const cycleDays   = estimateCycleDays(c);
+  const lastMs      = new Date(c.lastService + 'T12:00:00').getTime();
+  const predictedMs = lastMs + cycleDays * 86400000;
+  const daysUntil   = Math.round((predictedMs - Date.now()) / 86400000);
+  return { predictedMs, daysUntil, cycleDays, confidence: (c.totalJobs || 0) >= 3 ? 'MEDIUM' : 'LOW' };
+}
+
+function renderPredictions(c) {
+  const churnScore  = calcChurnRisk(c);
+  const { label: churnLbl, color: churnColor } = churnLabel(churnScore);
+  const sealScore   = calcSealingReceptivity(c);
+  const sealLbl     = sealScore >= 70 ? 'HIGH' : sealScore >= 50 ? 'MODERATE' : 'LOW';
+  const nextSvc     = predictNextService(c);
+
+  const chips = [
+    { label: 'Churn Risk',   val: `${churnScore}/100 ${churnLbl}`, color: churnColor,  icon: '🚨' },
+    { label: 'Sealing',      val: `${sealScore}/100 ${sealLbl}`,   color: sealScore >= 70 ? '#7c3aed' : '#6b7280', icon: '💎' },
+    { label: 'Next Service', val: nextSvc ? (nextSvc.daysUntil > 0 ? `In ${nextSvc.daysUntil}d` : `${Math.abs(nextSvc.daysUntil)}d overdue`) : '—', color: nextSvc && nextSvc.daysUntil < 0 ? '#dc2626' : '#2d7dd2', icon: '📅' },
+  ];
+
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:.75rem;margin-bottom:.75rem;">
+    ${chips.map(chip => `
+      <div style="background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;flex:1;min-width:120px;border-top:3px solid ${chip.color};">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">${chip.icon} ${chip.label}</div>
+        <div style="font-size:13px;font-weight:700;color:${chip.color};">${chip.val}</div>
+      </div>`).join('')}
+    <div style="width:100%;font-size:11px;color:var(--muted);text-align:right;margin-top:2px;">
+      <a href="/pure_cleaning_intelligence.html" style="color:#2d7dd2;font-weight:600;text-decoration:none;">View Intelligence Center →</a>
+    </div>
+  </div>`;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:d; }
@@ -608,6 +705,17 @@ function renderProfile(customer, events){
   document.getElementById('callouts').innerHTML=callouts.map(co=>
     `<div class="callout ${co.cls}">${co.text}</div>`
   ).join('');
+
+  // ── Predictions Row (Phase 4) ──
+  let predRow = document.getElementById('predictionsRow');
+  if (!predRow) {
+    predRow = document.createElement('div');
+    predRow.id = 'predictionsRow';
+    predRow.style.cssText = 'max-width:1100px;margin:0 auto;padding:0 16px;';
+    const calloutsEl = document.getElementById('callouts');
+    calloutsEl.parentNode.insertBefore(predRow, calloutsEl.nextSibling);
+  }
+  predRow.innerHTML = renderPredictions(c);
 
   // ── Timeline ──
   const entries=buildTimeline(c, events);
