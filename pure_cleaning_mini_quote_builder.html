@@ -135,8 +135,9 @@ let customIdCounter = 0;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
-  const phone = new URLSearchParams(window.location.search).get('phone');
-  if (!phone) { showError('No customer phone specified.'); return; }
+  const rawPhone = new URLSearchParams(window.location.search).get('phone');
+  if (!rawPhone) { showError('No customer phone specified.'); return; }
+  const phone = rawPhone.replace(/\D/g, '').slice(-10); // normalize to digits
 
   try {
     const [dbRes, addonsRes] = await Promise.all([
@@ -144,7 +145,8 @@ async function init() {
       fetch(`${PCPC_API}/addons-config`)
     ]);
     const db = await dbRes.json();
-    customer = (db.customers || []).find(c => c.phone === phone);
+    // Normalize both sides so format mismatches never cause "not found"
+    customer = (db.customers || []).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
     if (!customer) { showError('Customer not found for phone: ' + phone); return; }
 
     const addonsData = addonsRes.ok ? await addonsRes.json() : { addons: [] };
@@ -397,7 +399,8 @@ async function saveMiniQuote(sendText) {
     // Load DB to patch customer
     const dbRes = await fetch(`${PCPC_API}/customers`);
     const db    = await dbRes.json();
-    const cust  = (db.customers || []).find(c => c.phone === customer.phone);
+    const _nph  = (p) => (p||'').replace(/\D/g,'').slice(-10);
+    const cust  = (db.customers || []).find(c => _nph(c.phone) === _nph(customer.phone));
     if (!cust) throw new Error('Customer not found in DB');
 
     const miniQuoteCustomData = {

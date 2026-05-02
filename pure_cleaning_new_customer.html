@@ -84,6 +84,16 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .mbtn-c{flex:1;padding:14px;border:2px solid var(--border);border-radius:11px;background:none;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;color:var(--muted);}
 .mbtn-a{flex:2;padding:14px;border:none;border-radius:11px;background:var(--navy);color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
 .mbtn-a:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+/* ── Service Picker ── */
+.svc-row{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);-webkit-tap-highlight-color:transparent;transition:background .1s;}
+.svc-row:last-child{border-bottom:none;}
+.svc-row:hover{background:#fafafa;}
+.svc-row.selected{background:#fff6f2;border-left:3px solid var(--red);}
+.svc-row:not(.selected){padding-left:17px;}
+.svc-check{flex-shrink:0;width:20px;height:20px;border:2px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;transition:all .12s;}
+.svc-row.selected .svc-check{background:var(--red);border-color:var(--red);}
+.svc-name{flex:1;font-size:15px;font-weight:600;color:var(--text);}
+.svc-count{font-size:11px;color:var(--muted);white-space:nowrap;}
 .path-toggle{background:var(--white);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.25rem;}
 .path-opt{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
 .path-opt:not(:last-child){border-bottom:1px solid var(--border);}
@@ -179,7 +189,22 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     <div id="phoneFields">
       <div class="field" style="margin-top:.75rem;">
         <label>Services agreed<span class="field-req">*</span></label>
-        <textarea id="pServices" class="notes-box" style="min-height:70px;" placeholder="e.g. Driveway + front walk, house wash" oninput="checkReq()"></textarea>
+        <div id="servicePicker" style="background:var(--white);border:2px solid var(--border);border-radius:12px;overflow:hidden;">
+          <div id="primaryServices"></div>
+          <div id="showMoreWrap" style="display:none;border-top:1px solid var(--border);">
+            <button type="button" id="showMoreBtn" onclick="toggleSecondaryServices()" style="width:100%;padding:10px 14px;background:none;border:none;text-align:left;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--sky);cursor:pointer;display:flex;align-items:center;gap:6px;">
+              <span id="showMoreArrow">▸</span> <span id="showMoreLabel">Show less common services (9 more)</span>
+            </button>
+            <div id="secondaryServices" style="display:none;border-top:1px solid var(--border);"></div>
+          </div>
+          <div style="border-top:1px solid var(--border);">
+            <button type="button" onclick="toggleCustomService()" style="width:100%;padding:10px 14px;background:none;border:none;text-align:left;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--sky);cursor:pointer;">+ Add custom service / specify details</button>
+            <div id="customServiceWrap" style="display:none;padding:0 14px 12px;">
+              <input id="customServiceText" class="fi" type="text" placeholder="e.g. Boat trailer, garage door, specific detail…" style="font-size:14px;" oninput="updateSelectedSummary()">
+            </div>
+          </div>
+        </div>
+        <div id="selectedSummary" style="font-size:13px;color:var(--sky);margin-top:6px;font-weight:600;min-height:18px;"></div>
       </div>
       <div class="field-row">
         <div class="field">
@@ -379,6 +404,130 @@ async function getCachedCustomerDB() {
   return data;
 }
 
+// ── SERVICE PICKER ────────────────────────────────────────────────────────────
+const PCPC_API_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
+const DEFAULT_SERVICES = {
+  primary: [
+    {id:'rinse_walls',   name:'Rinse Walls',        count:1117, pct:60.3},
+    {id:'entranceway',   name:'Entranceway',        count:1042, pct:56.3},
+    {id:'driveway',      name:'Driveway',           count:965,  pct:52.1},
+    {id:'roof_cleaning', name:'Roof Cleaning',      count:944,  pct:51.0},
+    {id:'patio',         name:'Patio',              count:943,  pct:50.9},
+    {id:'walkway',       name:'Walkway / Sidewalk', count:802,  pct:43.3},
+  ],
+  secondary: [
+    {id:'fence',       name:'Fence',              count:89,  pct:4.8},
+    {id:'rust_removal',name:'Rust Removal',       count:39,  pct:2.1},
+    {id:'sealing',     name:'Sealing',            count:35,  pct:1.9},
+    {id:'gutters',     name:'Gutters',            count:31,  pct:1.7},
+    {id:'pool_deck',   name:'Pool Deck',          count:27,  pct:1.5},
+    {id:'windows',     name:'Windows',            count:25,  pct:1.4},
+    {id:'paver_sand',  name:'Pavers / Joint Sand',count:25,  pct:1.3},
+    {id:'garage',      name:'Garage',             count:16,  pct:0.9},
+    {id:'balcony',     name:'Balcony',            count:13,  pct:0.7},
+  ],
+};
+let _svcData   = DEFAULT_SERVICES;
+let _svcSel    = new Set();
+let _svcSecExp = false;
+let _svcCustExp = false;
+
+function renderServicePicker() {
+  const pEl = document.getElementById('primaryServices');
+  const sEl = document.getElementById('secondaryServices');
+  const mWrap = document.getElementById('showMoreWrap');
+  if (!pEl) return;
+  pEl.innerHTML = (_svcData.primary || []).map(s => svcRowHtml(s)).join('');
+  if (sEl) sEl.innerHTML = (_svcData.secondary || []).map(s => svcRowHtml(s)).join('');
+  if (mWrap) mWrap.style.display = '';
+  updateSelectedSummary();
+}
+
+function svcRowHtml(s) {
+  const sel = _svcSel.has(s.id);
+  const count = s.count >= 1000 ? (s.count/1000).toFixed(1)+'K' : s.count;
+  return `<div class="svc-row${sel?' selected':''}" data-id="${s.id}" onclick="toggleService('${s.id}')">
+    <div class="svc-check">${sel?'✓':''}</div>
+    <div class="svc-name">${s.name}</div>
+    <div class="svc-count">${count} jobs (${s.pct}%)</div>
+  </div>`;
+}
+
+function toggleService(id) {
+  if (_svcSel.has(id)) _svcSel.delete(id); else _svcSel.add(id);
+  // Re-render just this row
+  document.querySelectorAll(`[data-id="${id}"]`).forEach(el => {
+    const sel = _svcSel.has(id);
+    el.className = 'svc-row' + (sel ? ' selected' : '');
+    el.style.paddingLeft = sel ? '' : '17px';
+    const chk = el.querySelector('.svc-check');
+    if (chk) chk.textContent = sel ? '✓' : '';
+  });
+  updateSelectedSummary();
+  checkReq();
+}
+
+function toggleSecondaryServices() {
+  _svcSecExp = !_svcSecExp;
+  const sec = document.getElementById('secondaryServices');
+  const btn = document.getElementById('showMoreLabel');
+  const arr = document.getElementById('showMoreArrow');
+  if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
+  if (btn) btn.textContent = _svcSecExp ? 'Hide less common services' : `Show less common services (${(_svcData.secondary||[]).length} more)`;
+  if (arr) arr.textContent = _svcSecExp ? '▾' : '▸';
+}
+
+function toggleCustomService() {
+  _svcCustExp = !_svcCustExp;
+  const wrap = document.getElementById('customServiceWrap');
+  if (wrap) {
+    wrap.style.display = _svcCustExp ? 'block' : 'none';
+    if (_svcCustExp) document.getElementById('customServiceText')?.focus();
+  }
+  updateSelectedSummary();
+}
+
+function updateSelectedSummary() {
+  const el = document.getElementById('selectedSummary');
+  if (!el) return;
+  const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
+  const names = [..._svcSel].map(id => (all.find(s=>s.id===id)||{}).name).filter(Boolean);
+  const custom = (document.getElementById('customServiceText')?.value||'').trim();
+  if (custom) names.push(custom);
+  el.textContent = names.length ? 'Selected: ' + names.join(', ') : '';
+}
+
+function getServicesAgreedValue() {
+  const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
+  const structured = [..._svcSel];
+  const names = structured.map(id => (all.find(s=>s.id===id)||{}).name).filter(Boolean);
+  const custom = (document.getElementById('customServiceText')?.value||'').trim();
+  if (custom) names.push(custom);
+  return {
+    structured,
+    structuredDisplay: names.filter(n => !custom || n !== custom),
+    custom,
+    fullDescription: names.join(', ')
+  };
+}
+
+function resetServicePicker() {
+  _svcSel.clear();
+  _svcSecExp = false;
+  _svcCustExp = false;
+  const cst = document.getElementById('customServiceText'); if (cst) cst.value = '';
+  const cw = document.getElementById('customServiceWrap'); if (cw) cw.style.display = 'none';
+  renderServicePicker();
+}
+
+async function loadServiceFrequency() {
+  try {
+    const r = await fetch(`${PCPC_API_BASE}/service-frequency`);
+    if (r.ok) _svcData = await r.json();
+  } catch(e) { /* use DEFAULT_SERVICES fallback */ }
+  renderServicePicker();
+}
+
 const PRESETS = [
   {type:'no_chemicals', icon:'🚫', label:'No chemicals',            severity:'high'},
   {type:'beware_dog',   icon:'⚠️', label:'Beware of dog',           severity:'high'},
@@ -412,6 +561,7 @@ let _saving = false;
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
   buildPresetGrid();
+  loadServiceFrequency(); // fire-and-forget; renders picker with live counts once loaded
   try {
     const data   = await getCachedCustomerDB();
     dbRecord     = data || {};
@@ -464,7 +614,8 @@ function startNew() {
 }
 
 function resetForm() {
-  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pServices','pHours','pPrice'].forEach(id => {
+  resetServicePicker();
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pHours','pPrice'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
   const ls = document.getElementById('nLeadSource'); if (ls) ls.value = 'unknown';
@@ -558,9 +709,9 @@ function checkReq() {
   const btn  = document.getElementById('submitBtn');
   let ok = !!(fn && ln && ph.length===10 && addr && city);
   if (ok && currentPath === 'phone') {
-    const services = (document.getElementById('pServices').value||'').trim();
-    const price    = (document.getElementById('pPrice').value||'').trim();
-    ok = !!(services && price);
+    const svc = getServicesAgreedValue();
+    const price = (document.getElementById('pPrice').value||'').trim();
+    ok = !!(svc.fullDescription && price);
   }
   if (btn) btn.disabled = !ok;
 }
@@ -602,13 +753,15 @@ async function submitPhonePath() {
   const email   = document.getElementById('nEmail').value.trim();
   const zip     = document.getElementById('nZip').value.trim();
   const notes   = document.getElementById('nNotes').value.trim();
-  const services = document.getElementById('pServices').value.trim();
+  const svcAgreed = getServicesAgreedValue();
+  const services  = svcAgreed.fullDescription;
   const hours    = parseFloat(document.getElementById('pHours').value) || null;
   const price    = parseFloat(document.getElementById('pPrice').value);
   try {
     let customer;
     if (!isNew && currentCustomer) {
-      customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
+      const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
+      customer = (dbRecord.customers||[]).find(c=>_nph(c.phone)===_nph(currentCustomer.phone));
       if (customer) {
         customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
         if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
@@ -618,6 +771,7 @@ async function submitPhonePath() {
           state: 'phone_quoted_pending_mini_quote',
           mainAmount: price,
           mainServices: services,
+          servicesAgreed: svcAgreed,
           estimatedHours: hours,
           quotedDate: new Date().toISOString(),
           miniQuoteCustomData: null
@@ -635,6 +789,7 @@ async function submitPhonePath() {
           state: 'phone_quoted_pending_mini_quote',
           mainAmount: price,
           mainServices: services,
+          servicesAgreed: svcAgreed,
           estimatedHours: hours,
           quotedDate: new Date().toISOString(),
           miniQuoteCustomData: null
@@ -647,7 +802,7 @@ async function submitPhonePath() {
       allCustomers.push(customer);
     }
     _lastSavedCustomer = customer;
-    saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
+    try { await saveDb(); } catch(e) { console.warn('[new_customer] DB save failed:', e.message); }
     showBuildMiniQuoteModal(customer);
   } catch(e) {
     alert('Error: ' + e.message);

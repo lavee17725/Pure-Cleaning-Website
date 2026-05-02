@@ -136,4 +136,36 @@ window.pcpcApi = {
     if (key) delete this._cache[key];
     else this._cache = {};
   },
+
+  // ── Phone utilities ─────────────────────────────────────────────────────────
+  // Always store phones as 10 digits; display/lookup normalized through these helpers.
+
+  normalizePhone(phone) {
+    if (!phone) return '';
+    return String(phone).replace(/\D/g, '').slice(-10); // strip non-digits, keep last 10
+  },
+
+  matchByPhone(customers, phone) {
+    const q = this.normalizePhone(phone);
+    if (!q) return null;
+    return (customers || []).find(c => this.normalizePhone(c.phone) === q) || null;
+  },
+
+  formatPhoneDisplay(phone) {
+    const d = this.normalizePhone(phone);
+    if (d.length !== 10) return d || '—';
+    return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+  },
+
+  // Normalize all phones in DB to digits-only (one-time backfill)
+  async normalizeAllPhones() {
+    const db = await this.getCustomerDB();
+    let changed = 0;
+    (db.customers || []).forEach(c => {
+      const norm = this.normalizePhone(c.phone);
+      if (norm && norm !== c.phone) { c.phone = norm; changed++; }
+    });
+    if (changed > 0) await this.saveCustomerDB(db);
+    return changed;
+  },
 };

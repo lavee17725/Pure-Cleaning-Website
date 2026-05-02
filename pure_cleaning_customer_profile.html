@@ -1003,7 +1003,8 @@ async function savePropertyMeasurements() {
   try {
     const dbRes = await fetch(`${API}/customers`);
     const db    = await dbRes.json();
-    const cust  = (db.customers || []).find(c => c.phone === _customer.phone);
+    const _nph2 = p => String(p||'').replace(/\D/g,'').slice(-10);
+    const cust  = (db.customers || []).find(c => _nph2(c.phone) === _nph2(_customer.phone));
     if (!cust) throw new Error('Customer not found');
     cust.property = prop;
     // Auto-geocode if address exists and hasn't been geocoded yet
@@ -1065,7 +1066,8 @@ async function init(){
     const customers=custData.customers||[];
     const events=evtData.events||[];
 
-    const customer=customers.find(c=>String(c.phone)===String(phone));
+    const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
+    const customer=customers.find(c=>_nph(c.phone)===_nph(phone));
     if(!customer){
       showError('Customer not found',`No record found for phone number ${fmtPh(phone)}.`);
       return;
