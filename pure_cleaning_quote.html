@@ -1356,17 +1356,24 @@
   }
 
   // ── LIVE GOOGLE REVIEW COUNT ──────────────────────────────────────
-  // Fetches review count from Worker (update via wrangler kv:key put reviews_data when count changes)
   (async () => {
-    const CACHE_KEY = 'pcpc_google_reviews_quote';
+    const CACHE_KEY    = 'pcpc_google_reviews_quote';
+    const REFRESH_KEY  = 'pcpc_reviews_refresh';
     const TTL = 24 * 60 * 60 * 1000;
     try {
       let count = 101;
+      const refreshFlag = parseInt(localStorage.getItem(REFRESH_KEY) || '0');
       const cached = localStorage.getItem(CACHE_KEY);
+      let useCache = false;
       if (cached) {
         const { data, timestamp } = JSON.parse(cached);
-        if (Date.now() - timestamp < TTL && data.count) { count = data.count; }
-      } else {
+        // Use cache if not expired AND admin hasn't refreshed since this cache was written
+        if (Date.now() - timestamp < TTL && data.count && refreshFlag <= timestamp) {
+          count = data.count;
+          useCache = true;
+        }
+      }
+      if (!useCache) {
         const r = await fetch('https://purecleaning-api.tylerfumero.workers.dev/reviews');
         const rec = await r.json();
         if (rec && rec.count) {

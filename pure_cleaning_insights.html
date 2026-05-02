@@ -348,17 +348,34 @@ function fmt$(n) {
   return '$'+Math.round(n).toLocaleString();
 }
 function fmtFull(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
-// Sum actual per-job revenue from jobHistory in bounds
+// Sum actual per-job revenue from jobHistory in bounds.
+// For legacy customers (CSV import) with no jobHistory, falls back to lifetimeSpend attributed to lastService date.
 function jobHistRevInPeriod(c, bounds) {
   let rev = 0;
-  if (c.jobHistory && Array.isArray(c.jobHistory)) {
+  const hasJobHist = c.jobHistory && Array.isArray(c.jobHistory) && c.jobHistory.length > 0;
+
+  if (hasJobHist) {
     c.jobHistory.forEach(job => {
       if (!job.date) return;
       const total = parseFloat(job.total) || 0;
       if (total <= 0 || total > 50000) return;
       try { const d = new Date(job.date + 'T12:00:00'); if (d >= bounds.start && d <= bounds.end) rev += total; } catch {}
     });
+  } else {
+    // Legacy fallback: attribute all historical spend to lastService date
+    const spend = parseFloat(c.lifetimeSpend) || 0;
+    if (spend > 0) {
+      const dateStr = c.lastService;
+      if (dateStr) {
+        try { const d = new Date(dateStr + 'T12:00:00'); if (d >= bounds.start && d <= bounds.end) rev += spend; } catch {}
+      } else if (+bounds.start <= +new Date(2015, 0, 1)) {
+        // No date at all — only count in wide/all-time queries
+        rev += spend;
+      }
+    }
   }
+
+  // New-system jobs: scheduledStatus amount with an explicit date
   const ss = c.scheduledStatus || {}, qs = c.quoteStatus || {};
   const amt = ss.approvedAmount || 0;
   if (amt > 0) {
@@ -368,17 +385,32 @@ function jobHistRevInPeriod(c, bounds) {
   return rev;
 }
 
-// Count actual jobs in period from jobHistory
+// Count actual jobs in period from jobHistory.
+// Legacy fallback: attribute totalJobs to lastService date when no jobHistory.
 function jobHistJobsInPeriod(c, bounds) {
   let count = 0;
-  if (c.jobHistory && Array.isArray(c.jobHistory)) {
+  const hasJobHist = c.jobHistory && Array.isArray(c.jobHistory) && c.jobHistory.length > 0;
+
+  if (hasJobHist) {
     c.jobHistory.forEach(job => {
       if (!job.date) return;
       const total = parseFloat(job.total) || 0;
       if (total <= 0 || total > 50000) return;
       try { const d = new Date(job.date + 'T12:00:00'); if (d >= bounds.start && d <= bounds.end) count++; } catch {}
     });
+  } else {
+    const jobs = parseInt(c.totalJobs) || 0;
+    if (jobs > 0) {
+      const dateStr = c.lastService;
+      if (dateStr) {
+        try { const d = new Date(dateStr + 'T12:00:00'); if (d >= bounds.start && d <= bounds.end) count += jobs; } catch {}
+      } else if (+bounds.start <= +new Date(2015, 0, 1)) {
+        count += jobs;
+      }
+    }
   }
+
+  // New-system completed jobs
   const ss = c.scheduledStatus || {};
   if (ss.state === 'completed' && ss.scheduledDate && (ss.approvedAmount || 0) > 0) {
     try { const d = new Date(ss.scheduledDate + 'T12:00:00'); if (d >= bounds.start && d <= bounds.end) count++; } catch {}
@@ -508,8 +540,9 @@ function renderRevenue() {
 
   const monthly = {};
   custs.forEach(c => {
-    // Per-job amounts from jobHistory
-    if (c.jobHistory && Array.isArray(c.jobHistory)) {
+    const hasJobHist = c.jobHistory && Array.isArray(c.jobHistory) && c.jobHistory.length > 0;
+    if (hasJobHist) {
+      // Per-job amounts from jobHistory
       c.jobHistory.forEach(job => {
         if (!job.date) return;
         const total = parseFloat(job.total) || 0;
@@ -519,6 +552,16 @@ function renderRevenue() {
         const key = `${d.getFullYear()}-${d.getMonth()}`;
         monthly[key] = (monthly[key]||0) + total;
       });
+    } else {
+      // Legacy fallback: attribute lifetimeSpend to lastService month
+      const spend = parseFloat(c.lifetimeSpend) || 0;
+      if (spend > 0 && c.lastService) {
+        const d = parseDate(c.lastService);
+        if (d && d.getFullYear() >= lastYr) {
+          const key = `${d.getFullYear()}-${d.getMonth()}`;
+          monthly[key] = (monthly[key]||0) + spend;
+        }
+      }
     }
     // New-system jobs: scheduledDate or approvedDate + approvedAmount
     const ss = c.scheduledStatus || {}, qs = c.quoteStatus || {};
@@ -1184,18 +1227,22 @@ function renderPhoneQuoteFunnel() {
 }
 
 function renderAll() {
-  renderHero();
-  renderRevenue();
-  renderSourcePie();
-  renderVariantPie();
-  renderServiceMix();
-  renderFunnel();
-  renderHeatmap();
-  renderGeo();
-  renderLifecycle();
-  renderReactivation();
-  renderPhoneQuoteFunnel();
-  renderActions();
+  [
+    ['Hero',            renderHero],
+    ['Revenue',         renderRevenue],
+    ['SourcePie',       renderSourcePie],
+    ['VariantPie',      renderVariantPie],
+    ['ServiceMix',      renderServiceMix],
+    ['Funnel',          renderFunnel],
+    ['Heatmap',         renderHeatmap],
+    ['Geo',             renderGeo],
+    ['Lifecycle',       renderLifecycle],
+    ['Reactivation',    renderReactivation],
+    ['PhoneQuoteFunnel',renderPhoneQuoteFunnel],
+    ['Actions',         renderActions],
+  ].forEach(([name, fn]) => {
+    try { fn(); } catch(e) { console.error(`[insights] ${name} render failed:`, e); }
+  });
 }
 
 // ─── Period tabs ─────────────────────────────────────────────────────────────

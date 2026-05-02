@@ -123,6 +123,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
     <div id="addonsEditor" style="margin-top:.75rem;display:none;"></div>
   </div>
 
+  <!-- Utility: Google Reviews -->
+  <div class="util-panel" id="reviewsPanel">
+    <div class="util-title">⭐ Google Reviews</div>
+    <div class="util-desc" id="reviewsDesc">Loading current count…</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:.625rem;">
+      <div style="position:relative;flex:1;max-width:120px;">
+        <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--muted);">#</span>
+        <input type="number" id="reviewsInput" min="0" max="9999" style="width:100%;padding:6px 8px 6px 24px;background:var(--cream);border:1.5px solid var(--border);border-radius:7px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;" placeholder="107">
+      </div>
+      <button class="util-btn" onclick="saveReviewCount()" id="reviewsSaveBtn">Save →</button>
+      <span id="reviewsSaveStatus" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div style="margin-top:.5rem;font-size:12px;color:var(--muted);">Tip: Check Google Business Profile for your current count.</div>
+  </div>
+
   <div class="footer">
     <strong>Bookmark this page</strong><br>
     iPhone: tap <strong>Share ⬆</strong> → <strong>Add to Home Screen</strong><br>
@@ -396,9 +411,56 @@ function showAlertToast(evt) {
 function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+// ── GOOGLE REVIEWS ─────────────────────────────────────────────────────────────
+async function loadReviewCount() {
+  try {
+    const res = await fetch(`${PCPC_API}/reviews`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const count = data.count || 101;
+    const updated = data.lastUpdated
+      ? new Date(data.lastUpdated).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : 'unknown';
+    document.getElementById('reviewsDesc').innerHTML =
+      `Currently displaying: <strong>${count}+</strong> reviews &nbsp;·&nbsp; Last updated: ${_esc(updated)}`;
+    document.getElementById('reviewsInput').value = count;
+  } catch(e) {
+    document.getElementById('reviewsDesc').textContent = 'Could not load review count.';
+  }
+}
+
+async function saveReviewCount() {
+  const input = document.getElementById('reviewsInput');
+  const status = document.getElementById('reviewsSaveStatus');
+  const btn = document.getElementById('reviewsSaveBtn');
+  const count = parseInt(input.value);
+  if (!count || count < 1) { status.textContent = '✗ Enter a valid number'; return; }
+  btn.textContent = 'Saving…'; status.textContent = '';
+  try {
+    const res = await fetch(`${PCPC_API}/reviews`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ count })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const updated = new Date(data.lastUpdated).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+    document.getElementById('reviewsDesc').innerHTML =
+      `Currently displaying: <strong>${count}+</strong> reviews &nbsp;·&nbsp; Last updated: ${_esc(updated)}`;
+    status.textContent = `✓ Updated to ${count}`;
+    // Signal customer pages to bust their cached review count
+    try { localStorage.setItem('pcpc_reviews_refresh', Date.now().toString()); } catch {}
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch(e) {
+    status.textContent = '✗ ' + e.message;
+  }
+  btn.textContent = 'Save →';
+}
+
 // ── INIT ────────────────────────────────────────────────────────────────────────
 renderTools();
 loadIncomingCount();
+loadReviewCount();
 checkAlerts();
 setInterval(checkAlerts, 60_000);
 </script>
