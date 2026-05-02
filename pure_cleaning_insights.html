@@ -141,6 +141,11 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
 .ch-240{position:relative;height:240px;}
 .ch-200{position:relative;height:200px;}
 .ch-260{position:relative;height:260px;}
+
+/* ── Drill-down panel ── */
+@media(max-width:767px){
+  #ddPanel{width:100% !important;top:auto !important;height:85vh;transform:translateY(100%) !important;border-radius:20px 20px 0 0;}
+}
 </style>
 </head>
 <body>
@@ -250,6 +255,10 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   </div>
 
 
+  <!-- S7: INTELLIGENCE QUEUES -->
+  <div class="sec-hdr">Intelligence Queues</div>
+  <div id="intelligenceCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:.5rem;"></div>
+
   <!-- S8: REACTIVATION -->
   <div class="sec-hdr">Reactivation Campaign Health</div>
   <div class="card">
@@ -287,6 +296,19 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   <div class="action-list" id="actionItems"></div>
 </main>
 
+<div id="ddOverlay" style="display:none;position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.45);" onclick="if(event.target===this)closeDrilldown()"></div>
+<div id="ddPanel" style="display:none;position:fixed;top:0;right:0;bottom:0;width:480px;max-width:100vw;background:#fff;box-shadow:-4px 0 24px rgba(0,0,0,.15);z-index:801;flex-direction:column;transform:translateX(100%);transition:transform .3s ease-out;">
+  <div id="ddHdr" style="padding:1rem 1.25rem;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+    <button onclick="closeDrilldown()" style="background:none;border:none;cursor:pointer;font-size:18px;color:#64748b;padding:2px;">✕</button>
+    <div style="flex:1;">
+      <div id="ddTitle" style="font-size:15px;font-weight:700;color:#1e293b;"></div>
+      <div id="ddSubtitle" style="font-size:12px;color:#64748b;margin-top:1px;"></div>
+    </div>
+    <button onclick="exportDrilldownCSV()" style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;color:#475569;font-family:'DM Sans',sans-serif;white-space:nowrap;">↓ CSV</button>
+  </div>
+  <div id="ddBody" style="flex:1;overflow-y:auto;padding:.75rem;"></div>
+</div>
+
 <script>
 const PCPC_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
 
@@ -296,6 +318,213 @@ let activePeriod = 'all';
 let charts = {};
 
 const TODAY = new Date();
+
+// ─── Drill-down utility helpers ──────────────────────────────────────────────
+function fmtPh(p) { return (!p||p.length!==10)?p||'—':`(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`; }
+function fmtDate(s) { if(!s)return'—'; try{return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}catch{return s;} }
+function fmtDateTime(s) { if(!s)return'—'; try{const d=new Date(s);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});}catch{return s;} }
+function monthsAgo(s) { if(!s)return null; try{return Math.round((TODAY-new Date(s+'T12:00:00'))/(864e5*30));}catch{return null;} }
+function _ddEsc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── Drill-down panel ────────────────────────────────────────────────────────
+let _ddRecords = [];
+
+function openDrilldown(title, subtitle, records) {
+  _ddRecords = records;
+  document.getElementById('ddTitle').textContent = title;
+  document.getElementById('ddSubtitle').textContent = subtitle;
+  renderDrilldownBody(records);
+
+  const overlay = document.getElementById('ddOverlay');
+  const panel   = document.getElementById('ddPanel');
+  overlay.style.display = 'block';
+  panel.style.display   = 'flex';
+  requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
+
+  const id = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/-+$/,'');
+  history.pushState(null, '', '#dd-' + id);
+}
+
+function closeDrilldown() {
+  const panel = document.getElementById('ddPanel');
+  panel.style.transform = 'translateX(100%)';
+  setTimeout(() => {
+    document.getElementById('ddOverlay').style.display = 'none';
+    panel.style.display = 'none';
+  }, 300);
+  if (location.hash.startsWith('#dd-')) history.pushState(null, '', location.pathname);
+}
+
+function renderDrilldownBody(records) {
+  const el = document.getElementById('ddBody');
+  if (!records.length) {
+    el.innerHTML = `<div style="text-align:center;padding:3rem 1rem;color:#64748b;"><div style="font-size:32px;margin-bottom:.75rem;">📭</div><div style="font-size:14px;font-weight:600;color:#334155;margin-bottom:.375rem;">No records found</div><div style="font-size:13px;">Nothing matches this filter yet.</div></div>`;
+    return;
+  }
+  el.innerHTML = records.map((r) => {
+    const phone = r.phone ? fmtPh(r.phone) : '';
+    const tags = (r.tags||[]).map(t => `<span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;background:#f1f5f9;color:#475569;margin-right:4px;">${t}</span>`).join('');
+    const rows = (r.rows||[]).map(rv => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span style="color:#64748b;">${rv.label}</span><span style="font-weight:600;color:#1e293b;">${rv.val}</span></div>`).join('');
+    const btns = (r.actions||[]).map(a => `<button onclick="(${a.fn.toString()})()" style="padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;background:#f1f5f9;border:1px solid #e2e8f0;color:#334155;margin-right:6px;margin-top:6px;">${a.label}</button>`).join('');
+    return `<div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-size:14px;font-weight:700;color:#0f172a;">${_ddEsc(r.name||'Unknown')}</div>
+        ${r.amount != null ? `<div style="font-size:13px;font-weight:700;color:#c2410c;">$${Number(r.amount).toLocaleString()}</div>` : ''}
+      </div>
+      ${phone||r.city ? `<div style="font-size:12px;color:#64748b;margin-bottom:4px;">${phone}${phone&&r.city?' · ':''}${_ddEsc(r.city||'')}</div>` : ''}
+      ${tags ? `<div style="margin-bottom:4px;">${tags}</div>` : ''}
+      ${rows ? `<div style="border-top:1px solid #f1f5f9;margin-top:6px;padding-top:6px;">${rows}</div>` : ''}
+      ${btns ? `<div>${btns}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function exportDrilldownCSV() {
+  if (!_ddRecords.length) return;
+  const title = document.getElementById('ddTitle').textContent || 'export';
+  const rows = _ddRecords.map(r => [
+    r.name||'', r.phone||'', r.city||'',
+    r.amount!=null?r.amount:'',
+    ...(r.rows||[]).map(rv => rv.val)
+  ]);
+  const headers = ['Name','Phone','City','Amount',...(_ddRecords[0]?.rows||[]).map(rv=>rv.label)];
+  const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = title.replace(/[^a-z0-9]/gi,'-').toLowerCase() + '.csv';
+  a.click();
+}
+
+window.addEventListener('keydown', e => { if(e.key==='Escape') closeDrilldown(); });
+window.addEventListener('popstate', () => { if(!location.hash.startsWith('#dd-')) closeDrilldown(); });
+
+// ─── Drill-down builders ─────────────────────────────────────────────────────
+
+function ddRevenue(bounds) {
+  const custs = dbRecord.customers||[];
+  return custs
+    .filter(c => jobHistRevInPeriod(c,bounds) > 0)
+    .map(c => ({
+      name: ((c.firstName||'')+' '+(c.lastName||'')).trim(),
+      phone: c.phone, city: normCity(c.city||''),
+      amount: jobHistRevInPeriod(c,bounds),
+      tags: [c.hasSealHistory?'💎 Seal':''].filter(Boolean),
+      rows: [
+        {label:'Last Service', val: fmtDate(c.lastService)},
+        {label:'Total Jobs',   val: String(c.totalJobs||0)},
+        {label:'Lifetime',     val: fmtFull(c.lifetimeSpend||0)},
+      ],
+      actions: [{label:'📱 Text', fn: () => { window.location.href='sms:+1'+c.phone; }}]
+    }))
+    .sort((a,b) => b.amount - a.amount);
+}
+
+function ddRepeatRate() {
+  const custs = dbRecord.customers||[];
+  return custs
+    .filter(c => (c.totalJobs||0) > 1)
+    .map(c => ({
+      name: ((c.firstName||'')+' '+(c.lastName||'')).trim(),
+      phone: c.phone, city: normCity(c.city||''),
+      amount: c.lifetimeSpend||0,
+      rows: [
+        {label:'Jobs',        val: String(c.totalJobs||0)},
+        {label:'Last Service',val: fmtDate(c.lastService)},
+        {label:'Since',       val: monthsAgo(c.lastService) != null ? monthsAgo(c.lastService)+'mo ago' : '—'},
+      ],
+      actions: [{label:'📱 Text', fn: () => { window.location.href='sms:+1'+c.phone; }}]
+    }))
+    .sort((a,b) => (b.amount||0)-(a.amount||0));
+}
+
+function ddActiveCustomers(bounds) {
+  const custs = dbRecord.customers||[];
+  return custs
+    .filter(c => jobHistRevInPeriod(c,bounds) > 0)
+    .map(c => ({
+      name: ((c.firstName||'')+' '+(c.lastName||'')).trim(),
+      phone: c.phone, city: normCity(c.city||''),
+      amount: null,
+      rows: [
+        {label:'Last Service',val: fmtDate(c.lastService)},
+        {label:'Revenue',     val: fmtFull(jobHistRevInPeriod(c,bounds))},
+        {label:'Jobs',        val: String(jobHistJobsInPeriod(c,bounds))},
+      ],
+      actions: [{label:'📱 Text', fn: () => { window.location.href='sms:+1'+c.phone; }}]
+    }));
+}
+
+function ddQuotesSent(bounds) {
+  const custs = dbRecord.customers||[];
+  return custs
+    .filter(c => c.quoteStatus && inPeriod(c.quoteStatus.sentDate, bounds))
+    .map(c => ({
+      name: ((c.firstName||'')+' '+(c.lastName||'')).trim(),
+      phone: c.phone, city: normCity(c.city||''),
+      amount: null,
+      tags: [c.quoteStatus.state||''],
+      rows: [
+        {label:'Sent',     val: fmtDate(c.quoteStatus.sentDate)},
+        {label:'Viewed',   val: c.quoteStatus.viewedDate ? fmtDate(c.quoteStatus.viewedDate) : 'Not yet'},
+        {label:'Approved', val: c.quoteStatus.approvedDate ? fmtDate(c.quoteStatus.approvedDate) : 'Not yet'},
+      ],
+      actions: [{label:'📱 Resend', fn: () => { window.location.href='sms:+1'+c.phone; }}]
+    }));
+}
+
+function ddQuotesApproved(bounds) {
+  const custs = dbRecord.customers||[];
+  return custs
+    .filter(c => c.quoteStatus && c.quoteStatus.state==='approved' && inPeriod(c.quoteStatus.approvedDate, bounds))
+    .map(c => ({
+      name: ((c.firstName||'')+' '+(c.lastName||'')).trim(),
+      phone: c.phone, city: normCity(c.city||''),
+      amount: c.quoteStatus.approvedAmount||null,
+      rows: [
+        {label:'Approved', val: fmtDate(c.quoteStatus.approvedDate)},
+        {label:'Jobs',     val: String(c.totalJobs||0)},
+      ],
+      actions: [{label:'📅 Schedule', fn: () => { window.open('/pure_cleaning_calendar.html','_blank'); }}]
+    }));
+}
+
+function ddPQEvents(eventType, titleFn) {
+  const custs = dbRecord.customers||[];
+  const evs = eventsData.filter(e => e.eventType === eventType);
+  return evs.map(e => {
+    const cust = e.customer || {};
+    const ph = cust.ph||'';
+    const full = custs.find(c => c.phone === ph);
+    const city = full ? normCity(full.city||'') : '';
+    const rows = titleFn(e, full);
+    return {
+      name: ((cust.fn||'')+' '+(cust.ln||'')).trim() || 'Unknown',
+      phone: ph, city,
+      amount: e.bundlePrice||e.newAmount||e.mainAmount||null,
+      rows,
+      actions: ph ? [{label:'📱 Text', fn: () => { window.location.href='sms:+1'+ph; }}] : []
+    };
+  });
+}
+
+function ddCityCustomers(city) {
+  const custs = dbRecord.customers||[];
+  return custs
+    .filter(c => normCity(c.city||'') === city)
+    .map(c => ({
+      name: ((c.firstName||'')+' '+(c.lastName||'')).trim(),
+      phone: c.phone, city,
+      amount: c.lifetimeSpend||0,
+      rows: [
+        {label:'Jobs',        val: String(c.totalJobs||0)},
+        {label:'Last Service',val: fmtDate(c.lastService)},
+      ],
+      actions: [{label:'📱 Text', fn: () => { window.location.href='sms:+1'+c.phone; }}]
+    }))
+    .sort((a,b)=>(b.amount||0)-(a.amount||0));
+}
+
 
 // ─── Period helpers ──────────────────────────────────────────────────────────
 function getPeriodBounds(p) {
@@ -503,18 +732,20 @@ function renderHero() {
     ? `<div style="font-size:10px;color:var(--amber);grid-column:1/-1;text-align:center;margin-top:4px;padding:.5rem;">💡 Jobs Completed = 0 because no jobs are marked complete yet. Revenue shows approved amount.</div>` : '';
 
   const cards = [
-    { lbl:'Revenue (Approved)',  val: revEarned > 0 ? fmt$(revEarned) : '—',              delta: delta(revEarned, revPrev) },
-    { lbl:'Jobs Completed',      val: String(jobs),                                         delta: delta(jobs, jobsPrev) },
-    { lbl:'Avg Ticket',          val: at > 0 ? fmt$(at) : '—',                             delta: delta(at, atPrev) },
-    { lbl:'Quotes Sent',         val: sentPhones.size > 0 ? String(sentPhones.size) : '—', delta: delta(sentPhones.size, prevSentPhones.size) },
-    { lbl:'Conversion Rate',     val: convRate !== null ? convRate + '%' : '—',            delta: '<span class="delta-n">Digital quotes only</span>' },
-    { lbl:'Quotes Approved',     val: approvedPhones.size > 0 ? String(approvedPhones.size) : '—', delta: '<span class="delta-n">Digital quotes only</span>' },
-    { lbl:'Active Customers',    val: String(activeCount),                                  delta: '<span class="delta-n">Any activity in period</span>' },
-    { lbl:'Repeat Rate',         val: repeatRt + '%',                                       delta: `<span class="delta-n">${repeatC} of ${totalC} customers</span>` },
+    { lbl:'Revenue (Approved)',  val: revEarned > 0 ? fmt$(revEarned) : '—',              delta: delta(revEarned, revPrev),   ddFn: () => openDrilldown('Revenue (Approved)', revEarned > 0 ? fmtFull(revEarned)+' across '+custs.filter(c=>jobHistRevInPeriod(c,bounds)>0).length+' customers' : 'No revenue in this period', ddRevenue(bounds)) },
+    { lbl:'Jobs Completed',      val: String(jobs),                                         delta: delta(jobs, jobsPrev),       ddFn: () => openDrilldown('Jobs Completed', jobs+' jobs in this period', ddRevenue(bounds)) },
+    { lbl:'Avg Ticket',          val: at > 0 ? fmt$(at) : '—',                             delta: delta(at, atPrev),           ddFn: () => openDrilldown('Avg Ticket', 'Sorted by revenue per job', ddRevenue(bounds)) },
+    { lbl:'Quotes Sent',         val: sentPhones.size > 0 ? String(sentPhones.size) : '—', delta: delta(sentPhones.size, prevSentPhones.size), ddFn: () => openDrilldown('Quotes Sent', sentPhones.size+' customers received a digital quote', ddQuotesSent(bounds)) },
+    { lbl:'Conversion Rate',     val: convRate !== null ? convRate + '%' : '—',            delta: '<span class="delta-n">Digital quotes only</span>', ddFn: () => openDrilldown('Quotes Approved', approvedPhones.size+' approvals', ddQuotesApproved(bounds)) },
+    { lbl:'Quotes Approved',     val: approvedPhones.size > 0 ? String(approvedPhones.size) : '—', delta: '<span class="delta-n">Digital quotes only</span>', ddFn: () => openDrilldown('Quotes Approved', approvedPhones.size+' approved', ddQuotesApproved(bounds)) },
+    { lbl:'Active Customers',    val: String(activeCount),                                  delta: '<span class="delta-n">Any activity in period</span>', ddFn: () => openDrilldown('Active Customers', activeCount+' customers with activity in period', ddActiveCustomers(bounds)) },
+    { lbl:'Repeat Rate',         val: repeatRt + '%',                                       delta: `<span class="delta-n">${repeatC} of ${totalC} customers</span>`, ddFn: () => openDrilldown('Repeat Customers', repeatC+' customers with 2+ jobs', ddRepeatRate()) },
   ];
 
-  document.getElementById('metricGrid').innerHTML = cards.map(c => `
-    <div class="metric-card">
+  window._ddFns = cards.map(c => c.ddFn);
+
+  document.getElementById('metricGrid').innerHTML = cards.map((c, i) => `
+    <div class="metric-card" onclick="window._ddFns[${i}]()" style="cursor:pointer;transition:box-shadow .15s;" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.12)'" onmouseout="this.style.boxShadow=''" title="Click to see details">
       <div class="metric-lbl">${c.lbl}</div>
       <div class="metric-val">${c.val}</div>
       <div class="metric-delta">${c.delta}</div>
@@ -887,12 +1118,21 @@ function renderGeo() {
   });
 
   const top1=byRev[0], topAvg=[...Object.entries(cd)].map(([c,v])=>({c,a:v.count>0?v.revenue/v.count:0})).sort((a,b)=>b.a-a.a)[0];
+  const topCities = byCnt.slice(0,10);
+  window._geoCityFns = topCities.map(([city, v]) => () => openDrilldown(city+' Customers', v.count+' customers · $'+Math.round(v.revenue/1000)+'K lifetime', ddCityCustomers(city)));
   document.getElementById('geoInsight').innerHTML=`
     <div class="insight-box-title">Geographic Insights</div>
     <div class="insight-row">💰 <strong>Top revenue market:</strong> ${top1?.[0]||'—'} (${top1?fmtFull(top1[1].revenue):'—'} lifetime)</div>
     <div class="insight-row">🎯 <strong>Highest avg ticket:</strong> ${topAvg?.c||'—'} (${topAvg?fmt$(topAvg.a):'—'} per job)</div>
     <div class="insight-row">📍 <strong>Most customers:</strong> ${byCnt[0]?.[0]||'—'} (${byCnt[0]?.[1]?.count||0} customers)</div>
-    <div class="insight-row" style="margin-top:4px;font-size:11px;color:var(--muted);">Revenue = lifetime totals. Prioritize advertising in high-avg-ticket markets for best ROI.</div>`;
+    <div class="insight-row" style="margin-top:4px;font-size:11px;color:var(--muted);">Revenue = lifetime totals. Prioritize advertising in high-avg-ticket markets for best ROI.</div>
+    <div style="margin-top:1rem;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#64748b;margin-bottom:.5rem;">Click a city to see its customers</div>
+      ${topCities.map(([city,v],i) => `<div onclick="window._geoCityFns[${i}]()" style="display:flex;justify-content:space-between;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='none'">
+        <span style="font-weight:600;color:#1e293b;">${_ddEsc(city)}</span>
+        <span style="color:#64748b;">${v.count} customers · $${Math.round(v.revenue/1000)}K</span>
+      </div>`).join('')}
+    </div>`;
 }
 
 // ─── S6: Lifecycle ───────────────────────────────────────────────────────────
@@ -1100,6 +1340,57 @@ function renderActions() {
     </div>`).join('');
 }
 
+// ─── S7: Intelligence Cards ──────────────────────────────────────────────────
+function renderIntelligenceCards() {
+  const custs = dbRecord.customers||[];
+  const now = TODAY.getTime();
+
+  // A: Waiting on Customer
+  const waiting = custs.filter(c => c.quoteStatus && ['sent','viewed'].includes(c.quoteStatus.state) && !c.quoteStatus.approvedDate);
+
+  // B: At-Risk (12mo+, not opted out)
+  const atRisk = custs.filter(c => { if(!c.lastService||c.optOut||c.movedAway)return false; try{return(now-new Date(c.lastService+'T12:00:00').getTime())/(864e5*30)>=12;}catch{return false;} });
+
+  // C: High Value Needs Attention ($1500+ spend, 6mo+)
+  const highVal = custs.filter(c => { if(!c.lastService||c.optOut||c.movedAway)return false; try{return(c.lifetimeSpend||0)>=1500&&(now-new Date(c.lastService+'T12:00:00').getTime())/(864e5*30)>=6;}catch{return false;} });
+
+  // D: Recent Wins (approved last 30 days)
+  const recentWins = custs.filter(c => { try{return c.quoteStatus&&c.quoteStatus.state==='approved'&&c.quoteStatus.approvedDate&&(now-new Date(c.quoteStatus.approvedDate).getTime())<30*864e5;}catch{return false;} });
+
+  // E: Sealing Interest Pipeline
+  const sealInterest = custs.filter(c => c.sealingInterest);
+  const sealPhones = new Set(eventsData.filter(e=>e.eventType==='sealing_interest_confirmed').map(e=>e.customer?.ph).filter(Boolean));
+  sealPhones.forEach(ph => { const c=custs.find(x=>x.phone===ph); if(c&&!sealInterest.includes(c))sealInterest.push(c); });
+
+  // F: Phone-Quoted Pending Mini Quote
+  const pendingMQ = custs.filter(c => c.quoteStatus && c.quoteStatus.state === 'phone_quoted_pending_mini_quote');
+
+  // G: Declined / Stalled (sent 14+ days ago, not viewed or approved)
+  const stalled = custs.filter(c => { try{ return c.quoteStatus&&c.quoteStatus.sentDate&&!c.quoteStatus.approvedDate&&(now-new Date(c.quoteStatus.sentDate).getTime())>14*864e5; }catch{return false;} });
+
+  const cards = [
+    { icon:'⏳', title:'Waiting on Customer',     count:waiting.length,      color:'#f97316', desc:'Quotes sent, no response yet',           fn: () => openDrilldown('Waiting on Customer', waiting.length+' quotes awaiting response', waiting.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),rows:[{label:'Sent',val:fmtDate(c.quoteStatus.sentDate)},{label:'Viewed',val:c.quoteStatus.viewedDate?fmtDate(c.quoteStatus.viewedDate):'Not yet'}],actions:[{label:'📱 Follow Up',fn:()=>{window.location.href='sms:+1'+c.phone;}}]}))) },
+    { icon:'📉', title:'At-Risk Customers',        count:atRisk.length,       color:'#dc2626', desc:'12+ months since last service',           fn: () => openDrilldown('At-Risk Customers', atRisk.length+' customers — 12+ months inactive', atRisk.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),amount:c.lifetimeSpend||0,rows:[{label:'Last Service',val:fmtDate(c.lastService)},{label:'Months Inactive',val:String(monthsAgo(c.lastService)||'—')}],actions:[{label:'📱 Reactivate',fn:()=>{window.location.href='sms:+1'+c.phone;}}]})).sort((a,b)=>(b.amount||0)-(a.amount||0))) },
+    { icon:'💸', title:'High Value Needs Attention',count:highVal.length,     color:'#7c3aed', desc:'$1,500+ lifetime, 6+ months inactive',    fn: () => openDrilldown('High Value / Needs Attention', highVal.length+' premium customers — time to re-engage', highVal.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),amount:c.lifetimeSpend||0,rows:[{label:'Lifetime Spend',val:fmtFull(c.lifetimeSpend||0)},{label:'Last Service',val:fmtDate(c.lastService)},{label:'Months Since',val:String(monthsAgo(c.lastService)||'—')}],actions:[{label:'📱 Priority Outreach',fn:()=>{window.location.href='sms:+1'+c.phone;}}]})).sort((a,b)=>(b.amount||0)-(a.amount||0))) },
+    { icon:'🏆', title:'Recent Wins',              count:recentWins.length,   color:'#16a34a', desc:'Approved quotes in last 30 days',         fn: () => openDrilldown('Recent Wins', recentWins.length+' approvals in the last 30 days', recentWins.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),amount:c.quoteStatus.approvedAmount||null,rows:[{label:'Approved',val:fmtDate(c.quoteStatus.approvedDate)},{label:'Jobs',val:String(c.totalJobs||0)}],actions:[{label:'📅 Schedule',fn:()=>{window.open('/pure_cleaning_calendar.html','_blank');}}]}))) },
+    { icon:'💎', title:'Sealing Interest Pipeline', count:sealInterest.length, color:'#7c3aed', desc:'Customers who signaled sealing interest',  fn: () => openDrilldown('Sealing Interest Pipeline', sealInterest.length+' customers interested in sealing', sealInterest.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),amount:c.lifetimeSpend||0,rows:[{label:'Last Service',val:fmtDate(c.lastService)},{label:'Jobs',val:String(c.totalJobs||0)}],actions:[{label:'📱 Quote Sealing',fn:()=>{window.location.href='sms:+1'+c.phone;}}]}))) },
+    { icon:'📋', title:'Pending Mini Quote',        count:pendingMQ.length,    color:'#f4a620', desc:'Phone-quoted, mini quote not built yet',  fn: () => openDrilldown('Pending Mini Quote', pendingMQ.length+' customers waiting for their mini quote', pendingMQ.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),amount:(c.quoteStatus||{}).mainAmount||null,rows:[{label:'Service',val:((c.quoteStatus||{}).mainServices||'—').substring(0,40)},{label:'Quoted',val:fmtDate((c.quoteStatus||{}).quotedDate)}],actions:[{label:'Build Mini Quote →',fn:()=>{window.open('/pure_cleaning_mini_quote_builder.html?phone='+c.phone,'_blank');}}]}))) },
+    { icon:'😶', title:'Stalled / Declined',        count:stalled.length,      color:'#64748b', desc:'No response in 14+ days after quote sent', fn: () => openDrilldown('Stalled / Declined', stalled.length+' quotes stalled for 14+ days', stalled.map(c=>({name:((c.firstName||'')+' '+(c.lastName||'')).trim(),phone:c.phone,city:normCity(c.city||''),rows:[{label:'Sent',val:fmtDate(c.quoteStatus.sentDate)},{label:'Days Waiting',val:String(Math.floor((now-new Date(c.quoteStatus.sentDate).getTime())/864e5))}],actions:[{label:'📱 Win Back',fn:()=>{window.location.href='sms:+1'+c.phone;}}]})).sort((a,b)=>parseInt(b.rows[1].val)-parseInt(a.rows[1].val))) },
+  ];
+
+  window._iqFns = cards.map(c => c.fn);
+
+  document.getElementById('intelligenceCards').innerHTML = cards.map((c, i) => `
+    <div onclick="window._iqFns[${i}]()" style="background:#fff;border-radius:14px;padding:1rem 1.125rem;box-shadow:0 1px 3px rgba(0,0,0,.07);cursor:pointer;border-top:3px solid ${c.color};transition:box-shadow .15s;" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.12)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.07)'">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:.375rem;">
+        <span style="font-size:18px;">${c.icon}</span>
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#64748b;">${c.title}</span>
+      </div>
+      <div style="font-size:32px;font-weight:700;color:#1e293b;letter-spacing:-1px;margin-bottom:.25rem;">${c.count}</div>
+      <div style="font-size:12px;color:#64748b;">${c.desc}</div>
+    </div>`).join('');
+}
+
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 function renderSkeletons() {
   document.getElementById('metricGrid').innerHTML=Array(8).fill(0).map(()=>`
@@ -1142,11 +1433,23 @@ function renderPhoneQuoteFunnel() {
   // Funnel bars
   const COLORS = ['#0ea5e9','#38bdf8','#7dd3fc','#f4a620','#fb923c','#16a34a','#a855f7'];
   const funnelEl = document.getElementById('pqFunnel');
+
+  // Store drill-down functions for each funnel step
+  window._pqFns = [
+    () => openDrilldown('SMS Sent', sent.length+' confirmation texts sent', ddPQEvents('phone_quote_sms_sent', (e) => [{label:'Sent',val:fmtDateTime(e.loggedAt||e.sentAt)},{label:'Services',val:e.services||e.mainServices||'—'},{label:'Amount',val:e.mainAmount?'$'+e.mainAmount:'—'}])),
+    () => openDrilldown('Link Opened', opened.length+' customers opened the mini quote link', ddPQEvents('mini_quote_opened', (e) => [{label:'Opened',val:fmtDateTime(e.loggedAt)},{label:'User Agent',val:(e.userAgent||'').split(' ')[0]||'—'}])),
+    () => openDrilldown('Viewed 5+ sec', viewed.length+' customers viewed the mini quote', ddPQEvents('mini_quote_viewed', (e) => [{label:'Viewed',val:fmtDateTime(e.loggedAt)}])),
+    () => openDrilldown('Add-on Section Seen', secVw.length+' customers saw the add-on section', ddPQEvents('addon_section_viewed', (e) => [{label:'Seen',val:fmtDateTime(e.loggedAt)}])),
+    () => openDrilldown('Add-on Tapped', tapped.length+' customers tapped an add-on', ddPQEvents('addon_tap_initiated', (e) => [{label:'Tapped',val:fmtDateTime(e.loggedAt)},{label:'Add-on',val:e.addonName||e.addonId||'—'}])),
+    () => openDrilldown('Add-on Confirmed', confd.length+' customers confirmed an add-on', ddPQEvents('addon_confirmed', (e) => [{label:'Confirmed',val:fmtDateTime(e.loggedAt)},{label:'Add-on',val:e.addonName||e.addonId||'—'},{label:'Revenue',val:e.bundlePrice?'$'+e.bundlePrice:'—'}])),
+    () => openDrilldown('Sealing Interest', seali.length+' customers expressed sealing interest', ddPQEvents('sealing_interest_confirmed', (e) => [{label:'Logged',val:fmtDateTime(e.loggedAt)}])),
+  ];
+
   if (sent.length === 0) {
     funnelEl.innerHTML = '<p style="font-size:13px;color:var(--muted);padding:.5rem 0;">No phone-quote SMS events yet. Data will appear once customers receive confirmation texts.</p>';
   } else {
     funnelEl.innerHTML = steps.map((s, i) => `
-      <div style="display:grid;grid-template-columns:160px 1fr 60px;align-items:center;gap:8px;margin-bottom:6px;">
+      <div onclick="window._pqFns[${i}]()" style="display:grid;grid-template-columns:160px 1fr 60px;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;border-radius:8px;padding:4px 6px;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='none'">
         <span style="font-size:11px;font-weight:600;color:var(--muted);">${s.label}</span>
         <div style="background:var(--border);border-radius:4px;height:10px;overflow:hidden;">
           <div style="width:${s.pct}%;height:100%;background:${COLORS[i]};border-radius:4px;transition:width .4s;"></div>
@@ -1221,18 +1524,19 @@ function renderPhoneQuoteFunnel() {
 
 function renderAll() {
   [
-    ['Hero',            renderHero],
-    ['Revenue',         renderRevenue],
-    ['SourcePie',       renderSourcePie],
-    ['VariantPie',      renderVariantPie],
-    ['ServiceMix',      renderServiceMix],
-    ['Funnel',          renderFunnel],
-    ['Heatmap',         renderHeatmap],
-    ['Geo',             renderGeo],
-    ['Lifecycle',       renderLifecycle],
-    ['Reactivation',    renderReactivation],
-    ['PhoneQuoteFunnel',renderPhoneQuoteFunnel],
-    ['Actions',         renderActions],
+    ['Hero',               renderHero],
+    ['Revenue',            renderRevenue],
+    ['SourcePie',          renderSourcePie],
+    ['VariantPie',         renderVariantPie],
+    ['ServiceMix',         renderServiceMix],
+    ['Funnel',             renderFunnel],
+    ['Heatmap',            renderHeatmap],
+    ['Geo',                renderGeo],
+    ['Lifecycle',          renderLifecycle],
+    ['IntelligenceCards',  renderIntelligenceCards],
+    ['Reactivation',       renderReactivation],
+    ['PhoneQuoteFunnel',   renderPhoneQuoteFunnel],
+    ['Actions',            renderActions],
   ].forEach(([name, fn]) => {
     try { fn(); } catch(e) { console.error(`[insights] ${name} render failed:`, e); }
   });
