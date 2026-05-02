@@ -109,6 +109,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
       <span class="slabel">✓ Completed this week</span>       <span class="sval" id="qs-done">—</span>
       <span class="slabel">🚫 Opted out</span>                 <span class="sval" id="qs-opted-out">—</span>
       <span class="slabel">🏠 Moved away</span>                <span class="sval" id="qs-moved-away">—</span>
+      <span class="slabel">🧪 Active test records</span>       <span class="sval" id="qs-test">—</span>
     </div>
   </div>
 
@@ -123,9 +124,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
   </div>
 
   <div class="funnel-panel" id="testCleanupPanel">
-    <div class="panel-title">🧹 Test Data Cleanup</div>
+    <div class="panel-title">🧪 Test Records</div>
     <div id="testCleanupContent">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem;">Finds records matching test names/phones (Tyler Fumero, Darlah Fumero, 9546103843, 9546157770).</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem;">Records flagged with 🧪 Test when created — auto-expire in 24 hrs. Also detects name/phone matches with no history.</div>
       <button onclick="loadTestRecords()" style="padding:7px 16px;background:var(--border);color:var(--text);border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">Review test records →</button>
       <div id="testRecordsList" style="margin-top:.75rem;"></div>
     </div>
@@ -215,6 +216,8 @@ async function loadQuickStats() {
     set('qs-done',  String(withSched.filter(c => c.scheduledStatus.state === 'completed'  && inWeek(c.scheduledStatus.scheduledDate)).length));
     set('qs-opted-out',  String((db.customers||[]).filter(c => c.optOut).length));
     set('qs-moved-away', String((db.customers||[]).filter(c => c.movedAway).length));
+    const testCount = (db.customers||[]).filter(c => c.isTest === true).length;
+    set('qs-test', testCount > 0 ? String(testCount) : '0 ✓');
   } catch(e) {
     clearStats();
   }
@@ -228,7 +231,7 @@ async function loadQuickStats() {
 
 function set(id, val) { document.getElementById(id).textContent = val; }
 function clearStats() {
-  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week','qs-sched','qs-done','qs-opted-out','qs-moved-away'].forEach(id => set(id, '—'));
+  ['qs-total','qs-updated','qs-vip','qs-hotwarm','qs-waiting','qs-booked-week','qs-sched','qs-done','qs-opted-out','qs-moved-away','qs-test'].forEach(id => set(id, '—'));
 }
 
 async function loadIncomingCount() {
@@ -430,25 +433,57 @@ async function loadTestRecords() {
     const res = await fetch(`${PCPC_API}/customers`);
     const data = await res.json();
     const customers = data.customers || [];
+
+    // Primary: explicit isTest flag (new system)
+    // Fallback: name/phone match without real history (legacy cleanup)
     const matches = customers.filter(c => {
+      if (c.isTest === true) return true;
       const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
-      return TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone);
+      const isNameOrPhone = TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone);
+      return isNameOrPhone && !c.lifetimeSpend && !c.totalJobs && !c.lastService;
     });
+
     if (!matches.length) { el.innerHTML = '<div style="font-size:12px;color:var(--muted);">No test records found — all clean ✓</div>'; return; }
+
     el.innerHTML = `
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${matches.length} test record(s) found:</div>
-      ${matches.map(c => `
-        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      ${matches.map(c => {
+        const expiry = c.testExpiresAt ? ` · expires ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : '';
+        const flag = c.isTest ? ' 🧪' : ' (name match)';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
           <input type="checkbox" id="tr-${c.phone}" data-phone="${c.phone}" checked>
-          <label for="tr-${c.phone}" style="flex:1;cursor:pointer;"><strong>${c.firstName||''} ${c.lastName||''}</strong> · ${c.phone} · ${c.city||''} · jobs: ${c.totalJobs||0} · $${(c.lifetimeSpend||0).toLocaleString()}</label>
-        </div>`).join('')}
+          <label for="tr-${c.phone}" style="flex:1;cursor:pointer;"><strong>${c.firstName||''} ${c.lastName||''}</strong>${flag} · ${c.phone}${expiry} · jobs: ${c.totalJobs||0} · $${(c.lifetimeSpend||0).toLocaleString()}</label>
+        </div>`;
+      }).join('')}
       <div style="margin-top:10px;display:flex;gap:8px;">
         <button onclick="deleteSelectedTestRecords()" style="padding:7px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Delete selected</button>
+        <button onclick="deleteAllTestRecords()" style="padding:7px 16px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Remove all now</button>
         <button onclick="document.getElementById('testRecordsList').innerHTML=''" style="padding:7px 16px;background:var(--border);color:var(--text);border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
       </div>`;
-    // store db for deletion
     window._adminDbRecord = data;
   } catch(e) { el.innerHTML = `<div style="font-size:12px;color:#dc2626;">Error: ${e.message}</div>`; }
+}
+
+async function deleteAllTestRecords() {
+  const db = window._adminDbRecord;
+  if (!db) return;
+  const all = (db.customers||[]).filter(c => {
+    if (c.isTest === true) return true;
+    const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
+    return (TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone)) && !c.lifetimeSpend && !c.totalJobs;
+  });
+  if (!all.length) return;
+  if (!confirm(`Remove all ${all.length} test record(s) immediately? This cannot be undone.`)) return;
+  const phones = new Set(all.map(c => c.phone));
+  db.customers = (db.customers||[]).filter(c => !phones.has(c.phone));
+  try {
+    await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+    sessionStorage.removeItem('pcpc_customer_db_cache');
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Removed all ${all.length} test record(s).</div>`;
+    loadQuickStats();
+  } catch(e) {
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
+  }
 }
 
 async function deleteSelectedTestRecords() {

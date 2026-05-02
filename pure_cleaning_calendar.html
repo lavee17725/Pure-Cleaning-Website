@@ -56,6 +56,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .card-sms-btn:hover{text-decoration:underline;}
 .card-del-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:16px;line-height:1;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
 .card-del-btn:hover{color:#dc2626;background:#fee2e2;}
+.test-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+.test-expiry{font-size:10px;color:#b45309;margin-top:2px;}
 .card-top-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
 
 /* ── CALENDAR GRID ── */
@@ -436,12 +438,57 @@ function cleanStaleSchedulingStates() {
   });
 }
 
+async function cleanupExpiredTestRecords() {
+  const customers = dbRecord.customers || [];
+  const now = Date.now();
+  const expired = customers.filter(c =>
+    c.isTest === true &&
+    c.testExpiresAt &&
+    new Date(c.testExpiresAt).getTime() < now &&
+    (!c.lifetimeSpend || c.lifetimeSpend === 0) // safety — never touch records with real spend
+  );
+  if (expired.length === 0) return;
+
+  const expiredPhones = new Set(expired.map(c => c.phone));
+  dbRecord.customers = customers.filter(c => !expiredPhones.has(c.phone));
+
+  // Clean up related incoming requests
+  try {
+    const inc = await fetch(`${PCPC_API}/incoming`).then(r => r.json());
+    const cleanedReqs = (inc.requests || []).filter(r => {
+      const p = ((r.customerData && r.customerData.phone) || r.phone || '').replace(/\D/g, '');
+      return !expiredPhones.has(p);
+    });
+    if (cleanedReqs.length < (inc.requests || []).length) {
+      fetch(`${PCPC_API}/incoming`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...inc,requests:cleanedReqs}) });
+    }
+  } catch(e) { console.warn('[test cleanup] incoming:', e.message); }
+
+  // Clean up quote KV entries
+  expired.forEach(c => {
+    if (c.linkCode) fetch(`${PCPC_API}/quote/${c.linkCode}`, { method: 'DELETE' }).catch(() => {});
+  });
+
+  // Persist cleaned customer DB
+  await saveDb();
+
+  // Log the cleanup
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id:'evt_testclean_'+Date.now(), timestamp:new Date().toISOString(),
+      eventType:'test_records_cleaned', metadata:{ count:expired.length, phones:[...expiredPhones] } })
+  }).catch(() => {});
+
+  showToast(`🧪 Cleaned ${expired.length} expired test record${expired.length > 1 ? 's' : ''}`);
+}
+
 async function init() {
   renderShell();
   loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
   try {
     dbRecord = (await getCachedCustomerDB()) || {};
     cleanStaleSchedulingStates();
+    cleanupExpiredTestRecords(); // fire-and-forget — removes expired test records silently
     render();
   } catch(e) {
     dbRecord = {customers:[]};
@@ -532,19 +579,24 @@ function jobCardSidebar(c) {
   const phone   = fmtPh(c.phone);
   const city    = formatCity(c.city || '');
   const { html: amtHtml } = jobAmount(c);
+  const testBadge  = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
+  const testExpiry = c.isTest && c.testExpiresAt
+    ? `<div class="test-expiry">Auto-removes ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
+    : '';
   let wantsLine = '';
   if (ss.customerSelectedDate) {
     const d = new Date(ss.customerSelectedDate + 'T12:00:00');
     const fmt = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
     wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(fmt)}</div>`;
   }
-  return `<div class="job-unscheduled" data-phone="${c.phone}" title="${name}">
-    <div class="jn-row"><div class="jn">${name}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
+  return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
+    <div class="jn-row"><div class="jn">${name}${testBadge}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
+    ${testExpiry}
     ${wantsLine}
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
     <div class="drag-hint">⠿ Drag to schedule</div>
-    ${c.linkCode && c.linkBin ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
+    ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
   </div>`;
 }
 
@@ -621,8 +673,9 @@ function jobCardScheduled(c) {
   const city  = c.city ? esc(formatCity(c.city)) : '';
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
   const { html: amtHtml } = jobAmount(c);
-  return `<div class="job-scheduled ${state}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>${badge}${name}${alerts}</span>${amtHtml}</div>
+  const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+    <div class="js-name"><span>${badge}${name}${testBadge}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
   </div>`;
 }

@@ -262,6 +262,15 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
       </div>
 
       <div id="saveError" class="error-msg" style="display:none;margin-bottom:.75rem;font-size:13px;"></div>
+      <div id="testRecordWrap" style="margin-bottom:.75rem;padding:10px 12px;background:#fafafa;border:1.5px solid #e2e8f0;border-radius:10px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="isTestRecord" style="width:16px;height:16px;cursor:pointer;accent-color:#f59e0b;flex-shrink:0;">
+          <div>
+            <div style="font-size:13px;color:#374151;font-weight:500;">🧪 Test record <span style="font-weight:400;color:#9ca3af;">(auto-removes in 24 hrs)</span></div>
+            <div style="font-size:11px;color:#9ca3af;margin-top:1px;">For demos and testing only — hidden if editing existing customer</div>
+          </div>
+        </label>
+      </div>
       <button class="btn btn-primary" id="saveBtn" onclick="saveJob()">Save Customer &amp; Job →</button>
     </div>
 
@@ -453,6 +462,7 @@ function confirmExisting() {
   document.getElementById('existingCustSection').style.display = 'block';
   document.getElementById('newCustSection').style.display = 'none';
   document.getElementById('jobSection').style.display = 'block';
+  document.getElementById('testRecordWrap').style.display = 'none'; // not applicable for existing customers
   document.getElementById('jobSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -596,6 +606,12 @@ function saveJob() {
       quoteStatus, scheduledStatus: schedStatus,
       source: 'manual_phone', enteredBy: by, enteredDate: today
     };
+    const isTestChecked = document.getElementById('isTestRecord')?.checked;
+    if (isTestChecked) {
+      customerRecord.isTest = true;
+      customerRecord.testExpiresAt = new Date(Date.now() + 24*60*60*1000).toISOString();
+      customerRecord.testCreatedBy = by;
+    }
   }
 
   // Optimistic: show success immediately

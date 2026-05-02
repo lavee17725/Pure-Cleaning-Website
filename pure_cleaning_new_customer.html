@@ -175,6 +175,15 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     </div>
     <textarea id="nNotes" class="notes-box" placeholder="Gate code, parking, anything the crew needs to know…"></textarea>
 
+    <div style="margin-top:1rem;padding:10px 12px;background:#fafafa;border:1.5px solid #e2e8f0;border-radius:10px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="isTestRecord" style="width:16px;height:16px;cursor:pointer;accent-color:#f59e0b;flex-shrink:0;">
+        <div>
+          <div style="font-size:13px;color:#374151;font-weight:500;">🧪 Test record <span style="font-weight:400;color:#9ca3af;">(auto-removes in 24 hrs)</span></div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:1px;">For demos and testing only — not real customer data</div>
+        </div>
+      </label>
+    </div>
     <div style="margin-top:1.5rem;">
       <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✨ Send Them a Quote Link</button>
     </div>
@@ -474,7 +483,9 @@ async function submitForm() {
       customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
       if (customer) { customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city; if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts]; }
     } else {
-      customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null };
+      const isTestChecked = document.getElementById('isTestRecord')?.checked;
+      customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
+        ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:localStorage.getItem('pcpc_entered_by')||'unknown' } : {}) };
       if (!dbRecord) dbRecord = {customers:[]};
       if (!dbRecord.customers) dbRecord.customers=[];
       dbRecord.customers.push(customer);
