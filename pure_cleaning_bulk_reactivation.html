@@ -207,6 +207,15 @@ td.money{font-family:'DM Mono',monospace;}
 .text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
 .text-now-btn:hover{background:#2470c0;}
 .texted-badge{background:rgba(29,158,117,.2);color:#5de0b3;border:1px solid var(--green);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.test-send-btn{background:none;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;letter-spacing:.2px;}
+.test-send-btn:hover{border-color:var(--sky);color:var(--sky);}
+.send-confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center;}
+.send-confirm-box{background:#fff;border-radius:16px;padding:1.5rem;max-width:340px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+.send-confirm-title{font-size:15px;font-weight:700;color:#0a1628;margin:0 0 10px;}
+.send-confirm-body{font-size:14px;color:#374151;line-height:1.7;margin-bottom:16px;}
+.send-confirm-row{display:flex;gap:10px;}
+.send-confirm-cancel{flex:1;padding:10px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#fff;color:#374151;font-family:'DM Sans',sans-serif;}
+.send-confirm-go{flex:1;padding:10px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#0a1628;color:#fff;font-family:'DM Sans',sans-serif;}
 .text-disconnected-btn{background:rgba(229,62,62,.1);color:#fc8181;border:1px solid rgba(229,62,62,.3);border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:default;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .contact-stats{font-size:12px;color:var(--muted);padding:5px 2px;}
 
@@ -458,54 +467,72 @@ function shortenUrl(longUrl) {
   })();
   return short;
 }
-const VARIANT_CYCLE_KEY = 'pcpc_sms_variant_cycle';
-const SMS_VARIANTS = [
-  {
-    label: 'A',
-    template: `Hey {firstName}, it's Tyler — Darla and Tony's son with Pure Cleaning.
+// ═══════════════════════════════════════════════════
+// VARIANT SYSTEM
+// Currently active: B (personal feedback ask)
+// Stored but hidden: A1, A2, C
+// To re-enable A/C: uncomment HIDDEN_VARIANTS below, restore getNextVariant() rotation,
+// and add a variant selector in the textBtn render block (search "textBtn" below).
+// ═══════════════════════════════════════════════════
 
-I've been taking on more of the business and built something I'm proud of: a simpler way for our customers to get a quote and get back on the books. Worked hard on it — would love for you to be one of the first to try it.
+// Tyler: set to your 10-digit phone number before first test run (digits only)
+const TEST_PHONE = '';
 
-It's been about {months} months since we cleaned for you. Your info is already loaded:
+const ACTIVE_VARIANT = {
+  label: 'B',
+  template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. I've been working on something to make booking easier for our customers and built a new way to send quotes. Many of you know me personally, so I figured I'd reach out and see what you think.
+
+Take a look — your info's already filled in:
 
 {link}
 
-— Tyler
-954-389-2642
+Would love your honest feedback either way.
 
+— Tyler (Pure Cleaning Family)
+954-389-2642
+Reply STOP to opt out.`
+};
+
+/* HIDDEN_VARIANTS — stored for future activation, not currently sent
+const HIDDEN_VARIANTS = [
+  {
+    label: 'A1', // surface/floor timing reminder
+    template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned for you about {months} months ago — usually about the time driveways and patios start showing buildup again.
+
+If you'd like a fresh quote, your info's already saved:
+
+{link}
+
+— Pure Cleaning Family
+954-389-2642
 Reply STOP to opt out.`
   },
   {
-    label: 'B',
-    template: `Hi {firstName}! Tyler here from Pure Cleaning — Darla and Tony's son.
+    label: 'A2', // roof timing reminder
+    template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. Roofs typically need a refresh every 12-18 months and it's been about {months} months since we cleaned yours. Wanted to reach out personally.
 
-Running a spring special: $50 off any service $300 or more, through May 31. Been about {months} months since our last visit and figured this was the right time to reach out.
-
-Your quote with the discount applied:
+Quick way to get a quote — your info's already saved:
 
 {link}
 
-— Tyler
+— Pure Cleaning Family
 954-389-2642
-
 Reply STOP to opt out.`
   },
   {
-    label: 'C',
-    template: `{firstName}, hope you and the family are well.
+    label: 'C', // roof discount — DEFERRED: discount integration not built yet
+    template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. Reaching out to past roof customers — if you book a roof cleaning in the next 2 weeks, I'll take $50 off any roof job $200 or more.
 
-Tyler here — Darla and Tony's son. After 30 years of my parents keeping South Florida homes looking their best, I'm helping run more of Pure Cleaning these days. Same family, same care — just doing my part to carry it forward.
-
-It's been about {months} months since we last cleaned for you. Made it easy — your info is already loaded:
+Tap to see your quote (info already filled in):
 
 {link}
 
-— Tyler
+— Pure Cleaning Family
 954-389-2642
-
 Reply STOP to opt out.`
   }
 ];
+*/
 
 // ── EVENT TRACKING ────────────────────────────────────────────────
 const _tracked = new Set();
@@ -1270,9 +1297,9 @@ function renderTable() {
     } else if (cooldown) {
       textBtn = `<div class="contact-info">📲 Texted ${formatContactDate(rec.contactedAt)}<br>Until ${new Date(rec.cooldownUntil).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'})}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
     } else if (rec) {
-      textBtn = `<button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(rec.contactedAt)}</button>`;
+      textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(rec.contactedAt)}</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
     } else {
-      textBtn = `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button>`;
+      textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
     }
     return `<tr>
       <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
@@ -1514,10 +1541,7 @@ function updateHoursBanner() {
 }
 
 function getNextVariant() {
-  const lastIndex = parseInt(localStorage.getItem(VARIANT_CYCLE_KEY) || '-1');
-  const nextIndex = (lastIndex + 1) % SMS_VARIANTS.length;
-  localStorage.setItem(VARIANT_CYCLE_KEY, nextIndex.toString());
-  return SMS_VARIANTS[nextIndex];
+  return ACTIVE_VARIANT; // always Variant B — to re-enable rotation, restore cycling logic here
 }
 
 function buildVariantBody(variant, customer, link) {
@@ -1536,10 +1560,63 @@ function showVariantToast(label) {
     toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1d9e75;color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:700;letter-spacing:.5px;z-index:9999;pointer-events:none;transition:opacity .4s;';
     document.body.appendChild(toast);
   }
-  toast.textContent = `Sent variant ${label}`;
+  toast.textContent = `Sent — Variant ${label}`;
   toast.style.opacity = '1';
   clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+}
+
+// ── SEND CONFIRMATION MODAL ───────────────────────────────────────────────────
+let _confirmPhone = null;
+
+function showSendConfirm(phone) {
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+  _confirmPhone = phone;
+  document.getElementById('scName').textContent = `${c.fn} ${c.ln}`;
+  document.getElementById('scPhone').textContent = formatPhone(c.phone);
+  document.getElementById('sendConfirmModal').style.display = 'flex';
+}
+function closeSendConfirm() {
+  document.getElementById('sendConfirmModal').style.display = 'none';
+  _confirmPhone = null;
+}
+function confirmSend() {
+  const phone = _confirmPhone;
+  closeSendConfirm();
+  if (phone) executeTextNow(phone);
+}
+
+// ── TEST SEND TO ME ───────────────────────────────────────────────────────────
+async function testSendToMe(phone) {
+  if (!TEST_PHONE) {
+    alert('Set TEST_PHONE in the code (near the top of the script) to your 10-digit number before using test send.');
+    return;
+  }
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+
+  let code = c.linkCode;
+  if (!code) {
+    // Generate a real link so the URL works, but don't stamp the customer record
+    code = generateCode();
+    const customerRecord = {
+      fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
+      city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+      totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
+    };
+    fetch(`${PCPC_API_BR}/quote/${code}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(customerRecord)
+    }).catch(() => {});
+  }
+
+  const longUrl = `${QUOTE_BASE}?c=${code}&v=B_TEST`;
+  const shortLink = shortenUrl(longUrl);
+  const body = buildVariantBody(ACTIVE_VARIANT, c, shortLink);
+  const testBody = `[TEST — would have gone to ${c.fn}]\n\n${body}`;
+
+  // No customer record update, no event log, no cap counting
+  window.location.href = `sms:${TEST_PHONE}&body=${encodeURIComponent(testBody)}`;
 }
 
 function buildMonthsText(ms) {
@@ -1628,7 +1705,7 @@ function textNow(phone) {
     showComplianceBlock(compliance);
     return;
   }
-  executeTextNow(phone);
+  showSendConfirm(phone);
 }
 
 async function executeTextNow(phone) {
@@ -1671,7 +1748,9 @@ async function executeTextNow(phone) {
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
-  trackQuoteEvent('sent', c.phone, variant.label, {tier: c.tier});
+  trackQuoteEvent('reactivation_sent', c.phone, variant.label, {
+    tier: c.tier, sentBy: 'tyler', sentAt: new Date().toISOString()
+  });
   showVariantToast(variant.label);
 
   const now = new Date();
@@ -2426,5 +2505,20 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
 </div>
 
+<!-- SEND CONFIRMATION MODAL -->
+<div class="send-confirm-overlay" id="sendConfirmModal">
+  <div class="send-confirm-box">
+    <div class="send-confirm-title">Send message?</div>
+    <div class="send-confirm-body">
+      <strong id="scName"></strong><br>
+      📞 <span id="scPhone"></span><br>
+      Variant: <strong>B</strong> — personal feedback ask
+    </div>
+    <div class="send-confirm-row">
+      <button class="send-confirm-cancel" onclick="closeSendConfirm()">Cancel</button>
+      <button class="send-confirm-go" onclick="confirmSend()">Send →</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
