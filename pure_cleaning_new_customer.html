@@ -191,6 +191,24 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
           <input id="pPrice" class="fi" type="number" placeholder="350" oninput="checkReq()">
         </div>
       </div>
+      <div class="field" style="margin-top:.5rem;">
+        <label>How did they hear about us?</label>
+        <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="document.getElementById('nReferrerWrap').style.display=this.value==='referral'?'block':'none'">
+          <option value="unknown">Not sure</option>
+          <option value="google_organic">Google search</option>
+          <option value="google_ads">Google Ad</option>
+          <option value="facebook">Facebook / Instagram</option>
+          <option value="referral">Referral — they know someone</option>
+          <option value="repeat">Returning customer</option>
+          <option value="yard_sign">Saw our van / yard sign</option>
+          <option value="nextdoor">Nextdoor</option>
+          <option value="angi">Angi / HomeAdvisor</option>
+          <option value="other">Other</option>
+        </select>
+        <div id="nReferrerWrap" style="display:none;margin-top:6px;">
+          <input id="nReferrerDetail" class="fi" type="text" placeholder="Referred by who? (optional)">
+        </div>
+      </div>
     </div>
 
     <button class="acc-btn" onclick="toggleOpt(this)"><span id="optArrow">▶</span> More info (email, zip)</button>
@@ -449,6 +467,9 @@ function resetForm() {
   ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pServices','pHours','pPrice'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
+  const ls = document.getElementById('nLeadSource'); if (ls) ls.value = 'unknown';
+  const nrw = document.getElementById('nReferrerWrap'); if (nrw) nrw.style.display = 'none';
+  const nrd = document.getElementById('nReferrerDetail'); if (nrd) nrd.value = '';
   document.getElementById('dupCallout').classList.remove('show');
   renderNewAlerts();
   checkReq();
@@ -592,6 +613,7 @@ async function submitPhonePath() {
         customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
         if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
+        if (!customer.leadSource) customer.leadSource = { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' };
         customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
           mainAmount: price,
@@ -608,6 +630,7 @@ async function submitPhonePath() {
         lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
         linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
         source: 'phone_quoted',
+        leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
         quoteStatus: {
           state: 'phone_quoted_pending_mini_quote',
           mainAmount: price,
@@ -651,6 +674,7 @@ async function submitDigitalPath() {
     } else {
       const isTestChecked = document.getElementById('isTestRecord')?.checked;
       customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
+        leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
         ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {}) };
       if (!dbRecord) dbRecord = {customers:[]};
       if (!dbRecord.customers) dbRecord.customers=[];

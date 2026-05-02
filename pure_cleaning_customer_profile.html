@@ -322,6 +322,68 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 </div>
 
+<!-- LOG REPLY MODAL -->
+<div id="logReplyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,.25);">
+    <div style="font-size:17px;font-weight:700;color:#0a1628;margin-bottom:1rem;">📥 Log Customer Reply</div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Reply Method</label>
+      <select id="replyMethod" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <option value="sms">SMS / Text</option>
+        <option value="call">Phone Call</option>
+        <option value="email">Email</option>
+      </select>
+    </div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Sentiment</label>
+      <select id="replySentiment" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <option value="positive">😊 Positive — interested / booked</option>
+        <option value="neutral">😐 Neutral — maybe later</option>
+        <option value="negative">😞 Negative — not interested</option>
+        <option value="optout">🚫 Opted out / stop</option>
+      </select>
+    </div>
+    <div style="margin-bottom:1.25rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">What did they say? (optional)</label>
+      <textarea id="replyText" rows="3" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;resize:none;" placeholder="e.g. Said to call back in May…"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeLogReplyModal()" style="flex:1;padding:12px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
+      <button onclick="saveLogReply()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#7c3aed;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Reply</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOG FEEDBACK MODAL -->
+<div id="logFeedbackModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,.25);">
+    <div style="font-size:17px;font-weight:700;color:#0a1628;margin-bottom:1rem;">⭐ Log Post-Job Feedback</div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Did they leave a Google review?</label>
+      <div style="display:flex;gap:8px;">
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px;border:1.5px solid #e8e2d8;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><input type="radio" name="fbReview" value="yes"> ✅ Yes</label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px;border:1.5px solid #e8e2d8;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><input type="radio" name="fbReview" value="no" checked> ❌ No</label>
+      </div>
+    </div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Satisfaction</label>
+      <select id="fbSentiment" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <option value="positive">😊 Happy / Would recommend</option>
+        <option value="neutral">😐 OK — no major issues</option>
+        <option value="negative">😞 Unhappy / Had concerns</option>
+      </select>
+    </div>
+    <div style="margin-bottom:1.25rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">What did they say? (optional)</label>
+      <textarea id="fbText" rows="3" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;resize:none;" placeholder="e.g. Said the roof looks amazing…"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeLogFeedbackModal()" style="flex:1;padding:12px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
+      <button onclick="saveLogFeedback()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#16a34a;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Feedback</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
 let _customer = null;
@@ -509,6 +571,8 @@ function renderProfile(customer, events){
     `<a class="action-btn action-btn-call" href="tel:+1${c.phone}">📞 Call</a>`,
     `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Add Note</button>`,
+    `<button class="action-btn" style="background:#7c3aed;color:#fff;" onclick="openLogReplyModal()">📥 Log Reply</button>`,
+    `<button class="action-btn" style="background:#16a34a;color:#fff;" onclick="openLogFeedbackModal()">⭐ Log Feedback</button>`,
     c.email?`<a class="action-btn action-btn-email" href="mailto:${esc(c.email)}">📧 Email</a>`:''
   ].filter(Boolean).join('');
   document.getElementById('heroActions').innerHTML=actionsHtml;
@@ -607,10 +671,11 @@ function renderSidebar(c){
     {icon:'📅',label:'Open in Calendar',href:'/pure_cleaning_calendar.html'},
     {icon:'💬',label:'Send Reactivation SMS',href:'/pure_cleaning_bulk_reactivation.html'},
   ];
+  const followUpSmsBtn = `<button class="qa-btn" onclick="openFollowUpSms()">📱 Follow-up SMS Template</button>`;
 
   const qaHtml=qaButtons.map(b=>
     `<a class="qa-btn" href="${b.href}" ${b.href.startsWith('/')?' target="_blank"':''}>${b.icon} ${b.label}</a>`
-  ).join('');
+  ).join('') + followUpSmsBtn;
 
   const hs=calcHealthScore(c);
   const hsColor=hs>=7?'#1d9e75':hs>=4?'#d97706':'#e53e3e';
@@ -752,6 +817,94 @@ function showError(title, sub){
 }
 
 init();
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg) {
+  let el = document.getElementById('_profileToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_profileToast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#0a1628;color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:9999;white-space:nowrap;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.style.transform = 'translateX(-50%) translateY(80px)'; }, 3500);
+}
+
+// ── Follow-up SMS ─────────────────────────────────────────────────────────────
+function openFollowUpSms() {
+  if (!_customer) return;
+  const fn = _customer.firstName || 'there';
+  const body = `Hi ${fn}! Just checking in after your recent service with Pure Cleaning — everything look good?\n\nIf you're happy, we'd love a quick Google review:\nhttps://g.page/r/pure-cleaning-review\n\nOr just reply here with any feedback. Thanks for choosing us!\n\n— Pure Cleaning Family\n954-389-2642`;
+  window.location.href = `sms:+1${_customer.phone}?&body=${encodeURIComponent(body)}`;
+}
+
+// ── Log Reply Modal ───────────────────────────────────────────────────────────
+function openLogReplyModal() {
+  const m = document.getElementById('logReplyModal');
+  m.style.display = 'flex';
+  document.getElementById('replyText').value = '';
+  document.getElementById('replyMethod').value = 'sms';
+  document.getElementById('replySentiment').value = 'positive';
+}
+function closeLogReplyModal() { document.getElementById('logReplyModal').style.display = 'none'; }
+
+async function saveLogReply() {
+  if (!_customer) return;
+  const method    = document.getElementById('replyMethod').value;
+  const sentiment = document.getElementById('replySentiment').value;
+  const text      = document.getElementById('replyText').value.trim();
+  const evt = {
+    eventType: 'customer_reply_logged',
+    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
+    replyMethod: method, replyText: text, sentiment, loggedBy: 'operator', loggedAt: new Date().toISOString()
+  };
+  closeLogReplyModal();
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
+    });
+    _allEvents.unshift(evt);
+    renderTimeline(buildTimeline(_customer, _allEvents));
+    showToast('Reply logged ✓');
+  } catch(e) { showToast('Error saving: ' + e.message); }
+}
+
+// ── Log Feedback Modal ────────────────────────────────────────────────────────
+function openLogFeedbackModal() {
+  const m = document.getElementById('logFeedbackModal');
+  m.style.display = 'flex';
+  document.getElementById('fbText').value = '';
+  document.getElementById('fbSentiment').value = 'positive';
+  const r = document.querySelector('input[name="fbReview"][value="no"]');
+  if (r) r.checked = true;
+}
+function closeLogFeedbackModal() { document.getElementById('logFeedbackModal').style.display = 'none'; }
+
+async function saveLogFeedback() {
+  if (!_customer) return;
+  const reviewLeft = document.querySelector('input[name="fbReview"]:checked')?.value === 'yes';
+  const sentiment  = document.getElementById('fbSentiment').value;
+  const text       = document.getElementById('fbText').value.trim();
+  const evt = {
+    eventType: 'post_job_feedback',
+    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
+    reviewLeft, reviewRating: reviewLeft ? 5 : null, sentiment, feedback: text,
+    loggedBy: 'operator', loggedAt: new Date().toISOString()
+  };
+  closeLogFeedbackModal();
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
+    });
+    _allEvents.unshift(evt);
+    renderTimeline(buildTimeline(_customer, _allEvents));
+    showToast('Feedback logged ✓');
+  } catch(e) { showToast('Error saving: ' + e.message); }
+}
 </script>
 </body>
 </html>

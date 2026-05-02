@@ -668,6 +668,24 @@
     <textarea id="notes" rows="3" placeholder="Gate code, special instructions..."></textarea>
   </div>
 
+  <div class="field" style="margin-top:1.25rem;">
+    <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px;">How did you hear about us? <span style="color:#e53e3e;">*</span></label>
+    <select id="leadSourceSelect" style="width:100%;padding:12px 14px;background:#fff;border:1.5px solid #e8e2d8;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1a1f2e;outline:none;" onchange="document.getElementById('referrerFieldWrap').style.display=this.value==='referral'?'block':'none'">
+      <option value="">Select one…</option>
+      <option value="google_organic">Google search</option>
+      <option value="google_ads">Google Ad</option>
+      <option value="facebook">Facebook / Instagram</option>
+      <option value="referral">A friend or neighbor referred me</option>
+      <option value="repeat">I've used Pure Cleaning before</option>
+      <option value="yard_sign">Saw a yard sign or van</option>
+      <option value="nextdoor">Nextdoor</option>
+      <option value="angi">Angi / HomeAdvisor</option>
+      <option value="other">Other</option>
+    </select>
+    <div id="referrerFieldWrap" style="display:none;margin-top:8px;">
+      <input id="referrerInput" type="text" placeholder="Who referred you? (optional)" style="width:100%;padding:12px 14px;background:#fff;border:1.5px solid #e8e2d8;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1a1f2e;outline:none;">
+    </div>
+  </div>
   <button class="submit-btn" onclick="submitForm()">Send My Quote Request →</button>
 
   <div class="trust-row">
@@ -701,6 +719,23 @@
 </div>
 
 <script>
+  // Lead source attribution — capture UTM params and store
+  (function() {
+    try {
+      const p = new URLSearchParams(location.search);
+      const src = p.get('utm_source') || p.get('source');
+      if (src) {
+        const map = { google: 'google_ads', facebook: 'facebook', fb: 'facebook', ig: 'facebook', nextdoor: 'nextdoor', angi: 'angi', thumbtack: 'thumbtack', referral: 'referral' };
+        localStorage.setItem('pcpc_lead_source', JSON.stringify({
+          primary: map[src.toLowerCase()] || src,
+          detail: p.get('utm_campaign') || p.get('utm_medium') || '',
+          capturedAt: new Date().toISOString(),
+          capturedBy: 'utm'
+        }));
+      }
+    } catch(e) {}
+  })();
+
   const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
   let _blockedWeeks = [];
   let selectedWeekValue = '';
@@ -1264,6 +1299,7 @@
     const timeframeVal = selectedWeekValue || 'Not specified';
     formData.append('Preferred Timeframe', timeframeVal);
     formData.append('Notes', document.getElementById('notes').value || 'None');
+    formData.append('How did you hear about us?', document.getElementById('leadSourceSelect')?.value || 'Not specified');
     const emailVal = document.getElementById('email').value.trim();
     if (emailVal) formData.append('_replyto', emailVal);
 
@@ -1315,7 +1351,15 @@
         timeframe:         selectedWeekValue || '',
         reminderFrequency: '',
         notes:             document.getElementById('notes').value || '',
-        otherServices:     document.getElementById('otherServices').value || ''
+        otherServices:     document.getElementById('otherServices').value || '',
+        leadSource: (() => {
+          try {
+            const sel = document.getElementById('leadSourceSelect')?.value;
+            const stored = JSON.parse(localStorage.getItem('pcpc_lead_source') || 'null');
+            if (sel) return { primary: sel, detail: document.getElementById('referrerInput')?.value?.trim() || stored?.detail || '', capturedAt: new Date().toISOString(), capturedBy: 'form' };
+            return stored || { primary: 'unknown', capturedAt: new Date().toISOString(), capturedBy: 'system' };
+          } catch(e) { return null; }
+        })()
       }
     }).catch(e => {
       console.warn('[incoming save]', e.message);

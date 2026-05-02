@@ -316,6 +316,49 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
 </div>
 
+<!-- ── POST-JOB LOG MODAL ── -->
+<div class="overlay hidden" id="jobLogModal" onclick="if(event.target===this)skipJobLog()">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-title">✓ Job Complete — Quick Log</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">Takes 30 seconds. Skip anytime.</p>
+    <div class="modal-field">
+      <label>Customer satisfied?</label>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="custSatisfied" value="yes" checked> 😊 Yes
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="custSatisfied" value="concerned"> 😐 Concerned
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="custSatisfied" value="no"> 😞 No
+        </label>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Finish time (optional)</label>
+      <input type="time" id="jobEndTime" class="modal-input">
+    </div>
+    <div class="modal-field">
+      <label>Any issues?</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueTime" style="accent-color:var(--sky);"> Took longer</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueEquip" style="accent-color:var(--sky);"> Equipment</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueScope" style="accent-color:var(--sky);"> Scope change</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueWeather" style="accent-color:var(--sky);"> Weather delay</label>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Notes (optional)</label>
+      <textarea id="jobLogNotes" class="modal-input" rows="2" style="resize:none;" placeholder="Anything notable about this job…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="skipJobLog()">Skip</button>
+      <button class="mbtn-save" onclick="saveJobLog()">Save & Complete ✓</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── CONFIRM DELETE MODAL ── -->
 <div class="overlay hidden" id="confirmModal" onclick="if(event.target===this)closeConfirmModal()">
   <div class="modal" style="max-width:420px;">
@@ -1256,11 +1299,42 @@ function saveJobModal() {
 }
 
 function markComplete() {
+  // Show post-job log modal before marking complete
+  const now = new Date();
+  document.getElementById('jobEndTime').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  document.querySelector('input[name="custSatisfied"][value="yes"]').checked = true;
+  ['issueTime','issueEquip','issueScope','issueWeather'].forEach(id => { const el = document.getElementById(id); if(el) el.checked = false; });
+  const n = document.getElementById('jobLogNotes'); if (n) n.value = '';
+  document.getElementById('jobLogModal').classList.remove('hidden');
+}
+
+function skipJobLog() {
+  document.getElementById('jobLogModal').classList.add('hidden');
+  _doCompleteJob({});
+}
+
+function saveJobLog() {
+  document.getElementById('jobLogModal').classList.add('hidden');
+  const issues = [];
+  if (document.getElementById('issueTime')?.checked)    issues.push('took_longer');
+  if (document.getElementById('issueEquip')?.checked)   issues.push('equipment');
+  if (document.getElementById('issueScope')?.checked)   issues.push('scope_change');
+  if (document.getElementById('issueWeather')?.checked) issues.push('weather');
+  const satisfied = document.querySelector('input[name="custSatisfied"]:checked')?.value || 'yes';
+  const endTime   = document.getElementById('jobEndTime')?.value || '';
+  const notes     = document.getElementById('jobLogNotes')?.value?.trim() || '';
+  _doCompleteJob({ satisfied, endTime, issues, notes });
+}
+
+function _doCompleteJob(log) {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
   const ss = c.scheduledStatus;
   ss.state = 'completed';
   ss.completedDate = isoToday();
+  if (Object.keys(log).length) {
+    ss.jobLog = { ...log, loggedAt: new Date().toISOString(), loggedBy: 'operator' };
+  }
   // Update customer history
   const amt = ss.approvedAmount || 0;
   if (amt > 0) c.lifetimeSpend = (c.lifetimeSpend || 0) + amt;

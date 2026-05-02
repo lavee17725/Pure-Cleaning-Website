@@ -294,6 +294,22 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   <!-- S10: ACTION ITEMS -->
   <div class="sec-hdr">Action Items · Auto-Generated</div>
   <div class="action-list" id="actionItems"></div>
+
+  <!-- S11: LEAD SOURCE ATTRIBUTION -->
+  <div class="sec-hdr">Lead Source Attribution</div>
+  <div id="leadSourcePanel" class="two-col" style="margin-bottom:.5rem;"></div>
+
+  <!-- S12: CYCLE TIME ANALYSIS -->
+  <div class="sec-hdr">Cycle Time Analysis</div>
+  <div id="cycleTimePanel" class="card" style="margin-bottom:.5rem;"></div>
+
+  <!-- S13: CREW PERFORMANCE -->
+  <div class="sec-hdr">Crew Performance (Post-Job Logs)</div>
+  <div id="crewPerfPanel" style="margin-bottom:.5rem;"></div>
+
+  <!-- S14: SATISFACTION TRENDS -->
+  <div class="sec-hdr">Customer Satisfaction Signals</div>
+  <div id="satisfactionPanel" class="card" style="margin-bottom:.5rem;"></div>
 </main>
 
 <div id="ddOverlay" style="display:none;position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.45);" onclick="if(event.target===this)closeDrilldown()"></div>
@@ -1526,6 +1542,152 @@ function renderPhoneQuoteFunnel() {
   }
 }
 
+// ─── S11: Lead Source Attribution ───────────────────────────────────────────
+function renderLeadSource() {
+  const el = document.getElementById('leadSourcePanel'); if (!el) return;
+  const custs = dbRecord.customers || [];
+  const srcMap = {};
+  custs.forEach(c => {
+    const src = c.leadSource?.primary || 'unknown';
+    if (!srcMap[src]) srcMap[src] = { count: 0, revenue: 0 };
+    srcMap[src].count++;
+    srcMap[src].revenue += (c.lifetimeSpend || 0);
+  });
+  const entries = Object.entries(srcMap).sort((a,b) => b[1].count - a[1].count);
+  const total = custs.length;
+  const LABELS = { google_organic:'Google Search', google_ads:'Google Ads', facebook:'Facebook / Instagram', referral:'Referral', repeat:'Returning', yard_sign:'Van / Yard Sign', nextdoor:'Nextdoor', angi:'Angi', thumbtack:'Thumbtack', other:'Other', unknown:'Unknown / Untracked' };
+
+  // Pie chart card
+  const pieId = 'leadSourceChart';
+  const colors = ['#c2410c','#1e3a5f','#0ea5e9','#16a34a','#d97706','#7c3aed','#db2777','#0d9488','#94a3b8','#475569','#64748b'];
+  const labels = entries.map(([k]) => LABELS[k] || k);
+  const data   = entries.map(([,v]) => v.count);
+
+  if (charts.leadSrc) { charts.leadSrc.destroy(); charts.leadSrc = null; }
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">Customers by Lead Source</div>
+      <div class="card-sub">${total} customers — where they came from</div>
+      <div class="ch-240"><canvas id="${pieId}"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Revenue by Lead Source</div>
+      <div class="card-sub">Lifetime revenue attributed per channel</div>
+      <div style="overflow-x:auto;">
+        <table class="data-table" style="margin-top:.5rem;">
+          <thead><tr><th>Source</th><th>Customers</th><th>Revenue</th><th>Avg LTV</th></tr></thead>
+          <tbody>${entries.map(([k,v]) => `<tr><td>${LABELS[k]||k}</td><td class="mono">${v.count} (${Math.round(v.count/total*100)}%)</td><td class="mono">${fmtFull(v.revenue)}</td><td class="mono">${v.count > 0 ? fmt$(v.revenue/v.count) : '—'}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>
+      ${entries.find(([k])=>k==='unknown')?`<div style="margin-top:.75rem;font-size:12px;color:var(--muted);">💡 Most records are "Unknown" because lead source tracking is new. It fills in for all future customers.</div>`:''}
+    </div>`;
+  const ctx = document.getElementById(pieId);
+  if (ctx) charts.leadSrc = new Chart(ctx, {
+    type:'doughnut', data:{ labels, datasets:[{data, backgroundColor:colors.slice(0,labels.length), borderWidth:2, borderColor:'#fff'}] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{position:'right',labels:{font:{family:'DM Sans',size:11},padding:8,usePointStyle:true}}, tooltip:{callbacks:{label:c=>` ${c.label}: ${c.raw} (${Math.round(c.raw/total*100)}%)`}} } }
+  });
+}
+
+// ─── S12: Cycle Time Analysis ────────────────────────────────────────────────
+function renderCycleTime() {
+  const el = document.getElementById('cycleTimePanel'); if (!el) return;
+  const custs = dbRecord.customers || [];
+  const msToHours = ms => Math.round(ms / (1000*60*60) * 10) / 10;
+  const msToDays  = ms => Math.round(ms / (1000*60*60*24) * 10) / 10;
+
+  const sentToView = [], viewToApproval = [], approvalToSchedule = [];
+  custs.forEach(c => {
+    const qs = c.quoteStatus || {};
+    if (qs.sentDate && qs.viewedDate) {
+      const ms = new Date(qs.viewedDate) - new Date(qs.sentDate);
+      if (ms > 0 && ms < 30*24*3600000) sentToView.push(ms);
+    }
+    if (qs.viewedDate && qs.approvedDate) {
+      const ms = new Date(qs.approvedDate) - new Date(qs.viewedDate);
+      if (ms > 0 && ms < 30*24*3600000) viewToApproval.push(ms);
+    }
+    if (qs.approvedDate && c.scheduledStatus?.scheduledDate) {
+      const ms = new Date(c.scheduledStatus.scheduledDate) - new Date(qs.approvedDate);
+      if (ms > 0 && ms < 60*24*3600000) approvalToSchedule.push(ms);
+    }
+  });
+
+  const median = arr => { if (!arr.length) return null; const s = [...arr].sort((a,b)=>a-b); return s[Math.floor(s.length/2)]; };
+  const medS2V = median(sentToView);
+  const medV2A = median(viewToApproval);
+  const medA2S = median(approvalToSchedule);
+
+  const metRow = (label, val, unit, count) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 0;border-bottom:1px solid var(--border);">
+      <div><div style="font-size:13px;font-weight:600;color:var(--text);">${label}</div><div style="font-size:11px;color:var(--muted);">${count} data point${count!==1?'s':''}</div></div>
+      <div style="font-size:22px;font-weight:700;color:var(--terra);font-family:'DM Mono',monospace;">${val !== null ? val + ' ' + unit : '—'}</div>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="card-title">Quote Cycle Time Medians</div>
+    <div class="card-sub">How long each stage takes — based on ${custs.filter(c=>c.quoteStatus?.sentDate).length} tracked quotes</div>
+    <div style="margin-top:.75rem;">
+      ${metRow('Quote Sent → First Viewed', medS2V ? msToHours(medS2V) : null, 'hrs', sentToView.length)}
+      ${metRow('Viewed → Approved', medV2A ? msToHours(medV2A) : null, 'hrs', viewToApproval.length)}
+      ${metRow('Approved → Scheduled', medA2S ? msToDays(medA2S) : null, 'days', approvalToSchedule.length)}
+    </div>
+    ${sentToView.length === 0 ? `<div class="warn-banner" style="margin-top:.75rem;">📊 Cycle time data fills in automatically as digital quotes are sent and tracked. Currently showing limited data — will grow with usage.</div>` : ''}`;
+}
+
+// ─── S13: Crew Performance ───────────────────────────────────────────────────
+function renderCrewPerformance() {
+  const el = document.getElementById('crewPerfPanel'); if (!el) return;
+  const custs = dbRecord.customers || [];
+  // Aggregate from scheduledStatus.jobLog
+  const completedJobs = custs.filter(c => c.scheduledStatus?.state === 'completed' && c.scheduledStatus?.jobLog);
+  const crewStats = {};
+  completedJobs.forEach(c => {
+    const log = c.scheduledStatus.jobLog;
+    const crew = c.scheduledStatus.crew || [];
+    crew.forEach(member => {
+      if (!crewStats[member]) crewStats[member] = { jobs: 0, satisfied: 0, concerned: 0, issues: 0, revenue: 0 };
+      crewStats[member].jobs++;
+      crewStats[member].revenue += c.scheduledStatus.approvedAmount || 0;
+      if (log.satisfied === 'yes') crewStats[member].satisfied++;
+      if (log.satisfied === 'concerned' || log.satisfied === 'no') crewStats[member].concerned++;
+      if ((log.issues||[]).length > 0) crewStats[member].issues++;
+    });
+  });
+  const entries = Object.entries(crewStats).sort((a,b) => b[1].jobs - a[1].jobs);
+  if (!entries.length) {
+    el.innerHTML = `<div class="card"><div class="card-title">Crew Performance</div><div class="card-sub">Post-job logs fill in here automatically after jobs are completed with the log form.</div><div class="empty" style="margin-top:1rem;"><div class="empty-icon">📋</div><div class="empty-title">No job logs yet</div><div class="empty-body">When you mark a job complete and fill out the quick log, crew stats appear here.</div></div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="card"><div class="card-title">Crew Stats from Job Logs</div><div class="card-sub">${completedJobs.length} logged jobs</div><div style="overflow-x:auto;margin-top:.75rem;"><table class="data-table"><thead><tr><th>Crew Member</th><th>Jobs</th><th>Satisfied</th><th>Issues</th><th>Revenue</th></tr></thead><tbody>${entries.map(([name,s])=>`<tr><td style="font-weight:600;">${name}</td><td class="mono">${s.jobs}</td><td class="mono">${s.jobs>0?Math.round(s.satisfied/s.jobs*100)+'%':'—'}</td><td class="mono">${s.jobs>0?Math.round(s.issues/s.jobs*100)+'%':'—'}</td><td class="mono">${fmtFull(s.revenue)}</td></tr>`).join('')}</tbody></table></div></div>`;
+}
+
+// ─── S14: Satisfaction Trends ────────────────────────────────────────────────
+function renderSatisfaction() {
+  const el = document.getElementById('satisfactionPanel'); if (!el) return;
+  const feedbackEvs = eventsData.filter(e => e.eventType === 'post_job_feedback');
+  const replyEvs    = eventsData.filter(e => e.eventType === 'customer_reply_logged');
+  const pos = feedbackEvs.filter(e => e.sentiment === 'positive').length;
+  const neu = feedbackEvs.filter(e => e.sentiment === 'neutral').length;
+  const neg = feedbackEvs.filter(e => e.sentiment === 'negative').length;
+  const reviewsLeft = feedbackEvs.filter(e => e.reviewLeft).length;
+  if (!feedbackEvs.length && !replyEvs.length) {
+    el.innerHTML = `<div class="card-title">Customer Satisfaction</div><div class="card-sub">Post-job feedback logged here from customer profiles.</div><div class="empty" style="margin-top:1rem;"><div class="empty-icon">⭐</div><div class="empty-title">No feedback logged yet</div><div class="empty-body">After each job, open the customer profile and tap "Log Feedback" to record satisfaction. Data accumulates here.</div></div>`;
+    return;
+  }
+  const total = feedbackEvs.length;
+  el.innerHTML = `
+    <div class="card-title">Customer Satisfaction Signals</div>
+    <div class="card-sub">${total} feedback entries logged</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:1rem;">
+      <div class="stat-pill"><div class="stat-pill-lbl">Positive</div><div class="stat-pill-val" style="color:var(--green);">${pos} <span style="font-size:13px;">(${total?Math.round(pos/total*100):0}%)</span></div></div>
+      <div class="stat-pill"><div class="stat-pill-lbl">Neutral</div><div class="stat-pill-val">${neu} <span style="font-size:13px;">(${total?Math.round(neu/total*100):0}%)</span></div></div>
+      <div class="stat-pill"><div class="stat-pill-lbl">Negative</div><div class="stat-pill-val" style="color:var(--red);">${neg} <span style="font-size:13px;">(${total?Math.round(neg/total*100):0}%)</span></div></div>
+      <div class="stat-pill"><div class="stat-pill-lbl">Google Reviews</div><div class="stat-pill-val">${reviewsLeft}</div><div class="stat-pill-sub">${total?Math.round(reviewsLeft/total*100):0}% conversion</div></div>
+      <div class="stat-pill"><div class="stat-pill-lbl">SMS Replies Logged</div><div class="stat-pill-val">${replyEvs.length}</div></div>
+    </div>
+    ${feedbackEvs.length > 0 ? `<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.875rem;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:.5rem;">Recent Feedback</div>${feedbackEvs.slice(0,5).map(e => `<div style="padding:.5rem 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="font-weight:600;">${e.customer?.fn||''} ${e.customer?.ln||''}</span> — <span style="color:${e.sentiment==='positive'?'var(--green)':e.sentiment==='negative'?'var(--red)':'var(--muted)'};">${e.sentiment}</span>${e.feedback?` · "${e.feedback.substring(0,60)}${e.feedback.length>60?'…':''}"`:''}</div>`).join('')}</div>` : ''}`;
+}
+
 function renderAll() {
   [
     ['Hero',               renderHero],
@@ -1541,6 +1703,10 @@ function renderAll() {
     ['Reactivation',       renderReactivation],
     ['PhoneQuoteFunnel',   renderPhoneQuoteFunnel],
     ['Actions',            renderActions],
+    ['LeadSource',         renderLeadSource],
+    ['CycleTime',          renderCycleTime],
+    ['CrewPerformance',    renderCrewPerformance],
+    ['Satisfaction',       renderSatisfaction],
   ].forEach(([name, fn]) => {
     try { fn(); } catch(e) { console.error(`[insights] ${name} render failed:`, e); }
   });
