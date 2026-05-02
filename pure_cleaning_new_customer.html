@@ -389,6 +389,7 @@ let dupPhone     = null;
 let currentPath  = 'phone';
 let _confirmSms  = '';
 let _lastSavedCustomer = null;
+let _saving = false;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -569,6 +570,7 @@ async function submitForm() {
 }
 
 async function submitPhonePath() {
+  if (_saving) return; _saving = true;
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   const fn      = document.getElementById('nFn').value.trim();
@@ -627,7 +629,7 @@ async function submitPhonePath() {
   } catch(e) {
     alert('Error: ' + e.message);
     btn.disabled=false; btn.textContent="✅ Book It — I'll Text Them";
-  }
+  } finally { _saving = false; }
 }
 
 async function submitDigitalPath() {

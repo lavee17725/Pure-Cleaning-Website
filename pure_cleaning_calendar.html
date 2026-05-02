@@ -29,10 +29,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .topbar-action:hover{background:rgba(255,255,255,.2);}
 
 /* ── THREE-COLUMN LAYOUT ── */
-.layout{display:grid;grid-template-columns:280px 1fr 250px;height:calc(100vh - 54px);overflow:hidden;}
+.layout{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 54px);overflow:hidden;transition:grid-template-columns .2s;}
+.layout.crew-visible{grid-template-columns:280px 1fr 250px;}
 .left-col{background:var(--card);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;}
 .main-col{overflow:auto;background:var(--bg);}
-.right-col{background:var(--card);border-left:1px solid var(--border);overflow-y:auto;}
+.right-col{background:var(--card);border-left:1px solid var(--border);overflow-y:auto;display:none;}
+.layout.crew-visible .right-col{display:block;}
 
 /* ── LEFT SIDEBAR ── */
 .sidebar-hdr{padding:.875rem 1rem .625rem;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);background:var(--card);position:sticky;top:0;z-index:10;}
@@ -50,7 +52,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 }
 .pulse-highlight { animation:scheduleHighlight 0.8s ease-in-out 3; }
 .jn{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:4px;}
-.jd{font-size:12px;color:var(--muted);line-height:1.5;}
+.jd{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:2px;}
+/* Sidebar card vertical layout */
+.jcard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:5px;}
+.jcard-name{font-size:14px;font-weight:700;color:var(--navy);flex:1;min-width:0;word-break:break-word;}
+.jcard-badges{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px;}
+.jcard-price{margin-bottom:5px;}
 .drag-hint{font-size:10px;color:#b0bac8;margin-top:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
 .card-sms-btn{font-size:10px;color:var(--sky);cursor:pointer;padding:3px 0 0;font-weight:600;letter-spacing:.2px;display:block;-webkit-tap-highlight-color:transparent;}
 .card-sms-btn:hover{text-decoration:underline;}
@@ -83,6 +90,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-date.today{color:var(--gold);}
 .day-labor{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
 .day-labor.has-cost{color:#86efac;}
+/* Today column highlight */
+.day-col.today-col{background:rgba(244,166,32,.03);}
+.day-col.today-col .day-hdr{background:#1b2e46;}
 
 /* ── RIG LANES ── */
 .rig-section{border-bottom:1px solid var(--border);}
@@ -92,7 +102,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .rig-icon{font-size:14px;}
 .rig-name{flex:1;}
 .rig-crew-label{font-size:11px;color:var(--sky);font-weight:600;}
-.rig-jobs{min-height:60px;padding:6px;background:transparent;}
+.rig-jobs{min-height:160px;padding:8px;background:transparent;}
 .rig-jobs.empty-hint{background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,.015) 8px,rgba(0,0,0,.015) 16px);}
 
 /* ── SCHEDULED JOB CARD ── */
@@ -194,8 +204,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .day-name,.day-date,.day-labor{color:#000 !important;}
 }
 @media(max-width:900px){
-  .layout{grid-template-columns:1fr;}
-  .left-col,.right-col{display:none;}
+  .layout,.layout.crew-visible{grid-template-columns:1fr;}
+  .left-col,.right-col,.layout.crew-visible .right-col{display:none;}
 }
 </style>
 </head>
@@ -215,11 +225,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="topbar-sep"></div>
   <button class="topbar-action" onclick="openDayOffModal()">+ Day Off</button>
   <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
-  <button class="topbar-action" onclick="window.print()">🖨 Print</button>
+  <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
+  <button class="topbar-action" onclick="window.print()">🖨</button>
 </div>
 
 <!-- THREE-COLUMN LAYOUT -->
-<div class="layout">
+<div class="layout" id="mainLayout">
 
   <!-- LEFT: NEEDS SCHEDULING -->
   <div class="left-col">
@@ -680,32 +691,46 @@ function calculateDayTotal(date) {
 }
 
 function jobCardSidebar(c) {
-  const name    = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
-  const ss      = c.scheduledStatus || {};
-  const dur     = ss.estimatedDuration || 2;
-  const notes   = esc(ss.jobNotes || '');
-  const alerts  = alertIcons(c.alerts||[]);
-  const phone   = fmtPh(c.phone);
-  const city    = formatCity(c.city || '');
+  const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const ss     = c.scheduledStatus || {};
+  const dur    = ss.estimatedDuration || 2;
+  const notes  = esc(ss.jobNotes || '');
+  const alerts = alertIcons(c.alerts||[]);
+  const phone  = fmtPh(c.phone);
+  const city   = formatCity(c.city || '');
   const { html: amtHtml } = jobAmount(c);
-  const testBadge  = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
-  const phoneBadge = c.source === 'phone_quoted' ? ' <span class="phone-badge">📞 Phone quoted</span>' : '';
-  const sealBadge  = c.sealingInterest ? ' <span class="seal-badge">💎 Seal int</span>' : '';
-  const updBadge   = (_justUpdated.has(c.phone) && _justUpdated.get(c.phone) > Date.now()) ? ' <span class="updated-badge">💫 Just updated</span>' : '';
+
+  // Collect badges
+  const badges = [
+    c.isTest                                                           ? '<span class="test-badge">🧪 TEST</span>' : '',
+    c.source === 'phone_quoted'                                        ? '<span class="phone-badge">📞 Phone quoted</span>' : '',
+    c.sealingInterest                                                  ? '<span class="seal-badge">💎 Seal int</span>' : '',
+    (_justUpdated.has(c.phone) && _justUpdated.get(c.phone) > Date.now()) ? '<span class="updated-badge">💫 Just updated</span>' : '',
+  ].filter(Boolean);
+
+  const badgesHtml = badges.length ? `<div class="jcard-badges">${badges.join('')}</div>` : '';
+
   const testExpiry = c.isTest && c.testExpiresAt
     ? `<div class="test-expiry">Auto-removes ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
     : '';
+
   let wantsLine = '';
   if (ss.customerSelectedDate) {
     const d = new Date(ss.customerSelectedDate + 'T12:00:00');
-    const fmt = d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
-    wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(fmt)}</div>`;
+    wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))}</div>`;
   }
+
   const addOnsLine = (c.addOns && c.addOns.length)
     ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
     : '';
+
   return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
-    <div class="jn-row"><div class="jn">${name}${testBadge}${phoneBadge}${sealBadge}${updBadge}${alerts}</div><div class="card-top-right">${amtHtml}<button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button></div></div>
+    <div class="jcard-top">
+      <div class="jcard-name">${name}${alerts}</div>
+      <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
+    </div>
+    ${badgesHtml}
+    <div class="jcard-price">${amtHtml}</div>
     ${testExpiry}
     ${wantsLine}
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
@@ -765,7 +790,7 @@ function renderCalGrid(dates) {
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
       </div>`;
     }).join('');
-    return `<div class="day-col">
+    return `<div class="day-col${isToday?' today-col':''}">
       <div class="day-hdr">
         <div class="day-name">${dayName}</div>
         <div class="day-date${isToday?' today':''}">${dayLabel}</div>
@@ -932,11 +957,15 @@ function calcPayroll(dates) {
 
 // ── DATA QUERIES ──────────────────────────────────────────────────────────────
 function getUnscheduled() {
-  const c = (dbRecord.customers||[]);
-  return c.filter(x =>
-    (x.scheduledStatus && x.scheduledStatus.state === 'needs_scheduling') ||
-    (x.quoteStatus && x.quoteStatus.state === 'approved' && (!x.scheduledStatus || !x.scheduledStatus.state))
-  );
+  const seen = new Set();
+  return (dbRecord.customers||[]).filter(x => {
+    if (!x.phone || seen.has(x.phone)) return false;
+    const matches =
+      (x.scheduledStatus && x.scheduledStatus.state === 'needs_scheduling') ||
+      (x.quoteStatus && x.quoteStatus.state === 'approved' && (!x.scheduledStatus || !x.scheduledStatus.state));
+    if (matches) seen.add(x.phone);
+    return matches;
+  });
 }
 
 function getScheduledForRig(date, rig) {
@@ -1400,6 +1429,13 @@ function saveDayOff() {
 // ── WEEK NAV ──────────────────────────────────────────────────────────────────
 function changeWeek(dir) { weekOffset += dir; render(); updateBlockWeekBtn(); }
 function goToday()       { weekOffset = 0; render(); updateBlockWeekBtn(); }
+
+let _crewVisible = false;
+function toggleCrewPanel() {
+  _crewVisible = !_crewVisible;
+  document.getElementById('mainLayout').classList.toggle('crew-visible', _crewVisible);
+  document.getElementById('crewToggleBtn').textContent = _crewVisible ? '👥 Crew ‹' : '👥 Crew';
+}
 
 // ── BLOCKED WEEKS ─────────────────────────────────────────────────────────────
 let _calBlockedWeeks = [];
