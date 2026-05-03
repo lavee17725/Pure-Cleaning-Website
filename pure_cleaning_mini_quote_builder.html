@@ -100,6 +100,25 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 /* Toast */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:999;white-space:nowrap;}
 .toast.show{transform:translateX(-50%) translateY(0);}
+
+/* Date suggestion cards */
+.date-card{background:var(--white);border:1.5px solid var(--border);border-radius:13px;margin-bottom:.75rem;padding:13px 15px;transition:opacity .15s;}
+.date-card.excluded{opacity:.38;}
+.date-card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.date-chip{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 8px;border-radius:20px;}
+.date-chip.best{background:#dcfce7;color:#166534;}
+.date-chip.alt{background:#eff6ff;color:#1d4ed8;}
+.date-toggle-btn{font-size:11px;font-weight:600;color:var(--muted);background:none;border:1.5px solid var(--border);border-radius:8px;padding:3px 10px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.date-toggle-btn.on{color:var(--green);border-color:#86efac;background:#f0fdf4;}
+.date-display{font-size:17px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.date-reason{font-size:12px;color:var(--muted);margin-bottom:8px;}
+.date-replace-btn{font-size:12px;color:var(--sky);background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;padding:0;text-decoration:underline;}
+.date-custom-input-wrap{display:none;margin-top:8px;}
+.date-custom-input-wrap.open{display:block;}
+.date-custom-input{width:100%;padding:9px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;transition:border-color .15s;}
+.date-custom-input:focus{border-color:var(--sky);}
+.add-date-btn{display:flex;align-items:center;gap:7px;background:none;border:1.5px dashed var(--border);border-radius:11px;padding:11px 16px;width:100%;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;transition:all .15s;margin-top:.25rem;}
+.add-date-btn:hover{background:#f0f6ff;border-color:var(--sky);}
 </style>
 </head>
 <body>
@@ -167,6 +186,7 @@ let defaults   = {};
 let sealingOn  = false;
 let customRows = [];
 let customIdCounter = 0;
+let _dateSuggestions = []; // [{date,display,dayName,rig,rigLabel,reason,label,enabled,custom}]
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -190,6 +210,7 @@ async function init() {
     // Pre-populate if mini quote was already partially built
     const existing = customer.quoteStatus && customer.quoteStatus.miniQuoteCustomData;
     renderBuilder(existing);
+    loadDateSuggestions(existing);
   } catch(e) {
     showError('Failed to load: ' + e.message);
   }
@@ -269,6 +290,11 @@ function renderBuilder(existing) {
       <label>Anything else for the customer?</label>
       <textarea class="big-note" id="customNote" maxlength="400" placeholder="Hi! Tony noticed your front walkway is in rough shape — happy to include it as an add-on. Just tap below." oninput="updateCharCount()">${esc(existingNote)}</textarea>
       <div class="char-count" id="charCount">${existingNote.length}/400</div>
+    </div>
+
+    <div class="sec">Date Options for Customer</div>
+    <div id="dateSuggestSection">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.75rem;">Loading suggestions based on your calendar…</div>
     </div>
 
     <div class="actions">
@@ -383,6 +409,105 @@ function renderCustomRows() {
     </div>`).join('');
 }
 
+// ── DATE SUGGESTIONS ─────────────────────────────────────────────────────────
+async function loadDateSuggestions(existing) {
+  const section = document.getElementById('dateSuggestSection');
+  if (!section) return;
+
+  const saved = existing && existing.dateSuggestions;
+  const city  = customer.city || '';
+  try {
+    const res  = await fetch(`${PCPC_API}/dates/suggest?city=${encodeURIComponent(city)}`);
+    const data = await res.json();
+    const fresh = (data.suggestions || []).slice(0, 3).map(s => ({...s, enabled: true, custom: false}));
+
+    if (saved && saved.length) {
+      const today = new Date().toISOString().slice(0, 10);
+      _dateSuggestions = saved.filter(s => !s.date || s.date > today).map(s => ({...s, enabled: s.enabled !== false}));
+      if (!_dateSuggestions.length) _dateSuggestions = fresh;
+    } else {
+      _dateSuggestions = fresh;
+    }
+  } catch (e) {
+    _dateSuggestions = (saved && saved.length) ? saved.map(s => ({...s, enabled: s.enabled !== false})) : [];
+  }
+  renderDateSuggestions();
+}
+
+function renderDateSuggestions() {
+  const section = document.getElementById('dateSuggestSection');
+  if (!section) return;
+  section.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:.875rem;">Based on your calendar. Toggle off to hide from customer, or replace with a custom date.</div>
+    <div id="dateCardsList"></div>
+    <div id="addDateBtnWrap"><button class="add-date-btn" id="addDateBtn" onclick="addCustomDateRow()">+ Add a 4th date option</button></div>
+  `;
+  renderDateCards();
+}
+
+function renderDateCards() {
+  const list = document.getElementById('dateCardsList');
+  if (!list) return;
+  list.innerHTML = _dateSuggestions.map((s, i) => {
+    const chipClass = s.label === 'Best fit' ? 'best' : 'alt';
+    const isOn = s.enabled !== false;
+    return `<div class="date-card${isOn ? '' : ' excluded'}" id="date-card-${i}">
+      <div class="date-card-hdr">
+        <span class="date-chip ${chipClass}">${esc(s.label || 'Alternative')}</span>
+        <button class="date-toggle-btn${isOn ? ' on' : ''}" onclick="toggleDateCard(${i})">${isOn ? 'Include ✓' : 'Excluded'}</button>
+      </div>
+      <div class="date-display">${esc(s.display || s.date)}</div>
+      ${s.reason ? `<div class="date-reason">📍 ${esc(s.reason)}</div>` : ''}
+      <button class="date-replace-btn" onclick="openDateReplace(${i})">${s.custom ? '✏️ Change date' : 'Replace with custom date'}</button>
+      <div class="date-custom-input-wrap${s._replaceOpen ? ' open' : ''}" id="date-custom-wrap-${i}">
+        <input type="date" class="date-custom-input" id="date-custom-input-${i}"
+          value="${s.custom ? s.date : ''}"
+          min="${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}"
+          onchange="onCustomDateChange(${i}, this.value)">
+      </div>
+    </div>`;
+  }).join('');
+  const addBtn = document.getElementById('addDateBtn');
+  if (addBtn) addBtn.style.display = _dateSuggestions.length >= 4 ? 'none' : '';
+}
+
+function toggleDateCard(i) {
+  if (!_dateSuggestions[i]) return;
+  _dateSuggestions[i].enabled = !(_dateSuggestions[i].enabled !== false);
+  renderDateCards();
+}
+
+function openDateReplace(i) {
+  if (!_dateSuggestions[i]) return;
+  _dateSuggestions[i]._replaceOpen = !_dateSuggestions[i]._replaceOpen;
+  renderDateCards();
+  if (_dateSuggestions[i]._replaceOpen) {
+    const inp = document.getElementById(`date-custom-input-${i}`);
+    if (inp) inp.focus();
+  }
+}
+
+function onCustomDateChange(i, val) {
+  if (!val || !_dateSuggestions[i]) return;
+  const d = new Date(val + 'T12:00:00');
+  const DN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  _dateSuggestions[i].date    = val;
+  _dateSuggestions[i].display = `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`;
+  _dateSuggestions[i].custom  = true;
+  _dateSuggestions[i].reason  = 'Custom date';
+  _dateSuggestions[i]._replaceOpen = false;
+  renderDateCards();
+}
+
+function addCustomDateRow() {
+  if (_dateSuggestions.length >= 4) { showToast('Maximum 4 date options'); return; }
+  _dateSuggestions.push({date:'', display:'Pick a date below', label:'Alternative', reason:'Custom date', rig:'', rigLabel:'', enabled:true, custom:true, _replaceOpen:true});
+  renderDateCards();
+  const inp = document.getElementById(`date-custom-input-${_dateSuggestions.length - 1}`);
+  if (inp) inp.focus();
+}
+
 // ── SAVE ──────────────────────────────────────────────────────────────────────
 function collectAddons() {
   return STANDARD_ADDONS.map(a => {
@@ -439,6 +564,11 @@ async function saveMiniQuote(sendText) {
   // Prefer the price input the user just typed; fall back to whatever was stored
   const mainAmount   = parseFloat(document.getElementById('mainJobPrice')?.value) || qs.mainAmount || qs.approvedAmount || 0;
   const mainServices = qs.mainServices || qs.notes || '';
+  const dateSuggestions = _dateSuggestions
+    .filter(s => s.enabled !== false && s.date)
+    .map(({date, display, dayName, rig, rigLabel, reason, label}) => ({
+      date, display, dayName: dayName||'', rig: rig||'', rigLabel: rigLabel||'', reason: reason||'', label: label||'Alternative'
+    }));
 
   try {
     // Load DB to patch customer
@@ -453,6 +583,7 @@ async function saveMiniQuote(sendText) {
       customAddOns,
       sealingEnabled: sealingOn,
       customNote,
+      dateSuggestions,
       builtAt: now,
       sentAt: sendText ? now : null,
     };
@@ -473,6 +604,7 @@ async function saveMiniQuote(sendText) {
         approvedAmount: mainAmount,
         addOns: [],
         sealingInterest: false,
+        dateSuggestions,
         source: 'mini_quote_builder',
         created: now,
         miniQuoteCustomData,

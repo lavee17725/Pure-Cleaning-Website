@@ -697,6 +697,23 @@ body {
   border-radius: 12px;
   cursor: pointer;
 }
+
+/* Date picker section */
+.date-section { margin-bottom: 1.5rem; }
+.date-section-hdr { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: .75rem; padding: 0 2px; }
+.date-option { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1rem 1.125rem; margin-bottom: .625rem; cursor: pointer; display: flex; align-items: center; gap: 1rem; transition: border-color .15s, box-shadow .15s; -webkit-tap-highlight-color: transparent; }
+.date-option:hover { border-color: var(--navy); }
+.date-option.selected { border-color: var(--green); background: #f0fdf4; box-shadow: 0 2px 8px rgba(29,158,117,.1); }
+.date-radio { width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s; background: var(--white); }
+.date-option.selected .date-radio { border-color: var(--green); background: var(--green); }
+.date-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .15s; }
+.date-option.selected .date-radio-dot { opacity: 1; }
+.date-info { flex: 1; }
+.date-option-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 3px; }
+.date-option-label.best { color: #166534; }
+.date-option-label.alt { color: #1d4ed8; }
+.date-option-display { font-size: 16px; font-weight: 700; color: var(--navy); }
+.date-confirmed-msg { display: flex; align-items: center; gap: 10px; padding: .875rem 1rem; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 12px; font-size: 14px; font-weight: 600; color: var(--green); }
 </style>
 </head>
 <body>
@@ -794,6 +811,9 @@ body {
     </div>
 
     <!-- Custom Note (injected dynamically if present) -->
+
+    <!-- ─── Date Picker (shown when dateSuggestions present) ─── -->
+    <div id="date-section" style="display:none;"></div>
 
     <!-- ─── Add-ons ─── -->
     <div class="addons-section" id="addons-section" style="display:none;">
@@ -1026,6 +1046,22 @@ body {
   </div>
 </div>
 
+<!-- Date Preference Modal -->
+<div class="modal-overlay" id="date-modal" onclick="onModalOverlayClick(event, 'date-modal')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Request this date?</div>
+    <div class="sheet-body">
+      <strong id="date-modal-display"></strong><br>
+      We'll confirm availability and text you the night before with your arrival window.
+    </div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeModal('date-modal')">Cancel</button>
+      <button class="btn-confirm" onclick="onDatePreferenceConfirm()">Yes, request it</button>
+    </div>
+  </div>
+</div>
+
 <!-- Sealing Interest Modal -->
 <div class="modal-overlay" id="sealing-modal" onclick="onModalOverlayClick(event, 'sealing-modal')">
   <div class="sheet">
@@ -1052,6 +1088,8 @@ let actionTaken = false;
 let maxScrollDepthPct = 0;
 let addonSectionViewed = false;
 let viewedLogged = false;
+let _pendingDatePref = null;
+let _offeredDates    = [];
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -1207,6 +1245,10 @@ function renderPage() {
   if (addonsConfig.sealingEnabled !== undefined ? addonsConfig.sealingEnabled : true) {
     renderSealing();
   }
+
+  // Date picker
+  const dateSugs = quoteData.miniQuoteCustomData && quoteData.miniQuoteCustomData.dateSuggestions;
+  if (dateSugs) renderDatePicker(dateSugs);
 }
 
 function refreshBookingCard() {
@@ -1278,6 +1320,84 @@ function renderSealing() {
   if (quoteData.sealingInterest) {
     sealingEl.classList.add('captured');
   }
+}
+
+// ── Date Picker ───────────────────────────────────────────────────────────────
+
+function renderDatePicker(dateSuggestions) {
+  const offered = (dateSuggestions || []).filter(s => s.date);
+  if (!offered.length) return;
+  _offeredDates = offered;
+
+  const secEl = document.getElementById('date-section');
+  if (!secEl) return;
+  secEl.style.display = 'block';
+  secEl.className = 'date-section';
+
+  const alreadySelected = quoteData.datePreference;
+  let html = `<div class="date-section-hdr">Pick Your Preferred Date</div>`;
+
+  if (alreadySelected) {
+    html += `<div class="date-confirmed-msg">✓ You requested ${escHtml(alreadySelected.display)} — we'll confirm soon.</div>`;
+  } else {
+    offered.forEach((s, i) => {
+      const lc = s.label === 'Best fit' ? 'best' : 'alt';
+      html += `<div class="date-option" id="date-opt-${i}" onclick="onDateOptionClick(${i})">
+        <div class="date-radio"><div class="date-radio-dot"></div></div>
+        <div class="date-info">
+          <div class="date-option-label ${lc}">${escHtml(s.label || 'Option')}</div>
+          <div class="date-option-display">${escHtml(s.display)}</div>
+        </div>
+      </div>`;
+    });
+    html += `<div style="font-size:12px;color:var(--muted);margin-top:.625rem;">Tap a date to let us know your preference — we'll confirm soon.</div>`;
+  }
+
+  secEl.innerHTML = html;
+}
+
+function onDateOptionClick(i) {
+  const s = _offeredDates[i];
+  if (!s) return;
+  _pendingDatePref = s;
+  document.getElementById('date-modal-display').textContent = s.display;
+  logEvent('date_option_tapped', {date: s.date, label: s.label});
+  openModal('date-modal');
+}
+
+async function onDatePreferenceConfirm() {
+  closeModal('date-modal');
+  if (!_pendingDatePref) return;
+  const pref = _pendingDatePref;
+  _pendingDatePref = null;
+  actionTaken = true;
+
+  quoteData.datePreference    = pref;
+  quoteData.datePreferenceAt  = new Date().toISOString();
+
+  const secEl = document.getElementById('date-section');
+  if (secEl) secEl.innerHTML = `<div class="date-section-hdr">Pick Your Preferred Date</div><div class="date-confirmed-msg">✓ You requested ${escHtml(pref.display)} — we'll confirm soon.</div>`;
+
+  const scheduledEl = document.getElementById('agr-scheduled');
+  if (scheduledEl) {
+    scheduledEl.textContent = pref.display + ' (requested — pending confirmation)';
+    scheduledEl.classList.remove('tbd');
+  }
+
+  showToast('✓ Date requested!');
+  logEvent('date_preference_confirmed', {date: pref.date, label: pref.label});
+  try { localStorage.setItem('pcpc_db_changed_at', Date.now().toString()); } catch {}
+
+  fetch(`${PCPC_API}/quote/${quoteCode}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({datePreference: pref, datePreferenceAt: quoteData.datePreferenceAt})
+  }).catch(() => {});
+
+  updateCustomerDb({
+    'quoteStatus.datePreference':   pref,
+    'quoteStatus.datePreferenceAt': quoteData.datePreferenceAt,
+  }).catch(() => {});
 }
 
 // ── Add-on Flow ───────────────────────────────────────────────────────────────
