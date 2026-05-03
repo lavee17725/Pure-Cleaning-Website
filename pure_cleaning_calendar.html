@@ -112,6 +112,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .job-scheduled.completed{border-left-color:var(--green);border-color:#d1fae5;opacity:.75;}
 .js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{color:var(--muted);margin-top:1px;}
+.js-roof-info{font-size:11px;color:#c2410c;font-weight:600;margin-top:2px;}
 .job-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .job-amount.missing{color:var(--muted);font-weight:400;}
 .jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
@@ -1377,9 +1378,22 @@ function jobCardScheduled(c) {
     ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}')">✏️ Edit services</button>`
     : '';
 
+  const _svcAgreed = (c.quoteStatus || {}).servicesAgreed || {};
+  const _roofTypeLabels = {shingle:'Shingle',barrel_tile:'Barrel tile',flat_tile:'Flat tile',v_shape:'V-shape',venezuelan_tile:'Venezuelan tile',metal:'Metal'};
+  const _rt = _svcAgreed.roofType;
+  const _rm = {softwash:'Softwash',power_wash_chemical:'PW+chem',power_wash_no_chemical:'PW'}[_svcAgreed.roofMethod] || _svcAgreed.roofMethod;
+  const roofInfoHtml = _rt ? (() => {
+    const label = _roofTypeLabels[_rt] || _rt;
+    const sqft  = _svcAgreed.roofSqFt ? ` · ${Number(_svcAgreed.roofSqFt).toLocaleString()} sq ft` : '';
+    const meth  = _rm ? ` · ${_rm}` : '';
+    const warn  = _rt === 'venezuelan_tile' ? ' ⚠️ Fragile' : _rt === 'metal' ? ' ⛔' : '';
+    return `<div class="js-roof-info">🏠 ${esc(label)}${sqft}${meth}${warn}</div>`;
+  })() : '';
+
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
+    ${roofInfoHtml}
     ${reviewBtnHtml}
     ${printBtnHtml}
     ${complaintLink}

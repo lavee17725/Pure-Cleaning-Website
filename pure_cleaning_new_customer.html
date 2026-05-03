@@ -106,6 +106,24 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .svc-sub-collapsed{font-size:12px;color:var(--red);margin-left:3px;font-weight:600;}
 .svc-change-link{font-size:11px;color:var(--sky);font-weight:700;cursor:pointer;margin-left:6px;padding:1px 6px;border-radius:4px;background:none;border:none;font-family:'DM Sans',sans-serif;white-space:nowrap;vertical-align:middle;}
 .svc-change-link:hover{background:#eff6ff;}
+/* ── Roof extra fields ── */
+.roof-extra{background:#fff6f2;border:1.5px solid #fecaca;border-radius:12px;padding:14px;margin-top:8px;display:none;}
+.roof-extra .re-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:7px;display:block;}
+.roof-type-opts{display:flex;flex-direction:column;gap:6px;margin-top:2px;}
+.roof-type-opt{display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;background:var(--white);transition:all .12s;-webkit-tap-highlight-color:transparent;}
+.roof-type-opt:hover{border-color:#fca5a5;background:#fff6f2;}
+.roof-type-opt.selected{border-color:var(--red);background:#fff6f2;}
+.roof-type-opt.metal-opt{border-color:#fca5a5;}
+.roof-type-opt.metal-opt.selected{border-color:#dc2626;background:#fef2f2;}
+.roof-type-opt .rto-radio{width:16px;height:16px;flex-shrink:0;accent-color:var(--red);margin-top:2px;cursor:pointer;}
+.roof-type-opt .rto-body{flex:1;}
+.roof-type-opt .rto-name{font-size:14px;font-weight:600;color:var(--text);}
+.roof-type-opt .rto-note{font-size:11px;font-weight:600;margin-top:2px;}
+.rto-note.warn-amber{color:#b45309;}
+.rto-note.warn-red{color:#dc2626;}
+.roof-inline-warn{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:12px;font-weight:600;line-height:1.5;}
+.roof-inline-warn.amber{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
+.roof-inline-warn.red{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;}
 .path-toggle{background:var(--white);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.25rem;}
 .path-opt{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
 .path-opt:not(:last-child){border-bottom:1px solid var(--border);}
@@ -227,6 +245,64 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         </div>
         <div id="selectedSummary" style="font-size:13px;color:var(--sky);margin-top:6px;font-weight:600;min-height:18px;"></div>
       </div>
+
+      <!-- Roof extra fields — shown only when Roof Cleaning is selected -->
+      <div class="roof-extra" id="roofExtraFields">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div>
+            <label class="re-label">Roof Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="nRoofSqFt" class="fi" min="0" step="1" placeholder="e.g. 2400" style="padding:9px 11px;font-size:15px;" oninput="checkReq()">
+              <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
+            </div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px;">Skip if unknown — Tony can verify on-site</div>
+          </div>
+        </div>
+
+        <label class="re-label">Roof Type <span style="color:#e53e3e;font-weight:700;">*</span></label>
+        <div class="roof-type-opts" id="roofTypeOpts">
+          <div class="roof-type-opt" onclick="selectRoofType('shingle',this)">
+            <input type="radio" name="roofType" value="shingle" class="rto-radio">
+            <div class="rto-body"><div class="rto-name">Shingle</div></div>
+          </div>
+          <div class="roof-type-opt" onclick="selectRoofType('barrel_tile',this)">
+            <input type="radio" name="roofType" value="barrel_tile" class="rto-radio">
+            <div class="rto-body"><div class="rto-name">Barrel tile</div></div>
+          </div>
+          <div class="roof-type-opt" onclick="selectRoofType('flat_tile',this)">
+            <input type="radio" name="roofType" value="flat_tile" class="rto-radio">
+            <div class="rto-body"><div class="rto-name">Flat tile</div></div>
+          </div>
+          <div class="roof-type-opt" onclick="selectRoofType('v_shape',this)">
+            <input type="radio" name="roofType" value="v_shape" class="rto-radio">
+            <div class="rto-body"><div class="rto-name">V-shape tile</div></div>
+          </div>
+          <div class="roof-type-opt" onclick="selectRoofType('venezuelan_tile',this)">
+            <input type="radio" name="roofType" value="venezuelan_tile" class="rto-radio">
+            <div class="rto-body">
+              <div class="rto-name">Venezuelan tile ⚠️</div>
+              <div class="rto-note warn-amber">Most fragile — extra care required</div>
+            </div>
+          </div>
+          <div class="roof-type-opt metal-opt" onclick="selectRoofType('metal',this)">
+            <input type="radio" name="roofType" value="metal" class="rto-radio">
+            <div class="rto-body">
+              <div class="rto-name">Metal ⛔</div>
+              <div class="rto-note warn-red">We don't service metal — record but don't schedule</div>
+            </div>
+          </div>
+          <div class="roof-type-opt" onclick="selectRoofType('other',this)">
+            <input type="radio" name="roofType" value="other" class="rto-radio">
+            <div class="rto-body">
+              <div class="rto-name">Other</div>
+              <input id="nRoofTypeOther" type="text" class="fi" placeholder="Specify roof type…" style="margin-top:6px;display:none;font-size:14px;padding:8px 11px;" onclick="event.stopPropagation()" oninput="checkReq()">
+            </div>
+          </div>
+        </div>
+        <div id="roofTypeError" style="font-size:11px;color:#e53e3e;font-weight:600;margin-top:5px;display:none;">Please select roof type before saving.</div>
+        <div id="roofTypeWarn" class="roof-inline-warn" style="display:none;"></div>
+      </div>
+
       <div class="field" style="margin-top:.5rem;">
         <label>How did they hear about us?</label>
         <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="document.getElementById('nReferrerWrap').style.display=this.value==='referral'?'block':'none'">
@@ -457,6 +533,7 @@ let _svcCustExp      = false;
 let _roofMethod      = null;
 let _roofSubLocked   = false;
 let _gutterTypes     = new Set();
+let _roofType        = null;  // 'shingle'|'barrel_tile'|'flat_tile'|'v_shape'|'venezuelan_tile'|'metal'|'other'
 let _gutterSubLocked = false;
 let _bundleFlags     = {rinseWalls:false, entranceway:false, walkway:false};
 
@@ -541,6 +618,58 @@ function setRoofMethod(method) {
   _roofMethod = method; _roofSubLocked = true;
   _fullRerender(); checkReq();
 }
+
+function selectRoofType(type, optEl) {
+  _roofType = type;
+  document.querySelectorAll('.roof-type-opt').forEach(el => {
+    el.classList.remove('selected');
+    el.querySelector('input[type=radio]').checked = false;
+  });
+  if (optEl) {
+    optEl.classList.add('selected');
+    optEl.querySelector('input[type=radio]').checked = true;
+  }
+  const otherInput = document.getElementById('nRoofTypeOther');
+  if (otherInput) otherInput.style.display = type === 'other' ? 'block' : 'none';
+  // Inline warnings
+  const warnEl = document.getElementById('roofTypeWarn');
+  const errEl  = document.getElementById('roofTypeError');
+  if (errEl) errEl.style.display = 'none';
+  if (warnEl) {
+    if (type === 'venezuelan_tile') {
+      warnEl.className = 'roof-inline-warn amber';
+      warnEl.textContent = '⚠️ Venezuelan tile is the most fragile roof type. Extra care required. Tyler/Tony must be aware before scheduling.';
+      warnEl.style.display = 'block';
+      // Auto-add fragile alert
+      if (!pendingAlerts.some(a => a.id === 'venezuelan_tile_fragile')) {
+        pendingAlerts.push({ id:'venezuelan_tile_fragile', icon:'⚠️', label:'Venezuelan Tile — Fragile', note:'Extra care required. Most fragile roof type.', severity:'warning' });
+        renderNewAlerts();
+      }
+      // Remove metal alert if switching
+      const idx = pendingAlerts.findIndex(a => a.id === 'metal_roof_no_service');
+      if (idx >= 0) { pendingAlerts.splice(idx, 1); renderNewAlerts(); }
+    } else if (type === 'metal') {
+      warnEl.className = 'roof-inline-warn red';
+      warnEl.textContent = '⛔ We don\'t service metal roofs. Record this customer for reference, but do not schedule. Consider marking as a lost lead.';
+      warnEl.style.display = 'block';
+      // Auto-add no-service alert
+      if (!pendingAlerts.some(a => a.id === 'metal_roof_no_service')) {
+        pendingAlerts.push({ id:'metal_roof_no_service', icon:'⛔', label:'Metal Roof — Do Not Service', note:'We do not clean metal roofs. Record only.', severity:'critical' });
+        renderNewAlerts();
+      }
+      const idx = pendingAlerts.findIndex(a => a.id === 'venezuelan_tile_fragile');
+      if (idx >= 0) { pendingAlerts.splice(idx, 1); renderNewAlerts(); }
+    } else {
+      warnEl.style.display = 'none';
+      // Remove roof-type-specific alerts if switching away
+      ['metal_roof_no_service','venezuelan_tile_fragile'].forEach(id => {
+        const i = pendingAlerts.findIndex(a => a.id === id);
+        if (i >= 0) { pendingAlerts.splice(i, 1); renderNewAlerts(); }
+      });
+    }
+  }
+  checkReq();
+}
 function expandRoofSub()  { _roofSubLocked = false; _fullRerender(); }
 
 function toggleGutterType(type) {
@@ -581,6 +710,21 @@ function toggleService(id) {
     if (id==='walkway')      _bundleFlags.walkway     = false;
   }
   _fullRerender();
+  // Show/hide roof extra fields
+  const roofExtra = document.getElementById('roofExtraFields');
+  if (roofExtra) roofExtra.style.display = _svcSel.has('roof_cleaning') ? 'block' : 'none';
+  // Reset roof type state when roof is deselected
+  if (!_svcSel.has('roof_cleaning') && _roofType) {
+    _roofType = null;
+    document.querySelectorAll('.roof-type-opt').forEach(el => {
+      el.classList.remove('selected');
+      el.querySelector('input[type=radio]').checked = false;
+    });
+    const otherInput = document.getElementById('nRoofTypeOther');
+    if (otherInput) otherInput.style.display = 'none';
+    const warnEl = document.getElementById('roofTypeWarn');
+    if (warnEl) warnEl.style.display = 'none';
+  }
   checkReq();
 }
 
@@ -640,9 +784,13 @@ function getServicesAgreedValue() {
   }).filter(Boolean);
   const custom = (document.getElementById('customServiceText')?.value||'').trim();
   if (custom) names.push(custom);
+  const isRoofSel = _svcSel.has('roof_cleaning');
   return {
     structured,
-    roofMethod:  _svcSel.has('roof_cleaning') ? (_roofMethod||null) : null,
+    roofMethod:       isRoofSel ? (_roofMethod||null) : null,
+    roofType:         isRoofSel ? (_roofType||null) : null,
+    roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
+    roofSqFt:         isRoofSel ? (parseInt(document.getElementById('nRoofSqFt')?.value)||null) : null,
     gutterType:  _svcSel.has('gutters') ? [..._gutterTypes] : [],
     bundleFlags: {rinseWalls:_bundleFlags.rinseWalls, entranceway:_bundleFlags.entranceway, walkway:_bundleFlags.walkway},
     structuredDisplay: names.filter(n => !custom || n!==custom),
@@ -656,9 +804,16 @@ function resetServicePicker() {
   _roofMethod=null; _roofSubLocked=false;
   _gutterTypes.clear(); _gutterSubLocked=false;
   _bundleFlags={rinseWalls:false, entranceway:false, walkway:false};
+  _roofType=null;
   _svcSecExp=false; _svcCustExp=false;
   const cst=document.getElementById('customServiceText'); if(cst) cst.value='';
   const cw=document.getElementById('customServiceWrap'); if(cw) cw.style.display='none';
+  const ref=document.getElementById('roofExtraFields'); if(ref) ref.style.display='none';
+  const nrsf=document.getElementById('nRoofSqFt'); if(nrsf) nrsf.value='';
+  document.querySelectorAll('.roof-type-opt').forEach(el=>{el.classList.remove('selected');});
+  document.querySelectorAll('.roof-type-opt input[type=radio]').forEach(el=>{el.checked=false;});
+  const wo=document.getElementById('nRoofTypeOther'); if(wo){wo.style.display='none';wo.value='';}
+  const wn=document.getElementById('roofTypeWarn'); if(wn) wn.style.display='none';
   renderServicePicker();
 }
 
@@ -863,6 +1018,8 @@ function checkReq() {
   if (ok && currentPath === 'phone') {
     const svc = getServicesAgreedValue();
     ok = !!(svc.fullDescription);
+    if (ok && _svcSel.has('roof_cleaning') && !_roofType) ok = false;
+    if (ok && _roofType === 'other' && !(document.getElementById('nRoofTypeOther')?.value?.trim())) ok = false;
   }
   if (btn) btn.disabled = !ok;
 }
@@ -928,27 +1085,42 @@ async function submitPhonePath() {
       }
     } else {
       const isTestChecked = document.getElementById('isTestRecord')?.checked;
-      customer = {
-        phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes,
-        lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
-        linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
-        source: 'phone_quoted',
-        leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
-        quoteStatus: {
+      const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
+      // Check if phone already exists — update instead of creating a duplicate
+      const existingInDb = (dbRecord.customers||[]).find(c => _nph(c.phone) === _nph(ph));
+      if (existingInDb) {
+        customer = existingInDb;
+        customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
+        if (email) customer.email=email; if (zip) customer.zip=zip; customer.notes=notes;
+        customer.alerts=[...pendingAlerts];
+        customer.source = 'phone_quoted';
+        if (!customer.leadSource) customer.leadSource = { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' };
+        customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
-          mainAmount: null,
-          mainServices: services,
+          mainAmount: null, mainServices: services,
           servicesAgreed: svcAgreed,
-
-          quotedDate: new Date().toISOString(),
-          miniQuoteCustomData: null
-        },
-        ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {})
-      };
-      if (!dbRecord) dbRecord = {customers:[]};
-      if (!dbRecord.customers) dbRecord.customers=[];
-      dbRecord.customers.push(customer);
-      allCustomers.push(customer);
+          quotedDate: new Date().toISOString(), miniQuoteCustomData: null
+        };
+      } else {
+        customer = {
+          phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes,
+          lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
+          linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
+          source: 'phone_quoted',
+          leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
+          quoteStatus: {
+            state: 'phone_quoted_pending_mini_quote',
+            mainAmount: null, mainServices: services,
+            servicesAgreed: svcAgreed,
+            quotedDate: new Date().toISOString(), miniQuoteCustomData: null
+          },
+          ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {})
+        };
+        if (!dbRecord) dbRecord = {customers:[]};
+        if (!dbRecord.customers) dbRecord.customers=[];
+        dbRecord.customers.push(customer);
+        allCustomers.push(customer);
+      }
     }
     _lastSavedCustomer = customer;
     try { await saveDb(); } catch(e) { console.warn('[new_customer] DB save failed:', e.message); }

@@ -946,6 +946,24 @@ function renderPropertyMeasurements(c) {
   if (!el) return;
   const prop = c.property || {};
   const geo  = c.geocoded || {};
+  // Roof data from servicesAgreed (set via phone-quote flow)
+  const svcAgreed = c.quoteStatus?.servicesAgreed || {};
+  const roofType       = svcAgreed.roofType || null;
+  const roofSqFt       = svcAgreed.roofSqFt || null;
+  const roofMethod     = svcAgreed.roofMethod || null;
+  const roofTypeOther  = svcAgreed.roofTypeOther || null;
+  const roofTypeLabels = { shingle:'Shingle', barrel_tile:'Barrel tile', flat_tile:'Flat tile', v_shape:'V-shape tile', venezuelan_tile:'Venezuelan tile ⚠️', metal:'Metal ⛔', other:'Other' };
+  const roofTypeLabel  = roofType ? (roofTypeLabels[roofType] || roofType) + (roofType==='other' && roofTypeOther ? ` (${roofTypeOther})` : '') : null;
+  const roofMethodLabel = { softwash:'Softwash', power_wash_chemical:'Power wash + chemical', power_wash_no_chemical:'Power wash, no chemical' }[roofMethod] || roofMethod;
+  const roofSummaryHtml = roofType ? `
+    <div style="background:#fff6f2;border:1.5px solid #fecaca;border-radius:10px;padding:10px 13px;margin-bottom:.875rem;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">🏠 Roof Details</div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);">Type: ${esc(roofTypeLabel)}</div>
+      ${roofSqFt ? `<div style="font-size:13px;color:var(--muted);margin-top:2px;">Size: ${Number(roofSqFt).toLocaleString()} sq ft</div>` : ''}
+      ${roofMethod ? `<div style="font-size:13px;color:var(--muted);margin-top:2px;">Method: ${esc(roofMethodLabel)}</div>` : ''}
+      ${roofType==='venezuelan_tile' ? `<div style="font-size:12px;font-weight:600;color:#b45309;margin-top:4px;">⚠️ Most fragile roof type — extra care required</div>` : ''}
+      ${roofType==='metal' ? `<div style="font-size:12px;font-weight:600;color:#dc2626;margin-top:4px;">⛔ We do not service metal roofs</div>` : ''}
+    </div>` : '';
   const isMeasured = prop.roofSqFt || prop.drivewaySqFt || prop.patioSqFt || prop.walkwaysSqFt;
   const measuredBy = prop.measuredBy || 'estimate';
   const measuredAt = prop.measuredAt
@@ -974,6 +992,7 @@ function renderPropertyMeasurements(c) {
       </div>
       <div id="propBody" style="display:${_propExpanded?'block':'none'};">
         <div class="prop-body">
+          ${roofSummaryHtml}
           <div class="prop-grid">
             ${fields.map(f=>`
               <div class="prop-field">

@@ -213,9 +213,13 @@ async function init() {
       fetch(`${PCPC_API}/addons-config`)
     ]);
     const db = await dbRes.json();
-    // Normalize both sides so format mismatches never cause "not found"
-    customer = (db.customers || []).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
-    if (!customer) { showError('Customer not found for phone: ' + phone); return; }
+    // Normalize both sides. When duplicates exist (CSV record + new phone-quote record),
+    // prefer the one with an active phone-quote state.
+    const matches = (db.customers || []).filter(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
+    if (!matches.length) { showError('Customer not found for phone: ' + phone); return; }
+    customer = matches.find(c => c.quoteStatus?.state === 'phone_quoted_pending_mini_quote')
+            || matches.find(c => c.quoteStatus?.mainServices || c.quoteStatus?.servicesAgreed)
+            || matches[matches.length - 1]; // last-inserted as final fallback
 
     const addonsData = addonsRes.ok ? await addonsRes.json() : { addons: [] };
     (addonsData.addons || []).forEach(a => { defaults[a.id] = { bundle: a.bundle, standalone: a.standalone }; });
@@ -236,7 +240,8 @@ function renderBuilder(existing) {
   const ln = customer.lastName || '';
   const city = customer.city || '';
   const phone = fmtPh(customer.phone || '');
-  const services = qs.mainServices || qs.notes || '';
+  const svcAgreed = qs.servicesAgreed || {};
+  const services = svcAgreed.fullDescription || qs.mainServices || qs.notes || '';
   const amount   = qs.mainAmount   || qs.approvedAmount || '';
   const hours    = qs.estimatedHours || null;
 
