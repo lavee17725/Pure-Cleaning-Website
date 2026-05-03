@@ -215,6 +215,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-edit-btn:hover{background:#dbeafe;}
 .addon-edit-row{padding:5px 0;border-bottom:1px solid #f3f4f6;}
 .addon-edit-row:last-child{border-bottom:none;}
+.js-pay-btn{display:block;width:100%;padding:4px 8px;border:1px solid #a7f3d0;border-radius:5px;background:#d1fae5;color:#047857;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-pay-btn:hover:not(.paid){background:#a7f3d0;}
+.js-pay-btn.paid{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
+.js-receipt-btn{display:block;width:100%;padding:4px 8px;border:1px solid #c7d2fe;border-radius:5px;background:#eef2ff;color:#4338ca;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-receipt-btn:hover:not(:disabled):not(.sent){background:#c7d2fe;}
+.js-receipt-btn:disabled{opacity:.38;cursor:not-allowed;}
+.js-receipt-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
 
 /* ── CREW POPOVER ── */
 .crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
@@ -482,6 +489,43 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="modal-footer">
       <button class="mbtn-cancel" onclick="closeConfirmModal()">Cancel</button>
       <button id="cmConfirmBtn" style="flex:1;padding:12px;border-radius:10px;background:#dc2626;color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div class="overlay hidden" id="paymentModal" onclick="if(event.target===this)closePaymentModal()">
+  <div class="modal">
+    <div class="modal-title" id="paymentModalTitle">💰 Log Payment</div>
+    <div class="modal-field">
+      <label>Total Paid</label>
+      <div style="position:relative;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
+        <input type="number" id="payTotal" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Payment Method</label>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;" id="payMethods">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;"><input type="radio" name="payMethod" value="zelle"> 💚 Zelle</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;"><input type="radio" name="payMethod" value="check"> ✍️ Check</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;"><input type="radio" name="payMethod" value="cash" checked> 💵 Cash</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;"><input type="radio" name="payMethod" value="venmo"> 💜 Venmo</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;"><input type="radio" name="payMethod" value="other"> Other:</label>
+        <input type="text" id="payMethodOther" class="modal-input" placeholder="Specify payment method…" style="margin-left:24px;width:calc(100% - 24px);">
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Payment Date</label>
+      <input type="date" id="payDate" class="modal-input">
+    </div>
+    <div class="modal-field">
+      <label>Notes (optional)</label>
+      <input type="text" id="payNotes" class="modal-input" placeholder="e.g. Check #4521">
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closePaymentModal()">Cancel</button>
+      <button class="mbtn-save" onclick="submitPayment()">💰 Log Payment</button>
     </div>
   </div>
 </div>
@@ -1055,8 +1099,10 @@ function jobCardScheduled(c) {
   const hasCmpt  = !c.isTest && isComplaintLogged(phone);
   const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
 
-  let reviewBtnHtml = '';
-  let printBtnHtml  = '';
+  let reviewBtnHtml  = '';
+  let printBtnHtml   = '';
+  let paymentBtnHtml = '';
+  let receiptBtnHtml = '';
   const complaintLink = (!c.isTest && phone)
     ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
     : '';
@@ -1076,6 +1122,25 @@ function jobCardScheduled(c) {
     }
     if (!c.isTest && phone) {
       printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print invoice</button>`;
+
+      // Payment logging
+      if (c.paymentInfo && c.paymentInfo.paidAt) {
+        paymentBtnHtml = `<button class="js-pay-btn paid" onclick="event.stopPropagation()">✓ Paid via ${esc(c.paymentInfo.method||'cash')}</button>`;
+      } else {
+        paymentBtnHtml = `<button class="js-pay-btn" onclick="event.stopPropagation();openPaymentModal('${phone}')">💰 Log Payment</button>`;
+      }
+
+      // Send receipt (only after payment logged)
+      const rcptPaid = !!(c.paymentInfo && c.paymentInfo.paidAt);
+      const rcptSent = !!(c.receiptInfo && c.receiptInfo.sentAt);
+      if (rcptSent) {
+        const d = new Date(c.receiptInfo.sentAt).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        receiptBtnHtml = `<button class="js-receipt-btn sent" onclick="event.stopPropagation()">✓ Receipt Sent ${d}</button>`;
+      } else if (rcptPaid) {
+        receiptBtnHtml = `<button class="js-receipt-btn" onclick="event.stopPropagation();sendReceiptText('${phone}')">📄 Send Receipt</button>`;
+      } else {
+        receiptBtnHtml = `<button class="js-receipt-btn" disabled onclick="event.stopPropagation()" title="Log payment first">📄 Send Receipt</button>`;
+      }
     }
   } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
     printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
@@ -1091,6 +1156,8 @@ function jobCardScheduled(c) {
     ${reviewBtnHtml}
     ${printBtnHtml}
     ${complaintLink}
+    ${paymentBtnHtml}
+    ${receiptBtnHtml}
     ${editBtnHtml}
   </div>`;
 }
@@ -2298,6 +2365,102 @@ function sendArrivalText(phone, name, slot, date, rig, btn) {
   if (tapSpan) tapSpan.textContent = '✓ Sent';
   btn.onclick = null;
   pcpcApi.logEvent({ eventType:'arrival_text_sent', phone, name, rig, slot, date, sentAt: new Date().toISOString() });
+}
+
+// ── PAYMENT MODAL ────────────────────────────────────────────────────────────
+let _payPhone = null;
+
+function openPaymentModal(phone) {
+  const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+  if (!c) return;
+  _payPhone = phone;
+
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  document.getElementById('paymentModalTitle').textContent = `💰 Log Payment — ${name}`;
+
+  // Pre-fill total from scheduledStatus
+  const total = (c.scheduledStatus||{}).approvedAmount || (c.quoteStatus||{}).approvedAmount || (c.quoteStatus||{}).mainAmount || 0;
+  document.getElementById('payTotal').value = total || '';
+
+  // Reset method to cash
+  const radios = document.querySelectorAll('input[name="payMethod"]');
+  radios.forEach(r => { r.checked = r.value === 'cash'; });
+  document.getElementById('payMethodOther').value = '';
+
+  // Set date to today
+  document.getElementById('payDate').value = isoToday();
+  document.getElementById('payNotes').value = '';
+
+  document.getElementById('paymentModal').classList.remove('hidden');
+}
+
+function closePaymentModal() {
+  document.getElementById('paymentModal').classList.add('hidden');
+  _payPhone = null;
+}
+
+async function submitPayment() {
+  if (!_payPhone) return;
+  const phone  = _payPhone;
+  const total  = parseFloat(document.getElementById('payTotal').value) || 0;
+  const method = document.querySelector('input[name="payMethod"]:checked')?.value || 'cash';
+  const methodOther = document.getElementById('payMethodOther').value.trim();
+  const paidDate    = document.getElementById('payDate').value || isoToday();
+  const notes       = document.getElementById('payNotes').value.trim();
+
+  const btns = document.querySelectorAll('#paymentModal button');
+  btns.forEach(b => { b.disabled = true; });
+
+  try {
+    await fetch(`${PCPC_API}/payment/${phone}/log`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ totalPaid: total, method, methodOther, paidDate, notes })
+    });
+
+    // Update local record
+    const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+    if (c) {
+      c.paymentInfo = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
+    }
+
+    closePaymentModal();
+    showToast(`✓ Payment logged — $${total} via ${method}`, null, 0);
+    render();
+  } catch(e) {
+    alert('Error logging payment: ' + e.message);
+    btns.forEach(b => { b.disabled = false; });
+  }
+}
+
+// ── SEND RECEIPT ──────────────────────────────────────────────────────────────
+async function sendReceiptText(phone) {
+  const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+  if (!c) return;
+
+  const fn = ((c.firstName||c.fn||'').trim().split(' ')[0]) || 'there';
+  const receiptUrl = `https://purecleaningpressurecleaning.com/pure_cleaning_receipt.html?phone=${phone}`;
+  const body = `Hi ${fn}! Here's your Pure Cleaning receipt for today's service. Thanks for trusting us with your property!\n\n📄 View receipt: ${receiptUrl}\n\n— Pure Cleaning Family`;
+
+  // Log receipt send
+  try {
+    await fetch(`${PCPC_API}/receipt/${phone}/send`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({})
+    });
+    const c2 = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+    if (c2) {
+      if (!c2.receiptInfo) c2.receiptInfo = {};
+      c2.receiptInfo.sentAt = new Date().toISOString();
+      c2.receiptInfo.sentTo = phone;
+    }
+  } catch(e) { console.warn('Receipt send log failed:', e.message); }
+
+  const a = document.createElement('a');
+  a.href = `sms:+1${phone}?&body=${encodeURIComponent(body)}`;
+  a.click();
+
+  showToast('📄 Receipt sent!', null, 0);
+  render();
 }
 
 // ── EDIT SERVICES MODAL ───────────────────────────────────────────────────────

@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Your Receipt — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:#0a1628; --navy2:#111f38; --gold:#f4a620; --terra:#c2410c;
+  --green:#1d9e75; --bg:#fafaf7; --white:#fff; --text:#1a1f2e;
+  --muted:#6b7280; --border:#e8e2d8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+/* ── Header ── */
+.site-header { background: var(--navy); padding: 1rem 1.25rem .875rem; text-align: center; }
+.hdr-logo { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: .5px; margin-bottom: 4px; }
+.hdr-logo span { color: var(--gold); }
+.hdr-tagline { font-size: 12px; color: rgba(255,255,255,.55); letter-spacing: .3px; margin-bottom: 6px; }
+.hdr-phone a { font-size: 13px; font-weight: 700; color: var(--gold); text-decoration: none; }
+.trust-strip { background: var(--navy2); border-bottom: 1px solid rgba(255,255,255,.06); padding: .625rem 1.25rem; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.trust-item { font-size: 12px; color: rgba(255,255,255,.75); display: flex; align-items: center; gap: 5px; font-weight: 500; }
+.trust-stars { font-size: 11px; }
+.trust-sep { color: rgba(255,255,255,.25); font-size: 14px; }
+.trust-count { color: var(--gold); font-weight: 700; }
+
+/* ── Layout ── */
+.wrap { max-width: 480px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+#state-loading, #state-error, #state-main { display: none; }
+.loading-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: 1rem; }
+.spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--navy); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); font-weight: 500; }
+.error-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: .75rem; text-align: center; }
+.error-icon { font-size: 40px; }
+.error-title { font-size: 17px; font-weight: 600; }
+.error-sub { font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+/* ── Completion banner ── */
+.completion-banner { background: linear-gradient(135deg, #065f46, #047857); border-radius: 16px; padding: 1.5rem 1.25rem; margin-bottom: 1.5rem; text-align: center; color: #fff; }
+.completion-check { font-size: 48px; margin-bottom: .375rem; line-height: 1; }
+.completion-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: rgba(255,255,255,.8); margin-bottom: .375rem; }
+.completion-name { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: .25rem; }
+.completion-sub { font-size: 13px; color: rgba(255,255,255,.75); }
+
+/* ── Receipt card ── */
+.receipt-card { background: var(--white); border-radius: 16px; border: 1.5px solid var(--border); box-shadow: 0 3px 16px rgba(10,22,40,.09); overflow: hidden; margin-bottom: 1.5rem; }
+.receipt-top { background: var(--navy); padding: .875rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+.receipt-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--gold); }
+.receipt-badge { font-size: 11px; font-weight: 700; color: #86efac; background: rgba(134,239,172,.12); border: 1px solid rgba(134,239,172,.3); border-radius: 20px; padding: 2px 10px; }
+.receipt-body { padding: 1.25rem; }
+.rcpt-name { font-size: 20px; font-weight: 700; color: var(--navy); margin-bottom: 3px; }
+.rcpt-addr { font-size: 13px; color: var(--muted); margin-bottom: 1rem; }
+.rcpt-meta { display: flex; gap: 1.25rem; flex-wrap: wrap; padding-top: .875rem; border-top: 1px solid var(--border); }
+.rcpt-meta-item { display: flex; flex-direction: column; gap: 2px; }
+.rcpt-meta-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+.rcpt-meta-val { font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* ── Section title ── */
+.section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: .75rem; padding: 0 2px; }
+
+/* ── Services card ── */
+.services-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 1.5rem; }
+.svc-item { display: flex; align-items: flex-start; gap: 12px; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.svc-item:last-child { border-bottom: none; }
+.svc-check { width: 22px; height: 22px; border-radius: 50%; background: #f0fdf4; border: 1.5px solid #86efac; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--green); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.svc-info { flex: 1; }
+.svc-name { font-size: 14.5px; font-weight: 600; color: var(--text); }
+.svc-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.svc-price { font-size: 17px; font-weight: 700; color: var(--navy); flex-shrink: 0; padding-top: 1px; }
+
+/* ── Payment card ── */
+.payment-card { background: var(--navy); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.pay-total-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: .75rem; }
+.pay-total-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: rgba(255,255,255,.5); }
+.pay-total-amt { font-size: 30px; font-weight: 800; color: var(--gold); letter-spacing: -.5px; }
+.pay-divider { height: 1px; background: rgba(255,255,255,.12); margin-bottom: .75rem; }
+.pay-detail-row { display: flex; justify-content: space-between; padding: 3px 0; }
+.pay-detail-lbl { font-size: 12px; color: rgba(255,255,255,.6); }
+.pay-detail-val { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); }
+.pay-status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #86efac; background: rgba(134,239,172,.12); border: 1px solid rgba(134,239,172,.3); border-radius: 20px; padding: 2px 8px; }
+
+/* ── Thank you section ── */
+.thank-you-card { background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.ty-title { font-size: 15px; font-weight: 700; color: #78350f; margin-bottom: .5rem; }
+.ty-text { font-size: 13px; color: #92400e; line-height: 1.65; }
+.ty-text + .ty-text { margin-top: .5rem; }
+
+/* ── CTA buttons ── */
+.cta-section { margin-bottom: 1.5rem; }
+.cta-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: .875rem; border: 1.5px solid var(--border); border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; transition: all .15s; margin-bottom: .625rem; text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.cta-btn-google { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.cta-btn-google:hover { background: #fde68a; }
+.cta-btn-request { background: var(--navy); color: var(--gold); border-color: var(--navy); }
+.cta-btn-request:hover { background: #111f38; }
+
+/* ── Action buttons (PDF/Print/Email) ── */
+.action-section { margin-bottom: 1.75rem; }
+.action-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: .875rem; background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; transition: border-color .15s, background .15s; width: 100%; margin-bottom: .625rem; }
+.action-btn:hover { border-color: var(--navy); background: #f8f9fb; }
+.action-btns { display: flex; flex-direction: column; gap: 0; }
+
+/* ── Info card ── */
+.info-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: .75rem; }
+.info-card-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 6px; }
+.info-card-body { font-size: 13.5px; color: var(--text); line-height: 1.65; }
+.info-card-body strong { color: var(--navy); }
+
+/* ── Toast ── */
+.toast { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%) translateY(-80px); background: var(--navy); color: #fff; font-size: 13.5px; font-weight: 600; padding: .625rem 1.25rem; border-radius: 100px; white-space: nowrap; z-index: 9999; transition: transform .3s cubic-bezier(0.34,1.56,0.64,1), opacity .3s; opacity: 0; pointer-events: none; box-shadow: 0 4px 20px rgba(10,22,40,.25); }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* ── Footer ── */
+.site-footer { background: var(--navy); padding: 1.5rem 1.25rem 2rem; text-align: center; margin-top: 2rem; }
+.footer-logo { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+.footer-logo span { color: var(--gold); }
+.footer-company { font-size: 12px; color: rgba(255,255,255,.45); margin-bottom: 12px; }
+.footer-contact { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+.footer-contact a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 14px; }
+.footer-since { font-size: 11px; color: rgba(255,255,255,.3); }
+
+/* ── Print receipt document ── */
+#print-header { display: none; }
+
+@media print {
+  .site-header, .trust-strip, .site-footer, .toast,
+  #state-loading, #state-error { display: none !important; }
+  #state-main .wrap > *:not(#print-header) { display: none !important; }
+  #print-header { display: block !important; }
+  body { background: #fff !important; font-family: 'DM Sans', Arial, sans-serif; }
+  .wrap { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+
+  .pr-co { font-size: 16px; font-weight: 700; color: #000; margin-bottom: 2px; }
+  .pr-tagline { font-size: 9.5px; color: #555; margin-bottom: 14px; }
+  .pr-rule { height: 1.5px; background: #0a1628; margin: 12px 0; }
+  .pr-title { font-size: 22px; font-weight: 800; color: #0a1628; margin-bottom: 12px; }
+  .pr-paid-badge { font-size: 11px; font-weight: 700; color: #1d9e75; border: 1.5px solid #1d9e75; border-radius: 20px; padding: 2px 10px; display: inline-block; margin-left: 10px; vertical-align: middle; }
+  .pr-meta { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  .pr-meta td { padding: 3px 0; vertical-align: top; line-height: 1.5; }
+  .pr-meta-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #666; width: 100px; padding-right: 10px; padding-top: 4px; }
+  .pr-meta-val { font-size: 13px; color: #1a1f2e; font-weight: 500; }
+  .pr-meta-val.hl { font-weight: 700; color: #0a1628; }
+  .pr-section-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; display: block; }
+  .pr-items { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 6px; }
+  .pr-items td { padding: 6px 0; border-bottom: 1px solid #e8e2d8; }
+  .pr-item-name { color: #1a1f2e; font-weight: 500; }
+  .pr-item-price { text-align: right; font-weight: 600; }
+  .pr-total-row td { padding: 10px 0 4px !important; border-top: 2px solid #0a1628 !important; border-bottom: none !important; font-size: 16px !important; font-weight: 800 !important; }
+  .pr-terms { font-size: 11px; color: #555; line-height: 1.6; margin-bottom: 4px; }
+  .pr-footer-area { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: flex-end; }
+  .pr-footer-co { font-size: 11px; font-weight: 700; color: #0a1628; }
+  .pr-footer-tag { font-size: 9.5px; color: #777; }
+  .pr-thank-you { font-size: 12px; color: #444; margin-top: 14px; padding: 10px; background: #fafaf7; border-radius: 6px; line-height: 1.6; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="hdr-logo">🌴 Pure <span>Cleaning</span></div>
+  <div class="hdr-tagline">Family-owned · South Florida · Since 1995</div>
+  <div class="hdr-phone"><a href="tel:9543892642">954-389-2642</a></div>
+</header>
+
+<div class="trust-strip">
+  <div class="trust-item"><span class="trust-stars">⭐⭐⭐⭐⭐</span><span><span class="trust-count" id="reviewCountDisplay">107+</span> Google reviews</span></div>
+  <div class="trust-sep">·</div>
+  <div class="trust-item"><span class="trust-stars">⭐⭐⭐⭐⭐</span><span>388 Angi reviews</span></div>
+</div>
+
+<div id="state-loading">
+  <div class="loading-center"><div class="spinner"></div><div class="loading-text">Loading your receipt…</div></div>
+</div>
+<div id="state-error">
+  <div class="error-center"><div class="error-icon">🔗</div><div class="error-title">Receipt not found</div><div class="error-sub">Please contact Pure Cleaning directly.<br><a href="tel:9543892642" style="color:var(--navy);font-weight:700;">📞 954-389-2642</a></div></div>
+</div>
+
+<div id="state-main">
+  <div class="wrap">
+    <div id="print-header"></div>
+
+    <!-- Completion banner -->
+    <div class="completion-banner">
+      <div class="completion-check">✓</div>
+      <div class="completion-title">Job Completed</div>
+      <div class="completion-name" id="banner-name"></div>
+      <div class="completion-sub">Thank you for choosing Pure Cleaning!</div>
+    </div>
+
+    <!-- Receipt card -->
+    <div class="receipt-card">
+      <div class="receipt-top">
+        <div class="receipt-label">Receipt</div>
+        <div class="receipt-badge">✓ Paid</div>
+      </div>
+      <div class="receipt-body">
+        <div class="rcpt-name" id="rcpt-name"></div>
+        <div class="rcpt-addr" id="rcpt-addr"></div>
+        <div class="rcpt-meta" id="rcpt-meta"></div>
+      </div>
+    </div>
+
+    <!-- Services performed -->
+    <div style="margin-bottom:1.5rem;">
+      <div class="section-title">Services Performed</div>
+      <div class="services-card" id="services-list"></div>
+    </div>
+
+    <!-- Payment -->
+    <div class="payment-card" id="payment-card">
+      <div class="pay-total-row">
+        <div class="pay-total-lbl">Total Paid</div>
+        <div class="pay-total-amt" id="pay-total">—</div>
+      </div>
+      <div class="pay-divider"></div>
+      <div class="pay-detail-row"><span class="pay-detail-lbl">Payment method</span><span class="pay-detail-val" id="pay-method">—</span></div>
+      <div class="pay-detail-row"><span class="pay-detail-lbl">Payment date</span><span class="pay-detail-val" id="pay-date">—</span></div>
+      <div class="pay-detail-row" style="margin-top:8px;"><span class="pay-detail-lbl">Status</span><span class="pay-status-badge">✓ Paid</span></div>
+    </div>
+
+    <!-- Thank you note -->
+    <div class="thank-you-card">
+      <div class="ty-title">Thank you for trusting Pure Cleaning! 🌴</div>
+      <p class="ty-text">We appreciate your business and are glad we could keep your home looking its best.</p>
+      <p class="ty-text" id="reclean-reminder" style="display:none;"></p>
+      <p class="ty-text">We'll keep your home on our list and reach out when it's time for a refresh. No pressure — just a friendly heads-up!</p>
+    </div>
+
+    <!-- CTAs: Google review + request service -->
+    <div class="cta-section">
+      <a href="https://share.google/ChFC1uAe9Xdveb8XN" target="_blank" rel="noopener" class="cta-btn cta-btn-google" onclick="trackEvent('review_clicked')">⭐ Leave us a Google review</a>
+      <a id="request-another-btn" href="https://purecleaningpressurecleaning.com" class="cta-btn cta-btn-request" onclick="trackEvent('request_another_clicked')">🔄 Request another service</a>
+    </div>
+
+    <!-- PDF/Print/Email action buttons -->
+    <div class="action-section">
+      <div class="section-title">Your Receipt</div>
+      <div class="action-btns">
+        <button class="action-btn" onclick="onPdfClick()">📥 Download as PDF</button>
+        <button class="action-btn" onclick="onPrintClick()">🖨️ Print Receipt</button>
+        <button class="action-btn" onclick="onEmailClick()">✉️ Email me a copy</button>
+      </div>
+    </div>
+
+    <!-- Contact info card -->
+    <div class="info-card">
+      <div class="info-card-title">Questions?</div>
+      <div class="info-card-body">Call or text us anytime at <strong>954-389-2642</strong>. We're a family business and always happy to help.</div>
+    </div>
+
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-logo">🌴 Pure <span>Cleaning</span></div>
+  <div class="footer-company">Pure Cleaning Pressure Cleaning, LLC · South Florida · Since 1995</div>
+  <div class="footer-contact"><a href="tel:9543892642">📞 Call us</a><a href="sms:+19543892642">💬 Text us</a></div>
+  <div class="footer-since">Family-owned · Licensed &amp; Insured</div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const PCPC_API        = 'https://purecleaning-api.tylerfumero.workers.dev';
+const GOOGLE_REVIEW   = 'https://share.google/ChFC1uAe9Xdveb8XN';
+
+let customer     = null;
+let customerPhone = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  showState('loading');
+
+  const params = new URLSearchParams(window.location.search);
+  const phone  = params.get('phone');
+  const id     = params.get('id');
+
+  if (!phone && !id) { showState('error'); return; }
+
+  try {
+    let cust = null;
+
+    if (phone) {
+      customerPhone = phone.replace(/\D/g, '').slice(-10);
+      const res  = await fetch(`${PCPC_API}/receipt/${customerPhone}`);
+      if (!res.ok) { showState('error'); return; }
+      const data = await res.json();
+      cust = data.customer;
+    } else {
+      // Load via quote id — get customer from quote then customers
+      const [qRes, dbRes] = await Promise.all([
+        fetch(`${PCPC_API}/quote/${id}`),
+        fetch(`${PCPC_API}/customers`),
+      ]);
+      if (!qRes.ok) { showState('error'); return; }
+      const qd = await qRes.json();
+      const db = await dbRes.json();
+      const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+      cust = (db.customers||[]).find(c => norm(c.phone) === norm(qd.ph||''));
+      if (cust) customerPhone = norm(cust.phone);
+    }
+
+    if (!cust) { showState('error'); return; }
+    customer = cust;
+
+    // Update review count badge
+    fetch(`${PCPC_API}/reviews`).then(r => r.ok ? r.json() : null).then(rv => {
+      if (rv && (rv.reviewCount || rv.count)) {
+        const el = document.getElementById('reviewCountDisplay');
+        if (el) el.textContent = (rv.reviewCount || rv.count) + '+';
+      }
+    }).catch(() => {});
+
+    renderPage();
+    showState('main');
+    trackEvent('viewed');
+
+  } catch(e) {
+    console.error(e);
+    showState('error');
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderPage() {
+  const ss = customer.scheduledStatus || {};
+  const qs = customer.quoteStatus    || {};
+  const pi = customer.paymentInfo    || {};
+
+  const fn       = customer.firstName || customer.fn || '';
+  const ln       = customer.lastName  || customer.ln || '';
+  const fullName = [fn, ln].filter(Boolean).join(' ');
+  const addr     = [customer.address, customer.city].filter(Boolean).join(', ');
+
+  // Banner
+  document.getElementById('banner-name').textContent = fn || fullName;
+
+  // Receipt card
+  document.getElementById('rcpt-name').textContent = fullName || '—';
+  const addrEl = document.getElementById('rcpt-addr');
+  if (addr) addrEl.textContent = addr; else addrEl.style.display = 'none';
+
+  const completedDate = ss.completedDate
+    ? new Date(ss.completedDate + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'})
+    : '—';
+
+  document.getElementById('rcpt-meta').innerHTML = `
+    <div class="rcpt-meta-item"><span class="rcpt-meta-lbl">Completed</span><span class="rcpt-meta-val">${completedDate}</span></div>
+    <div class="rcpt-meta-item"><span class="rcpt-meta-lbl">Completed by</span><span class="rcpt-meta-val">Pure Cleaning</span></div>`;
+
+  // Services list
+  const services   = qs.mainServices || ss.jobNotes || qs.notes || '—';
+  const addons     = customer.addOns  || qs.addOns  || [];
+  const baseAmount = pi.totalPaid || ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+
+  let svcHtml = `<div class="svc-item">
+    <div class="svc-check">✓</div>
+    <div class="svc-info"><div class="svc-name">${escHtml(services)}</div></div>
+    <div class="svc-price">$${baseAmount - addons.reduce((s,a)=>s+(a.bundle||0),0) || baseAmount}</div>
+  </div>`;
+
+  addons.forEach(a => {
+    svcHtml += `<div class="svc-item">
+      <div class="svc-check">+</div>
+      <div class="svc-info"><div class="svc-name">${escHtml(a.name)}</div><div class="svc-sub">Added to job</div></div>
+      <div class="svc-price">$${a.bundle}</div>
+    </div>`;
+  });
+
+  document.getElementById('services-list').innerHTML = svcHtml;
+
+  // Payment card
+  const totalPaid = pi.totalPaid || baseAmount;
+  document.getElementById('pay-total').textContent = `$${totalPaid}`;
+  document.getElementById('pay-method').textContent = capitalise(pi.method || 'cash') + (pi.methodOther ? ` (${pi.methodOther})` : '');
+  document.getElementById('pay-date').textContent = pi.paidDate
+    ? new Date(pi.paidDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : 'Day of service';
+
+  // Reclean reminder
+  const services_lc = services.toLowerCase();
+  const recleanEl   = document.getElementById('reclean-reminder');
+  if (recleanEl) {
+    if (services_lc.includes('roof')) {
+      recleanEl.textContent = 'Roof cleanings typically benefit from a refresh every 18–24 months, depending on tree cover and sun exposure.';
+      recleanEl.style.display = '';
+    } else if (services_lc.includes('driveway') || services_lc.includes('patio') || services_lc.includes('pool')) {
+      recleanEl.textContent = 'Driveways, patios, and pool decks typically benefit from cleaning every 6–12 months to keep them looking their best.';
+      recleanEl.style.display = '';
+    }
+  }
+
+  // "Request another service" link — pre-fill with name and phone
+  const reqBtn = document.getElementById('request-another-btn');
+  if (reqBtn && customerPhone) {
+    const params = new URLSearchParams({
+      name:    fullName,
+      phone:   customerPhone,
+      address: customer.address || '',
+      city:    customer.city    || '',
+    });
+    reqBtn.href = `https://purecleaningpressurecleaning.com/quote.html?${params}`;
+  }
+}
+
+// ── PDF / Print / Email ───────────────────────────────────────────────────────
+function buildPrintFilename() {
+  const ln = (customer.lastName || customer.ln || '').replace(/\s+/g, '');
+  const ss = customer.scheduledStatus || {};
+  const d  = (ss.completedDate || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+  return `PureCleaning_Receipt_${ln}_${d}`;
+}
+
+function buildPrintContent() {
+  const ss  = customer.scheduledStatus || {};
+  const qs  = customer.quoteStatus    || {};
+  const pi  = customer.paymentInfo    || {};
+
+  const fn      = customer.firstName || customer.fn || '';
+  const ln      = customer.lastName  || customer.ln || '';
+  const fullName = [fn, ln].filter(Boolean).join(' ');
+  const addr    = [customer.address, customer.city].filter(Boolean).join(', ');
+  const services = qs.mainServices || ss.jobNotes || qs.notes || '—';
+  const addons   = customer.addOns || qs.addOns || [];
+  const total    = pi.totalPaid || ss.approvedAmount || qs.approvedAmount || 0;
+  const base     = total - addons.reduce((s,a)=>s+(a.bundle||0),0) || total;
+  const compDate = ss.completedDate
+    ? new Date(ss.completedDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : '—';
+  const payDate = pi.paidDate
+    ? new Date(pi.paidDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : 'Day of service';
+  const payMethod = capitalise(pi.method || 'cash') + (pi.methodOther ? ` (${pi.methodOther})` : '');
+
+  const aoRows = addons.map(a =>
+    `<tr><td class="pr-item-name">+ ${escHtml(a.name)}</td><td class="pr-item-price" style="text-align:right;">$${a.bundle}</td></tr>`
+  ).join('');
+
+  return `
+    <div class="pr-co">🌴 Pure Cleaning Pressure Cleaning, LLC</div>
+    <div class="pr-tagline">Family-owned since 1995 &nbsp;·&nbsp; 954-389-2642 &nbsp;·&nbsp; purecleaningpressurecleaning.com</div>
+    <div class="pr-rule"></div>
+    <div class="pr-title">Receipt<span class="pr-paid-badge">✓ Paid</span></div>
+    <table class="pr-meta">
+      <tr><td class="pr-meta-lbl">Customer</td><td class="pr-meta-val">${escHtml(fullName)}</td></tr>
+      ${addr ? `<tr><td class="pr-meta-lbl">Address</td><td class="pr-meta-val">${escHtml(addr)}</td></tr>` : ''}
+      <tr><td class="pr-meta-lbl">Completed</td><td class="pr-meta-val hl">${compDate}</td></tr>
+      <tr><td class="pr-meta-lbl">Completed by</td><td class="pr-meta-val">Pure Cleaning Pressure Cleaning, LLC</td></tr>
+    </table>
+    <div class="pr-rule"></div>
+    <span class="pr-section-lbl">Services Performed</span>
+    <table class="pr-items">
+      <tr><td class="pr-item-name">${escHtml(services)}</td><td class="pr-item-price" style="text-align:right;">$${base}</td></tr>
+      ${aoRows}
+      <tr class="pr-total-row"><td>Total Paid</td><td style="text-align:right;">$${total}</td></tr>
+    </table>
+    <div class="pr-rule"></div>
+    <span class="pr-section-lbl" style="margin-bottom:6px;">Payment</span>
+    <p class="pr-terms">Method: ${escHtml(payMethod)}</p>
+    <p class="pr-terms">Date: ${payDate}</p>
+    <p class="pr-terms">Status: ✓ Paid in full</p>
+    <div class="pr-thank-you">Thank you for choosing Pure Cleaning! We appreciate your business and are proud to serve your home. Give us a call anytime at 954-389-2642.</div>
+    <div class="pr-footer-area">
+      <div><div class="pr-footer-co">Pure Cleaning Pressure Cleaning, LLC</div><div class="pr-footer-tag">Licensed &amp; Insured · South Florida · Since 1995</div></div>
+      <div style="text-align:right;font-size:9.5px;color:#777;">954-389-2642<br>purecleaningpressurecleaning.com</div>
+    </div>`;
+}
+
+function _doPrint(eventName) {
+  const ph = document.createElement('div');
+  ph.id = 'print-header';
+  ph.innerHTML = buildPrintContent();
+  const wrap = document.querySelector('#state-main .wrap');
+  if (wrap) wrap.insertBefore(ph, wrap.firstChild);
+
+  const prevTitle = document.title;
+  document.title  = buildPrintFilename();
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return; cleaned = true;
+    document.title = prevTitle;
+    const el = document.getElementById('print-header');
+    if (el) el.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 12000);
+
+  requestAnimationFrame(() => window.print());
+  trackEvent(eventName === 'agreement_pdf_downloaded' ? 'pdf_downloaded' : 'printed');
+}
+
+function onPdfClick()   { _doPrint('agreement_pdf_downloaded'); }
+function onPrintClick() { _doPrint('agreement_printed'); }
+
+function onEmailClick() {
+  const fn     = customer.firstName || customer.fn || 'there';
+  const ss     = customer.scheduledStatus || {};
+  const qs     = customer.quoteStatus    || {};
+  const pi     = customer.paymentInfo    || {};
+  const services = qs.mainServices || ss.jobNotes || 'your services';
+  const total    = pi.totalPaid || ss.approvedAmount || 0;
+  const url      = window.location.href;
+  const email    = customer.email || '';
+
+  const subject = encodeURIComponent('Your Pure Cleaning Receipt');
+  const body    = encodeURIComponent(
+    `Hi ${fn},\n\nHere's your Pure Cleaning receipt:\n\nServices: ${services}\nTotal Paid: $${total}\n\nView your receipt anytime:\n${url}\n\nThank you for choosing Pure Cleaning!\n\n— Pure Cleaning Family · 954-389-2642`
+  );
+
+  const a = document.createElement('a');
+  a.href  = `mailto:${email}?subject=${subject}&body=${body}`;
+  a.click();
+  trackEvent('emailed');
+}
+
+// ── Event tracking ────────────────────────────────────────────────────────────
+function trackEvent(event) {
+  if (!customerPhone) return;
+  fetch(`${PCPC_API}/receipt/${customerPhone}/track`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ event })
+  }).catch(() => {});
+
+  // Also log to events feed
+  const d = customer || {};
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      eventType: `receipt_${event}`,
+      customer: {fn: d.firstName||d.fn||'', ln: d.lastName||d.ln||'', ph: customerPhone},
+      loggedAt: new Date().toISOString()
+    })
+  }).catch(() => {});
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+function showState(name) {
+  ['loading','error','main'].forEach(s => {
+    const el = document.getElementById(`state-${s}`);
+    if (el) el.style.display = s === name ? '' : 'none';
+  });
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function capitalise(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str || '');
+  return d.innerHTML;
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
