@@ -172,6 +172,7 @@ const TOOLS = [
   { icon: '🔔', name: 'New Quote Requests',  description: 'Review incoming customer form submissions and build quotes',     url: '/pure_cleaning_incoming.html',          category: 'primary', badgeId: 'incoming-badge' },
   { icon: '📅', name: 'Calendar & Crew',     description: 'Schedule jobs, assign crews, track weekly payroll',             url: '/pure_cleaning_calendar.html',          category: 'primary' },
   { icon: '📋', name: 'Open Quotes',         description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html',            category: 'tools' },
+  { icon: '📬', name: 'Nudge Queue',         description: "Follow up with customers who haven't confirmed yet",               url: '/pure_cleaning_nudge_queue.html',       category: 'tools', badgeId: 'nudge-badge' },
   { icon: '📱', name: 'Bulk Reactivation',   description: 'Tier customers, generate batch links, send reactivation texts', url: '/pure_cleaning_bulk_reactivation.html', category: 'tools' },
   { icon: '🧾', name: 'Quote Builder',       description: 'Build and send custom quotes to customers',                     url: '/pure_cleaning_quote_builder_v2.html',  category: 'tools' },
   { icon: '📨', name: 'Customer Quote Form', description: 'Preview the customer-facing quote request form',                url: '/pure_cleaning_quote.html',             category: 'tools' },
@@ -223,6 +224,20 @@ async function loadIncomingCount() {
     const data  = await res.json();
     const count = (data.requests || []).filter(r => r.status === 'new').length;
     const badge = document.getElementById('incoming-badge');
+    if (badge) {
+      badge.textContent   = count > 0 ? String(count) : '';
+      badge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+  } catch {}
+}
+
+async function loadNudgeCount() {
+  try {
+    const res  = await fetch(`${PCPC_API}/nudge-queue`);
+    if (!res.ok) return;
+    const data  = await res.json();
+    const count = data.totalCount || 0;
+    const badge = document.getElementById('nudge-badge');
     if (badge) {
       badge.textContent   = count > 0 ? String(count) : '';
       badge.style.display = count > 0 ? 'inline-flex' : 'none';
@@ -461,6 +476,7 @@ async function saveReviewCount() {
 // ── INIT ────────────────────────────────────────────────────────────────────────
 renderTools();
 loadIncomingCount();
+loadNudgeCount();
 loadReviewCount();
 checkAlerts();
 setInterval(checkAlerts, 60_000);
