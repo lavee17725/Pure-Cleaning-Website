@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Your Service Agreement — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:   #0a1628;
+  --navy2:  #111f38;
+  --gold:   #f4a620;
+  --terra:  #c2410c;
+  --green:  #1d9e75;
+  --bg:     #fafaf7;
+  --white:  #fff;
+  --text:   #1a1f2e;
+  --muted:  #6b7280;
+  --border: #e8e2d8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+/* ── Header ── */
+.site-header { background: var(--navy); padding: 1rem 1.25rem .875rem; text-align: center; }
+.hdr-logo { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: .5px; margin-bottom: 4px; }
+.hdr-logo span { color: var(--gold); }
+.hdr-tagline { font-size: 12px; color: rgba(255,255,255,.55); letter-spacing: .3px; margin-bottom: 6px; }
+.hdr-phone a { font-size: 13px; font-weight: 700; color: var(--gold); text-decoration: none; }
+.trust-strip { background: var(--navy2); border-bottom: 1px solid rgba(255,255,255,.06); padding: .625rem 1.25rem; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.trust-item { font-size: 12px; color: rgba(255,255,255,.75); display: flex; align-items: center; gap: 5px; font-weight: 500; }
+.trust-stars { font-size: 11px; }
+.trust-sep { color: rgba(255,255,255,.25); font-size: 14px; }
+.trust-count { color: var(--gold); font-weight: 700; }
+
+/* ── Layout ── */
+.wrap { max-width: 480px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+#state-loading, #state-error, #state-main { display: none; }
+
+/* ── Loading / Error ── */
+.loading-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: 1rem; }
+.spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--navy); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); font-weight: 500; }
+.error-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: .75rem; text-align: center; }
+.error-icon { font-size: 40px; }
+.error-title { font-size: 17px; font-weight: 600; }
+.error-sub { font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+/* ── Agreement header card ── */
+.agr-card { background: var(--white); border-radius: 16px; border: 1.5px solid var(--border); box-shadow: 0 3px 16px rgba(10,22,40,.09); overflow: hidden; margin-bottom: 1.5rem; }
+.agr-top-bar { background: var(--navy); padding: .875rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+.agr-doc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--gold); }
+.status-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+.status-badge.pending { color: rgba(255,255,255,.65); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); }
+.status-badge.confirmed { color: #86efac; background: rgba(134,239,172,.12); border: 1px solid rgba(134,239,172,.3); }
+.agr-body { padding: 1.25rem; }
+.agr-cust-name { font-size: 22px; font-weight: 700; color: var(--navy); margin-bottom: 3px; }
+.agr-cust-addr { font-size: 13px; color: var(--muted); margin-bottom: 1rem; }
+.agr-meta-row { display: flex; gap: 1.25rem; flex-wrap: wrap; padding-top: .875rem; border-top: 1px solid var(--border); }
+.agr-meta-item { display: flex; flex-direction: column; gap: 2px; }
+.agr-meta-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+.agr-meta-val { font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* ── Section title ── */
+.section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: .75rem; padding: 0 2px; }
+
+/* ── Services card ── */
+.services-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 1.5rem; }
+.svc-item { display: flex; align-items: flex-start; gap: 12px; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.svc-item:last-child { border-bottom: none; }
+.svc-check { width: 22px; height: 22px; border-radius: 50%; background: #f0fdf4; border: 1.5px solid #86efac; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--green); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.svc-check.added { background: #fff7ed; border-color: #fdba74; color: var(--terra); }
+.svc-info { flex: 1; min-width: 0; }
+.svc-name { font-size: 14.5px; font-weight: 600; color: var(--text); line-height: 1.4; }
+.svc-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.svc-price { font-size: 17px; font-weight: 700; color: var(--navy); flex-shrink: 0; padding-top: 1px; }
+.svc-savings-badge { display: inline-block; font-size: 10px; font-weight: 700; color: var(--green); background: #f0fdf4; border: 1px solid #86efac; border-radius: 20px; padding: 1px 7px; margin-left: 4px; vertical-align: middle; }
+.svc-empty { padding: 1rem 1.25rem; font-size: 14px; color: var(--muted); }
+.svc-add-more { padding: .625rem 1.25rem; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); }
+.svc-add-more a { color: var(--navy); font-weight: 600; text-decoration: none; }
+
+/* ── Add-on cards ── */
+.addon-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1.125rem; margin-bottom: .75rem; transition: border-color .15s, box-shadow .15s; }
+.addon-card:not(.added):hover { border-color: var(--terra); box-shadow: 0 3px 12px rgba(194,65,12,.1); }
+.addon-card.added { opacity: .72; border-color: var(--green); }
+.addon-card-hdr { display: flex; align-items: center; gap: 12px; margin-bottom: .625rem; }
+.addon-icon-lg { font-size: 28px; flex-shrink: 0; }
+.addon-card-name { font-size: 15px; font-weight: 700; color: var(--navy); flex: 1; }
+.addon-desc { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: .625rem; }
+.addon-price-line { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: .75rem; }
+.addon-bundle-price { font-size: 24px; font-weight: 800; color: var(--terra); letter-spacing: -.5px; }
+.addon-standalone-ref { font-size: 12px; color: var(--muted); }
+.addon-savings { font-size: 12px; font-weight: 700; color: var(--green); }
+.addon-add-btn { display: block; width: 100%; padding: .75rem; background: var(--terra); color: #fff; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; text-align: center; border: none; border-radius: 11px; cursor: pointer; transition: background .15s; }
+.addon-add-btn:hover { background: #b03a0b; }
+.addon-added-badge { display: none; align-items: center; justify-content: center; gap: 6px; padding: .75rem; background: #f0fdf4; border-radius: 11px; font-size: 14px; font-weight: 700; color: var(--green); border: 1.5px solid #86efac; }
+.addon-card.added .addon-add-btn { display: none; }
+.addon-card.added .addon-added-badge { display: flex; }
+
+/* ── Date options ── */
+.date-option { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: .875rem 1.125rem; margin-bottom: .625rem; cursor: pointer; display: flex; align-items: center; gap: 1rem; transition: border-color .15s; -webkit-tap-highlight-color: transparent; }
+.date-option:hover { border-color: var(--navy); }
+.date-option.selected { border-color: var(--green); background: #f0fdf4; }
+.date-radio { width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s; background: var(--white); }
+.date-option.selected .date-radio { border-color: var(--green); background: var(--green); }
+.date-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .15s; }
+.date-option.selected .date-radio-dot { opacity: 1; }
+.date-info-block { flex: 1; }
+.date-option-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 3px; }
+.date-option-lbl.best { color: #166534; }
+.date-option-lbl.alt { color: #1d4ed8; }
+.date-option-display { font-size: 15px; font-weight: 700; color: var(--navy); }
+.custom-date-input { width: 100%; padding: .625rem .875rem; background: var(--bg); border: 1.5px solid var(--border); border-radius: 10px; font-family: 'DM Sans', sans-serif; font-size: 15px; color: var(--text); outline: none; transition: border-color .15s; margin-top: .5rem; }
+.custom-date-input:focus { border-color: var(--green); }
+.date-confirmed-block { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+.date-confirmed-icon { font-size: 32px; }
+.date-confirmed-info { flex: 1; }
+.date-confirmed-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 4px; }
+.date-confirmed-display { font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 3px; }
+.date-confirmed-sub { font-size: 12px; color: var(--muted); }
+.date-hint { font-size: 13px; color: var(--terra); font-weight: 600; padding: .375rem 2px .625rem; }
+@keyframes pulse-hint { 0%,100% { opacity:1; } 50% { opacity: .4; } }
+.hint-pulse { animation: pulse-hint .5s; }
+
+/* ── Total card ── */
+.total-card { background: var(--navy); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.total-line { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+.total-lbl { font-size: 13px; color: rgba(255,255,255,.65); font-weight: 500; }
+.total-lbl.main { color: rgba(255,255,255,.9); font-weight: 600; }
+.total-amt { font-size: 14px; color: rgba(255,255,255,.8); font-weight: 600; }
+.total-divider { height: 1px; background: rgba(255,255,255,.15); margin: .625rem 0; }
+.total-row { display: flex; justify-content: space-between; align-items: center; }
+.total-row-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: rgba(255,255,255,.5); }
+.total-row-amt { font-size: 26px; font-weight: 800; color: var(--gold); letter-spacing: -.5px; }
+
+/* ── Custom note ── */
+.custom-note { background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 12px; padding: .875rem 1.125rem; margin-bottom: 1.5rem; font-size: 14px; color: #78350f; line-height: 1.6; }
+
+/* ── Info cards ── */
+.info-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: .75rem; }
+.info-card-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 6px; }
+.info-card-body { font-size: 14px; color: var(--text); line-height: 1.6; }
+.info-card-body strong { color: var(--navy); }
+.pay-method { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--text); background: #f8f9fb; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; margin: 3px 3px 3px 0; }
+
+/* ── Educational accordion ── */
+.edu-section { margin-bottom: 1.75rem; }
+.edu-section-hdr { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: .75rem; padding: 0 2px; }
+.edu-item { background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
+.edu-item[open] { box-shadow: 0 3px 12px rgba(10,22,40,.08); }
+.edu-summary { display: flex; align-items: center; gap: 10px; padding: .875rem 1rem; cursor: pointer; list-style: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+.edu-summary::-webkit-details-marker { display: none; }
+.edu-summary:hover { background: #fafaf7; }
+.edu-icon { font-size: 18px; flex-shrink: 0; }
+.edu-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--navy); }
+.edu-arrow { font-size: 18px; color: var(--muted); transition: transform .2s; line-height: 1; }
+.edu-item[open] .edu-arrow { transform: rotate(90deg); }
+.edu-body { padding: 0 1rem 1.125rem; border-top: 1px solid var(--border); }
+.edu-body-inner { padding-top: 1rem; }
+.edu-para { font-size: 13.5px; color: var(--text); line-height: 1.65; margin-bottom: .75rem; }
+.edu-para:last-child { margin-bottom: 0; }
+.edu-check-list { list-style: none; padding: 0; margin: 0; }
+.edu-check-list li { font-size: 13.5px; color: var(--text); padding: 4px 0; display: flex; gap: 8px; align-items: flex-start; line-height: 1.45; }
+.edu-check-list li::before { content: '✓'; color: var(--green); font-weight: 700; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+.edu-subhead { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: .875rem 0 .5rem; }
+.edu-method { margin-bottom: 1rem; padding: .875rem; border-radius: 10px; border: 1.5px solid var(--border); }
+.edu-method:last-child { margin-bottom: 0; }
+.edu-method-name { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: .5rem; display: flex; align-items: center; gap: 7px; }
+.edu-method-badge { font-size: 10px; font-weight: 700; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 20px; }
+.edu-method-body { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.edu-method-bullets { list-style: none; padding: 0; margin: .5rem 0 0; }
+.edu-method-bullets li { font-size: 13px; color: var(--text); padding: 2px 0; display: flex; gap: 8px; align-items: flex-start; }
+.edu-method-bullets li::before { content: '✓'; color: var(--green); font-weight: 700; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+.areas-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: .5rem; }
+.area-chip { font-size: 12px; font-weight: 600; color: var(--navy); background: #f0f4fb; border: 1px solid #dbeafe; padding: 3px 10px; border-radius: 20px; }
+
+/* ── Action section ── */
+.confirm-btn { display: block; width: 100%; min-height: 54px; background: var(--gold); color: var(--navy); font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 800; border: none; border-radius: 14px; cursor: pointer; transition: background .15s; margin-bottom: .875rem; padding: .875rem 1.25rem; }
+.confirm-btn:hover:not(:disabled) { background: #e09615; }
+.confirm-btn:disabled, .confirm-btn.faded { background: #e8e2d8; color: #b0a99a; cursor: not-allowed; }
+.confirm-hint { font-size: 13px; color: var(--muted); text-align: center; padding: 0 .5rem .75rem; font-weight: 500; }
+.confirm-legal { font-size: 11.5px; color: var(--muted); line-height: 1.6; text-align: center; padding: 0 .5rem; }
+.confirmed-banner { background: #f0fdf4; border: 2px solid #86efac; border-radius: 16px; padding: 1.5rem 1.25rem; margin-bottom: 1.5rem; text-align: center; }
+.confirmed-icon { font-size: 44px; margin-bottom: .375rem; }
+.confirmed-headline { font-size: 22px; font-weight: 700; color: var(--green); margin-bottom: .25rem; }
+.confirmed-date { font-size: 17px; font-weight: 700; color: var(--navy); margin-bottom: .5rem; }
+.confirmed-sub { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 1.25rem; }
+.action-btns { display: flex; flex-direction: column; gap: .625rem; }
+.action-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: .875rem; background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; transition: border-color .15s, background .15s; width: 100%; }
+.action-btn:hover { border-color: var(--navy); background: #f8f9fb; }
+
+/* ── Toast ── */
+.toast { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%) translateY(-80px); background: var(--navy); color: #fff; font-size: 13.5px; font-weight: 600; padding: .625rem 1.25rem; border-radius: 100px; white-space: nowrap; z-index: 9999; transition: transform .3s cubic-bezier(0.34,1.56,0.64,1), opacity .3s; opacity: 0; pointer-events: none; box-shadow: 0 4px 20px rgba(10,22,40,.25); }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* ── Modal / Bottom Sheet ── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(10,22,40,.55); z-index: 1000; display: none; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.sheet { background: var(--white); border-radius: 20px 20px 0 0; padding: 1.5rem 1.5rem 2.5rem; width: 100%; max-width: 480px; margin: 0 auto; transform: translateY(100%); transition: transform .3s cubic-bezier(0.32,0.72,0,1); }
+.modal-overlay.open .sheet { transform: translateY(0); }
+.sheet-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 1.25rem; }
+.sheet-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: .5rem; }
+.sheet-body { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 1.5rem; }
+.sheet-body strong { font-size: 17px; font-weight: 700; color: var(--navy); }
+.sheet-actions { display: flex; gap: .75rem; }
+.btn-cancel { flex: 1; padding: .875rem; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; border: 1.5px solid var(--border); border-radius: 12px; cursor: pointer; }
+.btn-confirm { flex: 2; padding: .875rem; background: var(--navy); color: var(--gold); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; border: none; border-radius: 12px; cursor: pointer; }
+
+/* ── Footer ── */
+.site-footer { background: var(--navy); padding: 1.5rem 1.25rem 2rem; text-align: center; margin-top: 2rem; }
+.footer-logo { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+.footer-logo span { color: var(--gold); }
+.footer-company { font-size: 12px; color: rgba(255,255,255,.45); margin-bottom: 12px; }
+.footer-contact { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+.footer-contact a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 14px; transition: background .15s; }
+.footer-contact a:hover { background: rgba(255,255,255,.15); }
+.footer-since { font-size: 11px; color: rgba(255,255,255,.3); }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="hdr-logo">🌴 Pure <span>Cleaning</span></div>
+  <div class="hdr-tagline">Family-owned · South Florida · Since 1995</div>
+  <div class="hdr-phone"><a href="tel:9543892642">954-389-2642</a></div>
+</header>
+
+<div class="trust-strip">
+  <div class="trust-item"><span class="trust-stars">⭐⭐⭐⭐⭐</span><span><span class="trust-count" id="reviewCountDisplay">107+</span> Google reviews</span></div>
+  <div class="trust-sep">·</div>
+  <div class="trust-item"><span class="trust-stars">⭐⭐⭐⭐⭐</span><span>388 Angi reviews</span></div>
+</div>
+
+<!-- Loading -->
+<div id="state-loading">
+  <div class="loading-center">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading your service agreement…</div>
+  </div>
+</div>
+
+<!-- Error -->
+<div id="state-error">
+  <div class="error-center">
+    <div class="error-icon">🔗</div>
+    <div class="error-title">Link not found</div>
+    <div class="error-sub">This link has expired or is invalid.<br>Please contact Pure Cleaning directly.</div>
+    <a href="tel:9543892642" style="margin-top:.5rem;font-size:14px;font-weight:700;color:var(--navy);">📞 Call 954-389-2642</a>
+  </div>
+</div>
+
+<!-- Main -->
+<div id="state-main">
+  <div class="wrap">
+
+    <!-- Agreement header card (populated by JS) -->
+    <div id="agr-header" class="agr-card"></div>
+
+    <!-- Custom note from Tony (injected if present) -->
+    <div id="custom-note-area"></div>
+
+    <!-- Services agreed -->
+    <div style="margin-bottom:1.5rem;">
+      <div class="section-title">Services Agreed</div>
+      <div class="services-card" id="services-list"></div>
+    </div>
+
+    <!-- Available add-ons -->
+    <div id="addons-section" style="display:none;margin-bottom:1.5rem;">
+      <div class="section-title">Additional Services Available</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">Bundle today while we're on-site — reduced pricing when added with your current job.</div>
+      <div id="addons-list"></div>
+    </div>
+
+    <!-- Date picker -->
+    <div id="date-section" style="display:none;margin-bottom:1.5rem;"></div>
+
+    <!-- Running total -->
+    <div id="total-section" style="display:none;">
+      <div class="total-card" id="total-inner"></div>
+    </div>
+
+    <!-- Arrival info -->
+    <div class="info-card">
+      <div class="info-card-title">Arrival Time</div>
+      <div class="info-card-body">We'll <strong>text or call the night before</strong> your service with a rough arrival window. If anything changes, we'll let you know as early as possible.</div>
+    </div>
+
+    <!-- Payment -->
+    <div class="info-card" style="margin-bottom:1.75rem;">
+      <div class="info-card-title">Payment</div>
+      <div class="info-card-body">We accept: <span class="pay-method">💚 Zelle</span><span class="pay-method">💵 Cash</span><span class="pay-method">✍️ Check</span><span class="pay-method">💜 Venmo</span><br><br>Payment is due day of service.</div>
+    </div>
+
+    <!-- Educational accordion -->
+    <div class="edu-section">
+      <div class="edu-section-hdr">Learn More</div>
+
+      <details class="edu-item">
+        <summary class="edu-summary"><span class="edu-icon">🚿</span><span class="edu-title">How We Clean</span><span class="edu-arrow">›</span></summary>
+        <div class="edu-body"><div class="edu-body-inner">
+          <div class="edu-method"><div class="edu-method-name">Softwash <span class="edu-method-badge">Most Popular</span></div><div class="edu-method-body">Low-pressure solution that kills algae and mold at the root — safer than high-pressure for most surfaces.</div><ul class="edu-method-bullets"><li>Kills algae &amp; mold at the root</li><li>Works on all roof types</li><li>Required for shingle roofs and Spanish S tile</li><li>Faster, more thorough clean</li></ul></div>
+          <div class="edu-method"><div class="edu-method-name">Traditional Brush Cleaning</div><div class="edu-method-body">Great for homes without gutters or with sensitive plants nearby.</div><ul class="edu-method-bullets"><li>Limited chemical runoff</li><li>Gentle on surrounding plants</li><li>Thorough clean with soap and water</li></ul></div>
+          <div class="edu-method"><div class="edu-method-name">Water-Only Pressure Cleaning</div><div class="edu-method-body">Zero chemical exposure, safe for all plants and soil. Note: without chemical treatment, algae and mildew may return sooner.</div><ul class="edu-method-bullets"><li>Zero chemical exposure</li><li>Safe for all plants and soil</li><li>Ideal for driveways and hardscapes</li></ul></div>
+        </div></div>
+      </details>
+
+      <details class="edu-item">
+        <summary class="edu-summary"><span class="edu-icon">🌴</span><span class="edu-title">About Pure Cleaning</span><span class="edu-arrow">›</span></summary>
+        <div class="edu-body"><div class="edu-body-inner">
+          <p class="edu-para">Pure Cleaning Pressure Cleaning, LLC has been serving South Florida families since 1995. Tony Fumero founded the company with a simple promise: do the work right, treat customers like family.</p>
+          <p class="edu-para">Today, the business is run by Tony, his wife Darla, and their son Tyler — three generations committed to keeping South Florida homes looking their best.</p>
+          <div class="edu-subhead">Why families trust us</div>
+          <ul class="edu-check-list"><li>30 years of pressure washing expertise</li><li>5-star ratings on Google and Angi</li><li>Insured and licensed</li><li>Same family, same number, same quality since 1995</li><li>We treat every home like it's our own</li></ul>
+        </div></div>
+      </details>
+
+      <details class="edu-item">
+        <summary class="edu-summary"><span class="edu-icon">✅</span><span class="edu-title">What's Included in Every Clean</span><span class="edu-arrow">›</span></summary>
+        <div class="edu-body"><div class="edu-body-inner">
+          <div class="edu-subhead">Every service includes</div>
+          <ul class="edu-check-list"><li>Pre-job property inspection</li><li>Plant and landscape protection</li><li>Professional-grade equipment</li><li>Post-job walkthrough with you</li><li>100% satisfaction commitment</li></ul>
+          <div class="edu-subhead" style="margin-top:1rem;">For roof cleaning specifically</div>
+          <ul class="edu-check-list"><li>Rinse of all walls and windows after roof clean</li><li>Gutter rinse to remove debris</li><li>Driveway and entranceway rinse if needed</li></ul>
+        </div></div>
+      </details>
+
+      <details class="edu-item">
+        <summary class="edu-summary"><span class="edu-icon">⚠️</span><span class="edu-title">Why We Don't Service Metal Roofs</span><span class="edu-arrow">›</span></summary>
+        <div class="edu-body"><div class="edu-body-inner">
+          <p class="edu-para">Metal roofs require specialized equipment, different chemical solutions, and specific safety precautions that differ significantly from tile and shingle roofs.</p>
+          <p class="edu-para">To protect your home and our crew, we only clean tile (Spanish S, flat), shingle, and flat roofs. We're happy to refer you to a metal roofing specialist if needed.</p>
+          <p class="edu-para">Questions? Just call us — we'll always be upfront about whether your property is a good fit.</p>
+        </div></div>
+      </details>
+
+      <details class="edu-item">
+        <summary class="edu-summary"><span class="edu-icon">📍</span><span class="edu-title">Areas We Serve</span><span class="edu-arrow">›</span></summary>
+        <div class="edu-body"><div class="edu-body-inner">
+          <p class="edu-para" style="margin-bottom:.75rem;">We serve Broward County and surrounding areas across South Florida:</p>
+          <div class="areas-grid"><span class="area-chip">Weston</span><span class="area-chip">Davie</span><span class="area-chip">Pembroke Pines</span><span class="area-chip">Miramar</span><span class="area-chip">Plantation</span><span class="area-chip">Coral Springs</span><span class="area-chip">Cooper City</span><span class="area-chip">Southwest Ranches</span><span class="area-chip">Fort Lauderdale</span><span class="area-chip">Hollywood</span><span class="area-chip">Sunrise</span><span class="area-chip">Tamarac</span><span class="area-chip">Parkland</span><span class="area-chip">Deerfield Beach</span><span class="area-chip">Margate</span></div>
+          <p class="edu-para" style="margin-top:.875rem;">Not sure if we cover your area? Give us a call at <a href="tel:9543892642" style="color:var(--navy);font-weight:600;">954-389-2642</a>.</p>
+        </div></div>
+      </details>
+    </div>
+
+    <!-- Action section (confirm button or confirmed state) -->
+    <div id="action-section"></div>
+
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="footer-logo">🌴 Pure <span>Cleaning</span></div>
+  <div class="footer-company">Pure Cleaning Pressure Cleaning, LLC · South Florida · Since 1995</div>
+  <div class="footer-contact">
+    <a href="tel:9543892642">📞 Call us</a>
+    <a href="sms:+19543892642">💬 Text us</a>
+  </div>
+  <div class="footer-since">Family-owned · Licensed &amp; Insured</div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<!-- Confirm Booking Modal -->
+<div class="modal-overlay" id="confirm-modal" onclick="onModalOverlayClick(event,'confirm-modal')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Confirm your booking?</div>
+    <div class="sheet-body" id="confirm-modal-body"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeModal('confirm-modal')">Go back</button>
+      <button class="btn-confirm" onclick="submitConfirm()">Confirm &amp; Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add-on Modal -->
+<div class="modal-overlay" id="addon-modal" onclick="onModalOverlayClick(event,'addon-modal')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="addon-modal-title"></div>
+    <div class="sheet-body" id="addon-modal-body"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeModal('addon-modal')">Cancel</button>
+      <button class="btn-confirm" id="addon-modal-confirm">Yes, add it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let quoteCode       = null;
+let quoteData       = null;
+let customer        = null;
+let pageState       = 'pre_confirm'; // | 'confirmed'
+let addedAddons     = [];
+let availableAddons = [];
+let selectedDate    = null; // {date, display, label, rig, rigLabel}
+let customDateVal   = '';
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  showState('loading');
+
+  const params = new URLSearchParams(window.location.search);
+  const id     = params.get('id') || params.get('c');
+  const phone  = params.get('phone');
+
+  if (!id && !phone) { showState('error'); return; }
+
+  try {
+    const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+
+    const [quoteRes, dbRes, reviewsRes] = await Promise.all([
+      id    ? fetch(`${PCPC_API}/quote/${id}`) : Promise.resolve(null),
+      fetch(`${PCPC_API}/customers`),
+      fetch(`${PCPC_API}/reviews`).catch(() => null),
+    ]);
+
+    const db = await dbRes.json();
+
+    if (id) {
+      quoteCode = id;
+      if (!quoteRes || !quoteRes.ok) { showState('error'); return; }
+      quoteData = await quoteRes.json();
+      customer  = (db.customers||[]).find(c => norm(c.phone) === norm(quoteData.ph||''));
+    } else {
+      const normPhone = norm(phone);
+      customer = (db.customers||[]).find(c => norm(c.phone) === normPhone);
+      if (!customer) { showState('error'); return; }
+      const qs = customer.quoteStatus || {};
+      const ss = customer.scheduledStatus || {};
+      quoteData = {
+        fn: customer.firstName, ln: customer.lastName, ph: customer.phone,
+        address: customer.address || '', city: customer.city || '',
+        services: qs.mainServices || '', mainServices: qs.mainServices || '',
+        approvedAmount: ss.approvedAmount || qs.approvedAmount || 0,
+        mainAmount:     ss.approvedAmount || qs.approvedAmount || 0,
+        addOns: [], miniQuoteCustomData: qs.miniQuoteCustomData || null,
+        dateSuggestions: qs.miniQuoteCustomData?.dateSuggestions || [],
+        created: qs.sentAt || customer.submittedAt || new Date().toISOString(),
+        confirmedAt: qs.state === 'confirmed' ? qs.confirmedAt : null,
+        confirmedDate: qs.confirmedDate || null,
+        confirmedDateDisplay: qs.confirmedDateDisplay || null,
+      };
+    }
+
+    // Determine page state
+    if (quoteData.confirmedAt || customer?.quoteStatus?.state === 'confirmed') {
+      pageState = 'confirmed';
+      const cd = quoteData.confirmedDate || customer?.quoteStatus?.confirmedDate;
+      const cd_disp = quoteData.confirmedDateDisplay || customer?.quoteStatus?.confirmedDateDisplay;
+      if (cd) selectedDate = { date: cd, display: cd_disp || cd, label: 'Confirmed', rig: null, rigLabel: null };
+    }
+
+    // Restore date preference if set (pre-confirm state)
+    if (!selectedDate && quoteData.datePreference) {
+      selectedDate = quoteData.datePreference;
+    }
+
+    // Build available add-ons from builder's miniQuoteCustomData
+    const cd = quoteData.miniQuoteCustomData;
+    if (cd) {
+      availableAddons = [
+        ...(cd.addOns        || []).filter(a => a.enabled),
+        ...(cd.customAddOns  || []).filter(a => a.enabled),
+      ];
+    }
+
+    // Restore customer-added add-ons and remove from available
+    addedAddons = quoteData.addOns || [];
+    const addedIds = new Set(addedAddons.map(a => a.id));
+    availableAddons = availableAddons.filter(a => !addedIds.has(a.id));
+
+    // Update review count
+    if (reviewsRes && reviewsRes.ok) {
+      const rv = await reviewsRes.json();
+      const count = rv.reviewCount || rv.count;
+      if (count) {
+        const el = document.getElementById('reviewCountDisplay');
+        if (el) el.textContent = count + '+';
+      }
+    }
+
+    renderPage();
+    showState('main');
+
+  } catch(e) {
+    console.error(e);
+    showState('error');
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderPage() {
+  renderAgreementHeader();
+  renderCustomNote();
+  renderServices();
+  renderAvailableAddons();
+  renderDateSection();
+  refreshTotal();
+  renderActionSection();
+}
+
+function renderAgreementHeader() {
+  const el = document.getElementById('agr-header');
+  if (!el) return;
+  const fn   = quoteData.fn || customer?.firstName || '';
+  const ln   = quoteData.ln || customer?.lastName  || '';
+  const name = [fn, ln].filter(Boolean).join(' ');
+  const addr = [quoteData.address || customer?.address, quoteData.city || customer?.city].filter(Boolean).join(', ');
+  const quoteDate = quoteData.created
+    ? new Date(quoteData.created).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : '';
+  const badge = pageState === 'confirmed'
+    ? `<div class="status-badge confirmed">✓ Confirmed</div>`
+    : `<div class="status-badge pending">• Pending</div>`;
+
+  el.innerHTML = `
+    <div class="agr-top-bar">
+      <div class="agr-doc-label">Service Agreement</div>
+      ${badge}
+    </div>
+    <div class="agr-body">
+      <div class="agr-cust-name">${escHtml(name) || '&mdash;'}</div>
+      ${addr ? `<div class="agr-cust-addr">${escHtml(addr)}</div>` : ''}
+      <div class="agr-meta-row">
+        ${quoteDate ? `<div class="agr-meta-item"><span class="agr-meta-lbl">Quoted</span><span class="agr-meta-val">${quoteDate}</span></div>` : ''}
+        <div class="agr-meta-item"><span class="agr-meta-lbl">Quoted by</span><span class="agr-meta-val">Tony, Pure Cleaning</span></div>
+        ${pageState === 'confirmed' && selectedDate ? `<div class="agr-meta-item"><span class="agr-meta-lbl">Confirmed date</span><span class="agr-meta-val" style="color:var(--green);font-weight:700;">${escHtml(selectedDate.display)}</span></div>` : ''}
+      </div>
+    </div>`;
+}
+
+function renderCustomNote() {
+  const el = document.getElementById('custom-note-area');
+  if (!el) return;
+  const note = quoteData.miniQuoteCustomData?.customNote || '';
+  el.innerHTML = note ? `<div class="custom-note">${escHtml(note)}</div>` : '';
+}
+
+function renderServices() {
+  const listEl = document.getElementById('services-list');
+  if (!listEl) return;
+  const base     = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const services = quoteData.mainServices || quoteData.services || '';
+  let html = '';
+
+  if (services) {
+    html += `<div class="svc-item">
+      <div class="svc-check">✓</div>
+      <div class="svc-info"><div class="svc-name">${escHtml(services)}</div></div>
+      <div class="svc-price">$${base}</div>
+    </div>`;
+  }
+
+  addedAddons.forEach(ao => {
+    const savings = ao.savings || (ao.standalone > ao.bundle ? ao.standalone - ao.bundle : 0);
+    const badge   = savings > 0 ? `<span class="svc-savings-badge">Save $${savings}</span>` : '';
+    html += `<div class="svc-item">
+      <div class="svc-check added">+</div>
+      <div class="svc-info">
+        <div class="svc-name">${escHtml(ao.name)} ${badge}</div>
+        <div class="svc-sub">Bundled · added to your job</div>
+      </div>
+      <div class="svc-price">$${ao.bundle}</div>
+    </div>`;
+  });
+
+  if (pageState === 'confirmed' && availableAddons.length > 0) {
+    html += `<div class="svc-add-more">To add more services, <a href="tel:9543892642">call or text us</a></div>`;
+  }
+
+  listEl.innerHTML = html || `<div class="svc-empty">No services on file.</div>`;
+}
+
+function renderAvailableAddons() {
+  const secEl  = document.getElementById('addons-section');
+  const listEl = document.getElementById('addons-list');
+  if (!secEl || !listEl) return;
+
+  if (pageState === 'confirmed' || availableAddons.length === 0) {
+    secEl.style.display = 'none';
+    return;
+  }
+
+  secEl.style.display = 'block';
+  const ICONS = {rinse_walls:'🧱',entranceway:'🚪',driveway:'🛣️',roof_cleaning:'🏠',patio:'🪨',walkway:'🚶',walkways:'🚶',fence:'🚧',rust_removal:'🔧',rust:'🔧',sealing:'💎',gutters:'🌧️',pool_deck:'🏊',windows:'🪟',paver_sand:'🧱',garage:'🏚️',balcony:'🏡',awnings:'🪟'};
+
+  listEl.innerHTML = availableAddons.map(a => {
+    const icon     = a.icon || ICONS[a.id] || '✨';
+    const savings  = a.savings || (a.standalone > a.bundle ? a.standalone - a.bundle : 0);
+    const savingHtml = savings > 0 ? `<span class="addon-savings">Save $${savings}</span>` : '';
+    const descHtml   = a.note ? `<div class="addon-desc">${escHtml(a.note)}</div>` : '';
+    return `<div class="addon-card" id="addon-card-${a.id}">
+      <div class="addon-card-hdr">
+        <span class="addon-icon-lg">${icon}</span>
+        <div class="addon-card-name">${escHtml(a.name)}</div>
+      </div>
+      ${descHtml}
+      <div class="addon-price-line">
+        <span class="addon-bundle-price">$${a.bundle}</span>
+        <span class="addon-standalone-ref">Regularly $${a.standalone}</span>
+        ${savingHtml}
+      </div>
+      <button class="addon-add-btn" onclick="onAddAddonClick('${a.id}')">+ Add to my job</button>
+      <div class="addon-added-badge">✓ Added to your job</div>
+    </div>`;
+  }).join('');
+}
+
+function renderDateSection() {
+  const secEl = document.getElementById('date-section');
+  if (!secEl) return;
+
+  // Confirmed state: show the confirmed date block
+  if (pageState === 'confirmed') {
+    if (selectedDate) {
+      secEl.style.display = 'block';
+      secEl.innerHTML = `
+        <div class="section-title">Scheduled Date</div>
+        <div class="date-confirmed-block">
+          <div class="date-confirmed-icon">📅</div>
+          <div class="date-confirmed-info">
+            <div class="date-confirmed-label">Your confirmed date</div>
+            <div class="date-confirmed-display">${escHtml(selectedDate.display)}</div>
+            <div class="date-confirmed-sub">We'll text you the night before with your arrival window.</div>
+          </div>
+        </div>`;
+    } else {
+      secEl.style.display = 'none';
+    }
+    return;
+  }
+
+  // Pre-confirm state: show radio options
+  const suggestions = ((quoteData.dateSuggestions || []).length
+    ? quoteData.dateSuggestions
+    : quoteData.miniQuoteCustomData?.dateSuggestions || []
+  ).filter(s => s.date);
+
+  if (!suggestions.length) { secEl.style.display = 'none'; return; }
+  secEl.style.display = 'block';
+
+  const today = new Date().toISOString().slice(0, 10);
+  const customIsActive = selectedDate && !suggestions.find(s => s.date === selectedDate.date);
+
+  let html = `<div class="section-title">Pick Your Preferred Date</div>`;
+
+  suggestions.forEach((s, i) => {
+    const isSelected = selectedDate && selectedDate.date === s.date;
+    const lc = s.label === 'Best fit' ? 'best' : 'alt';
+    html += `<div class="date-option${isSelected ? ' selected' : ''}" id="date-opt-${i}" onclick="onDateSelect(${i})">
+      <div class="date-radio"><div class="date-radio-dot"></div></div>
+      <div class="date-info-block">
+        <div class="date-option-lbl ${lc}">${escHtml(s.label || 'Option')}</div>
+        <div class="date-option-display">${escHtml(s.display)}</div>
+      </div>
+    </div>`;
+  });
+
+  // "None of these work" option
+  html += `<div class="date-option${customIsActive ? ' selected' : ''}" id="date-opt-custom" onclick="onCustomDateSelect()">
+    <div class="date-radio"><div class="date-radio-dot"></div></div>
+    <div class="date-info-block">
+      <div class="date-option-lbl alt">Custom</div>
+      <div class="date-option-display">None of these work — I'll pick another</div>
+    </div>
+  </div>
+  <div id="custom-date-wrap" style="display:${customIsActive ? 'block' : 'none'};padding:0 2px;">
+    <input type="date" class="custom-date-input" id="custom-date-input"
+      value="${customIsActive && selectedDate ? selectedDate.date : ''}"
+      min="${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}"
+      onchange="onCustomDateChange(this.value)">
+  </div>`;
+
+  secEl.innerHTML = html;
+}
+
+function refreshTotal() {
+  const secEl   = document.getElementById('total-section');
+  const innerEl = document.getElementById('total-inner');
+  if (!secEl || !innerEl) return;
+
+  const base  = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total = base + addedAddons.reduce((s, ao) => s + (ao.bundle || 0), 0);
+  secEl.style.display = 'block';
+
+  const mainLabel = (quoteData.mainServices || quoteData.services || 'Main service')
+    .split(/[,\n·•]+/)[0].trim();
+
+  let html = `<div class="total-line"><span class="total-lbl main">${escHtml(mainLabel)}</span><span class="total-amt">$${base}</span></div>`;
+  addedAddons.forEach(ao => {
+    html += `<div class="total-line"><span class="total-lbl">+ ${escHtml(ao.name)}</span><span class="total-amt">$${ao.bundle}</span></div>`;
+  });
+  html += `<div class="total-divider"></div><div class="total-row"><span class="total-row-lbl">Total Today</span><span class="total-row-amt">$${total}</span></div>`;
+  innerEl.innerHTML = html;
+}
+
+function renderActionSection() {
+  const el = document.getElementById('action-section');
+  if (!el) return;
+
+  if (pageState === 'confirmed') {
+    el.innerHTML = `
+      <div class="confirmed-banner">
+        <div class="confirmed-icon">✓</div>
+        <div class="confirmed-headline">Booking Confirmed!</div>
+        <div class="confirmed-date">${escHtml(selectedDate?.display || '')}</div>
+        <div class="confirmed-sub">We'll text or call you the night before with your arrival window.</div>
+      </div>
+      <div class="action-btns">
+        <button class="action-btn" onclick="onPdfClick()">📥 Download as PDF</button>
+        <button class="action-btn" onclick="onPrintClick()">🖨️ Print Agreement</button>
+        <button class="action-btn" onclick="onEmailClick()">✉️ Email me a copy</button>
+      </div>`;
+    return;
+  }
+
+  const dateChosen = !!selectedDate;
+  el.innerHTML = `
+    ${!dateChosen ? `<div class="confirm-hint" id="confirm-hint">Select a date above to confirm your booking</div>` : ''}
+    <button class="confirm-btn${!dateChosen ? ' faded' : ''}" id="confirmBtn"
+      onclick="onConfirmClick()" ${dateChosen ? '' : 'disabled'}>
+      ${dateChosen ? `Confirm &amp; Schedule — ${escHtml(selectedDate.display)} →` : 'Confirm &amp; Schedule'}
+    </button>
+    <div class="confirm-legal">By confirming, you agree to the services and price above. We'll text you the night before with your arrival window.</div>`;
+}
+
+// ── Date selection ────────────────────────────────────────────────────────────
+function onDateSelect(index) {
+  const suggestions = ((quoteData.dateSuggestions || []).length
+    ? quoteData.dateSuggestions
+    : quoteData.miniQuoteCustomData?.dateSuggestions || []
+  ).filter(s => s.date);
+  const s = suggestions[index];
+  if (!s) return;
+  selectedDate = {...s};
+
+  document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
+  const opt = document.getElementById(`date-opt-${index}`);
+  if (opt) opt.classList.add('selected');
+  const customWrap = document.getElementById('custom-date-wrap');
+  if (customWrap) customWrap.style.display = 'none';
+
+  updateConfirmButton();
+  logEvent('date_option_tapped', {date: s.date, label: s.label});
+}
+
+function onCustomDateSelect() {
+  selectedDate = customDateVal ? buildCustomDateObj(customDateVal) : null;
+
+  document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
+  const customOpt = document.getElementById('date-opt-custom');
+  if (customOpt) customOpt.classList.add('selected');
+  const customWrap = document.getElementById('custom-date-wrap');
+  if (customWrap) customWrap.style.display = 'block';
+  const input = document.getElementById('custom-date-input');
+  if (input) input.focus();
+
+  updateConfirmButton();
+}
+
+function onCustomDateChange(val) {
+  customDateVal = val;
+  if (val) {
+    selectedDate = buildCustomDateObj(val);
+    updateConfirmButton();
+  }
+}
+
+function buildCustomDateObj(val) {
+  const d  = new Date(val + 'T12:00:00');
+  const DN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return {date: val, display: `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`, label: 'Customer preferred', rig: null, rigLabel: null};
+}
+
+function updateConfirmButton() {
+  const btn  = document.getElementById('confirmBtn');
+  const hint = document.getElementById('confirm-hint');
+  if (!btn) { renderActionSection(); return; }
+  if (selectedDate) {
+    btn.disabled  = false;
+    btn.className = 'confirm-btn';
+    btn.innerHTML = `Confirm &amp; Schedule — ${escHtml(selectedDate.display)} →`;
+    if (hint) hint.style.display = 'none';
+  } else {
+    btn.disabled  = true;
+    btn.className = 'confirm-btn faded';
+    btn.innerHTML = 'Confirm &amp; Schedule';
+    if (hint) hint.style.display = '';
+  }
+}
+
+// ── Add-on flow ───────────────────────────────────────────────────────────────
+function onAddAddonClick(addonId) {
+  const addon = availableAddons.find(a => a.id === addonId);
+  if (!addon) return;
+
+  const base     = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const curTotal = base + addedAddons.reduce((s, ao) => s + (ao.bundle || 0), 0);
+  const newTotal = curTotal + addon.bundle;
+
+  document.getElementById('addon-modal-title').textContent = `Add ${addon.name}?`;
+  document.getElementById('addon-modal-body').innerHTML = `New total: <strong>$${curTotal} + $${addon.bundle} = $${newTotal}</strong>`;
+  document.getElementById('addon-modal-confirm').onclick = () => confirmAddAddon(addonId);
+  openModal('addon-modal');
+  logEvent('addon_tap_initiated', {addonId, addonName: addon.name, bundlePrice: addon.bundle});
+}
+
+function confirmAddAddon(addonId) {
+  closeModal('addon-modal');
+  const addon = availableAddons.find(a => a.id === addonId);
+  if (!addon) return;
+
+  addedAddons.push({id: addon.id, name: addon.name, bundle: addon.bundle, standalone: addon.standalone, savings: addon.savings || 0});
+  availableAddons = availableAddons.filter(a => a.id !== addonId);
+
+  const card = document.getElementById(`addon-card-${addonId}`);
+  if (card) {
+    card.classList.add('added');
+    const btn   = card.querySelector('.addon-add-btn');
+    const badge = card.querySelector('.addon-added-badge');
+    if (btn)   btn.style.display   = 'none';
+    if (badge) badge.style.display = 'flex';
+  }
+
+  refreshTotal();
+  renderServices();
+
+  const newTotal = (quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0) + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  showToast(`✓ Added! Total is now $${newTotal}`);
+  logEvent('addon_confirmed', {addonId, addonName: addon.name, bundlePrice: addon.bundle, newTotal});
+}
+
+// ── Confirm flow ──────────────────────────────────────────────────────────────
+function onConfirmClick() {
+  if (!selectedDate) {
+    const dateEl = document.getElementById('date-section');
+    if (dateEl) dateEl.scrollIntoView({behavior: 'smooth', block: 'start'});
+    const hint = document.getElementById('confirm-hint');
+    if (hint) { hint.classList.add('hint-pulse'); setTimeout(() => hint.classList.remove('hint-pulse'), 600); }
+    return;
+  }
+
+  const base     = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total    = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const services = quoteData.mainServices || quoteData.services || '';
+
+  let bodyHtml = `<div style="margin-bottom:.625rem;font-size:17px;font-weight:700;color:var(--navy);">${escHtml(selectedDate.display)}</div>`;
+  bodyHtml += `<div style="font-size:13px;color:#6b7280;margin-bottom:.375rem;">${escHtml(services)}</div>`;
+  addedAddons.forEach(ao => {
+    bodyHtml += `<div style="font-size:13px;color:#6b7280;margin-bottom:.25rem;">+ ${escHtml(ao.name)} ($${ao.bundle})</div>`;
+  });
+  bodyHtml += `<div style="font-size:17px;font-weight:700;color:var(--navy);margin-top:.75rem;">Total: $${total}</div>`;
+
+  document.getElementById('confirm-modal-body').innerHTML = bodyHtml;
+  openModal('confirm-modal');
+}
+
+async function submitConfirm() {
+  closeModal('confirm-modal');
+
+  const btn = document.getElementById('confirmBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirming…'; }
+
+  const phone    = quoteData.ph || customer?.phone || '';
+  const base     = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total    = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const services = quoteData.mainServices || quoteData.services || '';
+
+  try {
+    const res = await fetch(`${PCPC_API}/agreement/${phone}/confirm`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        date:           selectedDate.date,
+        display:        selectedDate.display,
+        rig:            selectedDate.rig || null,
+        rigLabel:       selectedDate.rigLabel || null,
+        approvedAmount: total,
+        services,
+        addOns:   addedAddons,
+        quoteCode,
+      })
+    });
+
+    if (!res.ok) throw new Error('Confirmation failed — please try again');
+
+    pageState                     = 'confirmed';
+    quoteData.confirmedAt         = new Date().toISOString();
+    quoteData.confirmedDate       = selectedDate.date;
+    quoteData.confirmedDateDisplay = selectedDate.display;
+    if (!quoteData._baseAmount) quoteData._baseAmount = base;
+    quoteData.approvedAmount      = total;
+    quoteData.addOns              = [...addedAddons];
+
+    renderPage();
+    showToast('✓ Booking confirmed!');
+    window.scrollTo({top: 0, behavior: 'smooth'});
+    try { localStorage.setItem('pcpc_db_changed_at', Date.now().toString()); } catch {}
+    logEvent('booking_confirmed', {date: selectedDate.date, total, addOnsCount: addedAddons.length});
+
+  } catch(e) {
+    alert('Error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = `Confirm &amp; Schedule — ${escHtml(selectedDate.display)} →`; }
+  }
+}
+
+// ── Stage 7 placeholders ──────────────────────────────────────────────────────
+function onPdfClick()   { showToast('PDF download coming in an update!'); }
+function onPrintClick() { showToast('Print feature coming in an update!'); }
+function onEmailClick() { showToast('Email copy coming in an update!'); }
+
+// ── Event logging ─────────────────────────────────────────────────────────────
+function logEvent(eventType, extra = {}) {
+  const d = quoteData || {};
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({eventType, customer: {fn: d.fn, ln: d.ln, ph: d.ph}, ...extra, loggedAt: new Date().toISOString()})
+  }).catch(() => {});
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) { el.style.display = 'flex'; el.getBoundingClientRect(); el.classList.add('open'); }
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) { el.classList.remove('open'); setTimeout(() => { el.style.display = 'none'; }, 280); }
+}
+function onModalOverlayClick(e, id) {
+  if (e.target === document.getElementById(id)) closeModal(id);
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── State display ─────────────────────────────────────────────────────────────
+function showState(name) {
+  ['loading','error','main'].forEach(s => {
+    const el = document.getElementById(`state-${s}`);
+    if (el) el.style.display = s === name ? '' : 'none';
+  });
+}
+
+// ── HTML escape ───────────────────────────────────────────────────────────────
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str || '');
+  return d.innerHTML;
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
