@@ -97,6 +97,15 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .roof-method-wrap{background:#fff6f2;border-top:1px solid #fecaca;padding:8px 14px 10px 46px;}
 .roof-method-wrap label{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;}
 .roof-method-wrap input[type=radio]{accent-color:var(--red);width:16px;height:16px;flex-shrink:0;cursor:pointer;}
+.gutter-method-wrap{background:#f8faff;border-top:1px solid #dbeafe;padding:8px 14px 10px 46px;}
+.gutter-method-wrap label{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;}
+.gutter-method-wrap input[type=checkbox]{accent-color:#2d7dd2;width:16px;height:16px;flex-shrink:0;cursor:pointer;}
+.svc-row.selected.auto-bundled{background:#f8faff !important;border-left-color:#93c5fd !important;}
+.svc-row.auto-bundled .svc-name{color:#6b7280;}
+.svc-bundle-note{font-size:10px;color:#9ca3af;margin-left:2px;font-weight:400;}
+.svc-sub-collapsed{font-size:12px;color:var(--red);margin-left:3px;font-weight:600;}
+.svc-change-link{font-size:11px;color:var(--sky);font-weight:700;cursor:pointer;margin-left:6px;padding:1px 6px;border-radius:4px;background:none;border:none;font-family:'DM Sans',sans-serif;white-space:nowrap;vertical-align:middle;}
+.svc-change-link:hover{background:#eff6ff;}
 .path-toggle{background:var(--white);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.25rem;}
 .path-opt{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
 .path-opt:not(:last-child){border-bottom:1px solid var(--border);}
@@ -414,11 +423,11 @@ async function getCachedCustomerDB() {
 const PCPC_API_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
 const DEFAULT_SERVICES = {
   primary: [
-    {id:'rinse_walls',   name:'Rinse Walls',        count:1117, pct:60.3},
-    {id:'entranceway',   name:'Entranceway',        count:1042, pct:56.3},
-    {id:'driveway',      name:'Driveway',           count:965,  pct:52.1},
     {id:'roof_cleaning', name:'Roof Cleaning',      count:944,  pct:51.0},
+    {id:'rinse_walls',   name:'Rinse Walls',        count:1117, pct:60.3},
+    {id:'driveway',      name:'Driveway',           count:965,  pct:52.1},
     {id:'patio',         name:'Patio',              count:943,  pct:50.9},
+    {id:'entranceway',   name:'Entranceway',        count:1042, pct:56.3},
     {id:'walkway',       name:'Walkway / Sidewalk', count:802,  pct:43.3},
   ],
   secondary: [
@@ -433,74 +442,149 @@ const DEFAULT_SERVICES = {
     {id:'balcony',     name:'Balcony',            count:13,  pct:0.7},
   ],
 };
-let _svcData    = DEFAULT_SERVICES;
-let _svcSel     = new Set();
-let _svcSecExp  = false;
-let _svcCustExp = false;
-let _roofMethod = null; // 'softwash' | 'power_wash_chemical' | 'power_wash_no_chemical'
 
-const ROOF_METHODS = [
-  { id:'softwash',              label:'Softwash' },
-  { id:'power_wash_chemical',   label:'Power wash with chemical' },
-  { id:'power_wash_no_chemical',label:'Power wash, no chemical' },
+const PRIMARY_ORDER   = ['roof_cleaning','rinse_walls','driveway','patio','entranceway','walkway'];
+const ROOF_METHODS    = [
+  {id:'softwash',              label:'Softwash'},
+  {id:'power_wash_chemical',   label:'Power wash with chemical'},
+  {id:'power_wash_no_chemical',label:'Power wash, no chemical'},
 ];
+const GUTTER_TYPES = [
+  {id:'interior', label:'Interior gutters'},
+  {id:'exterior', label:'Exterior gutters'},
+];
+
+let _svcData         = DEFAULT_SERVICES;
+let _svcSel          = new Set();
+let _svcSecExp       = false;
+let _svcCustExp      = false;
+let _roofMethod      = null;
+let _roofSubLocked   = false;
+let _gutterTypes     = new Set();
+let _gutterSubLocked = false;
+let _bundleFlags     = {rinseWalls:false, entranceway:false, walkway:false};
 
 function renderServicePicker() {
   const pEl = document.getElementById('primaryServices');
   const sEl = document.getElementById('secondaryServices');
-  const mWrap = document.getElementById('showMoreWrap');
   if (!pEl) return;
-  pEl.innerHTML = (_svcData.primary || []).map(s => svcRowHtml(s)).join('');
-  if (sEl) sEl.innerHTML = (_svcData.secondary || []).map(s => svcRowHtml(s)).join('');
-  if (mWrap) mWrap.style.display = '';
+  const primary = [...(_svcData.primary||[])].sort((a,b) => {
+    const ai = PRIMARY_ORDER.indexOf(a.id), bi = PRIMARY_ORDER.indexOf(b.id);
+    return (ai<0?99:ai) - (bi<0?99:bi);
+  });
+  pEl.innerHTML = primary.map(s => svcRowHtml(s)).join('');
+  if (sEl) sEl.innerHTML = (_svcData.secondary||[]).map(s => svcRowHtml(s)).join('');
+  document.getElementById('showMoreWrap').style.display = '';
   updateSelectedSummary();
 }
 
 function svcRowHtml(s) {
-  const sel = _svcSel.has(s.id);
-  const count = s.count >= 1000 ? (s.count/1000).toFixed(1)+'K' : s.count;
+  const sel    = _svcSel.has(s.id);
+  const count  = s.count >= 1000 ? (s.count/1000).toFixed(1)+'K' : s.count;
   const isRoof = s.id === 'roof_cleaning';
-  const roofSub = (isRoof && sel) ? `<div class="roof-method-wrap">
-    ${ROOF_METHODS.map(m => `<label>
-      <input type="radio" name="roofMethod" value="${m.id}"${_roofMethod===m.id?' checked':''} onclick="event.stopPropagation();setRoofMethod('${m.id}')">
-      ${m.label}
-    </label>`).join('')}
-  </div>` : '';
-  return `<div class="svc-row${sel?' selected':''}" data-id="${s.id}" onclick="toggleService('${s.id}')">
+  const isGut  = s.id === 'gutters';
+
+  // Auto-bundle visual treatment
+  const autoBundled =
+    (s.id==='rinse_walls' && _bundleFlags.rinseWalls) ||
+    (s.id==='entranceway' && _bundleFlags.entranceway) ||
+    (s.id==='walkway'     && _bundleFlags.walkway);
+  const bundleText =
+    s.id==='rinse_walls' ? '(with roof)' :
+    s.id==='entranceway' ? '(with driveway)' :
+    s.id==='walkway'     ? '(with driveway)' : '';
+  const bundleNote = autoBundled ? ` <span class="svc-bundle-note">${bundleText}</span>` : '';
+  const rowCls = `svc-row${sel?' selected':''}${autoBundled?' auto-bundled':''}`;
+
+  // Inline collapsed display for roof
+  let displayName = s.name + bundleNote;
+  if (isRoof && sel && _roofSubLocked && _roofMethod) {
+    const m = ROOF_METHODS.find(x=>x.id===_roofMethod);
+    displayName = `${s.name}<span class="svc-sub-collapsed"> · ${m?m.label:''}</span>`;
+  }
+  // Inline collapsed display for gutters
+  if (isGut && sel && _gutterSubLocked && _gutterTypes.size>0) {
+    const labels = GUTTER_TYPES.filter(t=>_gutterTypes.has(t.id)).map(t=>t.label.replace(' gutters',''));
+    displayName = `${s.name}<span class="svc-sub-collapsed"> · ${labels.join(', ')}</span>`;
+  }
+
+  // [Change] link
+  const changeLink =
+    (isRoof && sel && _roofSubLocked && _roofMethod)
+      ? `<button class="svc-change-link" onclick="event.stopPropagation();expandRoofSub()">Change</button>` :
+    (isGut && sel && _gutterSubLocked && _gutterTypes.size>0)
+      ? `<button class="svc-change-link" onclick="event.stopPropagation();expandGutterSub()">Change</button>` : '';
+
+  // Sub-option panels
+  let subHtml = '';
+  if (isRoof && sel && !(_roofSubLocked && _roofMethod)) {
+    subHtml = `<div class="roof-method-wrap">${ROOF_METHODS.map(m =>
+      `<label><input type="radio" name="roofMethod" value="${m.id}"${_roofMethod===m.id?' checked':''} onclick="event.stopPropagation();setRoofMethod('${m.id}')">${m.label}</label>`
+    ).join('')}</div>`;
+  }
+  if (isGut && sel && !(_gutterSubLocked && _gutterTypes.size>0)) {
+    subHtml = `<div class="gutter-method-wrap">${GUTTER_TYPES.map(t =>
+      `<label><input type="checkbox" value="${t.id}"${_gutterTypes.has(t.id)?' checked':''} onclick="event.stopPropagation();toggleGutterType('${t.id}')">${t.label}</label>`
+    ).join('')}</div>`;
+  }
+
+  return `<div class="${rowCls}" data-id="${s.id}" onclick="toggleService('${s.id}')">
     <div class="svc-check">${sel?'✓':''}</div>
-    <div class="svc-name">${s.name}</div>
-    <div class="svc-count">${count} jobs (${s.pct}%)</div>
-  </div>${roofSub}`;
+    <div class="svc-name">${displayName}</div>
+    <div class="svc-count">${count} jobs (${s.pct}%)${changeLink}</div>
+  </div>${subHtml}`;
+}
+
+function _fullRerender() {
+  renderServicePicker();
+  const sec = document.getElementById('secondaryServices');
+  if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
 }
 
 function setRoofMethod(method) {
-  _roofMethod = method;
-  updateSelectedSummary();
-  checkReq();
+  _roofMethod = method; _roofSubLocked = true;
+  _fullRerender(); checkReq();
 }
+function expandRoofSub()  { _roofSubLocked = false; _fullRerender(); }
+
+function toggleGutterType(type) {
+  if (_gutterTypes.has(type)) _gutterTypes.delete(type); else _gutterTypes.add(type);
+  if (_gutterTypes.size > 0) _gutterSubLocked = true;
+  _fullRerender(); updateSelectedSummary(); checkReq();
+}
+function expandGutterSub() { _gutterSubLocked = false; _fullRerender(); }
 
 function toggleService(id) {
-  if (_svcSel.has(id)) {
-    _svcSel.delete(id);
-    if (id === 'roof_cleaning') _roofMethod = null;
-  } else {
+  const adding = !_svcSel.has(id);
+  if (adding) {
     _svcSel.add(id);
-  }
-  // Full re-render to show/hide roof sub-options correctly
-  if (id === 'roof_cleaning') {
-    renderServicePicker();
-    // Restore secondary expanded state
-    const sec = document.getElementById('secondaryServices');
-    if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
+    if (id === 'roof_cleaning') {
+      if (!_svcSel.has('rinse_walls')) { _svcSel.add('rinse_walls'); _bundleFlags.rinseWalls = true; }
+    }
+    if (id === 'driveway') {
+      if (!_svcSel.has('entranceway')) { _svcSel.add('entranceway'); _bundleFlags.entranceway = true; }
+      if (!_svcSel.has('walkway'))     { _svcSel.add('walkway');     _bundleFlags.walkway     = true; }
+    }
+    // Manually checking a bundle-dependency clears its auto-bundle flag
+    if (id==='rinse_walls')  _bundleFlags.rinseWalls  = false;
+    if (id==='entranceway')  _bundleFlags.entranceway = false;
+    if (id==='walkway')      _bundleFlags.walkway     = false;
   } else {
-    document.querySelectorAll(`[data-id="${id}"]`).forEach(el => {
-      const sel = _svcSel.has(id);
-      el.className = 'svc-row' + (sel ? ' selected' : '');
-      const chk = el.querySelector('.svc-check');
-      if (chk) chk.textContent = sel ? '✓' : '';
-    });
+    _svcSel.delete(id);
+    if (id==='roof_cleaning') { _roofMethod=null; _roofSubLocked=false; }
+    if (id==='gutters')       { _gutterTypes.clear(); _gutterSubLocked=false; }
+    // Auto-unbundle
+    if (id==='roof_cleaning' && _bundleFlags.rinseWalls)  { _svcSel.delete('rinse_walls'); _bundleFlags.rinseWalls=false; }
+    if (id==='driveway') {
+      if (_bundleFlags.entranceway) { _svcSel.delete('entranceway'); _bundleFlags.entranceway=false; }
+      if (_bundleFlags.walkway)     { _svcSel.delete('walkway');     _bundleFlags.walkway=false; }
+    }
+    // Manually unchecking clears the auto-bundle flag (so parent deselect won't double-remove)
+    if (id==='rinse_walls')  _bundleFlags.rinseWalls  = false;
+    if (id==='entranceway')  _bundleFlags.entranceway = false;
+    if (id==='walkway')      _bundleFlags.walkway     = false;
   }
-  updateSelectedSummary();
+  _fullRerender();
   checkReq();
 }
 
@@ -526,8 +610,14 @@ function toggleCustomService() {
 
 function _roofDisplayName() {
   if (!_roofMethod) return 'Roof Cleaning';
-  const m = ROOF_METHODS.find(x => x.id === _roofMethod);
+  const m = ROOF_METHODS.find(x=>x.id===_roofMethod);
   return m ? `Roof Cleaning (${m.label})` : 'Roof Cleaning';
+}
+
+function _gutterDisplayName() {
+  if (_gutterTypes.size===0) return 'Gutters';
+  const labels = GUTTER_TYPES.filter(t=>_gutterTypes.has(t.id)).map(t=>t.label.replace(' gutters',''));
+  return `Gutters (${labels.join(', ')})`;
 }
 
 function updateSelectedSummary() {
@@ -535,7 +625,8 @@ function updateSelectedSummary() {
   if (!el) return;
   const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
   const names = [..._svcSel].map(id => {
-    if (id === 'roof_cleaning') return _roofDisplayName();
+    if (id==='roof_cleaning') return _roofDisplayName();
+    if (id==='gutters')       return _gutterDisplayName();
     return (all.find(s=>s.id===id)||{}).name;
   }).filter(Boolean);
   const custom = (document.getElementById('customServiceText')?.value||'').trim();
@@ -547,15 +638,18 @@ function getServicesAgreedValue() {
   const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
   const structured = [..._svcSel];
   const names = structured.map(id => {
-    if (id === 'roof_cleaning') return _roofDisplayName();
+    if (id==='roof_cleaning') return _roofDisplayName();
+    if (id==='gutters')       return _gutterDisplayName();
     return (all.find(s=>s.id===id)||{}).name;
   }).filter(Boolean);
   const custom = (document.getElementById('customServiceText')?.value||'').trim();
   if (custom) names.push(custom);
   return {
     structured,
-    roofMethod: _svcSel.has('roof_cleaning') ? (_roofMethod || null) : null,
-    structuredDisplay: names.filter(n => !custom || n !== custom),
+    roofMethod:  _svcSel.has('roof_cleaning') ? (_roofMethod||null) : null,
+    gutterType:  _svcSel.has('gutters') ? [..._gutterTypes] : [],
+    bundleFlags: {rinseWalls:_bundleFlags.rinseWalls, entranceway:_bundleFlags.entranceway, walkway:_bundleFlags.walkway},
+    structuredDisplay: names.filter(n => !custom || n!==custom),
     custom,
     fullDescription: names.join(', ')
   };
@@ -563,11 +657,12 @@ function getServicesAgreedValue() {
 
 function resetServicePicker() {
   _svcSel.clear();
-  _roofMethod = null;
-  _svcSecExp = false;
-  _svcCustExp = false;
-  const cst = document.getElementById('customServiceText'); if (cst) cst.value = '';
-  const cw = document.getElementById('customServiceWrap'); if (cw) cw.style.display = 'none';
+  _roofMethod=null; _roofSubLocked=false;
+  _gutterTypes.clear(); _gutterSubLocked=false;
+  _bundleFlags={rinseWalls:false, entranceway:false, walkway:false};
+  _svcSecExp=false; _svcCustExp=false;
+  const cst=document.getElementById('customServiceText'); if(cst) cst.value='';
+  const cw=document.getElementById('customServiceWrap'); if(cw) cw.style.display='none';
   renderServicePicker();
 }
 
