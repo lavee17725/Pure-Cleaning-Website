@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Add Customer — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--sky:#2d7dd2;--gold:#f4a620;--gold-d:#c47f00;--green:#1d9e75;--red:#e53e3e;--white:#fff;--bg:#fdf8f2;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--ah-bg:#fef2f2;--ah-bd:#fca5a5;--am-bg:#fffbeb;--am-bd:#fcd34d;--ai-bg:#eff6ff;--ai-bd:#93c5fd;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.header{background:var(--navy);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-size:17px;font-weight:700;color:#fff;letter-spacing:.5px;}
+.logo span{color:var(--gold);}
+.back-link{font-size:13px;color:var(--gold);text-decoration:none;font-weight:600;}
+.state{display:none;}.state.active{display:block;}
+.wrap{max-width:480px;margin:0 auto;padding:1.5rem 1.25rem 5rem;}
+.greeting h1{font-size:26px;font-weight:700;color:var(--navy);line-height:1.25;margin-bottom:6px;}
+.greeting p{font-size:15px;color:var(--muted);}
+.btn{min-height:52px;padding:13px 20px;border:none;border-radius:14px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;-webkit-tap-highlight-color:transparent;}
+.btn-gold{background:var(--gold);color:var(--navy);width:100%;}
+.btn-gold:hover{background:var(--gold-d);}
+.btn-gold:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+.btn-outline{background:none;border:2px solid var(--border);color:var(--muted);width:100%;}
+.btn-outline:hover{border-color:var(--sky);color:var(--sky);}
+.btn-navy{background:var(--navy);color:#fff;padding:13px 18px;min-height:48px;}
+.btn-sky{background:var(--sky);color:#fff;}
+.shdr{display:flex;align-items:center;justify-content:space-between;margin:1.25rem 0 .75rem;}
+.shdr h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);}
+.add-link{font-size:14px;font-weight:600;color:var(--sky);background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;padding:0;}
+.alert-chip{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;border-radius:12px;margin-bottom:8px;border-left:4px solid;}
+.alert-chip.high{background:var(--ah-bg);border-left-color:var(--ah-bd);}
+.alert-chip.medium{background:var(--am-bg);border-left-color:var(--am-bd);}
+.alert-chip.info{background:var(--ai-bg);border-left-color:var(--ai-bd);}
+.ac-icon{font-size:20px;flex-shrink:0;line-height:1.2;}
+.ac-text{flex:1;min-width:0;}
+.ac-label{font-size:14px;font-weight:600;color:var(--text);}
+.ac-note{font-size:12px;color:var(--muted);margin-top:2px;}
+.ac-date{font-size:11px;color:var(--muted);}
+.ac-remove{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;flex-shrink:0;padding:0;line-height:1;}
+.ac-remove:hover{color:var(--red);}
+.notes-box{background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:13px 14px;font-family:'DM Sans',sans-serif;font-size:15px;width:100%;resize:vertical;min-height:80px;color:var(--text);outline:none;}
+.notes-box:focus{border-color:var(--sky);}
+.field{margin-bottom:1rem;}
+.field label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;}
+.field-req{color:var(--red);margin-left:2px;}
+.fi{width:100%;padding:14px 16px;background:var(--white);border:2px solid var(--border);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:16px;color:var(--text);outline:none;transition:border-color .2s;}
+.fi:focus{border-color:var(--sky);}
+.fi::placeholder{color:#c4b9a8;}
+.fi.err{border-color:var(--red);}
+.fi[readonly]{background:#f5f3ef;color:var(--muted);}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.acc-btn{display:flex;align-items:center;gap:8px;background:none;border:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;padding:8px 0;}
+.acc-body{display:none;}.acc-body.open{display:block;}
+.dup-callout{background:#fffbeb;border:2px solid #fcd34d;border-radius:14px;padding:14px 16px;margin-bottom:1rem;display:none;}
+.dup-callout.show{display:block;}
+.dup-text{font-size:14px;color:#78350f;margin-bottom:10px;font-weight:500;line-height:1.5;}
+.dup-row{display:flex;gap:8px;}
+.dup-yes{flex:1;min-height:44px;padding:10px;background:var(--gold);color:var(--navy);border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.dup-no{min-height:44px;padding:10px 14px;background:none;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
+.success-wrap{text-align:center;padding:2.5rem 0 1.5rem;}
+.s-emoji{font-size:72px;display:block;margin-bottom:1rem;animation:pop .45s ease;}
+@keyframes pop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
+.s-title{font-size:30px;font-weight:700;color:var(--navy);margin-bottom:8px;}
+.s-sub{font-size:16px;color:var(--muted);line-height:1.6;margin-bottom:1.75rem;}
+.s-actions{display:flex;flex-direction:column;gap:10px;}
+.s-home{text-align:center;display:block;padding:12px;font-size:14px;color:var(--muted);font-weight:600;text-decoration:none;}
+.moverlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:700;display:flex;align-items:flex-end;justify-content:center;}
+.moverlay.hidden{display:none;}
+.msheet{background:var(--white);border-radius:24px 24px 0 0;width:100%;max-width:480px;padding:1.5rem 1.5rem 2rem;max-height:88vh;overflow-y:auto;}
+.msheet-title{font-size:20px;font-weight:700;color:var(--navy);margin-bottom:1rem;}
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;}
+.ptile{padding:13px 10px;background:#f8f5f0;border:2px solid var(--border);border-radius:13px;cursor:pointer;text-align:center;transition:all .15s;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;}
+.ptile:hover{border-color:var(--sky);background:#eff6ff;}
+.ptile.sel.high{border-color:var(--ah-bd);background:var(--ah-bg);}
+.ptile.sel.medium{border-color:var(--am-bd);background:var(--am-bg);}
+.ptile.sel.info,.ptile.sel{border-color:var(--ai-bd);background:var(--ai-bg);}
+.ptile-icon{font-size:22px;display:block;margin-bottom:4px;}
+.ptile-label{font-size:11px;font-weight:600;color:var(--text);line-height:1.3;}
+.note-fi{width:100%;padding:12px 14px;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:15px;margin-top:8px;outline:none;color:var(--text);}
+.note-fi:focus{border-color:var(--sky);}
+.mfoot{display:flex;gap:10px;margin-top:1.25rem;}
+.mbtn-c{flex:1;padding:14px;border:2px solid var(--border);border-radius:11px;background:none;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;color:var(--muted);}
+.mbtn-a{flex:2;padding:14px;border:none;border-radius:11px;background:var(--navy);color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
+.mbtn-a:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+/* ── Service Picker ── */
+.svc-row{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);-webkit-tap-highlight-color:transparent;transition:background .1s;}
+.svc-row:last-child{border-bottom:none;}
+.svc-row:hover{background:#fafafa;}
+.svc-row.selected{background:#fff6f2;border-left:3px solid var(--red);}
+.svc-row:not(.selected){padding-left:17px;}
+.svc-check{flex-shrink:0;width:20px;height:20px;border:2px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;transition:all .12s;}
+.svc-row.selected .svc-check{background:var(--red);border-color:var(--red);}
+.svc-name{flex:1;font-size:15px;font-weight:600;color:var(--text);}
+.svc-count{font-size:11px;color:var(--muted);white-space:nowrap;}
+.roof-method-wrap{background:#fff6f2;border-top:1px solid #fecaca;padding:8px 14px 10px 46px;}
+.roof-method-wrap label{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;}
+.roof-method-wrap input[type=radio]{accent-color:var(--red);width:16px;height:16px;flex-shrink:0;cursor:pointer;}
+.gutter-method-wrap{background:#f8faff;border-top:1px solid #dbeafe;padding:8px 14px 10px 46px;}
+.gutter-method-wrap label{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;}
+.gutter-method-wrap input[type=checkbox]{accent-color:#2d7dd2;width:16px;height:16px;flex-shrink:0;cursor:pointer;}
+.svc-row.selected.auto-bundled{background:#f8faff !important;border-left-color:#93c5fd !important;}
+.svc-row.auto-bundled .svc-name{color:#6b7280;}
+.svc-bundle-note{font-size:10px;color:#9ca3af;margin-left:2px;font-weight:400;}
+.svc-sub-collapsed{font-size:12px;color:var(--red);margin-left:3px;font-weight:600;}
+.svc-change-link{font-size:11px;color:var(--sky);font-weight:700;cursor:pointer;margin-left:6px;padding:1px 6px;border-radius:4px;background:none;border:none;font-family:'DM Sans',sans-serif;white-space:nowrap;vertical-align:middle;}
+.svc-change-link:hover{background:#eff6ff;}
+.path-toggle{background:var(--white);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.25rem;}
+.path-opt{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
+.path-opt:not(:last-child){border-bottom:1px solid var(--border);}
+.path-opt.active{background:#eff6ff;border-left:3px solid var(--sky);}
+.path-opt:not(.active):hover{background:#fafafa;}
+.path-radio{font-size:18px;flex-shrink:0;color:var(--sky);}
+.path-title{font-size:15px;font-weight:600;color:var(--text);line-height:1.3;}
+.path-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/pure_cleaning_admin.html" class="back-link">← Admin</a>
+  <div class="logo">🌴 Pure <span>Cleaning</span></div>
+  <div style="width:60px;"></div>
+</div>
+
+<!-- NEW CUSTOMER FORM -->
+<div id="state-new" class="state active">
+  <div class="wrap">
+    <div class="greeting" style="margin-bottom:1.25rem;">
+      <h1 id="formTitle">📞 Add New Customer</h1>
+    </div>
+
+    <!-- Path toggle -->
+    <div class="path-toggle">
+      <div id="pathPhone" class="path-opt active" onclick="setPath('phone')">
+        <div class="path-radio" id="radioPhone">⦿</div>
+        <div>
+          <div class="path-title">📞 Quoted on the phone — book it now</div>
+          <div class="path-sub">Services agreed — log it and send a confirmation text</div>
+        </div>
+      </div>
+      <div id="pathDigital" class="path-opt" onclick="setPath('digital')">
+        <div class="path-radio" id="radioDigital">○</div>
+        <div>
+          <div class="path-title">💻 Send digital quote</div>
+          <div class="path-sub">Customer reviews options and confirms online</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Duplicate callout -->
+    <div class="dup-callout" id="dupCallout">
+      <div class="dup-text" id="dupText"></div>
+      <div class="dup-row" id="dupRow">
+        <button class="dup-yes" onclick="useDuplicate()">👋 Use their info →</button>
+        <button class="dup-no"  onclick="skipDuplicate()">Continue as new</button>
+      </div>
+    </div>
+
+    <!-- Opted-out warning -->
+    <div class="dup-callout" id="optOutCallout" style="border-color:#fca5a5;background:#fff1f2;display:none;">
+      <div class="dup-text" style="color:#7f1d1d;" id="optOutText"></div>
+      <div class="dup-row">
+        <button class="dup-no" style="flex:1;" onclick="document.getElementById('optOutCallout').style.display='none'">Dismiss</button>
+      </div>
+    </div>
+
+    <!-- Moved-away warning -->
+    <div class="dup-callout" id="movedAwayCallout" style="border-color:#5eead4;background:#f0fdfa;display:none;">
+      <div class="dup-text" style="color:#134e4a;" id="movedAwayText"></div>
+      <div class="dup-row">
+        <button class="dup-no" style="flex:1;" onclick="document.getElementById('movedAwayCallout').style.display='none'">Dismiss</button>
+      </div>
+    </div>
+
+    <!-- Complaint warning -->
+    <div class="dup-callout" id="complaintCallout" style="border-color:#fca5a5;background:#fff1f2;display:none;">
+      <div class="dup-text" style="color:#991b1b;" id="complaintCalloutText"></div>
+      <div class="dup-row">
+        <button class="dup-yes" style="flex:1;" onclick="document.getElementById('complaintCallout').style.display='none'">Continue anyway</button>
+        <button class="dup-no" style="flex:1;" onclick="document.getElementById('complaintCallout').style.display='none'">Dismiss</button>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label>First name<span class="field-req">*</span></label>
+        <input id="nFn" class="fi" type="text" placeholder="Karen" oninput="checkReq()">
+      </div>
+      <div class="field">
+        <label>Last name<span class="field-req">*</span></label>
+        <input id="nLn" class="fi" type="text" placeholder="Wilson" oninput="checkReq()">
+      </div>
+    </div>
+    <div class="field">
+      <label>📞 Phone<span class="field-req">*</span></label>
+      <input id="nPhone" class="fi" type="tel" placeholder="(954) 555-1234" oninput="onPhoneInput(this)">
+    </div>
+    <div class="field">
+      <label>📍 Street address<span class="field-req">*</span></label>
+      <input id="nAddr" class="fi" type="text" placeholder="16621 SW 62nd St" oninput="checkReq()">
+    </div>
+    <div class="field">
+      <label>City<span class="field-req">*</span></label>
+      <input id="nCity" class="fi" type="text" placeholder="Weston" oninput="checkReq()">
+    </div>
+
+    <!-- Phone-quote fields (hidden for digital path) -->
+    <div id="phoneFields">
+      <div class="field" style="margin-top:.75rem;">
+        <label>Services agreed<span class="field-req">*</span></label>
+        <div id="servicePicker" style="background:var(--white);border:2px solid var(--border);border-radius:12px;overflow:hidden;">
+          <div id="primaryServices"></div>
+          <div id="showMoreWrap" style="display:none;border-top:1px solid var(--border);">
+            <button type="button" id="showMoreBtn" onclick="toggleSecondaryServices()" style="width:100%;padding:10px 14px;background:none;border:none;text-align:left;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--sky);cursor:pointer;display:flex;align-items:center;gap:6px;">
+              <span id="showMoreArrow">▸</span> <span id="showMoreLabel">Show less common services (9 more)</span>
+            </button>
+            <div id="secondaryServices" style="display:none;border-top:1px solid var(--border);"></div>
+          </div>
+          <div style="border-top:1px solid var(--border);">
+            <button type="button" onclick="toggleCustomService()" style="width:100%;padding:10px 14px;background:none;border:none;text-align:left;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--sky);cursor:pointer;">+ Add custom service / specify details</button>
+            <div id="customServiceWrap" style="display:none;padding:0 14px 12px;">
+              <input id="customServiceText" class="fi" type="text" placeholder="e.g. Boat trailer, garage door, specific detail…" style="font-size:14px;" oninput="updateSelectedSummary()">
+            </div>
+          </div>
+        </div>
+        <div id="selectedSummary" style="font-size:13px;color:var(--sky);margin-top:6px;font-weight:600;min-height:18px;"></div>
+      </div>
+      <div class="field">
+        <label>Price agreed<span class="field-req">*</span></label>
+        <input id="pPrice" class="fi" type="number" placeholder="350" oninput="checkReq()">
+      </div>
+      <div class="field" style="margin-top:.5rem;">
+        <label>How did they hear about us?</label>
+        <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="document.getElementById('nReferrerWrap').style.display=this.value==='referral'?'block':'none'">
+          <option value="unknown">Not sure</option>
+          <option value="google_organic">Google search</option>
+          <option value="google_ads">Google Ad</option>
+          <option value="facebook">Facebook / Instagram</option>
+          <option value="referral">Referral — they know someone</option>
+          <option value="repeat">Returning customer</option>
+          <option value="yard_sign">Saw our van / yard sign</option>
+          <option value="nextdoor">Nextdoor</option>
+          <option value="angi">Angi / HomeAdvisor</option>
+          <option value="other">Other</option>
+        </select>
+        <div id="nReferrerWrap" style="display:none;margin-top:6px;">
+          <input id="nReferrerDetail" class="fi" type="text" placeholder="Referred by who? (optional)">
+        </div>
+      </div>
+    </div>
+
+    <button class="acc-btn" onclick="toggleOpt(this)"><span id="optArrow">▶</span> More info (email, zip)</button>
+    <div class="acc-body" id="optFields">
+      <div class="field-row">
+        <div class="field">
+          <label>Email</label>
+          <input id="nEmail" class="fi" type="email" placeholder="karen@email.com">
+        </div>
+        <div class="field">
+          <label>Zip</label>
+          <input id="nZip" class="fi" type="text" placeholder="33326">
+        </div>
+      </div>
+    </div>
+
+    <div class="shdr" style="margin-top:1.5rem;">
+      <h3>⚠️ Alerts</h3>
+      <button class="add-link" onclick="openChooser('new')">+ Add alert</button>
+    </div>
+    <div id="nAlertsList"></div>
+    <p id="nAlertsEmpty" style="font-size:14px;color:var(--muted);margin-bottom:1rem;">Nothing flagged yet.</p>
+
+    <div class="shdr">
+      <h3>📝 Notes for the team</h3>
+    </div>
+    <textarea id="nNotes" class="notes-box" placeholder="Gate code, parking, anything the crew needs to know…"></textarea>
+
+    <div style="margin-top:1rem;padding:10px 12px;background:#fafafa;border:1.5px solid #e2e8f0;border-radius:10px;">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="isTestRecord" style="width:16px;height:16px;cursor:pointer;accent-color:#f59e0b;flex-shrink:0;">
+        <div>
+          <div style="font-size:13px;color:#374151;font-weight:500;">🧪 Test record <span style="font-weight:400;color:#9ca3af;">(auto-removes in 24 hrs)</span></div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:1px;">For demos and testing only — not real customer data</div>
+        </div>
+      </label>
+    </div>
+    <div style="margin-top:1.5rem;">
+      <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✅ Save Customer</button>
+    </div>
+  </div>
+</div>
+
+<!-- STATE 3: SUCCESS -->
+<div id="state-success" class="state">
+  <div class="wrap">
+    <div class="success-wrap">
+      <span class="s-emoji">✨</span>
+      <div class="s-title">All set!</div>
+      <div class="s-sub" id="sSub">Quote link ready to send 📲</div>
+    </div>
+    <div class="s-actions">
+      <button class="btn btn-gold" onclick="openSms()">📱 Send Text to <span id="sName"></span></button>
+      <button class="btn btn-outline" onclick="startNew()">Add Another Customer</button>
+      <a href="/pure_cleaning_admin.html" class="s-home">← Back to Admin Home</a>
+    </div>
+  </div>
+</div>
+
+<!-- STATE: PHONE QUOTE SUCCESS -->
+<div id="state-phone-success" class="state">
+  <div class="wrap">
+    <div class="success-wrap">
+      <span class="s-emoji">✅</span>
+      <div class="s-title">Saved!</div>
+      <div class="s-sub" id="psSub">Customer added to the "Needs Mini Quote" queue.</div>
+    </div>
+    <div class="s-actions">
+      <button class="btn btn-gold" id="psBuildBtn" onclick="buildMQFromSuccess()">Build Mini Quote Now →</button>
+      <button class="btn btn-outline" onclick="startNew()">Add Another Customer</button>
+      <a href="/pure_cleaning_admin.html" class="s-home">← Back to Admin Home</a>
+    </div>
+  </div>
+</div>
+
+<!-- BUILD MINI QUOTE MODAL -->
+<div class="moverlay hidden" id="buildMQModal">
+  <div class="msheet">
+    <div class="msheet-title">✅ Customer saved!</div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:1.25rem;">Build their mini quote to set custom pricing and send a confirmation text — or save for later.</p>
+    <div class="mfoot">
+      <button class="mbtn-c" onclick="buildMQLater()">Save &amp; Build Later</button>
+      <button class="mbtn-a" onclick="buildMQNow()">Build Mini Quote Now →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ALERT CHOOSER SHEET -->
+<div class="moverlay hidden" id="alertModal" onclick="if(event.target===this)closeChooser()">
+  <div class="msheet">
+    <div class="msheet-title">Add an Alert</div>
+    <div class="preset-grid" id="presetGrid"></div>
+    <div id="noteSection" style="display:none;">
+      <input id="noteInput" class="note-fi" placeholder="Add details (optional)…">
+    </div>
+    <div id="customSection" style="display:none;">
+      <input id="customLabelInput" class="note-fi" placeholder="Alert label…">
+      <input id="customNoteInput"  class="note-fi" style="margin-top:8px;" placeholder="Details (optional)…">
+    </div>
+    <div class="mfoot">
+      <button class="mbtn-c" onclick="closeChooser()">Cancel</button>
+      <button class="mbtn-a" id="addAlertBtn" onclick="confirmAlert()" disabled>Add Alert</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PCPC_API           = 'https://purecleaning-api.tylerfumero.workers.dev';
+const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const _SL_ALPHA          = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function _genShortCode() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += _SL_ALPHA[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+// Returns short URL immediately, writes mapping to Worker /links in background
+function shortenUrl(longUrl) {
+  const code = _genShortCode();
+  const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
+  (async () => {
+    try {
+      const r = await fetch(`${PCPC_API}/links`);
+      const data = await r.json();
+      const links = data.links || {};
+      links[code] = longUrl;
+      await fetch(`${PCPC_API}/links`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ links })
+      });
+    } catch(e) { console.warn('[shortenUrl]', e.message); }
+  })();
+  return short;
+}
+
+function generateQuoteCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let c = '';
+  for (let i = 0; i < 8; i++) c += chars[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+// ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
+async function getCachedCustomerDB() {
+  const CACHE_KEY = 'pcpc_customer_db_cache';
+  const TTL_MS    = 5 * 60 * 1000;
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < TTL_MS) {
+        console.log('[customerDB] cache hit, age:', Math.round((Date.now() - timestamp)/1000) + 's');
+        return data;
+      }
+      console.log('[customerDB] cache expired, refetching');
+    }
+  } catch(e) { console.warn('[customerDB] cache read failed:', e); }
+  console.log('[customerDB] fetching fresh');
+  const res = await fetch(`${PCPC_API}/customers`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch(e) { console.warn('[customerDB] cache write failed:', e); }
+  return data;
+}
+
+// ── SERVICE PICKER ────────────────────────────────────────────────────────────
+const PCPC_API_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
+const DEFAULT_SERVICES = {
+  primary: [
+    {id:'roof_cleaning', name:'Roof Cleaning',      count:944,  pct:51.0},
+    {id:'rinse_walls',   name:'Rinse Walls',        count:1117, pct:60.3},
+    {id:'driveway',      name:'Driveway',           count:965,  pct:52.1},
+    {id:'patio',         name:'Patio',              count:943,  pct:50.9},
+    {id:'entranceway',   name:'Entranceway',        count:1042, pct:56.3},
+    {id:'walkway',       name:'Walkway / Sidewalk', count:802,  pct:43.3},
+  ],
+  secondary: [
+    {id:'fence',       name:'Fence',              count:89,  pct:4.8},
+    {id:'rust_removal',name:'Rust Removal',       count:39,  pct:2.1},
+    {id:'sealing',     name:'Sealing',            count:35,  pct:1.9},
+    {id:'gutters',     name:'Gutters',            count:31,  pct:1.7},
+    {id:'pool_deck',   name:'Pool Deck',          count:27,  pct:1.5},
+    {id:'windows',     name:'Windows',            count:25,  pct:1.4},
+    {id:'paver_sand',  name:'Pavers / Joint Sand',count:25,  pct:1.3},
+    {id:'garage',      name:'Garage',             count:16,  pct:0.9},
+    {id:'balcony',     name:'Balcony',            count:13,  pct:0.7},
+  ],
+};
+
+const PRIMARY_ORDER   = ['roof_cleaning','rinse_walls','driveway','patio','entranceway','walkway'];
+const ROOF_METHODS    = [
+  {id:'softwash',              label:'Softwash'},
+  {id:'power_wash_chemical',   label:'Power wash with chemical'},
+  {id:'power_wash_no_chemical',label:'Power wash, no chemical'},
+];
+const GUTTER_TYPES = [
+  {id:'interior', label:'Interior gutters'},
+  {id:'exterior', label:'Exterior gutters'},
+];
+
+let _svcData         = DEFAULT_SERVICES;
+let _svcSel          = new Set();
+let _svcSecExp       = false;
+let _svcCustExp      = false;
+let _roofMethod      = null;
+let _roofSubLocked   = false;
+let _gutterTypes     = new Set();
+let _gutterSubLocked = false;
+let _bundleFlags     = {rinseWalls:false, entranceway:false, walkway:false};
+
+function renderServicePicker() {
+  const pEl = document.getElementById('primaryServices');
+  const sEl = document.getElementById('secondaryServices');
+  if (!pEl) return;
+  const primary = [...(_svcData.primary||[])].sort((a,b) => {
+    const ai = PRIMARY_ORDER.indexOf(a.id), bi = PRIMARY_ORDER.indexOf(b.id);
+    return (ai<0?99:ai) - (bi<0?99:bi);
+  });
+  pEl.innerHTML = primary.map(s => svcRowHtml(s)).join('');
+  if (sEl) sEl.innerHTML = (_svcData.secondary||[]).map(s => svcRowHtml(s)).join('');
+  document.getElementById('showMoreWrap').style.display = '';
+  updateSelectedSummary();
+}
+
+function svcRowHtml(s) {
+  const sel    = _svcSel.has(s.id);
+  const count  = s.count >= 1000 ? (s.count/1000).toFixed(1)+'K' : s.count;
+  const isRoof = s.id === 'roof_cleaning';
+  const isGut  = s.id === 'gutters';
+
+  // Auto-bundle visual treatment
+  const autoBundled =
+    (s.id==='rinse_walls' && _bundleFlags.rinseWalls) ||
+    (s.id==='entranceway' && _bundleFlags.entranceway) ||
+    (s.id==='walkway'     && _bundleFlags.walkway);
+  const bundleText =
+    s.id==='rinse_walls' ? '(with roof)' :
+    s.id==='entranceway' ? '(with driveway)' :
+    s.id==='walkway'     ? '(with driveway)' : '';
+  const bundleNote = autoBundled ? ` <span class="svc-bundle-note">${bundleText}</span>` : '';
+  const rowCls = `svc-row${sel?' selected':''}${autoBundled?' auto-bundled':''}`;
+
+  // Inline collapsed display for roof
+  let displayName = s.name + bundleNote;
+  if (isRoof && sel && _roofSubLocked && _roofMethod) {
+    const m = ROOF_METHODS.find(x=>x.id===_roofMethod);
+    displayName = `${s.name}<span class="svc-sub-collapsed"> · ${m?m.label:''}</span>`;
+  }
+  // Inline collapsed display for gutters
+  if (isGut && sel && _gutterSubLocked && _gutterTypes.size>0) {
+    const labels = GUTTER_TYPES.filter(t=>_gutterTypes.has(t.id)).map(t=>t.label.replace(' gutters',''));
+    displayName = `${s.name}<span class="svc-sub-collapsed"> · ${labels.join(', ')}</span>`;
+  }
+
+  // [Change] link
+  const changeLink =
+    (isRoof && sel && _roofSubLocked && _roofMethod)
+      ? `<button class="svc-change-link" onclick="event.stopPropagation();expandRoofSub()">Change</button>` :
+    (isGut && sel && _gutterSubLocked && _gutterTypes.size>0)
+      ? `<button class="svc-change-link" onclick="event.stopPropagation();expandGutterSub()">Change</button>` : '';
+
+  // Sub-option panels
+  let subHtml = '';
+  if (isRoof && sel && !(_roofSubLocked && _roofMethod)) {
+    subHtml = `<div class="roof-method-wrap">${ROOF_METHODS.map(m =>
+      `<label><input type="radio" name="roofMethod" value="${m.id}"${_roofMethod===m.id?' checked':''} onclick="event.stopPropagation();setRoofMethod('${m.id}')">${m.label}</label>`
+    ).join('')}</div>`;
+  }
+  if (isGut && sel && !(_gutterSubLocked && _gutterTypes.size>0)) {
+    subHtml = `<div class="gutter-method-wrap">${GUTTER_TYPES.map(t =>
+      `<label><input type="checkbox" value="${t.id}"${_gutterTypes.has(t.id)?' checked':''} onclick="event.stopPropagation();toggleGutterType('${t.id}')">${t.label}</label>`
+    ).join('')}</div>`;
+  }
+
+  return `<div class="${rowCls}" data-id="${s.id}" onclick="toggleService('${s.id}')">
+    <div class="svc-check">${sel?'✓':''}</div>
+    <div class="svc-name">${displayName}</div>
+    <div class="svc-count">${count} jobs (${s.pct}%)${changeLink}</div>
+  </div>${subHtml}`;
+}
+
+function _fullRerender() {
+  renderServicePicker();
+  const sec = document.getElementById('secondaryServices');
+  if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
+}
+
+function setRoofMethod(method) {
+  _roofMethod = method; _roofSubLocked = true;
+  _fullRerender(); checkReq();
+}
+function expandRoofSub()  { _roofSubLocked = false; _fullRerender(); }
+
+function toggleGutterType(type) {
+  if (_gutterTypes.has(type)) _gutterTypes.delete(type); else _gutterTypes.add(type);
+  if (_gutterTypes.size > 0) _gutterSubLocked = true;
+  _fullRerender(); updateSelectedSummary(); checkReq();
+}
+function expandGutterSub() { _gutterSubLocked = false; _fullRerender(); }
+
+function toggleService(id) {
+  const adding = !_svcSel.has(id);
+  if (adding) {
+    _svcSel.add(id);
+    if (id === 'roof_cleaning') {
+      if (!_svcSel.has('rinse_walls')) { _svcSel.add('rinse_walls'); _bundleFlags.rinseWalls = true; }
+    }
+    if (id === 'driveway') {
+      if (!_svcSel.has('entranceway')) { _svcSel.add('entranceway'); _bundleFlags.entranceway = true; }
+      if (!_svcSel.has('walkway'))     { _svcSel.add('walkway');     _bundleFlags.walkway     = true; }
+    }
+    // Manually checking a bundle-dependency clears its auto-bundle flag
+    if (id==='rinse_walls')  _bundleFlags.rinseWalls  = false;
+    if (id==='entranceway')  _bundleFlags.entranceway = false;
+    if (id==='walkway')      _bundleFlags.walkway     = false;
+  } else {
+    _svcSel.delete(id);
+    if (id==='roof_cleaning') { _roofMethod=null; _roofSubLocked=false; }
+    if (id==='gutters')       { _gutterTypes.clear(); _gutterSubLocked=false; }
+    // Auto-unbundle
+    if (id==='roof_cleaning' && _bundleFlags.rinseWalls)  { _svcSel.delete('rinse_walls'); _bundleFlags.rinseWalls=false; }
+    if (id==='driveway') {
+      if (_bundleFlags.entranceway) { _svcSel.delete('entranceway'); _bundleFlags.entranceway=false; }
+      if (_bundleFlags.walkway)     { _svcSel.delete('walkway');     _bundleFlags.walkway=false; }
+    }
+    // Manually unchecking clears the auto-bundle flag (so parent deselect won't double-remove)
+    if (id==='rinse_walls')  _bundleFlags.rinseWalls  = false;
+    if (id==='entranceway')  _bundleFlags.entranceway = false;
+    if (id==='walkway')      _bundleFlags.walkway     = false;
+  }
+  _fullRerender();
+  checkReq();
+}
+
+function toggleSecondaryServices() {
+  _svcSecExp = !_svcSecExp;
+  const sec = document.getElementById('secondaryServices');
+  const btn = document.getElementById('showMoreLabel');
+  const arr = document.getElementById('showMoreArrow');
+  if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
+  if (btn) btn.textContent = _svcSecExp ? 'Hide less common services' : `Show less common services (${(_svcData.secondary||[]).length} more)`;
+  if (arr) arr.textContent = _svcSecExp ? '▾' : '▸';
+}
+
+function toggleCustomService() {
+  _svcCustExp = !_svcCustExp;
+  const wrap = document.getElementById('customServiceWrap');
+  if (wrap) {
+    wrap.style.display = _svcCustExp ? 'block' : 'none';
+    if (_svcCustExp) document.getElementById('customServiceText')?.focus();
+  }
+  updateSelectedSummary();
+}
+
+function _roofDisplayName() {
+  if (!_roofMethod) return 'Roof Cleaning';
+  const m = ROOF_METHODS.find(x=>x.id===_roofMethod);
+  return m ? `Roof Cleaning (${m.label})` : 'Roof Cleaning';
+}
+
+function _gutterDisplayName() {
+  if (_gutterTypes.size===0) return 'Gutters';
+  const labels = GUTTER_TYPES.filter(t=>_gutterTypes.has(t.id)).map(t=>t.label.replace(' gutters',''));
+  return `Gutters (${labels.join(', ')})`;
+}
+
+function updateSelectedSummary() {
+  const el = document.getElementById('selectedSummary');
+  if (!el) return;
+  const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
+  const names = [..._svcSel].map(id => {
+    if (id==='roof_cleaning') return _roofDisplayName();
+    if (id==='gutters')       return _gutterDisplayName();
+    return (all.find(s=>s.id===id)||{}).name;
+  }).filter(Boolean);
+  const custom = (document.getElementById('customServiceText')?.value||'').trim();
+  if (custom) names.push(custom);
+  el.textContent = names.length ? 'Selected: ' + names.join(', ') : '';
+}
+
+function getServicesAgreedValue() {
+  const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
+  const structured = [..._svcSel];
+  const names = structured.map(id => {
+    if (id==='roof_cleaning') return _roofDisplayName();
+    if (id==='gutters')       return _gutterDisplayName();
+    return (all.find(s=>s.id===id)||{}).name;
+  }).filter(Boolean);
+  const custom = (document.getElementById('customServiceText')?.value||'').trim();
+  if (custom) names.push(custom);
+  return {
+    structured,
+    roofMethod:  _svcSel.has('roof_cleaning') ? (_roofMethod||null) : null,
+    gutterType:  _svcSel.has('gutters') ? [..._gutterTypes] : [],
+    bundleFlags: {rinseWalls:_bundleFlags.rinseWalls, entranceway:_bundleFlags.entranceway, walkway:_bundleFlags.walkway},
+    structuredDisplay: names.filter(n => !custom || n!==custom),
+    custom,
+    fullDescription: names.join(', ')
+  };
+}
+
+function resetServicePicker() {
+  _svcSel.clear();
+  _roofMethod=null; _roofSubLocked=false;
+  _gutterTypes.clear(); _gutterSubLocked=false;
+  _bundleFlags={rinseWalls:false, entranceway:false, walkway:false};
+  _svcSecExp=false; _svcCustExp=false;
+  const cst=document.getElementById('customServiceText'); if(cst) cst.value='';
+  const cw=document.getElementById('customServiceWrap'); if(cw) cw.style.display='none';
+  renderServicePicker();
+}
+
+async function loadServiceFrequency() {
+  try {
+    const r = await fetch(`${PCPC_API_BASE}/service-frequency`);
+    if (r.ok) _svcData = await r.json();
+  } catch(e) { /* use DEFAULT_SERVICES fallback */ }
+  renderServicePicker();
+}
+
+const PRESETS = [
+  {type:'no_chemicals', icon:'🚫', label:'No chemicals',            severity:'high'},
+  {type:'beware_dog',   icon:'⚠️', label:'Beware of dog',           severity:'high'},
+  {type:'dogs_knock',   icon:'🐕', label:'Has dogs — knock first',  severity:'info'},
+  {type:'plants',       icon:'🌿', label:'Sensitive plants',         severity:'medium'},
+  {type:'children',     icon:'👶', label:'Children / playground',    severity:'medium'},
+  {type:'gate_code',    icon:'🔒', label:'Gate code / lockbox',      severity:'info', hasNote:true},
+  {type:'text_first',   icon:'📞', label:'Text first — hard to reach',severity:'info'},
+  {type:'cash_only',    icon:'💵', label:'Cash / payment preference', severity:'info', hasNote:true},
+  {type:'quality',      icon:'🏠', label:'Particular about quality',  severity:'info'},
+  {type:'time_pref',    icon:'⏰', label:'Time preferences',          severity:'info', hasNote:true},
+  {type:'health',       icon:'⚕️', label:'Health / allergy concern',  severity:'high', hasNote:true},
+  {type:'custom',       icon:'✏️', label:'Custom alert',              severity:'info', hasNote:true, custom:true},
+];
+
+let dbRecord     = null;
+let allCustomers = [];
+let dbLoaded     = false;
+let currentCustomer = null;
+let isNew        = true;
+let pendingAlerts = [];
+let pendingSms   = '';
+let chooserCtx   = 'new';
+let selPreset    = null;
+let dupPhone     = null;
+let currentPath  = 'phone';
+let _confirmSms  = '';
+let _lastSavedCustomer = null;
+let _saving = false;
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+async function init() {
+  buildPresetGrid();
+  loadServiceFrequency(); // fire-and-forget; renders picker with live counts once loaded
+  try {
+    const data   = await getCachedCustomerDB();
+    dbRecord     = data || {};
+    allCustomers = dbRecord.customers || [];
+    dbLoaded     = true;
+  } catch(e) {
+    console.warn('DB load failed:', e.message);
+    dbRecord = { customers:[] };
+    allCustomers = [];
+    dbLoaded = true;
+  }
+}
+
+async function saveDb() {
+  await fetch(`${PCPC_API}/customers`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(dbRecord)
+  });
+  sessionStorage.removeItem('pcpc_customer_db_cache');
+  try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
+}
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+function showState(name) {
+  document.querySelectorAll('.state').forEach(s => s.classList.remove('active'));
+  document.getElementById('state-' + name).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// ── ALERT CHIPS (new context only) ───────────────────────────────────────────
+function removeAlert(idx) {
+  if (!confirm('Remove this alert?')) return;
+  pendingAlerts.splice(idx, 1);
+  renderNewAlerts();
+}
+
+// ── NEW / EDIT FORM ───────────────────────────────────────────────────────────
+function startNew() {
+  currentCustomer = null;
+  isNew = true;
+  dupPhone = null;
+  pendingAlerts = [];
+  resetForm();
+  setPath('phone');
+  document.getElementById('formTitle').textContent = '📞 Add New Customer';
+  document.getElementById('nPhone').readOnly = false;
+  document.getElementById('nPhone').style.cssText = '';
+  showState('new');
+}
+
+function resetForm() {
+  resetServicePicker();
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pPrice'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  const ls = document.getElementById('nLeadSource'); if (ls) ls.value = 'unknown';
+  const nrw = document.getElementById('nReferrerWrap'); if (nrw) nrw.style.display = 'none';
+  const nrd = document.getElementById('nReferrerDetail'); if (nrd) nrd.value = '';
+  document.getElementById('dupCallout').classList.remove('show');
+  renderNewAlerts();
+  checkReq();
+}
+
+function setPath(path) {
+  currentPath = path;
+  document.getElementById('pathPhone').classList.toggle('active', path === 'phone');
+  document.getElementById('pathDigital').classList.toggle('active', path === 'digital');
+  document.getElementById('radioPhone').textContent   = path === 'phone'   ? '⦿' : '○';
+  document.getElementById('radioDigital').textContent = path === 'digital' ? '⦿' : '○';
+  document.getElementById('phoneFields').style.display = path === 'phone' ? 'block' : 'none';
+  const btn = document.getElementById('submitBtn');
+  if (btn) btn.textContent = path === 'phone' ? '✅ Save Customer' : '✨ Send Them a Quote Link';
+  checkReq();
+}
+
+function onPhoneInput(input) {
+  const d = input.value.replace(/\D/g,'').slice(0,10);
+  if (d.length >= 7) input.value = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+  else if (d.length >= 4) input.value = `(${d.slice(0,3)}) ${d.slice(3)}`;
+  else input.value = d;
+  checkReq();
+  if (d.length !== 10 || !isNew) { document.getElementById('dupCallout').classList.remove('show'); return; }
+  const dup = allCustomers.find(c => c.phone === d);
+  if (dup) {
+    document.getElementById('optOutCallout').style.display = 'none';
+    document.getElementById('movedAwayCallout').style.display = 'none';
+    if (dup.movedAway) {
+      const loc = dup.movedAway.location ? ` · Last known location: ${dup.movedAway.location}` : '';
+      const atStr = dup.movedAway.at ? ' on ' + new Date(dup.movedAway.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      document.getElementById('movedAwayText').textContent = `🏠 MOVED AWAY — ${dup.firstName} ${dup.lastName} was marked as moved away${atStr}${loc}. This customer is outside the service area.`;
+      document.getElementById('movedAwayCallout').style.display = 'block';
+      document.getElementById('dupCallout').classList.remove('show');
+      dupPhone = null;
+    } else if (dup.optOut) {
+      const OPT_LABELS = {customer_request:'Customer request',wrong_number:'Wrong number',deceased:'Deceased',moved:'Moved away',do_not_contact:'Do not contact'};
+      const reason = OPT_LABELS[dup.optOut.reason] || dup.optOut.reason || 'Unknown';
+      document.getElementById('optOutText').textContent = `⚠️ ${dup.firstName} ${dup.lastName} is marked opted out (${reason}). Do not contact this customer.`;
+      document.getElementById('optOutCallout').style.display = 'block';
+      document.getElementById('dupCallout').classList.remove('show');
+      dupPhone = null;
+    } else {
+      dupPhone = d;
+      const cmptWarn = document.getElementById('complaintCallout');
+      if (dup.hasComplaints && cmptWarn) {
+        const n = dup.complaintCount || 1;
+        document.getElementById('complaintCalloutText').textContent = `⚠ ${dup.firstName} ${dup.lastName} has ${n} logged complaint${n>1?'s':''}. Review their history in the customer profile before booking.`;
+        cmptWarn.style.display = 'block';
+      } else if (cmptWarn) {
+        cmptWarn.style.display = 'none';
+      }
+      document.getElementById('dupText').textContent = `👋 Looks like we already know ${dup.firstName} ${dup.lastName}! Tap below to use their info, or continue.`;
+      document.getElementById('dupCallout').classList.add('show');
+    }
+  } else {
+    dupPhone = null;
+    document.getElementById('dupCallout').classList.remove('show');
+    document.getElementById('optOutCallout').style.display = 'none';
+    document.getElementById('movedAwayCallout').style.display = 'none';
+    const cmptWarn = document.getElementById('complaintCallout');
+    if (cmptWarn) cmptWarn.style.display = 'none';
+  }
+}
+
+function useDuplicate() {
+  const c = allCustomers.find(x => x.phone === dupPhone);
+  if (!c) return;
+  currentCustomer = c; isNew = false;
+  pendingAlerts = [...(c.alerts||[])];
+  document.getElementById('nFn').value   = c.firstName||'';
+  document.getElementById('nLn').value   = c.lastName||'';
+  const ph = c.phone||'';
+  document.getElementById('nPhone').value = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
+  document.getElementById('nPhone').readOnly = true;
+  document.getElementById('nPhone').style.cssText = 'background:#f5f3ef;color:var(--muted);';
+  document.getElementById('nAddr').value  = c.address||'';
+  document.getElementById('nCity').value  = c.city||'';
+  document.getElementById('nEmail').value = c.email||'';
+  document.getElementById('nZip').value   = c.zip||'';
+  document.getElementById('nNotes').value = c.notes||'';
+  document.getElementById('dupCallout').classList.remove('show');
+  renderNewAlerts(); checkReq();
+}
+function skipDuplicate() {
+  dupPhone = null;
+  document.getElementById('dupCallout').classList.remove('show');
+}
+
+function checkReq() {
+  const fn   = (document.getElementById('nFn').value||'').trim();
+  const ln   = (document.getElementById('nLn').value||'').trim();
+  const ph   = (document.getElementById('nPhone').value||'').replace(/\D/g,'');
+  const addr = (document.getElementById('nAddr').value||'').trim();
+  const city = (document.getElementById('nCity').value||'').trim();
+  const btn  = document.getElementById('submitBtn');
+  let ok = !!(fn && ln && ph.length===10 && addr && city);
+  if (ok && currentPath === 'phone') {
+    const svc = getServicesAgreedValue();
+    const price = (document.getElementById('pPrice').value||'').trim();
+    ok = !!(svc.fullDescription && price);
+  }
+  if (btn) btn.disabled = !ok;
+}
+
+function renderNewAlerts() {
+  const list  = document.getElementById('nAlertsList');
+  const empty = document.getElementById('nAlertsEmpty');
+  if (!list) return;
+  if (!pendingAlerts.length) { list.innerHTML=''; if(empty) empty.style.display='block'; return; }
+  if (empty) empty.style.display='none';
+  list.innerHTML = pendingAlerts.map((a,i)=>`
+    <div class="alert-chip ${a.severity||'info'}">
+      <div class="ac-icon">${a.icon}</div>
+      <div class="ac-text">
+        <div class="ac-label">${esc(a.label)}</div>
+        ${a.note ? `<div class="ac-note">${esc(a.note)}</div>` : ''}
+      </div>
+      <button class="ac-remove" onclick="removeAlert(${i})">×</button>
+    </div>`).join('');
+}
+
+async function submitForm() {
+  if (currentPath === 'phone') {
+    await submitPhonePath();
+  } else {
+    await submitDigitalPath();
+  }
+}
+
+async function submitPhonePath() {
+  if (_saving) return; _saving = true;
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const fn      = document.getElementById('nFn').value.trim();
+  const ln      = document.getElementById('nLn').value.trim();
+  const ph      = document.getElementById('nPhone').value.replace(/\D/g,'');
+  const addr    = document.getElementById('nAddr').value.trim();
+  const city    = document.getElementById('nCity').value.trim();
+  const email   = document.getElementById('nEmail').value.trim();
+  const zip     = document.getElementById('nZip').value.trim();
+  const notes   = document.getElementById('nNotes').value.trim();
+  const svcAgreed = getServicesAgreedValue();
+  const services  = svcAgreed.fullDescription;
+  const price    = parseFloat(document.getElementById('pPrice').value);
+  try {
+    let customer;
+    if (!isNew && currentCustomer) {
+      const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
+      customer = (dbRecord.customers||[]).find(c=>_nph(c.phone)===_nph(currentCustomer.phone));
+      if (customer) {
+        customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
+        if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
+        customer.source = 'phone_quoted';
+        if (!customer.leadSource) customer.leadSource = { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' };
+        customer.quoteStatus = {
+          state: 'phone_quoted_pending_mini_quote',
+          mainAmount: price,
+          mainServices: services,
+          servicesAgreed: svcAgreed,
+
+          quotedDate: new Date().toISOString(),
+          miniQuoteCustomData: null
+        };
+      }
+    } else {
+      const isTestChecked = document.getElementById('isTestRecord')?.checked;
+      customer = {
+        phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes,
+        lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
+        linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
+        source: 'phone_quoted',
+        leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
+        quoteStatus: {
+          state: 'phone_quoted_pending_mini_quote',
+          mainAmount: price,
+          mainServices: services,
+          servicesAgreed: svcAgreed,
+
+          quotedDate: new Date().toISOString(),
+          miniQuoteCustomData: null
+        },
+        ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {})
+      };
+      if (!dbRecord) dbRecord = {customers:[]};
+      if (!dbRecord.customers) dbRecord.customers=[];
+      dbRecord.customers.push(customer);
+      allCustomers.push(customer);
+    }
+    _lastSavedCustomer = customer;
+    try { await saveDb(); } catch(e) { console.warn('[new_customer] DB save failed:', e.message); }
+    showBuildMiniQuoteModal(customer);
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled=false; btn.textContent='✅ Save Customer';
+  } finally { _saving = false; }
+}
+
+async function submitDigitalPath() {
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const fn   = document.getElementById('nFn').value.trim();
+  const ln   = document.getElementById('nLn').value.trim();
+  const ph   = document.getElementById('nPhone').value.replace(/\D/g,'');
+  const addr = document.getElementById('nAddr').value.trim();
+  const city = document.getElementById('nCity').value.trim();
+  const email= document.getElementById('nEmail').value.trim();
+  const zip  = document.getElementById('nZip').value.trim();
+  const notes= document.getElementById('nNotes').value.trim();
+  try {
+    let customer;
+    if (!isNew && currentCustomer) {
+      customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
+      if (customer) { customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city; if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts]; }
+    } else {
+      const isTestChecked = document.getElementById('isTestRecord')?.checked;
+      customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
+        leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
+        ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {}) };
+      if (!dbRecord) dbRecord = {customers:[]};
+      if (!dbRecord.customers) dbRecord.customers=[];
+      dbRecord.customers.push(customer);
+      allCustomers.push(customer);
+    }
+    const code = await genLink(customer);
+    customer.linkCode = code;
+    customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
+    showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
+    saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';
+  }
+}
+
+function showBuildMiniQuoteModal(customer) {
+  document.getElementById('psSub').textContent = `${customer.firstName} ${customer.lastName} added to "Needs Mini Quote" queue.`;
+  document.getElementById('psBuildBtn').dataset.phone = customer.phone;
+  document.getElementById('buildMQModal').classList.remove('hidden');
+}
+
+function buildMQNow() {
+  document.getElementById('buildMQModal').classList.add('hidden');
+  if (_lastSavedCustomer) {
+    window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(_lastSavedCustomer.phone || '');
+  }
+}
+
+function buildMQLater() {
+  document.getElementById('buildMQModal').classList.add('hidden');
+  showState('phone-success');
+}
+
+function buildMQFromSuccess() {
+  const btn = document.getElementById('psBuildBtn');
+  const phone = btn && btn.dataset.phone;
+  if (phone) {
+    window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(phone);
+  } else if (_lastSavedCustomer) {
+    window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(_lastSavedCustomer.phone || '');
+  }
+}
+
+// ── LINK GENERATION ───────────────────────────────────────────────────────────
+function _linkRec(c) {
+  return {fn:c.firstName, ln:c.lastName, ph:c.phone, em:c.email||'', addr:c.address, city:c.city, zip:c.zip||'', lastService:c.lastService, totalJobs:c.totalJobs, lifetimeSpend:c.lifetimeSpend, created:new Date().toISOString()};
+}
+
+async function genLink(customer) {
+  if (customer.linkCode) return customer.linkCode;
+  const code = generateQuoteCode();
+  const rec = _linkRec(customer);
+  fetch(`${PCPC_API}/quote/${code}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(rec)
+  }).catch(e => console.warn('[link PUT]', e.message));
+  return code;
+}
+
+// ── SUCCESS ───────────────────────────────────────────────────────────────────
+function showSuccess(customer, link, isNewCustomer) {
+  const fn = customer.firstName||'there';
+  const shortLink = shortenUrl(link);
+  const body = isNewCustomer
+    ? `Hi ${fn}! This is Pure Cleaning Pressure Cleaning — South Florida's family-owned pressure washing company since 1995. Thanks for reaching out!\n\nWe've put together a simple way to get your quote — your info is already filled in:\n\n${shortLink}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`
+    : `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Always great to hear from you!\n\nI built a simple new way to get quotes — your info is already filled in:\n\n${shortLink}\n\nJust tap to confirm what you'd like cleaned today 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`;
+  const smsPhone = '+1' + (customer.phone||'').replace(/\D/g,'');
+  pendingSms = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
+  const name = ((customer.firstName||'') + ' ' + (customer.lastName||'')).trim();
+  document.getElementById('sName').textContent = name;
+  document.getElementById('sSub').textContent = `${name}'s quote link is ready to send 📲`;
+  showState('success');
+}
+function openSms() { if (pendingSms) window.location.href = pendingSms; }
+
+// ── ALERT CHOOSER ─────────────────────────────────────────────────────────────
+function buildPresetGrid() {
+  document.getElementById('presetGrid').innerHTML = PRESETS.map((p,i)=>`
+    <div class="ptile ${p.severity}" data-i="${i}" onclick="pickPreset(${i},this)">
+      <span class="ptile-icon">${p.icon}</span>
+      <span class="ptile-label">${p.label}</span>
+    </div>`).join('');
+}
+
+function openChooser(ctx) {
+  chooserCtx = ctx; selPreset = null;
+  document.querySelectorAll('.ptile').forEach(t=>t.classList.remove('sel'));
+  document.getElementById('noteSection').style.display='none';
+  document.getElementById('customSection').style.display='none';
+  document.getElementById('noteInput').value='';
+  document.getElementById('customLabelInput').value='';
+  document.getElementById('customNoteInput').value='';
+  document.getElementById('addAlertBtn').disabled=true;
+  document.getElementById('alertModal').classList.remove('hidden');
+}
+function closeChooser() { document.getElementById('alertModal').classList.add('hidden'); }
+
+function pickPreset(idx, tile) {
+  document.querySelectorAll('.ptile').forEach(t=>t.classList.remove('sel'));
+  tile.classList.add('sel');
+  selPreset = PRESETS[idx];
+  document.getElementById('noteSection').style.display = (!selPreset.custom && selPreset.hasNote) ? 'block' : 'none';
+  document.getElementById('customSection').style.display = selPreset.custom ? 'block' : 'none';
+  if (!selPreset.custom && selPreset.hasNote) document.getElementById('noteInput').focus();
+  if (selPreset.custom) document.getElementById('customLabelInput').focus();
+  document.getElementById('addAlertBtn').disabled = false;
+}
+
+function confirmAlert() {
+  if (!selPreset) return;
+  let alert;
+  if (selPreset.custom) {
+    const lbl = document.getElementById('customLabelInput').value.trim();
+    if (!lbl) { document.getElementById('customLabelInput').focus(); return; }
+    alert = {type:'custom', icon:'✏️', label:lbl, severity:'info', note:document.getElementById('customNoteInput').value.trim(), addedDate:today()};
+  } else {
+    alert = {type:selPreset.type, icon:selPreset.icon, label:selPreset.label, severity:selPreset.severity, note:selPreset.hasNote?document.getElementById('noteInput').value.trim():'', addedDate:today()};
+  }
+  pendingAlerts.push(alert);
+  renderNewAlerts();
+  closeChooser();
+}
+
+// ── OPTIONAL ACCORDION ────────────────────────────────────────────────────────
+function toggleOpt(btn) {
+  const body = document.getElementById('optFields');
+  const open = body.classList.toggle('open');
+  document.getElementById('optArrow').textContent = open ? '▼' : '▶';
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function today()   { return new Date().toISOString().split('T')[0]; }
+function fmtPh(p)  { return (!p||p.length!==10)?p||'—':`(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`; }
+function fmtD(d)   { return d?new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'; }
+function esc(s)    { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function friendly(iso) {
+  if (!iso) return '—';
+  const mo = Math.round((Date.now()-new Date(iso+'T12:00:00'))/(1000*60*60*24*30.44));
+  if (mo < 1) return 'this month';
+  if (mo < 12) return `${mo} month${mo===1?'':'s'} ago`;
+  const yr = Math.round(mo/12);
+  return `${yr} year${yr===1?'':'s'} ago`;
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

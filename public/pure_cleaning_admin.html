@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Operations</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#f8f5f0;
+  --white:#ffffff;
+  --terra:#c2410c;
+  --terra-l:#ea580c;
+  --gold:#d4a574;
+  --green:#1d9e75;
+  --text:#1a1f2e;
+  --text-soft:#4a3f35;
+  --muted:#8b7d6b;
+  --border:#e8e2d8;
+  --shadow:0 2px 8px rgba(26,31,46,.06);
+  --shadow-h:0 6px 20px rgba(26,31,46,.12);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;}
+
+/* ── Header ── */
+.header{background:var(--white);border-bottom:1.5px solid var(--border);padding:1.25rem 1.5rem 1rem;box-shadow:0 1px 4px rgba(26,31,46,.05);}
+.hdr-greet{font-size:12px;font-weight:500;color:var(--muted);margin-bottom:3px;}
+.hdr-logo{font-size:22px;font-weight:700;color:var(--text);letter-spacing:-.3px;line-height:1;}
+.hdr-logo span{color:var(--terra);}
+.hdr-tag{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+
+/* ── Layout ── */
+.wrap{max-width:560px;margin:0 auto;padding:1.5rem 1.25rem 5rem;}
+@media(min-width:640px){.wrap{padding:2rem 2rem 6rem;}}
+
+/* ── Section headers ── */
+.sec-hdr{display:flex;align-items:center;gap:10px;margin:2rem 0 .875rem;}
+.sec-hdr:first-child{margin-top:0;}
+.sec-title{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;letter-spacing:.2px;}
+.sec-line{flex:1;height:1px;background:var(--border);}
+
+/* ── Card grid ── */
+.card-grid{display:flex;flex-direction:column;gap:12px;}
+.card-grid.primary{gap:14px;}
+
+/* ── Tool card ── */
+.tool-card{display:flex;align-items:center;gap:14px;background:var(--white);border:1.5px solid var(--border);border-radius:16px;padding:15px 14px 15px 15px;text-decoration:none;color:inherit;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;box-shadow:var(--shadow);-webkit-tap-highlight-color:transparent;min-height:56px;}
+.tool-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);border-color:#d0c8be;}
+.tool-card:active{transform:scale(.98) translateY(0);box-shadow:var(--shadow);}
+.tool-card.primary{padding:18px 14px 18px 16px;}
+
+/* ── Icon badge ── */
+.card-icon{flex-shrink:0;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;}
+.tool-card.primary .card-icon{width:50px;height:50px;border-radius:14px;font-size:26px;}
+.cat-primary   .card-icon{background:#fff3ed;}
+.cat-tools     .card-icon{background:#f0f4ff;}
+.cat-reference .card-icon{background:#f0fdf4;}
+.cat-customer_facing .card-icon{background:#fef9ec;}
+
+/* ── Card text ── */
+.card-body{flex:1;min-width:0;}
+.card-name{font-size:16px;font-weight:600;color:var(--text);line-height:1.25;}
+.tool-card.primary .card-name{font-size:17px;}
+.card-desc{font-size:13px;color:var(--muted);margin-top:3px;line-height:1.45;}
+
+/* ── Card right ── */
+.card-right{flex-shrink:0;display:flex;align-items:center;gap:8px;}
+.card-arrow{font-size:20px;color:var(--border);font-weight:300;}
+.notif-badge{background:#e53e3e;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:22px;text-align:center;}
+
+/* ── Utility panels ── */
+.util-panel{background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:1rem 1.25rem;margin-top:1.5rem;box-shadow:var(--shadow);}
+.util-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:.375rem;}
+.util-desc{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:.75rem;}
+.util-btn{padding:7px 16px;background:var(--cream);color:var(--text-soft);border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.util-btn:hover{background:#efe9e0;}
+
+/* ── Footer ── */
+.footer{text-align:center;padding:2rem 1rem 3rem;font-size:12px;color:var(--muted);line-height:2;}
+
+/* ── Alert toasts ── */
+#alertContainer{position:fixed;bottom:1.5rem;right:1.25rem;z-index:9998;display:flex;flex-direction:column;gap:10px;max-width:340px;}
+@keyframes alertIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.alert-toast{background:#1a2a3f;border:1px solid rgba(212,165,116,.35);border-radius:13px;padding:.875rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,.3);animation:alertIn .3s ease;color:#e8edf5;}
+.alert-toast-type{font-size:10px;font-weight:700;letter-spacing:1px;color:#d4a574;margin-bottom:.3rem;}
+.alert-toast-body{font-size:13px;line-height:1.5;margin-bottom:.625rem;}
+.alert-toast-actions{display:flex;gap:8px;}
+.alert-view-btn{flex:1;padding:6px;background:rgba(212,165,116,.15);color:#d4a574;border:1px solid rgba(212,165,116,.25);border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.alert-dismiss-btn{flex:1;padding:6px;background:none;color:#7a8aaa;border:1px solid rgba(255,255,255,.1);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+
+/* Add-on editor inputs */
+.addon-input{width:64px;padding:6px 8px;background:var(--cream);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;text-align:right;font-family:'DM Sans',sans-serif;}
+</style>
+</head>
+<body>
+
+<div id="alertContainer"></div>
+
+<div class="header">
+  <div class="hdr-greet" id="greeting"></div>
+  <div class="hdr-logo">Pure <span>Cleaning</span></div>
+  <div class="hdr-tag" id="tagline"></div>
+</div>
+
+<div class="wrap">
+  <div id="toolSections"></div>
+
+  <!-- Utility: Test Records -->
+  <div class="util-panel" id="testCleanupPanel">
+    <div class="util-title">🧪 Test Records</div>
+    <div class="util-desc">Records flagged as test when created — auto-expire in 24 hrs. Also detects name/phone matches with no history.</div>
+    <button class="util-btn" onclick="loadTestRecords()">Review test records →</button>
+    <div id="testRecordsList" style="margin-top:.75rem;"></div>
+  </div>
+
+  <!-- Utility: Default Add-On Suggestions -->
+  <div class="util-panel" id="addonsConfigPanel">
+    <div class="util-title">📋 Default Add-On Suggestions</div>
+    <div class="util-desc">Starting prices when building a mini quote — always customizable per customer.</div>
+    <button class="util-btn" onclick="loadAddonsConfig()">Edit default prices →</button>
+    <div id="addonsEditor" style="margin-top:.75rem;display:none;"></div>
+  </div>
+
+  <!-- Utility: Google Reviews -->
+  <div class="util-panel" id="reviewsPanel">
+    <div class="util-title">⭐ Google Reviews</div>
+    <div class="util-desc" id="reviewsDesc">Loading current count…</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:.625rem;">
+      <div style="position:relative;flex:1;max-width:120px;">
+        <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--muted);">#</span>
+        <input type="number" id="reviewsInput" min="0" max="9999" style="width:100%;padding:6px 8px 6px 24px;background:var(--cream);border:1.5px solid var(--border);border-radius:7px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;" placeholder="107">
+      </div>
+      <button class="util-btn" onclick="saveReviewCount()" id="reviewsSaveBtn">Save →</button>
+      <span id="reviewsSaveStatus" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div style="margin-top:.5rem;font-size:12px;color:var(--muted);">Tip: Check Google Business Profile for your current count.</div>
+  </div>
+
+  <div class="footer">
+    <strong>Bookmark this page</strong><br>
+    iPhone: tap <strong>Share ⬆</strong> → <strong>Add to Home Screen</strong><br>
+    Android: tap <strong>⋮</strong> → <strong>Add to Home screen</strong>
+  </div>
+</div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// ── GREETING ────────────────────────────────────────────────────────────────────
+(function() {
+  const h = new Date().getHours();
+  const greet = h < 12 ? 'Good morning! ☀️' : h < 17 ? 'Good afternoon ☕' : 'Good evening 🌙';
+  document.getElementById('greeting').textContent = greet;
+  const taglines = [
+    'Let\'s make today great.',
+    '30 years of trusted service.',
+    'Every call matters.',
+    'Family business, family values.',
+    'South Florida\'s pressure washing pros.',
+    'Trusted by your neighbors since 1995.',
+    'A clean home is a happy home.',
+  ];
+  const day = new Date().getDay();
+  document.getElementById('tagline').textContent = 'Pure Cleaning Pressure Cleaning · ' + taglines[day % taglines.length];
+})();
+
+// ── TOOL NAVIGATION ──────────────────────────────────────────────────────────────
+const TOOLS = [
+  { icon: '📞', name: 'Add New Customer',    description: 'Book a phone quote or send a digital quote link',               url: '/pure_cleaning_new_customer.html',      category: 'primary' },
+  { icon: '🔔', name: 'New Quote Requests',  description: 'Review incoming customer form submissions and build quotes',     url: '/pure_cleaning_incoming.html',          category: 'primary', badgeId: 'incoming-badge' },
+  { icon: '📅', name: 'Calendar & Crew',     description: 'Schedule jobs, assign crews, track weekly payroll',             url: '/pure_cleaning_calendar.html',          category: 'primary' },
+  { icon: '📋', name: 'Open Quotes',         description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html',            category: 'tools' },
+  { icon: '📱', name: 'Bulk Reactivation',   description: 'Tier customers, generate batch links, send reactivation texts', url: '/pure_cleaning_bulk_reactivation.html', category: 'tools' },
+  { icon: '🧾', name: 'Quote Builder',       description: 'Build and send custom quotes to customers',                     url: '/pure_cleaning_quote_builder_v2.html',  category: 'tools' },
+  { icon: '📨', name: 'Customer Quote Form', description: 'Preview the customer-facing quote request form',                url: '/pure_cleaning_quote.html',             category: 'tools' },
+  { icon: '🧠', name: 'Intelligence Center', description: 'Churn risk, predictions, sealing prospects, insight feed',        url: '/pure_cleaning_intelligence.html',      category: 'tools' },
+  { icon: '📊', name: 'Insights',            description: 'Conversion funnel, behavior trends, customer analysis',         url: '/pure_cleaning_insights.html',          category: 'reference' },
+  { icon: '🌎', name: 'Live Website',        description: 'View the customer-facing website',                              url: '/',                                     category: 'customer_facing' },
+];
+
+const CATEGORIES = [
+  { key: 'primary',         label: "Mom's Daily Tools" },
+  { key: 'tools',           label: 'Behind the Scenes' },
+  { key: 'reference',       label: 'Reports' },
+  { key: 'customer_facing', label: 'Customer-Facing' },
+];
+
+function renderTools() {
+  const container = document.getElementById('toolSections');
+  let html = '';
+  CATEGORIES.forEach(cat => {
+    const tools = TOOLS.filter(t => t.category === cat.key);
+    if (!tools.length) return;
+    const isPrimary = cat.key === 'primary';
+    html += `<div class="sec-hdr"><span class="sec-title">${cat.label}</span><span class="sec-line"></span></div>`;
+    html += `<div class="card-grid${isPrimary ? ' primary' : ''}">`;
+    tools.forEach(t => {
+      const badge = t.badgeId
+        ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>`
+        : '';
+      const isExternal = t.category === 'customer_facing';
+      html += `<a href="${t.url}"${isExternal ? ' target="_blank" rel="noopener"' : ''} class="tool-card cat-${t.category}${isPrimary ? ' primary' : ''}">
+        <div class="card-icon">${t.icon}</div>
+        <div class="card-body">
+          <div class="card-name">${t.name}</div>
+          <div class="card-desc">${t.description}</div>
+        </div>
+        <div class="card-right">${badge}<span class="card-arrow">›</span></div>
+      </a>`;
+    });
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+// ── INCOMING BADGE COUNT ───────────────────────────────────────────────────────
+async function loadIncomingCount() {
+  try {
+    const res = await fetch(`${PCPC_API}/incoming`);
+    if (!res.ok) return;
+    const data  = await res.json();
+    const count = (data.requests || []).filter(r => r.status === 'new').length;
+    const badge = document.getElementById('incoming-badge');
+    if (badge) {
+      badge.textContent   = count > 0 ? String(count) : '';
+      badge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+  } catch {}
+}
+
+// ── TEST RECORDS ───────────────────────────────────────────────────────────────
+const TEST_NAMES  = ['tyler fumero','darlah fumero','darla fumero'];
+const TEST_PHONES = ['9546103843','9546157770'];
+
+async function loadTestRecords() {
+  const el = document.getElementById('testRecordsList');
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Loading…</div>';
+  try {
+    const res = await fetch(`${PCPC_API}/customers`);
+    const data = await res.json();
+    const customers = data.customers || [];
+    const matches = customers.filter(c => {
+      if (c.isTest === true) return true;
+      const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
+      const isNameOrPhone = TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone);
+      return isNameOrPhone && !c.lifetimeSpend && !c.totalJobs && !c.lastService;
+    });
+    if (!matches.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--muted);">No test records found — all clean ✓</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${matches.length} test record(s) found:</div>
+      ${matches.map(c => {
+        const expiry = c.testExpiresAt ? ` · expires ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : '';
+        const flag = c.isTest ? ' 🧪' : ' (name match)';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+          <input type="checkbox" id="tr-${c.phone}" data-phone="${c.phone}" checked>
+          <label for="tr-${c.phone}" style="flex:1;cursor:pointer;"><strong>${c.firstName||''} ${c.lastName||''}</strong>${flag} · ${c.phone}${expiry} · jobs: ${c.totalJobs||0} · $${(c.lifetimeSpend||0).toLocaleString()}</label>
+        </div>`;
+      }).join('')}
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="deleteSelectedTestRecords()" style="padding:7px 16px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Delete selected</button>
+        <button onclick="deleteAllTestRecords()" style="padding:7px 16px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Remove all now</button>
+        <button onclick="document.getElementById('testRecordsList').innerHTML=''" style="padding:7px 16px;background:var(--cream);color:var(--text-soft);border:1.5px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
+      </div>`;
+    window._adminDbRecord = data;
+  } catch(e) { el.innerHTML = `<div style="font-size:12px;color:#dc2626;">Error: ${e.message}</div>`; }
+}
+
+async function deleteAllTestRecords() {
+  const db = window._adminDbRecord;
+  if (!db) return;
+  const all = (db.customers||[]).filter(c => {
+    if (c.isTest === true) return true;
+    const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
+    return (TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone)) && !c.lifetimeSpend && !c.totalJobs;
+  });
+  if (!all.length) return;
+  if (!confirm(`Remove all ${all.length} test record(s) immediately? This cannot be undone.`)) return;
+  const phones = new Set(all.map(c => c.phone));
+  db.customers = (db.customers||[]).filter(c => !phones.has(c.phone));
+  try {
+    await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+    sessionStorage.removeItem('pcpc_customer_db_cache');
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Removed all ${all.length} test record(s).</div>`;
+  } catch(e) {
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
+  }
+}
+
+async function deleteSelectedTestRecords() {
+  const checked = [...document.querySelectorAll('#testRecordsList input[type=checkbox]:checked')].map(cb => cb.dataset.phone);
+  if (!checked.length) return;
+  if (!confirm(`Delete ${checked.length} record(s)? This cannot be undone.`)) return;
+  const db = window._adminDbRecord;
+  if (!db) return;
+  const before = db.customers.length;
+  db.customers = db.customers.filter(c => !checked.includes(c.phone));
+  const removed = before - db.customers.length;
+  try {
+    await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+    sessionStorage.removeItem('pcpc_customer_db_cache');
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Deleted ${removed} record(s).</div>`;
+  } catch(e) {
+    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
+  }
+}
+
+// ── ADD-ONS CONFIG ─────────────────────────────────────────────────────────────
+let _addonsConfig = null;
+
+async function loadAddonsConfig() {
+  const btn = document.querySelector('#addonsConfigPanel .util-btn');
+  if (btn) btn.textContent = 'Loading…';
+  try {
+    const res = await fetch(`${PCPC_API}/addons-config`);
+    _addonsConfig = res.ok ? await res.json() : null;
+    if (!_addonsConfig) { alert('Could not load add-on config'); return; }
+    renderAddonsEditor();
+  } catch(e) { alert('Error: ' + e.message); }
+  if (btn) btn.textContent = 'Edit add-on prices →';
+}
+
+function renderAddonsEditor() {
+  const el = document.getElementById('addonsEditor');
+  el.style.display = 'block';
+  const addons = _addonsConfig.addons || [];
+  let rows = addons.map((a, i) => `
+    <div style="display:grid;grid-template-columns:1fr 72px 72px;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);">
+      <div style="font-size:13px;color:var(--text);">${a.icon} ${_esc(a.name)}</div>
+      <input type="number" value="${a.bundle}" data-i="${i}" data-field="bundle" onchange="onAddonPriceChange(this)" class="addon-input" title="Bundle price">
+      <input type="number" value="${a.standalone}" data-i="${i}" data-field="standalone" onchange="onAddonPriceChange(this)" class="addon-input" title="Standalone price">
+    </div>`).join('');
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 72px 72px;gap:8px;margin-bottom:4px;">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Service</span>
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Bundle</span>
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Regular</span>
+    </div>
+    ${rows}
+    <div style="display:flex;align-items:center;gap:12px;margin-top:.875rem;">
+      <button onclick="saveAddonsConfig()" style="padding:8px 20px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Save Defaults</button>
+      <span id="addonsSaveStatus" style="font-size:12px;color:var(--muted);"></span>
+    </div>`;
+}
+
+function onAddonPriceChange(input) {
+  const i = parseInt(input.dataset.i);
+  const field = input.dataset.field;
+  if (_addonsConfig && _addonsConfig.addons[i]) {
+    _addonsConfig.addons[i][field] = parseFloat(input.value) || 0;
+  }
+}
+
+async function saveAddonsConfig() {
+  const statusEl = document.getElementById('addonsSaveStatus');
+  statusEl.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${PCPC_API}/addons-config`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(_addonsConfig)
+    });
+    statusEl.textContent = res.ok ? '✓ Saved' : '✗ Error';
+    setTimeout(() => { statusEl.textContent = ''; }, 2500);
+  } catch(e) { statusEl.textContent = '✗ ' + e.message; }
+}
+
+// ── ALERT TOAST SYSTEM ─────────────────────────────────────────────────────────
+const _ALERT_SINCE_KEY = 'pcpc_alert_since';
+const _ALERT_SEEN_KEY  = 'pcpc_alert_seen';
+const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
+
+async function checkAlerts() {
+  const since = sessionStorage.getItem(_ALERT_SINCE_KEY)
+    || new Date(Date.now() - 24*60*60*1000).toISOString();
+  const seen  = JSON.parse(sessionStorage.getItem(_ALERT_SEEN_KEY) || '[]');
+  sessionStorage.setItem(_ALERT_SINCE_KEY, new Date().toISOString());
+  try {
+    const res = await fetch(`${PCPC_API}/events?since=${encodeURIComponent(since)}`);
+    if (!res.ok) return;
+    const { events = [] } = await res.json();
+    const newEvts = events.filter(e => _ALERT_TYPES.includes(e.eventType) && !seen.includes(e.id));
+    if (!newEvts.length) return;
+    sessionStorage.setItem(_ALERT_SEEN_KEY, JSON.stringify([...seen, ...newEvts.map(e => e.id)]));
+    newEvts.forEach(showAlertToast);
+  } catch {}
+}
+
+function showAlertToast(evt) {
+  const isAddon = evt.eventType === 'addon_confirmed';
+  const cust = evt.customer || {};
+  const name = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
+  const ph   = cust.ph || '';
+  const title = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
+  let body;
+  if (isAddon) {
+    body = `<strong>${_ea(name)}</strong><br>Added: ${_ea(evt.addonName||'')} ($${evt.bundlePrice||''})<br>New total: $${evt.newAmount||''}`;
+  } else {
+    body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+  }
+  const id = 'at-' + (evt.id || Date.now());
+  const el = document.createElement('div');
+  el.id = id; el.className = 'alert-toast';
+  el.innerHTML = `<div class="alert-toast-type">${title}</div><div class="alert-toast-body">${body}</div><div class="alert-toast-actions">${ph?`<button class="alert-view-btn" onclick="window.open('/pure_cleaning_calendar.html?phone=${ph}','_blank')">View Card</button>`:''}<button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
+  document.getElementById('alertContainer').appendChild(el);
+}
+
+function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── GOOGLE REVIEWS ─────────────────────────────────────────────────────────────
+async function loadReviewCount() {
+  try {
+    const res = await fetch(`${PCPC_API}/reviews`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const count = data.count || 101;
+    const updated = data.lastUpdated
+      ? new Date(data.lastUpdated).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})
+      : 'unknown';
+    document.getElementById('reviewsDesc').innerHTML =
+      `Currently displaying: <strong>${count}+</strong> reviews &nbsp;·&nbsp; Last updated: ${_esc(updated)}`;
+    document.getElementById('reviewsInput').value = count;
+  } catch(e) {
+    document.getElementById('reviewsDesc').textContent = 'Could not load review count.';
+  }
+}
+
+async function saveReviewCount() {
+  const input = document.getElementById('reviewsInput');
+  const status = document.getElementById('reviewsSaveStatus');
+  const btn = document.getElementById('reviewsSaveBtn');
+  const count = parseInt(input.value);
+  if (!count || count < 1) { status.textContent = '✗ Enter a valid number'; return; }
+  btn.textContent = 'Saving…'; status.textContent = '';
+  try {
+    const res = await fetch(`${PCPC_API}/reviews`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ count })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const updated = new Date(data.lastUpdated).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+    document.getElementById('reviewsDesc').innerHTML =
+      `Currently displaying: <strong>${count}+</strong> reviews &nbsp;·&nbsp; Last updated: ${_esc(updated)}`;
+    status.textContent = `✓ Updated to ${count}`;
+    // Signal customer pages to bust their cached review count
+    try { localStorage.setItem('pcpc_reviews_refresh', Date.now().toString()); } catch {}
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch(e) {
+    status.textContent = '✗ ' + e.message;
+  }
+  btn.textContent = 'Save →';
+}
+
+// ── INIT ────────────────────────────────────────────────────────────────────────
+renderTools();
+loadIncomingCount();
+loadReviewCount();
+checkAlerts();
+setInterval(checkAlerts, 60_000);
+</script>
+</body>
+</html>

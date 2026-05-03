@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Mini Quote Builder — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--sky:#2d7dd2;--gold:#f4a620;--gold-d:#c47f00;--green:#1d9e75;--red:#e53e3e;--white:#fff;--bg:#fdf8f2;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.header{background:var(--navy);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-size:17px;font-weight:700;color:#fff;letter-spacing:.5px;}
+.logo span{color:var(--gold);}
+.back-link{font-size:13px;color:var(--gold);text-decoration:none;font-weight:600;}
+.wrap{max-width:520px;margin:0 auto;padding:1.5rem 1.25rem 6rem;}
+
+/* Customer header card */
+.cust-card{background:var(--white);border:1.5px solid var(--border);border-radius:16px;padding:1rem 1.25rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(26,31,46,.05);}
+.cust-name{font-size:20px;font-weight:700;color:var(--navy);margin-bottom:2px;}
+.cust-meta{font-size:13px;color:var(--muted);}
+
+/* Main job card */
+.job-card{background:#f0fdf4;border:1.5px solid #86efac;border-radius:14px;padding:1rem 1.25rem;margin-bottom:1.75rem;}
+.job-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--green);margin-bottom:.5rem;display:flex;align-items:center;gap:5px;}
+.job-services{font-size:15px;font-weight:500;color:var(--text);margin-bottom:.375rem;}
+.job-price{font-size:26px;font-weight:700;color:var(--navy);letter-spacing:-.5px;}
+.job-meta{font-size:12px;color:var(--muted);margin-top:.25rem;}
+
+/* Section headers */
+.sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:1.75rem 0 .875rem;display:flex;align-items:center;gap:8px;}
+.sec::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* Add-on row */
+.addon-row{background:var(--white);border:1.5px solid var(--border);border-radius:13px;margin-bottom:.75rem;overflow:hidden;transition:border-color .15s;}
+.addon-row.enabled{border-color:var(--sky);}
+.addon-toggle-hdr{display:flex;align-items:center;gap:12px;padding:13px 15px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.addon-check{flex-shrink:0;width:20px;height:20px;border:2px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;transition:all .15s;background:var(--white);}
+.addon-row.enabled .addon-check{background:var(--sky);border-color:var(--sky);}
+.addon-check-icon{font-size:12px;color:#fff;display:none;}
+.addon-row.enabled .addon-check-icon{display:block;}
+.addon-label{font-size:15px;font-weight:600;color:var(--text);}
+.addon-icon{font-size:17px;flex-shrink:0;}
+.addon-body{display:none;padding:0 15px 14px;}
+.addon-row.enabled .addon-body{display:block;}
+.price-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:.625rem;}
+.price-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;}
+.price-input-wrap{position:relative;}
+.price-input-wrap::before{content:'$';position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:15px;color:var(--muted);pointer-events:none;}
+.price-input{width:100%;padding:10px 10px 10px 24px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;font-family:'DM Sans',sans-serif;font-size:16px;color:var(--text);outline:none;transition:border-color .15s;}
+.price-input:focus{border-color:var(--sky);}
+.note-input{width:100%;padding:10px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;resize:none;min-height:64px;transition:border-color .15s;}
+.note-input:focus{border-color:var(--sky);}
+.reset-link{font-size:11px;color:var(--sky);background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;padding:4px 0;text-decoration:underline;margin-top:2px;display:inline-block;}
+
+/* Custom add-on */
+.custom-addon-row{background:var(--white);border:1.5px solid var(--sky);border-radius:13px;padding:14px 15px;margin-bottom:.75rem;}
+.custom-row-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;}
+.custom-row-title{font-size:14px;font-weight:600;color:var(--navy);}
+.custom-remove{background:none;border:none;color:#d1d5db;font-size:18px;cursor:pointer;padding:0;line-height:1;transition:color .15s;}
+.custom-remove:hover{color:var(--red);}
+.name-input{width:100%;padding:10px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;margin-bottom:.625rem;transition:border-color .15s;}
+.name-input:focus{border-color:var(--sky);}
+.add-custom-btn{display:flex;align-items:center;gap:7px;background:none;border:1.5px dashed var(--border);border-radius:11px;padding:11px 16px;width:100%;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;transition:all .15s;margin-top:.25rem;}
+.add-custom-btn:hover{background:#f0f6ff;border-color:var(--sky);}
+
+/* Sealing toggle */
+.sealing-toggle{background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 15px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent;margin-bottom:1.75rem;}
+.sealing-toggle.enabled{border-color:#a855f7;}
+.sealing-check{flex-shrink:0;width:20px;height:20px;border:2px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;transition:all .15s;background:var(--white);}
+.sealing-toggle.enabled .sealing-check{background:#a855f7;border-color:#a855f7;}
+.sealing-check-icon{font-size:12px;color:#fff;display:none;}
+.sealing-toggle.enabled .sealing-check-icon{display:block;}
+.sealing-info{flex:1;}
+.sealing-label{font-size:15px;font-weight:600;color:var(--text);}
+.sealing-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+
+/* Custom note */
+.note-field label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;}
+.big-note{width:100%;padding:13px 14px;background:var(--white);border:1.5px solid var(--border);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;resize:vertical;min-height:100px;transition:border-color .15s;}
+.big-note:focus{border-color:var(--sky);}
+.char-count{font-size:11px;color:var(--muted);text-align:right;margin-top:3px;}
+
+/* Action buttons */
+.actions{display:flex;flex-direction:column;gap:10px;margin-top:2rem;}
+.btn{min-height:52px;padding:13px 20px;border:none;border-radius:14px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;-webkit-tap-highlight-color:transparent;width:100%;}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.btn-gold:hover{background:var(--gold-d);}
+.btn-gold:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+.btn-outline{background:none;border:2px solid var(--border);color:var(--muted);}
+.btn-outline:hover{border-color:var(--sky);color:var(--sky);}
+
+/* Loading / error */
+.center-msg{text-align:center;padding:4rem 1rem;}
+.center-msg .icon{font-size:48px;margin-bottom:1rem;}
+.center-msg h2{font-size:20px;font-weight:700;color:var(--navy);margin-bottom:.5rem;}
+.center-msg p{font-size:14px;color:var(--muted);}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:999;white-space:nowrap;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+<div class="header">
+  <a href="/pure_cleaning_calendar.html" class="back-link">← Calendar</a>
+  <div class="logo">🌴 Pure <span>Cleaning</span></div>
+  <div style="width:60px;"></div>
+</div>
+
+<div class="wrap" id="mainWrap">
+  <div class="center-msg"><div class="icon">⏳</div><h2>Loading…</h2></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+const STANDARD_ADDONS = [
+  {id:'driveway',   name:'Driveway Cleaning',            icon:'🛣️'},
+  {id:'patio',      name:'Patio Cleaning',               icon:'🪨'},
+  {id:'walkways',   name:'Walkways / Sidewalks',         icon:'🚶'},
+  {id:'paver_sand', name:'Paver Joint Sand Replacement', icon:'🧱'},
+  {id:'rust',       name:'Rust Removal',                 icon:'🔧'},
+  {id:'awnings',    name:'Awning Cleaning',              icon:'🏠'},
+];
+
+let customer   = null;
+let defaults   = {};
+let sealingOn  = false;
+let customRows = [];
+let customIdCounter = 0;
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+async function init() {
+  const rawPhone = new URLSearchParams(window.location.search).get('phone');
+  if (!rawPhone) { showError('No customer phone specified.'); return; }
+  const phone = rawPhone.replace(/\D/g, '').slice(-10); // normalize to digits
+
+  try {
+    const [dbRes, addonsRes] = await Promise.all([
+      fetch(`${PCPC_API}/customers`),
+      fetch(`${PCPC_API}/addons-config`)
+    ]);
+    const db = await dbRes.json();
+    // Normalize both sides so format mismatches never cause "not found"
+    customer = (db.customers || []).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
+    if (!customer) { showError('Customer not found for phone: ' + phone); return; }
+
+    const addonsData = addonsRes.ok ? await addonsRes.json() : { addons: [] };
+    (addonsData.addons || []).forEach(a => { defaults[a.id] = { bundle: a.bundle, standalone: a.standalone }; });
+
+    // Pre-populate if mini quote was already partially built
+    const existing = customer.quoteStatus && customer.quoteStatus.miniQuoteCustomData;
+    renderBuilder(existing);
+  } catch(e) {
+    showError('Failed to load: ' + e.message);
+  }
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function renderBuilder(existing) {
+  const qs = customer.quoteStatus || {};
+  const fn = customer.firstName || '';
+  const ln = customer.lastName || '';
+  const city = customer.city || '';
+  const phone = fmtPh(customer.phone || '');
+  const services = qs.mainServices || qs.notes || '';
+  const amount   = qs.mainAmount   || qs.approvedAmount || '';
+  const hours    = qs.estimatedHours || null;
+
+  // Pre-fill sealing toggle and customNote from existing
+  if (existing) sealingOn = !!existing.sealingEnabled;
+
+  const existingAddons = existing ? existing.addOns || [] : [];
+  const existingCustom = existing ? existing.customAddOns || [] : [];
+  const existingNote   = existing ? (existing.customNote || '') : '';
+
+  const addonsHtml = STANDARD_ADDONS.map(a => {
+    const prev = existingAddons.find(x => x.id === a.id);
+    const enabled = prev ? prev.enabled : false;
+    const bundle   = prev ? prev.bundle     : (defaults[a.id] ? defaults[a.id].bundle     : '');
+    const regular  = prev ? prev.standalone  : (defaults[a.id] ? defaults[a.id].standalone : '');
+    const note     = prev ? (prev.note || '') : '';
+    return addonRowHtml(a.id, a.name, a.icon, enabled, bundle, regular, note);
+  }).join('');
+
+  // Custom add-on rows from existing data
+  existingCustom.filter(a => a.enabled !== false).forEach(a => {
+    customIdCounter++;
+    customRows.push({ id: 'custom_' + customIdCounter, data: a });
+  });
+
+  document.getElementById('mainWrap').innerHTML = `
+    <div class="cust-card">
+      <div class="cust-name">${esc(fn + ' ' + ln).trim()}</div>
+      <div class="cust-meta">📞 ${esc(phone)}${city ? ' · ' + esc(city) : ''}</div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-label"><span>✓</span> Main Job (already agreed)</div>
+      <div class="job-services">${esc(services) || '<span style="color:var(--muted);">No services noted</span>'}</div>
+      ${amount ? `<div class="job-price">$${Number(amount).toLocaleString()}</div>` : ''}
+      ${hours   ? `<div class="job-meta">${hours} hrs · Date: TBD</div>` : '<div class="job-meta">Date: TBD</div>'}
+    </div>
+
+    <div class="sec">Custom Add-Ons</div>
+    <div id="addonsList">${addonsHtml}</div>
+    <button class="add-custom-btn" onclick="addCustomRow()">+ Add Custom Service</button>
+    <div id="customList">${renderCustomRows()}</div>
+
+    <div class="sec">Sealing</div>
+    <div class="sealing-toggle${sealingOn ? ' enabled' : ''}" id="sealingToggle" onclick="toggleSealing()">
+      <div class="sealing-check"><span class="sealing-check-icon">✓</span></div>
+      <div class="sealing-info">
+        <div class="sealing-label">💎 Show sealing interest section</div>
+        <div class="sealing-sub">No price — Tony quotes in person. Customer signals interest.</div>
+      </div>
+    </div>
+
+    <div class="sec">Note to Customer</div>
+    <div class="note-field">
+      <label>Anything else for the customer?</label>
+      <textarea class="big-note" id="customNote" maxlength="400" placeholder="Hi! Tony noticed your front walkway is in rough shape — happy to include it as an add-on. Just tap below." oninput="updateCharCount()">${esc(existingNote)}</textarea>
+      <div class="char-count" id="charCount">${existingNote.length}/400</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-gold" id="saveSendBtn" onclick="saveMiniQuote(true)">💬 Save &amp; Send Confirmation Text</button>
+      <button class="btn btn-outline" onclick="saveMiniQuote(false)">Save Mini Quote (no text yet)</button>
+      <a href="/pure_cleaning_calendar.html" style="text-align:center;display:block;padding:12px;font-size:14px;color:var(--muted);font-weight:600;text-decoration:none;">← Back to Calendar</a>
+    </div>
+  `;
+
+  // Re-render custom rows into DOM
+  if (existingCustom.filter(a => a.enabled !== false).length) {
+    document.getElementById('customList').innerHTML = renderCustomRows();
+  }
+}
+
+function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
+  return `<div class="addon-row${enabled ? ' enabled' : ''}" id="addon-${id}">
+    <div class="addon-toggle-hdr" onclick="toggleAddon('${id}')">
+      <div class="addon-check"><span class="addon-check-icon">✓</span></div>
+      <span class="addon-icon">${icon}</span>
+      <span class="addon-label">${esc(name)}</span>
+    </div>
+    <div class="addon-body">
+      <div class="price-row">
+        <div class="price-field">
+          <label>Bundle price (today)</label>
+          <div class="price-input-wrap">
+            <input type="number" class="price-input" id="bundle-${id}" value="${bundle}" min="0" placeholder="150">
+          </div>
+        </div>
+        <div class="price-field">
+          <label>Regular price</label>
+          <div class="price-input-wrap">
+            <input type="number" class="price-input" id="regular-${id}" value="${regular}" min="0" placeholder="200">
+          </div>
+        </div>
+      </div>
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);display:block;margin-bottom:5px;">Note (optional)</label>
+      <textarea class="note-input" id="note-${id}" maxlength="200" placeholder="Any details for this customer…">${esc(note)}</textarea>
+      ${defaults[id] ? `<button class="reset-link" onclick="resetToDefault('${id}')">Reset to defaults</button>` : ''}
+    </div>
+  </div>`;
+}
+
+function toggleAddon(id) {
+  const row = document.getElementById('addon-' + id);
+  if (!row) return;
+  row.classList.toggle('enabled');
+}
+
+function toggleSealing() {
+  sealingOn = !sealingOn;
+  const el = document.getElementById('sealingToggle');
+  if (el) el.classList.toggle('enabled', sealingOn);
+}
+
+function resetToDefault(id) {
+  const d = defaults[id];
+  if (!d) return;
+  const b = document.getElementById('bundle-' + id);
+  const r = document.getElementById('regular-' + id);
+  if (b) b.value = d.bundle;
+  if (r) r.value = d.standalone;
+}
+
+function updateCharCount() {
+  const el = document.getElementById('customNote');
+  const cc = document.getElementById('charCount');
+  if (el && cc) cc.textContent = el.value.length + '/400';
+}
+
+// ── CUSTOM ADD-ON ROWS ────────────────────────────────────────────────────────
+function addCustomRow() {
+  customIdCounter++;
+  customRows.push({ id: 'custom_' + customIdCounter, data: { name: '', bundle: '', standalone: '', note: '', enabled: true } });
+  document.getElementById('customList').innerHTML = renderCustomRows();
+  // Focus first empty name field
+  const inputs = document.querySelectorAll('.custom-name-input');
+  if (inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function removeCustomRow(id) {
+  customRows = customRows.filter(r => r.id !== id);
+  document.getElementById('customList').innerHTML = renderCustomRows();
+}
+
+function renderCustomRows() {
+  return customRows.map(r => `
+    <div class="custom-addon-row" id="crow-${r.id}">
+      <div class="custom-row-hdr">
+        <span class="custom-row-title">✨ Custom Service</span>
+        <button class="custom-remove" onclick="removeCustomRow('${r.id}')" title="Remove">✕</button>
+      </div>
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);display:block;margin-bottom:5px;">Service name</label>
+      <input type="text" class="name-input custom-name-input" id="cname-${r.id}" value="${esc(r.data.name || '')}" placeholder="Pool Deck Cleaning">
+      <div class="price-row">
+        <div class="price-field">
+          <label>Bundle price</label>
+          <div class="price-input-wrap">
+            <input type="number" class="price-input" id="cbundle-${r.id}" value="${r.data.bundle || ''}" min="0" placeholder="300">
+          </div>
+        </div>
+        <div class="price-field">
+          <label>Regular price</label>
+          <div class="price-input-wrap">
+            <input type="number" class="price-input" id="cregular-${r.id}" value="${r.data.standalone || ''}" min="0" placeholder="400">
+          </div>
+        </div>
+      </div>
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);display:block;margin-bottom:5px;">Note (optional)</label>
+      <textarea class="note-input" id="cnote-${r.id}" maxlength="200" placeholder="Details…">${esc(r.data.note || '')}</textarea>
+    </div>`).join('');
+}
+
+// ── SAVE ──────────────────────────────────────────────────────────────────────
+function collectAddons() {
+  return STANDARD_ADDONS.map(a => {
+    const row = document.getElementById('addon-' + a.id);
+    const enabled = row ? row.classList.contains('enabled') : false;
+    const bundle   = parseFloat(document.getElementById('bundle-' + a.id)?.value)   || 0;
+    const regular  = parseFloat(document.getElementById('regular-' + a.id)?.value) || 0;
+    const note     = (document.getElementById('note-' + a.id)?.value || '').trim();
+    return { id: a.id, name: a.name, icon: a.icon, bundle, standalone: regular, note, enabled };
+  });
+}
+
+function collectCustomAddons() {
+  return customRows.map(r => {
+    const name     = (document.getElementById('cname-' + r.id)?.value    || '').trim();
+    const bundle   = parseFloat(document.getElementById('cbundle-' + r.id)?.value)   || 0;
+    const regular  = parseFloat(document.getElementById('cregular-' + r.id)?.value) || 0;
+    const note     = (document.getElementById('cnote-' + r.id)?.value    || '').trim();
+    return { id: r.id, name, bundle, standalone: regular, note, enabled: true };
+  }).filter(r => r.name);
+}
+
+function genCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let c = '';
+  for (let i = 0; i < 8; i++) c += chars[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+function shortenUrl(longUrl) {
+  const code = genCode();
+  const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
+  (async () => {
+    try {
+      const r = await fetch(`${PCPC_API}/links`);
+      const data = await r.json();
+      const links = data.links || {};
+      links[code] = longUrl;
+      await fetch(`${PCPC_API}/links`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ links }) });
+    } catch(e) { console.warn('[shortenUrl]', e.message); }
+  })();
+  return short;
+}
+
+async function saveMiniQuote(sendText) {
+  const btn = document.getElementById('saveSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const addOns       = collectAddons();
+  const customAddOns = collectCustomAddons();
+  const customNote   = (document.getElementById('customNote')?.value || '').trim();
+  const now          = new Date().toISOString();
+  const qs           = customer.quoteStatus || {};
+  const mainAmount   = qs.mainAmount   || qs.approvedAmount || 0;
+  const mainServices = qs.mainServices || qs.notes || '';
+
+  try {
+    // Load DB to patch customer
+    const dbRes = await fetch(`${PCPC_API}/customers`);
+    const db    = await dbRes.json();
+    const _nph  = (p) => (p||'').replace(/\D/g,'').slice(-10);
+    const cust  = (db.customers || []).find(c => _nph(c.phone) === _nph(customer.phone));
+    if (!cust) throw new Error('Customer not found in DB');
+
+    const miniQuoteCustomData = {
+      addOns,
+      customAddOns,
+      sealingEnabled: sealingOn,
+      customNote,
+      builtAt: now,
+      sentAt: sendText ? now : null,
+    };
+
+    if (sendText) {
+      // Generate quote code and save quote to KV
+      const mqCode = genCode();
+      miniQuoteCustomData.miniQuoteCode = mqCode;
+      const quotePayload = {
+        fn: customer.firstName,
+        ln: customer.lastName,
+        ph: customer.phone,
+        address: customer.address || '',
+        city: customer.city || '',
+        services: mainServices,
+        mainServices,
+        mainAmount,
+        approvedAmount: mainAmount,
+        addOns: [],
+        sealingInterest: false,
+        source: 'mini_quote_builder',
+        created: now,
+        miniQuoteCustomData,
+      };
+      await fetch(`${PCPC_API}/quote/${mqCode}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(quotePayload)
+      });
+
+      cust.miniQuoteCode = mqCode;
+      cust.quoteStatus = {
+        ...cust.quoteStatus,
+        state: 'phone_quoted_mini_quote_sent',
+        miniQuoteCustomData,
+        sentAt: now,
+      };
+      // Move to Needs Scheduling
+      cust.scheduledStatus = {
+        state: 'needs_scheduling',
+        approvedAmount: mainAmount,
+        estimatedDuration: qs.estimatedHours || 2,
+        jobNotes: mainServices,
+      };
+
+      await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+      try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch {}
+
+      // Log event
+      fetch(`${PCPC_API}/events`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          eventType: 'phone_quote_sms_sent',
+          customer: { fn: customer.firstName, ln: customer.lastName, ph: customer.phone },
+          mainAmount,
+          mainServices,
+          miniQuoteCode: mqCode,
+          sentAt: now,
+        })
+      }).catch(() => {});
+
+      // Build short URL and open iMessage
+      const mqLong  = `https://purecleaningpressurecleaning.com/pure_cleaning_mini_quote.html?c=${mqCode}`;
+      const mqShort = shortenUrl(mqLong);
+
+      // Short pause so shortenUrl fires before iMessage opens
+      await new Promise(r => setTimeout(r, 300));
+
+      const firstName = customer.firstName || 'there';
+      const smsBody = `Hi ${firstName}! Confirming your job with Pure Cleaning Pressure Cleaning:\n\n📋 Service: ${mainServices}\n💰 Price: $${mainAmount}\n\nWant to add anything? Take a look at some options I put together for you:\n${mqShort}\n\nWe'll text or call the night before with a rough arrival time. Questions? Just give us a call at 954-389-2642.\n\n— Pure Cleaning Pressure Cleaning\nReply STOP to opt out.`;
+      window.location.href = `sms:+1${customer.phone}?&body=${encodeURIComponent(smsBody)}`;
+
+    } else {
+      // Just save the mini quote data, keep pending state
+      cust.quoteStatus = {
+        ...cust.quoteStatus,
+        miniQuoteCustomData,
+      };
+      await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+      try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch {}
+      showToast('✓ Mini quote saved');
+      if (btn) { btn.disabled = false; btn.textContent = '💬 Save & Send Confirmation Text'; }
+    }
+  } catch(e) {
+    alert('Error saving: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💬 Save & Send Confirmation Text'; }
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function showError(msg) {
+  document.getElementById('mainWrap').innerHTML = `<div class="center-msg"><div class="icon">⚠️</div><h2>Error</h2><p>${esc(msg)}</p><br><a href="/pure_cleaning_calendar.html" style="color:var(--sky);font-weight:600;">← Back to Calendar</a></div>`;
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function fmtPh(p) { return (!p || p.length !== 10) ? p || '—' : `(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`; }
+function esc(s)   { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

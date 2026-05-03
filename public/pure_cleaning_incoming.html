@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Incoming Requests</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--blue:#1a4a8a;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+
+.back-nav{background:var(--navy2);border-bottom:1px solid var(--border);padding:6px 1.25rem;}
+.back-nav a{color:var(--muted);text-decoration:none;font-size:12px;}
+.back-nav a:hover{color:var(--text);}
+
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1.25rem 1.25rem 1rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--white);letter-spacing:1px;line-height:1;}
+.logo span{color:var(--gold);}
+.logo-sub{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-top:3px;}
+.header-badge{font-size:11px;font-weight:600;background:var(--blue);color:var(--sky);padding:3px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;}
+
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--card);}
+.tab{flex:1;padding:.875rem .5rem;text-align:center;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;letter-spacing:.5px;-webkit-tap-highlight-color:transparent;}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.cnt{display:inline-flex;align-items:center;justify-content:center;background:var(--border);color:var(--muted);border-radius:10px;font-size:11px;font-weight:700;min-width:20px;height:18px;padding:0 5px;margin-left:5px;transition:all .2s;}
+.tab.active .cnt{background:var(--gold);color:var(--navy);}
+.cnt.urgent{background:var(--red);color:white;}
+
+.wrap{padding:1rem;max-width:640px;margin:0 auto;}
+
+.refresh-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem;}
+.refresh-info{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;}
+.refresh-btn{font-size:11px;color:var(--sky);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;border-radius:6px;transition:background .15s;}
+.refresh-btn:hover{background:rgba(45,125,210,.1);}
+
+.empty-state{text-align:center;padding:3rem 1rem;color:var(--muted);}
+.empty-state .e-icon{font-size:40px;margin-bottom:.75rem;}
+.empty-state p{font-size:14px;line-height:1.6;}
+
+.req-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem 1.125rem;margin-bottom:10px;transition:border-color .2s;}
+.req-card.stale{border-color:var(--red);}
+
+.req-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem;gap:8px;}
+.req-name-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
+.req-name{font-size:16px;font-weight:700;color:var(--white);}
+.stale-badge{font-size:10px;font-weight:700;background:rgba(229,62,62,.15);color:var(--red);padding:2px 7px;border-radius:8px;letter-spacing:.5px;text-transform:uppercase;}
+.req-time{font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;font-family:'DM Mono',monospace;}
+
+.req-meta{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:.625rem;}
+.meta-item{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;}
+.meta-item strong{color:var(--text);}
+
+.svc-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:5px;}
+.svc-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:.625rem;}
+.chip{border-radius:6px;padding:3px 9px;font-size:11px;font-weight:500;}
+.chip-svc{background:rgba(45,125,210,.12);border:1px solid rgba(45,125,210,.25);color:var(--sky);}
+.chip-seal{background:rgba(244,166,32,.12);border:1px solid rgba(244,166,32,.3);color:var(--gold);}
+.chip-rust{background:rgba(229,62,62,.12);border:1px solid rgba(229,62,62,.3);color:#fc8181;}
+
+.req-note{font-size:12px;color:var(--muted);background:rgba(255,255,255,.035);border-radius:8px;padding:7px 10px;margin-bottom:.5rem;line-height:1.55;}
+
+.req-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-top:.625rem;border-top:1px solid var(--border);margin-top:.25rem;}
+.btn-build{display:inline-flex;align-items:center;gap:5px;background:var(--sky);color:white;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;transition:background .15s;-webkit-tap-highlight-color:transparent;white-space:nowrap;}
+.btn-build:hover{background:#2470c0;}
+.btn-ignore{display:inline-flex;align-items:center;gap:5px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn-ignore:hover{border-color:var(--red);color:var(--red);}
+.btn-ignore:disabled{opacity:.5;cursor:default;}
+.btn-restore{display:inline-flex;align-items:center;gap:5px;background:transparent;color:var(--green);border:1px solid rgba(29,158,117,.4);border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+.btn-restore:hover{background:var(--green);color:white;border-color:var(--green);}
+.btn-restore:disabled{opacity:.5;cursor:default;}
+.btn-cx{margin-left:auto;font-size:11px;color:var(--muted);text-decoration:none;font-weight:500;white-space:nowrap;}
+.btn-cx:hover{color:var(--sky);}
+.btn-delete{display:inline-flex;align-items:center;gap:4px;background:transparent;color:var(--red);border:1px solid rgba(229,62,62,.3);border-radius:8px;padding:8px 11px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn-delete:hover{background:rgba(229,62,62,.1);border-color:var(--red);}
+
+.quoted-pill{font-size:11px;color:var(--green);font-family:'DM Mono',monospace;background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.25);border-radius:6px;padding:4px 9px;white-space:nowrap;}
+
+/* ── Bulk selection ── */
+.bulk-cb{width:16px;height:16px;cursor:pointer;accent-color:var(--sky);flex-shrink:0;}
+.select-row{display:flex;align-items:center;gap:8px;padding:.375rem .25rem .625rem;font-size:12px;color:var(--muted);}
+.select-row label{cursor:pointer;user-select:none;}
+#bulkBar{display:none;position:fixed;bottom:0;left:0;right:0;padding:12px 1.25rem;background:#0a1628;border-top:1px solid var(--border);flex-direction:row;align-items:center;gap:10px;z-index:99;}
+.bulk-count{font-size:13px;font-weight:600;color:var(--text);flex:1;}
+.btn-bulk{padding:8px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;border:none;}
+.btn-bulk-dismiss{background:rgba(122,138,170,.12);border:1px solid rgba(122,138,170,.3);color:var(--muted);}
+.btn-bulk-dismiss:hover{border-color:var(--gold);color:var(--gold);}
+.btn-bulk-delete{background:rgba(229,62,62,.1);border:1px solid rgba(229,62,62,.3);color:var(--red);}
+.btn-bulk-delete:hover{background:rgba(229,62,62,.18);}
+.btn-bulk-restore{background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.3);color:var(--green);}
+.btn-bulk-restore:hover{background:rgba(29,158,117,.18);}
+.btn-bulk-clear{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:4px 8px;font-family:'DM Sans',sans-serif;}
+
+/* ── Undo toast ── */
+#undoToast{display:none;position:fixed;bottom:4.5rem;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:.75rem 1.25rem;flex-direction:row;align-items:center;gap:14px;z-index:200;min-width:260px;box-shadow:0 8px 24px rgba(0,0,0,.6);}
+.toast-msg{font-size:13px;font-weight:500;color:var(--text);flex:1;}
+.toast-undo{font-size:12px;font-weight:700;color:var(--sky);cursor:pointer;padding:5px 10px;border-radius:6px;background:rgba(45,125,210,.12);border:1px solid rgba(45,125,210,.3);font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.toast-undo:hover{background:rgba(45,125,210,.22);}
+</style>
+</head>
+<body>
+
+<div class="back-nav"><a href="/pure_cleaning_admin.html">← Admin Home</a></div>
+
+<div class="header">
+  <div>
+    <div class="logo">Pure <span>Cleaning</span></div>
+    <div class="logo-sub">Incoming Requests</div>
+  </div>
+  <div class="header-badge">Inbox</div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tab-new"       onclick="switchTab('new')">🔔 New <span class="cnt" id="cnt-new">0</span></div>
+  <div class="tab"        id="tab-quoted"    onclick="switchTab('quoted')">✓ Quoted <span class="cnt" id="cnt-quoted">0</span></div>
+  <div class="tab"        id="tab-waitlist"  onclick="switchTab('waitlist')">⏳ Waitlist <span class="cnt" id="cnt-waitlist">0</span></div>
+  <div class="tab"        id="tab-dismissed" onclick="switchTab('dismissed')">🔇 Dismissed <span class="cnt" id="cnt-dismissed">0</span></div>
+  <div class="tab"        id="tab-all"       onclick="switchTab('all')">All <span class="cnt" id="cnt-all">0</span></div>
+</div>
+
+<div class="wrap" id="wrap">
+  <div class="empty-state"><div class="e-icon">⏳</div><p>Loading requests…</p></div>
+</div>
+
+<!-- Undo toast -->
+<div id="undoToast">
+  <span class="toast-msg" id="toastMsg"></span>
+  <button class="toast-undo" onclick="doUndo()">Undo</button>
+</div>
+
+<!-- Bulk action bar -->
+<div id="bulkBar">
+  <span class="bulk-count" id="bulkCount">0 selected</span>
+  <button class="btn-bulk btn-bulk-dismiss"  onclick="bulkAction('dismiss')">Dismiss</button>
+  <button class="btn-bulk btn-bulk-delete"   onclick="bulkAction('delete')">Delete</button>
+  <button class="btn-bulk btn-bulk-restore"  id="bulkRestoreBtn" onclick="bulkAction('restore')" style="display:none;">Restore</button>
+  <button class="btn-bulk-clear" onclick="clearBulkSelection()">✕ Clear</button>
+</div>
+
+<script>
+const PCPC_API          = 'https://purecleaning-api.tylerfumero.workers.dev';
+const QUOTE_BUILDER_URL = '/pure_cleaning_quote_builder_v2.html';
+const NEW_CUSTOMER_URL  = '/pure_cleaning_new_customer.html';
+
+let allRequests = [];
+let activeTab   = 'new';
+let lastRefresh = null;
+let selectedIds = new Set();
+let _toastTimeout = null, _toastUndo = null, _toastCommit = null;
+
+// ── Service name → quote builder format ───────────────────────────
+const SVC_MAP = {
+  'Roof cleaning (Softwash)':                    'Roof — Softwash',
+  'Roof cleaning (Traditional brush cleaning)':  'Roof — Traditional',
+  'Roof cleaning (Water only pressure cleaning)':'Roof — Water Only',
+  'Rinse Walls & Windows':                       'Rinse Walls',
+  'Rinse walls':                                 'Rinse Walls',
+  'Screen enclosure':                            'Screen Enclosure',
+  'Wood fence':                                  'Fence — Wood',
+  'Plastic / vinyl fence':                       'Fence — Vinyl',
+  'Metal fence':                                 'Fence — Metal',
+  'Pool deck':                                   'Pool Deck',
+};
+function mapSvc(s) { return SVC_MAP[s] || s; }
+
+// ── Persist helpers ────────────────────────────────────────────────
+async function persistRequests() {
+  await fetch(`${PCPC_API}/incoming`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests: allRequests })
+  });
+}
+
+function auditLog(eventType, data) {
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: 'ops_' + Date.now(), timestamp: new Date().toISOString(), eventType, metadata: data || {} })
+  }).catch(() => {});
+}
+
+// ── Undo toast ─────────────────────────────────────────────────────
+function showUndoToast(msg, undoFn, commitFn) {
+  if (_toastTimeout) { clearTimeout(_toastTimeout); _toastCommit && _toastCommit(); }
+  _toastUndo = undoFn; _toastCommit = commitFn;
+  document.getElementById('toastMsg').textContent = msg;
+  const toast = document.getElementById('undoToast');
+  toast.style.display = 'flex';
+  _toastTimeout = setTimeout(() => {
+    toast.style.display = 'none';
+    _toastCommit && _toastCommit();
+    _toastTimeout = _toastUndo = _toastCommit = null;
+  }, 5000);
+}
+
+function doUndo() {
+  if (_toastTimeout) clearTimeout(_toastTimeout);
+  document.getElementById('undoToast').style.display = 'none';
+  _toastUndo && _toastUndo();
+  _toastTimeout = _toastUndo = _toastCommit = null;
+}
+
+// ── Delete (permanent, with 5s undo) ──────────────────────────────
+function deleteRequest(id) {
+  const req = allRequests.find(r => r.id === id);
+  if (!req) return;
+  if (!confirm('Permanently delete this request?')) return;
+  allRequests = allRequests.filter(r => r.id !== id);
+  selectedIds.delete(id);
+  renderTab();
+  const snapshot = req;
+  let committed = false;
+  showUndoToast('Request deleted.', () => {
+    if (committed) return;
+    allRequests = [snapshot, ...allRequests];
+    renderTab();
+  }, async () => {
+    committed = true;
+    await persistRequests().catch(() => {});
+    auditLog('deleted_request', { id: snapshot.id, name: (snapshot.customerData?.firstName||'') + ' ' + (snapshot.customerData?.lastName||''), phone: snapshot.customerData?.phone || '' });
+  });
+}
+
+// ── Dismiss ────────────────────────────────────────────────────────
+function confirmDismiss(id, name, btn) {
+  if (!confirm(`Dismiss "${name}"?\n\nMoves to Dismissed tab — can be restored anytime.`)) return;
+  changeStatus(id, 'dismissed', btn);
+}
+
+// ── Bulk selection ─────────────────────────────────────────────────
+function toggleBulkSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  updateBulkBar();
+  // Update card outline
+  const card = document.getElementById('card-' + id);
+  if (card) card.style.outline = selectedIds.has(id) ? '2px solid var(--sky)' : '';
+  // Update select-all state
+  const tab = document.getElementById('wrap');
+  if (!tab) return;
+  const allCbs = tab.querySelectorAll('.bulk-cb[data-id]');
+  // We don't use data-id on the checkboxes (we pass id as arg), so just check via select-all cb
+  const allVisible = [...document.querySelectorAll('.req-card')].map(c => c.id.replace('card-',''));
+  const allSel = allVisible.length > 0 && allVisible.every(id2 => selectedIds.has(id2));
+  const saCb = document.getElementById('selectAllCb');
+  if (saCb) saCb.checked = allSel;
+}
+
+function toggleSelectAll() {
+  const cb = document.getElementById('selectAllCb');
+  const allVisible = [...document.querySelectorAll('.req-card')].map(c => c.id.replace('card-',''));
+  if (cb && cb.checked) allVisible.forEach(id => selectedIds.add(id));
+  else allVisible.forEach(id => selectedIds.delete(id));
+  // Re-render to reflect checkbox state + outlines
+  renderTab();
+}
+
+function clearBulkSelection() {
+  selectedIds.clear();
+  renderTab();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const cnt = document.getElementById('bulkCount');
+  if (!bar) return;
+  if (selectedIds.size === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  cnt.textContent = `${selectedIds.size} selected`;
+}
+
+async function bulkAction(action) {
+  const ids = [...selectedIds];
+  if (!ids.length) return;
+  const verb = action === 'delete' ? 'Permanently delete' : action === 'dismiss' ? 'Dismiss' : 'Restore';
+  if (!confirm(`${verb} ${ids.length} request${ids.length > 1 ? 's' : ''}?`)) return;
+
+  if (action === 'delete') {
+    const snapshots = allRequests.filter(r => ids.includes(r.id));
+    allRequests = allRequests.filter(r => !ids.includes(r.id));
+    ids.forEach(id => selectedIds.delete(id));
+    renderTab();
+    let committed = false;
+    showUndoToast(`${snapshots.length} requests deleted.`, () => {
+      if (committed) return;
+      allRequests = [...snapshots, ...allRequests];
+      renderTab();
+    }, async () => {
+      committed = true;
+      await persistRequests().catch(() => {});
+      snapshots.forEach(s => auditLog('deleted_request', { id: s.id }));
+    });
+  } else {
+    const newStatus = action === 'dismiss' ? 'dismissed' : 'new';
+    ids.forEach(id => {
+      const req = allRequests.find(r => r.id === id);
+      if (req) { req.status = newStatus; if (action === 'restore') req.quotedAt = null; }
+    });
+    selectedIds.clear();
+    renderTab();
+    await persistRequests().catch(() => {});
+    ids.forEach(id => auditLog(action + '_request', { id }));
+  }
+}
+
+// ── Fetch ──────────────────────────────────────────────────────────
+async function loadRequests(silent) {
+  if (!silent) document.getElementById('wrap').innerHTML =
+    '<div class="empty-state"><div class="e-icon">⏳</div><p>Loading requests…</p></div>';
+  try {
+    const res = await fetch(`${PCPC_API}/incoming`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    allRequests = (data.requests || []);
+    lastRefresh = new Date();
+    renderTab();
+  } catch(e) {
+    if (!silent) document.getElementById('wrap').innerHTML =
+      '<div class="empty-state"><div class="e-icon">❌</div><p>Failed to load. Check connection and try again.</p><button class="refresh-btn" style="margin-top:.75rem;font-size:13px;" onclick="loadRequests()">↻ Retry</button></div>';
+  }
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  renderTab();
+}
+
+function renderTab() {
+  const byStatus = s => allRequests
+    .filter(r => r.status === s)
+    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+
+  const newList        = byStatus('new');
+  const quotedList     = byStatus('quoted').sort((a,b) => (b.quotedAt||'').localeCompare(a.quotedAt||''));
+  const waitlistList   = byStatus('waitlist');
+  const dismissedList  = allRequests.filter(r => r.status === 'ignored' || r.status === 'dismissed')
+                           .sort((a,b) => b.submittedAt.localeCompare(a.submittedAt));
+  const allList        = [...allRequests].sort((a,b) => b.submittedAt.localeCompare(a.submittedAt));
+
+  setCount('new',       newList.length,       true);
+  setCount('quoted',    quotedList.length,     false);
+  setCount('waitlist',  waitlistList.length,   waitlistList.length > 0);
+  setCount('dismissed', dismissedList.length,  false);
+  setCount('all',       allList.length,        false);
+
+  const lists = { new: newList, quoted: quotedList, waitlist: waitlistList, dismissed: dismissedList, all: allList };
+  const reqs  = lists[activeTab] || [];
+
+  const EMPTY = {
+    new:       { icon: '✅', msg: 'No new requests — you\'re all caught up!' },
+    quoted:    { icon: '📋', msg: 'No quoted requests yet.' },
+    waitlist:  { icon: '⏳', msg: 'No waitlist requests.' },
+    dismissed: { icon: '🔇', msg: 'Nothing dismissed.' },
+    all:       { icon: '📭', msg: 'No requests at all yet.' },
+  };
+
+  // Show/hide bulk restore button only in dismissed tab
+  const restoreBtn = document.getElementById('bulkRestoreBtn');
+  if (restoreBtn) restoreBtn.style.display = activeTab === 'dismissed' ? '' : 'none';
+
+  const wrap = document.getElementById('wrap');
+  if (!reqs.length) {
+    const e = EMPTY[activeTab];
+    wrap.innerHTML = `<div class="empty-state"><div class="e-icon">${e.icon}</div><p>${e.msg}</p></div>`;
+    return;
+  }
+
+  const rt = lastRefresh ? lastRefresh.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '';
+  const selAll = reqs.every(r => selectedIds.has(r.id));
+  let html = `<div class="refresh-row"><span class="refresh-info">Updated ${rt}</span><button class="refresh-btn" onclick="loadRequests(true)">↻ Refresh</button></div>`;
+  html += `<div class="select-row"><input class="bulk-cb" type="checkbox" id="selectAllCb" ${selAll?'checked':''} onchange="toggleSelectAll()"><label for="selectAllCb">Select all</label></div>`;
+  reqs.forEach(r => { html += buildCard(r); });
+  wrap.innerHTML = html;
+  updateBulkBar();
+}
+
+function setCount(tab, n, isNew) {
+  const el = document.getElementById('cnt-' + tab);
+  if (!el) return;
+  el.textContent = String(n);
+  el.className = 'cnt' + (isNew && n > 0 ? ' urgent' : '');
+}
+
+// ── Card builder ───────────────────────────────────────────────────
+function buildCard(req) {
+  const d       = req.customerData || {};
+  const now     = Date.now();
+  const age     = now - new Date(req.submittedAt);
+  const isStale = req.status === 'new' && age > 48 * 3600 * 1000;
+  const phone   = d.phone   || '';
+  const city    = d.city    || '';
+
+  // Services chips
+  const svcs = (d.services || []);
+  let chips = svcs.map(s => {
+    const cls = s.toLowerCase().includes('rust') ? 'chip-rust'
+              : s.toLowerCase().includes('seal') ? 'chip-seal'
+              : 'chip-svc';
+    return `<span class="chip ${cls}">${esc(s)}</span>`;
+  }).join('');
+
+  if (d.sealing && d.sealing.requested && d.sealing.surfaces && d.sealing.surfaces.length) {
+    chips += d.sealing.surfaces.map(s => `<span class="chip chip-seal">Seal: ${esc(s)}</span>`).join('');
+  }
+  if (d.rustRemoval && d.rustRemoval.requested && d.rustRemoval.area) {
+    chips += `<span class="chip chip-rust">Rust: ${esc(d.rustRemoval.area)}</span>`;
+  }
+
+  // Notes
+  let notes = '';
+  if (d.notes) notes += `<div class="req-note">📝 ${esc(d.notes)}</div>`;
+  if (d.otherServices) notes += `<div class="req-note" style="margin-top:4px;">➕ Other: ${esc(d.otherServices)}</div>`;
+
+  // Actions
+  let actions = '';
+  const cxUrl = `${NEW_CUSTOMER_URL}?phone=${encodeURIComponent(phone)}`;
+  const delBtn = `<button class="btn-delete" onclick="deleteRequest('${req.id}')">✕ Delete</button>`;
+  if (req.status === 'new') {
+    const qUrl = buildQuoteUrl(req);
+    const name = esc((d.firstName||'')+' '+(d.lastName||'')).trim();
+    actions = `
+      <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
+      <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
+      ${delBtn}
+      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+  } else if (req.status === 'quoted') {
+    const qt = req.quotedAt
+      ? new Date(req.quotedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
+        new Date(req.quotedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+      : 'recently';
+    actions = `
+      <span class="quoted-pill">✓ Quoted ${qt}</span>
+      <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)">↩ Back to New</button>
+      ${delBtn}
+      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+  } else if (req.status === 'waitlist') {
+    actions = `
+      <span style="font-size:11px;font-weight:600;color:#d97706;background:#fef9c3;padding:2px 8px;border-radius:10px;">⏳ Waitlist — wants ${esc(d.timeframe||'a specific week')}</span>
+      <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)" style="margin-top:8px;">↩ Move to Active</button>
+      ${delBtn}
+      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+  } else {
+    // dismissed / ignored
+    actions = `
+      <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)">↩ Restore</button>
+      ${delBtn}
+      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+  }
+
+  const isSel = selectedIds.has(req.id);
+  return `<div class="req-card${isStale ? ' stale' : ''}${isSel ? ';outline:2px solid var(--sky)' : ''}" id="card-${req.id}">
+    <div class="req-header">
+      <div class="req-name-wrap">
+        <input class="bulk-cb" type="checkbox" ${isSel?'checked':''} onchange="toggleBulkSelect('${req.id}')" style="margin-right:6px;">
+        <span class="req-name">${esc(d.firstName||'')} ${esc(d.lastName||'')}</span>
+        ${isStale ? '<span class="stale-badge">⚠ Stale</span>' : ''}
+      </div>
+      <span class="req-time">${timeAgo(req.submittedAt)}</span>
+    </div>
+    <div class="req-meta">
+      ${phone ? `<span class="meta-item">📞 <strong>${esc(phone)}</strong></span>` : ''}
+      ${city  ? `<span class="meta-item">📍 <strong>${esc(city)}</strong></span>`  : ''}
+      ${d.timeframe        ? `<span class="meta-item">⏰ <strong>${esc(d.timeframe)}</strong></span>` : ''}
+      ${d.reminderFrequency? `<span class="meta-item">🔄 ${esc(d.reminderFrequency)}</span>` : ''}
+    </div>
+    ${chips ? `<div class="svc-label">Services</div><div class="svc-chips">${chips}</div>` : ''}
+    ${notes}
+    <div class="req-actions">${actions}</div>
+  </div>`;
+}
+
+// ── Build Quote URL ────────────────────────────────────────────────
+function buildQuoteUrl(req) {
+  const d    = req.customerData || {};
+  const svcs = (d.services || []).map(mapSvc).filter((s,i,a) => a.indexOf(s) === i).join(', ');
+  try {
+    const payload = JSON.stringify({
+      n:     (`${d.firstName||''} ${d.lastName||''}`).trim(),
+      p:     d.phone  || '',
+      em:    d.email  || '',
+      a:     [d.address, d.city, d.zip].filter(Boolean).join(', '),
+      s:     svcs,
+      notes:     d.notes     || '',
+      timeframe: d.timeframe || '',
+      reqId: req.id
+    });
+    const encoded = btoa(unescape(encodeURIComponent(payload)));
+    return `${QUOTE_BUILDER_URL}?customer=${encodeURIComponent(encoded)}`;
+  } catch(e) { return QUOTE_BUILDER_URL; }
+}
+
+// ── Status updates ─────────────────────────────────────────────────
+async function changeStatus(id, newStatus, btn) {
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const req = allRequests.find(r => r.id === id);
+    if (req) {
+      req.status = newStatus;
+      if (newStatus === 'quoted'    && !req.quotedAt)    req.quotedAt    = new Date().toISOString();
+      if (newStatus === 'dismissed' && !req.dismissedAt) req.dismissedAt = new Date().toISOString();
+      if (newStatus === 'new') { req.quotedAt = null; req.dismissedAt = null; }
+    }
+    await persistRequests();
+    lastRefresh = new Date();
+    selectedIds.delete(id);
+    renderTab();
+    if (newStatus === 'dismissed') auditLog('dismissed_request', { id });
+    if (newStatus === 'new' && req) auditLog('restored_request', { id });
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+    alert('Update failed — check connection and try again.');
+  }
+}
+
+// ── Utils ──────────────────────────────────────────────────────────
+function confirmIgnore(id, name, btn) { confirmDismiss(id, name, btn); } // legacy alias
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const m = Math.floor((Date.now() - new Date(iso)) / 60000);
+  if (m <  1)  return 'just now';
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ───────────────────────────────────────────────────────────
+loadRequests();
+setInterval(() => loadRequests(true), 30000);
+</script>
+</body>
+</html>

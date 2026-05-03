@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Customer Profile — Pure Cleaning</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --navy:   #0a1628;
+  --sky:    #2d7dd2;
+  --gold:   #f4a620;
+  --green:  #1d9e75;
+  --terra:  #c2410c;
+  --red:    #e53e3e;
+  --white:  #fff;
+  --bg:     #fdf8f2;
+  --text:   #1a1f2e;
+  --muted:  #6b7280;
+  --border: #e8e2d8;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+/* ── Header ── */
+.site-header{
+  position:sticky;top:0;z-index:100;
+  background:var(--navy);
+  height:56px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;box-shadow:0 2px 8px rgba(0,0,0,.25);
+}
+.btn-back{
+  display:flex;align-items:center;gap:6px;
+  color:var(--white);background:rgba(255,255,255,.1);
+  border:none;border-radius:8px;padding:6px 12px;
+  font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;
+  cursor:pointer;text-decoration:none;transition:background .15s;
+}
+.btn-back:hover{background:rgba(255,255,255,.2);}
+.header-logo{
+  position:absolute;left:50%;transform:translateX(-50%);
+  color:var(--white);font-size:16px;font-weight:800;letter-spacing:.3px;
+  pointer-events:none;
+}
+.header-right{width:88px;}
+
+/* ── Loading / Error ── */
+.state-page{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:calc(100vh - 56px);gap:16px;padding:2rem;
+}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.error-icon{font-size:48px;}
+.state-title{font-size:20px;font-weight:700;color:var(--navy);}
+.state-sub{font-size:14px;color:var(--muted);text-align:center;max-width:320px;}
+.btn-primary{
+  display:inline-block;padding:10px 22px;background:var(--sky);color:var(--white);
+  border-radius:9px;font-size:14px;font-weight:700;text-decoration:none;
+  border:none;cursor:pointer;font-family:'DM Sans',sans-serif;
+  transition:opacity .15s;
+}
+.btn-primary:hover{opacity:.88;}
+
+/* ── Hero ── */
+.hero{background:var(--white);border-bottom:1.5px solid var(--border);padding:24px 20px 20px;}
+.hero-inner{max-width:1100px;margin:0 auto;}
+.hero-name{font-size:28px;font-weight:800;color:var(--navy);letter-spacing:.5px;text-transform:uppercase;line-height:1.1;}
+.hero-meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;align-items:center;}
+.hero-meta-item{font-size:14px;color:var(--muted);}
+.hero-meta-item strong{color:var(--text);font-weight:600;}
+.hero-meta-sep{color:var(--border);}
+.hero-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+.action-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;
+  text-decoration:none;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;
+  transition:opacity .15s;
+}
+.action-btn:hover{opacity:.85;}
+.action-btn-call{background:var(--green);color:var(--white);}
+.action-btn-text{background:var(--sky);color:var(--white);}
+.action-btn-notes{background:var(--gold);color:var(--navy);}
+.action-btn-email{background:#8b5cf6;color:var(--white);}
+
+/* ── Stats Bar ── */
+.stats-bar{background:var(--white);border-bottom:1.5px solid var(--border);}
+.stats-inner{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);}
+.stat-cell{padding:16px 12px;text-align:center;border-right:1px solid var(--border);position:relative;}
+.stat-cell:last-child{border-right:none;}
+.stat-cell::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--cell-color,var(--sky));border-radius:0;}
+.stat-val{font-size:22px;font-weight:800;color:var(--navy);}
+.stat-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+.tier-chip{
+  display:inline-block;padding:3px 10px;border-radius:12px;
+  font-size:12px;font-weight:800;letter-spacing:.5px;color:var(--white);
+  background:var(--tier-color,#6b7280);
+}
+
+/* ── Callouts ── */
+.callouts{max-width:1100px;margin:16px auto 0;padding:0 16px;display:flex;flex-direction:column;gap:8px;}
+.callout{
+  padding:10px 14px;border-radius:10px;font-size:13px;font-weight:600;
+  border:1.5px solid transparent;display:flex;align-items:flex-start;gap:8px;
+}
+.callout-red{background:#fef2f2;border-color:#fca5a5;color:#991b1b;}
+.callout-amber{background:#fffbeb;border-color:#fde68a;color:#92400e;}
+.callout-purple{background:#f5f3ff;border-color:#c4b5fd;color:#5b21b6;}
+.callout-blue{background:#eff6ff;border-color:#93c5fd;color:#1e40af;}
+.callout-gray{background:#f8fafc;border-color:#cbd5e1;color:#475569;}
+.callout-green{background:#f0fdf4;border-color:#86efac;color:#14532d;}
+
+/* ── Property Measurements (Phase 1 GPS/Pricing Intel) ── */
+.prop-panel{background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;}
+.prop-header{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.125rem;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;}
+.prop-header:hover{background:var(--bg);}
+.prop-title{font-size:13px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:8px;}
+.prop-body{padding:1rem 1.125rem;border-top:1px solid var(--border);}
+.prop-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:.875rem;}
+@media(max-width:480px){.prop-grid{grid-template-columns:1fr;}}
+.prop-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.prop-input-wrap{display:flex;align-items:center;gap:6px;}
+.prop-input{flex:1;min-width:0;padding:9px 11px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;transition:border-color .15s;}
+.prop-input:focus{border-color:var(--sky);}
+.prop-unit{font-size:12px;color:var(--muted);white-space:nowrap;flex-shrink:0;}
+.prop-radio-row{display:flex;gap:12px;flex-wrap:wrap;margin:.625rem 0;}
+.prop-radio{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:500;cursor:pointer;}
+.prop-geo{font-size:12px;color:var(--muted);padding:.5rem .75rem;background:var(--bg);border-radius:8px;margin-top:.5rem;}
+
+/* ── Main Layout ── */
+.main-content{max-width:1100px;margin:20px auto;padding:0 16px;display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start;}
+@media(max-width:767px){.main-content{grid-template-columns:1fr;}}
+
+/* ── Panel base ── */
+.panel{background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;}
+.panel-header{padding:14px 16px;border-bottom:1.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.panel-title{font-size:15px;font-weight:800;color:var(--navy);}
+.panel-body{padding:16px;}
+
+/* ── Timeline ── */
+.tl-filters{display:flex;gap:6px;flex-wrap:wrap;}
+.tl-filter-btn{
+  padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;
+  border:1.5px solid var(--border);background:transparent;color:var(--muted);
+  cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;
+}
+.tl-filter-btn.active{background:var(--navy);color:var(--white);border-color:var(--navy);}
+.tl-filter-btn:hover:not(.active){background:var(--bg);}
+
+.timeline{padding:16px;position:relative;}
+.timeline::before{
+  content:'';position:absolute;left:30px;top:0;bottom:0;width:2px;
+  background:var(--border);
+}
+.tl-entry{display:flex;gap:12px;margin-bottom:20px;position:relative;}
+.tl-entry:last-child{margin-bottom:0;}
+.tl-dot-wrap{flex-shrink:0;width:28px;display:flex;flex-direction:column;align-items:center;position:relative;z-index:1;}
+.tl-dot{
+  width:28px;height:28px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;background:var(--white);border:2px solid var(--border);
+  box-shadow:0 0 0 3px var(--white);
+}
+.tl-card{
+  flex:1;background:var(--white);border:1.5px solid var(--border);
+  border-radius:11px;padding:10px 13px;min-width:0;
+  border-left:3px solid var(--entry-color,var(--border));
+}
+.tl-date{font-size:11px;color:var(--muted);font-weight:600;margin-bottom:3px;}
+.tl-title{font-size:14px;font-weight:700;color:var(--navy);}
+.tl-note{font-size:12px;color:var(--muted);margin-top:3px;}
+.tl-rows{margin-top:8px;border-top:1px solid var(--border);padding-top:7px;display:flex;flex-direction:column;gap:3px;}
+.tl-row{display:flex;justify-content:space-between;font-size:12px;}
+.tl-row-label{color:var(--muted);}
+.tl-row-val{font-weight:600;color:var(--text);}
+.tl-empty{padding:2rem 1rem;text-align:center;color:var(--muted);font-size:14px;}
+
+/* ── Sidebar panels ── */
+.sidebar-stack{display:flex;flex-direction:column;gap:14px;}
+.contact-row{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.contact-row:last-child{border-bottom:none;}
+.contact-icon{width:28px;height:28px;border-radius:8px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.contact-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px;}
+.contact-val{font-weight:600;color:var(--text);}
+.contact-val a{color:var(--sky);text-decoration:none;}
+.contact-val a:hover{text-decoration:underline;}
+.source-badge{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:var(--bg);color:var(--muted);border:1px solid var(--border);}
+
+.qa-btn{
+  display:flex;align-items:center;gap:8px;width:100%;padding:10px 13px;
+  border:1.5px solid var(--border);border-radius:9px;background:var(--white);
+  font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;
+  color:var(--text);text-decoration:none;cursor:pointer;
+  transition:border-color .15s,background .15s;margin-bottom:6px;
+}
+.qa-btn:last-child{margin-bottom:0;}
+.qa-btn:hover{border-color:var(--sky);background:var(--bg);}
+
+.health-bar-track{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin-top:8px;}
+.health-bar-fill{height:100%;border-radius:4px;transition:width .5s;}
+.health-score-num{font-size:28px;font-weight:800;color:var(--navy);}
+.health-label{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;}
+
+/* ── Notes Section ── */
+.notes-section{margin-top:20px;}
+.note-entry{
+  background:var(--white);border:1.5px solid var(--border);border-radius:11px;
+  padding:12px 14px;margin-bottom:10px;
+}
+.note-header{display:flex;justify-content:space-between;margin-bottom:6px;}
+.note-author{font-size:12px;font-weight:700;color:var(--sky);}
+.note-date{font-size:11px;color:var(--muted);}
+.note-text{font-size:14px;color:var(--text);line-height:1.5;}
+.note-legacy{background:#fffbeb;border-color:#fde68a;}
+.add-note-area{background:var(--white);border:1.5px solid var(--border);border-radius:11px;padding:14px;margin-top:10px;}
+.add-note-area textarea{
+  width:100%;min-height:80px;padding:9px 12px;
+  border:1.5px solid var(--border);border-radius:8px;
+  font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);
+  background:var(--bg);resize:vertical;outline:none;
+}
+.add-note-area textarea:focus{border-color:var(--sky);}
+.add-note-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px;}
+.btn-save-note{
+  padding:8px 18px;background:var(--sky);color:var(--white);
+  border:none;border-radius:8px;font-family:'DM Sans',sans-serif;
+  font-size:13px;font-weight:700;cursor:pointer;
+}
+.btn-save-note:hover{opacity:.88;}
+.btn-cancel-note{
+  padding:8px 14px;background:transparent;color:var(--muted);
+  border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;
+  font-size:13px;font-weight:600;cursor:pointer;
+}
+.btn-cancel-note:hover{background:var(--bg);}
+.btn-add-note{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 16px;background:transparent;color:var(--sky);
+  border:1.5px solid var(--sky);border-radius:8px;font-family:'DM Sans',sans-serif;
+  font-size:13px;font-weight:700;cursor:pointer;margin-top:4px;
+}
+.btn-add-note:hover{background:#eff6ff;}
+
+/* ── Mobile adjustments ── */
+@media(max-width:767px){
+  .stats-inner{grid-template-columns:repeat(3,1fr);}
+  .stat-cell:nth-child(4),.stat-cell:nth-child(5){border-top:1px solid var(--border);}
+  .stats-inner .stat-cell:nth-child(3){border-right:none;}
+  .hero-name{font-size:22px;}
+  .stat-val{font-size:18px;}
+}
+@media(max-width:480px){
+  .stats-inner{grid-template-columns:repeat(2,1fr);}
+  .stats-inner .stat-cell:nth-child(2){border-right:none;}
+  .stats-inner .stat-cell:nth-child(5){border-right:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="site-header">
+  <button class="btn-back" onclick="goBack()">← Back</button>
+  <div class="header-logo">🌴 Pure Cleaning</div>
+  <div class="header-right"></div>
+</header>
+
+<!-- Loading state -->
+<div id="stateLoading" class="state-page">
+  <div class="spinner"></div>
+  <div class="state-title">Loading profile…</div>
+</div>
+
+<!-- Error state -->
+<div id="stateError" class="state-page" style="display:none;">
+  <div class="error-icon">🔍</div>
+  <div class="state-title" id="errorTitle">Customer not found</div>
+  <div class="state-sub" id="errorSub">No customer record matches that phone number.</div>
+  <a href="/pure_cleaning_admin.html" class="btn-primary">← Back to Admin</a>
+</div>
+
+<!-- Profile content -->
+<div id="profileContent" style="display:none;">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-name" id="heroName"></div>
+      <div class="hero-meta" id="heroMeta"></div>
+      <div class="hero-actions" id="heroActions"></div>
+    </div>
+  </section>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stats-inner" id="statsBar"></div>
+  </div>
+
+  <!-- Callouts -->
+  <div class="callouts" id="callouts"></div>
+
+  <!-- Property Measurements (Phase 1 GPS/Pricing Intelligence) -->
+  <div style="max-width:1100px;margin:10px auto 0;padding:0 16px;" id="propertyMeasurementsSection"></div>
+
+  <!-- Main two-column -->
+  <div class="main-content">
+    <!-- LEFT: Timeline + Notes -->
+    <div>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Activity Timeline</div>
+          <div class="tl-filters" id="tlFilters"></div>
+        </div>
+        <div class="timeline" id="timeline"></div>
+      </div>
+
+      <!-- Notes -->
+      <div class="notes-section">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">Team Notes</div>
+          </div>
+          <div class="panel-body">
+            <div id="notesList"></div>
+            <div id="addNoteArea" class="add-note-area" style="display:none;">
+              <textarea id="noteTextarea" placeholder="Add a note for the team…"></textarea>
+              <div class="add-note-actions">
+                <button class="btn-cancel-note" onclick="cancelNote()">Cancel</button>
+                <button class="btn-save-note" onclick="saveNote()">Save Note</button>
+              </div>
+            </div>
+            <button class="btn-add-note" id="addNoteBtn" onclick="showAddNote()">+ Add Note</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Sidebar -->
+    <div class="sidebar-stack" id="sidebarStack"></div>
+  </div>
+
+</div>
+
+<!-- LOG REPLY MODAL -->
+<div id="logReplyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,.25);">
+    <div style="font-size:17px;font-weight:700;color:#0a1628;margin-bottom:1rem;">📥 Log Customer Reply</div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Reply Method</label>
+      <select id="replyMethod" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <option value="sms">SMS / Text</option>
+        <option value="call">Phone Call</option>
+        <option value="email">Email</option>
+      </select>
+    </div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Sentiment</label>
+      <select id="replySentiment" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <option value="positive">😊 Positive — interested / booked</option>
+        <option value="neutral">😐 Neutral — maybe later</option>
+        <option value="negative">😞 Negative — not interested</option>
+        <option value="optout">🚫 Opted out / stop</option>
+      </select>
+    </div>
+    <div style="margin-bottom:1.25rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">What did they say? (optional)</label>
+      <textarea id="replyText" rows="3" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;resize:none;" placeholder="e.g. Said to call back in May…"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeLogReplyModal()" style="flex:1;padding:12px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
+      <button onclick="saveLogReply()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#7c3aed;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Reply</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOG FEEDBACK MODAL -->
+<div id="logFeedbackModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,.25);">
+    <div style="font-size:17px;font-weight:700;color:#0a1628;margin-bottom:1rem;">⭐ Log Post-Job Feedback</div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Did they leave a Google review?</label>
+      <div style="display:flex;gap:8px;">
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px;border:1.5px solid #e8e2d8;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><input type="radio" name="fbReview" value="yes"> ✅ Yes</label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px;border:1.5px solid #e8e2d8;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><input type="radio" name="fbReview" value="no" checked> ❌ No</label>
+      </div>
+    </div>
+    <div style="margin-bottom:.875rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Satisfaction</label>
+      <select id="fbSentiment" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <option value="positive">😊 Happy / Would recommend</option>
+        <option value="neutral">😐 OK — no major issues</option>
+        <option value="negative">😞 Unhappy / Had concerns</option>
+      </select>
+    </div>
+    <div style="margin-bottom:1.25rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">What did they say? (optional)</label>
+      <textarea id="fbText" rows="3" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;resize:none;" placeholder="e.g. Said the roof looks amazing…"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeLogFeedbackModal()" style="flex:1;padding:12px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
+      <button onclick="saveLogFeedback()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#16a34a;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Feedback</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let _customer = null;
+let _allEvents = [];
+let _tlFilter = 'all';
+
+// ── Intelligence Scoring Functions (Phase 4) ──────────────────────────────────
+function normCity(city) {
+  if (!city || !city.trim()) return 'Other';
+  let c = city.trim();
+  if (/^(sw\s*ranches?|s\.?\s*w\.?\s*ranches?|southwest\s+ranches?|south\s+west\s+ranches?)$/i.test(c)) return 'Southwest Ranches';
+  if (/^(ft\.?\s*lauderdale|fort\s+lauderdale)$/i.test(c)) return 'Fort Lauderdale';
+  return (c.replace(/\s*[-–—]\s*.+$/,'').trim()) || 'Other';
+}
+
+function estimateCycleDays(c) {
+  const spend = c.lifetimeSpend || 0;
+  const jobs  = Math.max(c.totalJobs || 1, 1);
+  const avg   = spend / jobs;
+  if (c.hasSealHistory) return 365;
+  if (avg > 400) return 480;
+  if (avg > 250) return 365;
+  return 270;
+}
+
+function calcChurnRisk(c) {
+  if (c.movedAway) return 100;
+  if (c.optOut) return 90;
+  if (!c.lastService) return (c.lifetimeSpend || 0) > 0 ? 55 : 50;
+  const daysSince = (Date.now() - new Date(c.lastService + 'T12:00:00').getTime()) / 86400000;
+  const cycleDays = estimateCycleDays(c);
+  const ratio     = daysSince / cycleDays;
+  let score = 0;
+  if      (ratio < 0.7) score = 5;
+  else if (ratio < 1.0) score = 15;
+  else if (ratio < 1.5) score = 30;
+  else if (ratio < 2.0) score = 50;
+  else if (ratio < 3.0) score = 70;
+  else                  score = 85;
+  if (c.sealingInterest) score -= 15;
+  if ((c.totalJobs || 0) >= 5) score -= 5;
+  const qs = c.quoteStatus || {};
+  if (['phone_quoted_pending_mini_quote','phone_quoted_mini_quote_sent'].includes(qs.state)) score -= 10;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function churnLabel(score) {
+  if (score <= 20) return { label: 'HEALTHY', color: '#16a34a' };
+  if (score <= 50) return { label: 'WATCH',   color: '#d97706' };
+  if (score <= 75) return { label: 'AT RISK', color: '#ea580c' };
+  return { label: 'CRITICAL', color: '#dc2626' };
+}
+
+function calcSealingReceptivity(c) {
+  if (c.hasSealHistory)  return 95;
+  if (c.sealingInterest) return 85;
+  let score = 20;
+  const spend = c.lifetimeSpend || 0;
+  if (spend >= 1500) score += 20;
+  else if (spend >= 800) score += 10;
+  const jobs = c.totalJobs || 0;
+  if (jobs >= 4) score += 15;
+  else if (jobs >= 2) score += 8;
+  const city = normCity(c.city || '').toLowerCase();
+  const premiumCities = ['weston','southwest ranches','davie','plantation','parkland','coral springs','pembroke pines'];
+  if (premiumCities.some(pc => city.includes(pc))) score += 15;
+  return Math.min(100, score);
+}
+
+function predictNextService(c) {
+  if (!c.lastService) return null;
+  const cycleDays   = estimateCycleDays(c);
+  const lastMs      = new Date(c.lastService + 'T12:00:00').getTime();
+  const predictedMs = lastMs + cycleDays * 86400000;
+  const daysUntil   = Math.round((predictedMs - Date.now()) / 86400000);
+  return { predictedMs, daysUntil, cycleDays, confidence: (c.totalJobs || 0) >= 3 ? 'MEDIUM' : 'LOW' };
+}
+
+function renderPredictions(c) {
+  const churnScore  = calcChurnRisk(c);
+  const { label: churnLbl, color: churnColor } = churnLabel(churnScore);
+  const sealScore   = calcSealingReceptivity(c);
+  const sealLbl     = sealScore >= 70 ? 'HIGH' : sealScore >= 50 ? 'MODERATE' : 'LOW';
+  const nextSvc     = predictNextService(c);
+
+  const chips = [
+    { label: 'Churn Risk',   val: `${churnScore}/100 ${churnLbl}`, color: churnColor,  icon: '🚨' },
+    { label: 'Sealing',      val: `${sealScore}/100 ${sealLbl}`,   color: sealScore >= 70 ? '#7c3aed' : '#6b7280', icon: '💎' },
+    { label: 'Next Service', val: nextSvc ? (nextSvc.daysUntil > 0 ? `In ${nextSvc.daysUntil}d` : `${Math.abs(nextSvc.daysUntil)}d overdue`) : '—', color: nextSvc && nextSvc.daysUntil < 0 ? '#dc2626' : '#2d7dd2', icon: '📅' },
+  ];
+
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:.75rem;margin-bottom:.75rem;">
+    ${chips.map(chip => `
+      <div style="background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;flex:1;min-width:120px;border-top:3px solid ${chip.color};">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">${chip.icon} ${chip.label}</div>
+        <div style="font-size:13px;font-weight:700;color:${chip.color};">${chip.val}</div>
+      </div>`).join('')}
+    <div style="width:100%;font-size:11px;color:var(--muted);text-align:right;margin-top:2px;">
+      <a href="/pure_cleaning_intelligence.html" style="color:#2d7dd2;font-weight:600;text-decoration:none;">View Intelligence Center →</a>
+    </div>
+  </div>`;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:d; }
+function fmtDate(s){ if(!s)return'—'; const d=new Date(s); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtDateTime(s){ if(!s)return'—'; const d=new Date(s); return d.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+function monthsAgo(dateStr){
+  if(!dateStr)return null;
+  const d = new Date(dateStr.includes('T')?dateStr:dateStr+'T12:00:00');
+  return (Date.now()-d.getTime())/(1000*60*60*24*30);
+}
+function moAgoLabel(mo){
+  if(mo===null)return'—';
+  if(mo<1)return'Less than a month ago';
+  if(mo<2)return'1 month ago';
+  return `${Math.round(mo)} months ago`;
+}
+
+function goBack(){
+  if(window.history.length>1){ history.back(); }
+  else{ location.href='/pure_cleaning_admin.html'; }
+}
+
+// ── Tier ─────────────────────────────────────────────────────────────────────
+function getTier(c){
+  if(c.optOut)    return{label:'OPT-OUT',  color:'#dc2626'};
+  if(c.movedAway) return{label:'MOVED',    color:'#64748b'};
+  if(!c.lastService)return{label:'NO HISTORY',color:'#94a3b8'};
+  const mo=monthsAgo(c.lastService+'T12:00:00');
+  if(c.hasSealHistory&&mo>=6&&mo<=36) return{label:'VIP SEAL', color:'#7c3aed'};
+  if(mo<=3)  return{label:'HOT',       color:'#dc2626'};
+  if(mo<=6)  return{label:'WARM',      color:'#f97316'};
+  if(mo<=12) return{label:'SLEEPING',  color:'#eab308'};
+  if(mo<=18) return{label:'COLD',      color:'#3b82f6'};
+  if(mo<=24) return{label:'DORMANT',   color:'#6366f1'};
+  if(mo<=36) return{label:'VERY COLD', color:'#8b5cf6'};
+  return      {label:'ANCIENT',        color:'#94a3b8'};
+}
+
+// ── Health Score ──────────────────────────────────────────────────────────────
+function calcHealthScore(c){
+  let s=5;
+  if(c.lastService){
+    const mo=monthsAgo(c.lastService+'T12:00:00');
+    if(mo<=3)s+=2; else if(mo<=6)s+=1; else if(mo>=24)s-=2; else if(mo>=12)s-=1;
+  } else { s-=1; }
+  if((c.lifetimeSpend||0)>=1500)s+=2; else if((c.lifetimeSpend||0)>=500)s+=1;
+  if((c.totalJobs||0)>3)s+=1;
+  if(c.hasSealHistory)s+=0.5;
+  if(c.sealingInterest)s+=0.5;
+  if(c.optOut||c.movedAway)s-=3;
+  return Math.min(10,Math.max(0,Math.round(s*10)/10));
+}
+
+// ── Timeline builder ──────────────────────────────────────────────────────────
+function buildTimeline(customer, events){
+  const entries=[];
+  const ph=customer.phone;
+  const qs=customer.quoteStatus||{};
+  const ss=customer.scheduledStatus||{};
+
+  if(qs.sentDate)     entries.push({date:qs.sentDate,     type:'quote',      icon:'📋',title:'Digital Quote Sent',       details:[{label:'Status',val:qs.state||'sent'},{label:'Amount',val:qs.approvedAmount?'$'+qs.approvedAmount:'—'}]});
+  if(qs.viewedDate)   entries.push({date:qs.viewedDate,   type:'quote',      icon:'👁️',title:'Quote Viewed'});
+  if(qs.approvedDate) entries.push({date:qs.approvedDate, type:'quote',      icon:'✅',title:'Quote Approved',            details:[{label:'Amount',val:qs.approvedAmount?'$'+qs.approvedAmount:'—'}]});
+  if(qs.quotedDate)   entries.push({date:qs.quotedDate,   type:'call',       icon:'📞',title:'Phone Quote Logged',        details:[{label:'Service',val:qs.mainServices||'—'},{label:'Amount',val:qs.mainAmount?'$'+qs.mainAmount:'—'}]});
+
+  if(ss.scheduledDate&&ss.state==='scheduled') entries.push({date:ss.scheduledDate,type:'job',icon:'📅',title:'Job Scheduled',  details:[{label:'Service',val:ss.jobNotes||'—'},{label:'Amount',val:ss.approvedAmount?'$'+ss.approvedAmount:'—'}]});
+  if(ss.scheduledDate&&ss.state==='completed') entries.push({date:ss.scheduledDate,type:'job',icon:'🛠️',title:'Job Completed', details:[{label:'Service',val:ss.jobNotes||'—'},{label:'Total',val:ss.approvedAmount?'$'+ss.approvedAmount:'—'}]});
+
+  if(customer.lastService&&!(ss.scheduledDate===customer.lastService&&ss.state==='completed')){
+    entries.push({date:customer.lastService+'T12:00:00',type:'job',icon:'🛠️',title:'Most Recent Job',
+      note:customer.totalJobs>1?`${customer.totalJobs} total jobs, $${(customer.lifetimeSpend||0).toLocaleString()} lifetime`:null,
+      details:[{label:'Lifetime Spend',val:'$'+(customer.lifetimeSpend||0).toLocaleString()},{label:'Total Jobs',val:String(customer.totalJobs||1)}]});
+  }
+
+  events.filter(e=>e.customer?.ph===ph).forEach(e=>{
+    const d=e.loggedAt||e.sentAt||e.createdAt;
+    switch(e.eventType){
+      case 'phone_quote_sms_sent':
+        entries.push({date:d,type:'sms',icon:'💬',title:'Confirmation SMS Sent',details:[{label:'Service',val:e.mainServices||e.services||'—'},{label:'Amount',val:(e.mainAmount||e.approvedAmount)?'$'+(e.mainAmount||e.approvedAmount):'—'}]});
+        break;
+      case 'mini_quote_opened':
+        entries.push({date:d,type:'engagement',icon:'👆',title:'Mini Quote Link Opened'});
+        break;
+      case 'mini_quote_viewed':
+        entries.push({date:d,type:'engagement',icon:'👁️',title:'Mini Quote Viewed (5+ sec)'});
+        break;
+      case 'addon_section_viewed':
+        entries.push({date:d,type:'engagement',icon:'📜',title:'Scrolled to Add-On Section'});
+        break;
+      case 'addon_tap_initiated':
+        entries.push({date:d,type:'engagement',icon:'👆',title:`Tapped Add-On: ${e.addonName||''}`,details:[{label:'Price',val:e.bundlePrice?'$'+e.bundlePrice:'—'}]});
+        break;
+      case 'addon_confirmed':
+        entries.push({date:d,type:'win',icon:'✅',title:`Added: ${e.addonName||''}`,details:[{label:'Bundle Price',val:e.bundlePrice?'$'+e.bundlePrice:'—'},{label:'New Total',val:e.newAmount?'$'+e.newAmount:'—'}]});
+        break;
+      case 'sealing_interest_confirmed':
+        entries.push({date:d,type:'win',icon:'💎',title:'Signaled Sealing Interest',details:[{label:'Note',val:'Tony will quote in person'}]});
+        break;
+      case 'mini_quote_closed':
+        entries.push({date:d,type:'engagement',icon:'⏹️',title:'Mini Quote Closed',
+          details:e.totalTimeOnPageSeconds?[{label:'Time on Page',val:Math.floor(e.totalTimeOnPageSeconds/60)+'m '+(e.totalTimeOnPageSeconds%60)+'s'}]:[]});
+        break;
+    }
+  });
+
+  if(!customer.lastService&&(customer.lifetimeSpend||0)>0){
+    entries.push({date:null,type:'system',icon:'📁',title:'Historical Record',
+      note:`${customer.totalJobs||0} jobs, $${(customer.lifetimeSpend||0).toLocaleString()} lifetime (imported from historical records)`});
+  }
+  entries.push({date:null,type:'system',icon:'➕',title:'Customer Record Created',note:'Added to Pure Cleaning database'});
+
+  const dated   = entries.filter(e=>e.date).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const undated = entries.filter(e=>!e.date);
+  return [...dated,...undated];
+}
+
+// type → color
+const TYPE_COLORS={
+  job:'#1d9e75', quote:'#2d7dd2', call:'#2d7dd2', sms:'#f4a620',
+  engagement:'#8b5cf6', win:'#1d9e75', system:'#94a3b8'
+};
+// type → filter category
+const TYPE_CAT={
+  job:'jobs', quote:'comms', call:'comms', sms:'comms',
+  engagement:'engagements', win:'jobs', system:'all'
+};
+
+function renderTimeline(entries){
+  const filtered = _tlFilter==='all' ? entries : entries.filter(e=>{
+    if(_tlFilter==='jobs') return ['job','win'].includes(e.type);
+    if(_tlFilter==='comms') return ['quote','call','sms'].includes(e.type);
+    if(_tlFilter==='engagements') return e.type==='engagement';
+    return true;
+  });
+
+  const el=document.getElementById('timeline');
+  if(!filtered.length){
+    el.innerHTML=`<div class="tl-empty">No entries for this filter.</div>`;
+    return;
+  }
+  el.innerHTML=filtered.map(e=>{
+    const color=TYPE_COLORS[e.type]||'#94a3b8';
+    const dateStr=e.date?fmtDateTime(e.date):'';
+    const rowsHtml=(e.details&&e.details.length)
+      ?`<div class="tl-rows">${e.details.filter(r=>r.val&&r.val!=='—').map(r=>`<div class="tl-row"><span class="tl-row-label">${esc(r.label)}</span><span class="tl-row-val">${esc(r.val)}</span></div>`).join('')}</div>`:'';
+    return `<div class="tl-entry">
+      <div class="tl-dot-wrap">
+        <div class="tl-dot" style="border-color:${color};background:${color}10;">${e.icon||'•'}</div>
+      </div>
+      <div class="tl-card" style="--entry-color:${color};">
+        ${dateStr?`<div class="tl-date">${dateStr}</div>`:''}
+        <div class="tl-title">${esc(e.title)}</div>
+        ${e.note?`<div class="tl-note">${esc(e.note)}</div>`:''}
+        ${rowsHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Render Page ───────────────────────────────────────────────────────────────
+function renderProfile(customer, events){
+  const c=customer;
+  _customer=c;
+  _allEvents=events;
+
+  // ── Hero ──
+  const fullName=((c.firstName||'')+ ' '+(c.lastName||'')).trim().toUpperCase()||'UNKNOWN CUSTOMER';
+  document.getElementById('heroName').textContent=fullName;
+
+  const mo=monthsAgo(c.lastService?(c.lastService+'T12:00:00'):null);
+  const sinceYear = c.lastService ? new Date(c.lastService+'T12:00:00').getFullYear() : null;
+  const metaParts=[];
+  if(c.phone) metaParts.push(`<span class="hero-meta-item">📞 <strong>${fmtPh(c.phone)}</strong></span>`);
+  if(c.city)  metaParts.push(`<span class="hero-meta-item">📍 ${esc(c.city)}, FL</span>`);
+  if(sinceYear) metaParts.push(`<span class="hero-meta-item">Customer since <strong>${sinceYear}</strong></span>`);
+  document.getElementById('heroMeta').innerHTML=metaParts.join('<span class="hero-meta-sep"> · </span>');
+
+  const actionsHtml=[
+    `<a class="action-btn action-btn-call" href="tel:+1${c.phone}">📞 Call</a>`,
+    `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
+    `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Add Note</button>`,
+    `<button class="action-btn" style="background:#7c3aed;color:#fff;" onclick="openLogReplyModal()">📥 Log Reply</button>`,
+    `<button class="action-btn" style="background:#16a34a;color:#fff;" onclick="openLogFeedbackModal()">⭐ Log Feedback</button>`,
+    `<button class="action-btn" style="background:#ea580c;color:#fff;" onclick="markReviewReceived()">⭐ Review Received</button>`,
+    c.email?`<a class="action-btn action-btn-email" href="mailto:${esc(c.email)}">📧 Email</a>`:''
+  ].filter(Boolean).join('');
+  document.getElementById('heroActions').innerHTML=actionsHtml;
+
+  // ── Stats ──
+  const tier=getTier(c);
+  const avgTicket=(c.totalJobs&&c.lifetimeSpend)?Math.round(c.lifetimeSpend/c.totalJobs):0;
+  const statsData=[
+    {label:'Lifetime Spend', val:'$'+(c.lifetimeSpend||0).toLocaleString(), color:'#c2410c'},
+    {label:'Total Jobs',     val:String(c.totalJobs||0),                    color:'#2d7dd2'},
+    {label:'Avg Ticket',     val:avgTicket?'$'+avgTicket.toLocaleString():'—', color:'#1d9e75'},
+    {label:'Last Service',   val:mo!==null?moAgoLabel(mo):(c.lastService?fmtDate(c.lastService):'—'), color:'#d97706'},
+    {label:'Tier',           val:`<span class="tier-chip" style="--tier-color:${tier.color};">${tier.label}</span>`, color:tier.color},
+  ];
+  document.getElementById('statsBar').innerHTML=statsData.map(s=>
+    `<div class="stat-cell" style="--cell-color:${s.color};">
+      <div class="stat-val">${s.val}</div>
+      <div class="stat-label">${s.label}</div>
+    </div>`
+  ).join('');
+
+  // ── Callouts ──
+  const callouts=[];
+  if(c.hasComplaints) callouts.push({cls:'callout-red', text:`⚠ ${c.complaintCount||1} logged complaint${(c.complaintCount||1)>1?'s':''}. Review history below before booking.`});
+  if(c.optOut) callouts.push({cls:'callout-gray',  text:'⚠️ Opted out of campaigns — do not send bulk SMS'});
+  if(c.movedAway) callouts.push({cls:'callout-gray',text:'🏠 Marked as moved away'});
+  if(mo!==null&&mo>12) callouts.push({cls:'callout-red',   text:`🔴 At-risk — last service was ${Math.round(mo)} months ago`});
+  if(c.hasSealHistory&&mo!==null&&mo>=18&&mo<=36) callouts.push({cls:'callout-purple',text:'💎 VIP Seal renewal window — Tony should quote'});
+  if(c.sealingInterest) callouts.push({cls:'callout-purple',text:'💎 Signaled sealing interest — bring samples to next job'});
+  if((c.lifetimeSpend||0)>=1500) callouts.push({cls:'callout-green', text:'🎯 High-value customer — top tier'});
+  const qs=c.quoteStatus||{};
+  if(qs.state==='phone_quoted_pending_mini_quote') callouts.push({cls:'callout-amber', text:'📋 Mini quote not built yet — build before texting'});
+  (c.alerts||[]).forEach(a=>callouts.push({cls:'callout-blue', text:`🔔 ${esc(a.label||a)}`}));
+  document.getElementById('callouts').innerHTML=callouts.map(co=>
+    `<div class="callout ${co.cls}">${co.text}</div>`
+  ).join('');
+
+  // ── Complaints Section ──
+  const CMPT_TYPES = { quality_issue:'Quality Issue', pricing_dispute:'Pricing Dispute', scheduling_issue:'Scheduling / Timing', crew_behavior:'Crew Behavior', other:'Other' };
+  const CMPT_RES   = { resolved_on_site:'Resolved on-site', resolved_refund:'Resolved with refund/discount', resolved_reclean:'Resolved with re-clean', unresolved:'Unresolved', customer_refused:'Customer refused resolution' };
+  let cmptSection = document.getElementById('complaintsSection');
+  if (!cmptSection) {
+    cmptSection = document.createElement('div');
+    cmptSection.id = 'complaintsSection';
+    cmptSection.style.cssText = 'max-width:1100px;margin:10px auto 0;padding:0 16px;';
+    document.getElementById('callouts').insertAdjacentElement('afterend', cmptSection);
+  }
+  if ((c.complaints||[]).length > 0) {
+    const items = (c.complaints).map(cp => `
+      <div style="background:#fff;border:1px solid #fecaca;border-radius:9px;padding:9px 12px;margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px;">
+          <div style="font-size:13px;font-weight:700;color:#dc2626;">${CMPT_TYPES[cp.type]||cp.type||'Unknown'}</div>
+          <div style="font-size:11px;color:#9ca3af;white-space:nowrap;">${cp.loggedAt ? new Date(cp.loggedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</div>
+        </div>
+        ${cp.description ? `<div style="font-size:13px;color:#374151;margin-bottom:3px;">${esc(cp.description)}</div>` : ''}
+        <div style="font-size:11px;color:#9ca3af;">Resolution: ${CMPT_RES[cp.resolution]||cp.resolution||'Not recorded'} · Job date: ${cp.jobDate||'—'}</div>
+      </div>`).join('');
+    cmptSection.innerHTML = `<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:14px;padding:.875rem 1.125rem;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#dc2626;margin-bottom:10px;">⚠ Complaint History (${c.complaints.length})</div>
+      ${items}
+    </div>`;
+  } else {
+    cmptSection.innerHTML = '';
+  }
+
+  // ── Predictions Row (Phase 4) ──
+  let predRow = document.getElementById('predictionsRow');
+  if (!predRow) {
+    predRow = document.createElement('div');
+    predRow.id = 'predictionsRow';
+    predRow.style.cssText = 'max-width:1100px;margin:0 auto;padding:0 16px;';
+    const calloutsEl = document.getElementById('callouts');
+    calloutsEl.parentNode.insertBefore(predRow, calloutsEl.nextSibling);
+  }
+  predRow.innerHTML = renderPredictions(c);
+
+  // ── Property Measurements (Phase 1) ──
+  renderPropertyMeasurements(c);
+
+  // ── Timeline ──
+  const entries=buildTimeline(c, events);
+  const filters=[
+    {key:'all',label:'All'},
+    {key:'jobs',label:'Jobs'},
+    {key:'comms',label:'Communications'},
+    {key:'engagements',label:'Engagements'},
+  ];
+  document.getElementById('tlFilters').innerHTML=filters.map(f=>
+    `<button class="tl-filter-btn${_tlFilter===f.key?' active':''}" onclick="setTlFilter('${f.key}')">${f.label}</button>`
+  ).join('');
+  renderTimeline(entries);
+
+  // ── Sidebar ──
+  renderSidebar(c);
+
+  // ── Notes ──
+  renderNotes(c);
+}
+
+function setTlFilter(key){
+  _tlFilter=key;
+  document.querySelectorAll('.tl-filter-btn').forEach(b=>{
+    b.classList.toggle('active', b.textContent.toLowerCase()===key||
+      (key==='all'&&b.textContent==='All')||
+      (key==='jobs'&&b.textContent==='Jobs')||
+      (key==='comms'&&b.textContent==='Communications')||
+      (key==='engagements'&&b.textContent==='Engagements')
+    );
+  });
+  renderTimeline(buildTimeline(_customer, _allEvents));
+}
+
+function renderSidebar(c){
+  const mapAddr=c.address&&c.city?`https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`:'';
+  const sourceLabel={'phone_quoted':'Phone Quoted','reactivation':'Reactivation','legacy':'Legacy Import'}[c.source]||c.source||'Unknown';
+
+  const contactRows=[
+    {icon:'📞',label:'Phone',val:`<a href="tel:+1${c.phone}">${fmtPh(c.phone)}</a>`},
+    c.email?{icon:'📧',label:'Email',val:`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`}:null,
+    (c.address||c.city)?{icon:'📍',label:'Address',val:mapAddr?`<a href="${mapAddr}" target="_blank">${esc(c.address||'')}${c.address&&c.city?', ':''}${esc(c.city||'')}</a>`:`${esc(c.address||'')} ${esc(c.city||'')}`}:null,
+    {icon:'🏷️',label:'Source',val:`<span class="source-badge">${esc(sourceLabel)}</span>`},
+    c.zip?{icon:'📮',label:'ZIP',val:esc(c.zip)}:null,
+  ].filter(Boolean);
+
+  const contactHtml=contactRows.map(r=>
+    `<div class="contact-row">
+      <div class="contact-icon">${r.icon}</div>
+      <div>
+        <div class="contact-label">${r.label}</div>
+        <div class="contact-val">${r.val}</div>
+      </div>
+    </div>`
+  ).join('');
+
+  const qaButtons=[
+    {icon:'📱',label:'Text Customer',   href:`sms:+1${c.phone}`},
+    {icon:'📞',label:'Call Customer',   href:`tel:+1${c.phone}`},
+    {icon:'📋',label:'Build Mini Quote',href:`/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}`},
+    {icon:'📅',label:'Open in Calendar',href:'/pure_cleaning_calendar.html'},
+    {icon:'💬',label:'Send Reactivation SMS',href:'/pure_cleaning_bulk_reactivation.html'},
+  ];
+  const followUpSmsBtn = `<button class="qa-btn" onclick="openFollowUpSms()">📱 Follow-up SMS Template</button>`;
+
+  const qaHtml=qaButtons.map(b=>
+    `<a class="qa-btn" href="${b.href}" ${b.href.startsWith('/')?' target="_blank"':''}>${b.icon} ${b.label}</a>`
+  ).join('') + followUpSmsBtn;
+
+  const hs=calcHealthScore(c);
+  const hsColor=hs>=7?'#1d9e75':hs>=4?'#d97706':'#e53e3e';
+  const hsEmoji=hs>=7?'💚':hs>=4?'🟡':'🔴';
+
+  document.getElementById('sidebarStack').innerHTML=`
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Contact Info</div></div>
+      <div class="panel-body">${contactHtml}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Quick Actions</div></div>
+      <div class="panel-body">${qaHtml}</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title">Health Score</div></div>
+      <div class="panel-body">
+        <div class="health-score-num" style="color:${hsColor};">${hsEmoji} ${hs}/10</div>
+        <div class="health-label">Customer Health Score</div>
+        <div class="health-bar-track">
+          <div class="health-bar-fill" style="width:${hs*10}%;background:${hsColor};"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+function renderNotes(c){
+  const list=document.getElementById('notesList');
+  const notes=[];
+
+  // legacy string note
+  if(c.notes&&typeof c.notes==='string'&&c.notes.trim()){
+    notes.push({legacy:true,text:c.notes,author:'Team',createdAt:null});
+  }
+
+  // profileNotes array
+  (c.profileNotes||[]).forEach(n=>notes.push(n));
+
+  if(!notes.length){
+    list.innerHTML=`<div style="color:var(--muted);font-size:14px;padding:4px 0 10px;">No notes yet.</div>`;
+    return;
+  }
+
+  list.innerHTML=notes.map(n=>
+    `<div class="note-entry${n.legacy?' note-legacy':''}">
+      <div class="note-header">
+        <span class="note-author">${esc(n.author||'Tyler')}</span>
+        <span class="note-date">${n.createdAt?fmtDate(n.createdAt):(n.legacy?'Legacy note':'')}</span>
+      </div>
+      <div class="note-text">${esc(n.text||'')}</div>
+    </div>`
+  ).join('');
+}
+
+function showAddNote(){
+  document.getElementById('addNoteArea').style.display='block';
+  document.getElementById('addNoteBtn').style.display='none';
+  document.getElementById('noteTextarea').focus();
+}
+function cancelNote(){
+  document.getElementById('addNoteArea').style.display='none';
+  document.getElementById('addNoteBtn').style.display='';
+  document.getElementById('noteTextarea').value='';
+}
+
+async function saveNote(){
+  const text=(document.getElementById('noteTextarea').value||'').trim();
+  if(!text)return;
+  const btn=document.querySelector('.btn-save-note');
+  btn.disabled=true; btn.textContent='Saving…';
+  try{
+    // fetch all customers, find ours, update, PUT back
+    const resp=await fetch(`${API}/customers`);
+    const data=await resp.json();
+    const customers=data.customers||[];
+    const idx=customers.findIndex(cu=>String(cu.phone)===String(_customer.phone));
+    if(idx===-1) throw new Error('Customer not found in DB');
+    if(!customers[idx].profileNotes) customers[idx].profileNotes=[];
+    const newNote={
+      id: Math.random().toString(36).slice(2)+Date.now().toString(36),
+      text,
+      author:'Tyler',
+      createdAt:new Date().toISOString()
+    };
+    customers[idx].profileNotes.push(newNote);
+    await fetch(`${API}/customers`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({customers})});
+    _customer=customers[idx];
+    renderNotes(_customer);
+    cancelNote();
+  } catch(err){
+    alert('Failed to save note: '+err.message);
+  } finally{
+    btn.disabled=false; btn.textContent='Save Note';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 1: PROPERTY MEASUREMENTS + ADDRESS GEOCODING
+// GPS Pricing Intelligence — Foundation Layer
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _propExpanded = false;
+
+function renderPropertyMeasurements(c) {
+  const el = document.getElementById('propertyMeasurementsSection');
+  if (!el) return;
+  const prop = c.property || {};
+  const geo  = c.geocoded || {};
+  const isMeasured = prop.roofSqFt || prop.drivewaySqFt || prop.patioSqFt || prop.walkwaysSqFt;
+  const measuredBy = prop.measuredBy || 'estimate';
+  const measuredAt = prop.measuredAt
+    ? new Date(prop.measuredAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : null;
+  const geoLine = geo.lat
+    ? `<div class="prop-geo">📍 ${Number(geo.lat).toFixed(5)}, ${Number(geo.lng).toFixed(5)} · ${geo.accuracy||''} · ${geo.geocodedAt?new Date(geo.geocodedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''}</div>`
+    : `<div class="prop-geo" id="geoStatus">📍 Address not yet geocoded — will auto-geocode on next save.</div>`;
+  const fields = [
+    {id:'propRoof',     label:'Roof',       val:prop.roofSqFt     ?? '', unit:'sq ft',     tip:'Measure at ground level walking the perimeter'},
+    {id:'propDriveway', label:'Driveway',   val:prop.drivewaySqFt ?? '', unit:'sq ft',     tip:''},
+    {id:'propPatio',    label:'Patio',      val:prop.patioSqFt    ?? '', unit:'sq ft',     tip:''},
+    {id:'propWalkways', label:'Walkways',   val:prop.walkwaysSqFt ?? '', unit:'sq ft',     tip:''},
+    {id:'propPoolDeck', label:'Pool Deck',  val:prop.poolDeckSqFt ?? '', unit:'sq ft',     tip:'0 if not applicable'},
+    {id:'propFence',    label:'Fence',      val:prop.fenceLinearFt?? '', unit:'linear ft', tip:'Total fence run in feet'},
+  ];
+  el.innerHTML = `
+    <div class="prop-panel">
+      <div class="prop-header" onclick="togglePropPanel()">
+        <div class="prop-title">📐 Property Measurements
+          ${isMeasured
+            ? `<span style="font-size:11px;font-weight:600;color:var(--green);background:#f0fdf4;padding:2px 8px;border-radius:10px;">Measured</span>`
+            : `<span style="font-size:11px;color:var(--muted);">Not yet measured</span>`}
+        </div>
+        <span style="font-size:16px;color:var(--muted);" id="propChevron">${_propExpanded?'▲':'▼'}</span>
+      </div>
+      <div id="propBody" style="display:${_propExpanded?'block':'none'};">
+        <div class="prop-body">
+          <div class="prop-grid">
+            ${fields.map(f=>`
+              <div class="prop-field">
+                <label>${esc(f.label)}${f.tip?` <span title="${esc(f.tip)}" style="cursor:help;color:var(--sky);font-size:13px;">?</span>`:''}</label>
+                <div class="prop-input-wrap">
+                  <input type="number" id="${f.id}" class="prop-input" value="${f.val!==''?f.val:''}" min="0" step="1" placeholder="0">
+                  <span class="prop-unit">${f.unit}</span>
+                </div>
+              </div>`).join('')}
+          </div>
+          <div class="prop-field" style="margin-bottom:.875rem;">
+            <label>Property Notes</label>
+            <textarea id="propNotes" style="width:100%;padding:9px 11px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;resize:vertical;min-height:58px;transition:border-color .15s;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'" placeholder="e.g. Pavers in front, concrete in back. Second-story access needed.">${esc(prop.propertyNotes||'')}</textarea>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Measured by</label>
+            <div class="prop-radio-row">
+              ${['Tony','Tyler','Estimate','Satellite'].map(m=>`
+                <label class="prop-radio">
+                  <input type="radio" name="propMeasuredBy" value="${m.toLowerCase()}" ${measuredBy===m.toLowerCase()?'checked':''}> ${m}
+                </label>`).join('')}
+            </div>
+            ${measuredAt?`<div style="font-size:11px;color:var(--muted);margin-top:2px;">Last measured: ${measuredAt}</div>`:''}
+          </div>
+          ${geoLine}
+          <div style="margin-top:1rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <button onclick="savePropertyMeasurements()" style="padding:9px 22px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Measurements</button>
+            <span id="propSaveStatus" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function togglePropPanel() {
+  _propExpanded = !_propExpanded;
+  const body = document.getElementById('propBody');
+  const chev = document.getElementById('propChevron');
+  if (body) body.style.display = _propExpanded ? 'block' : 'none';
+  if (chev) chev.textContent = _propExpanded ? '▲' : '▼';
+}
+
+async function savePropertyMeasurements() {
+  const status = document.getElementById('propSaveStatus');
+  status.textContent = 'Saving…';
+  const prop = {
+    roofSqFt:       parseFloat(document.getElementById('propRoof')?.value)      || null,
+    drivewaySqFt:   parseFloat(document.getElementById('propDriveway')?.value)  || null,
+    patioSqFt:      parseFloat(document.getElementById('propPatio')?.value)     || null,
+    walkwaysSqFt:   parseFloat(document.getElementById('propWalkways')?.value)  || null,
+    poolDeckSqFt:   parseFloat(document.getElementById('propPoolDeck')?.value)  || null,
+    fenceLinearFt:  parseFloat(document.getElementById('propFence')?.value)     || null,
+    propertyNotes:  (document.getElementById('propNotes')?.value || '').trim(),
+    measuredBy:     document.querySelector('input[name="propMeasuredBy"]:checked')?.value || 'estimate',
+    measuredAt:     new Date().toISOString(),
+  };
+  try {
+    const dbRes = await fetch(`${API}/customers`);
+    const db    = await dbRes.json();
+    const _nph2 = p => String(p||'').replace(/\D/g,'').slice(-10);
+    const cust  = (db.customers || []).find(c => _nph2(c.phone) === _nph2(_customer.phone));
+    if (!cust) throw new Error('Customer not found');
+    cust.property = prop;
+    // Auto-geocode if address exists and hasn't been geocoded yet
+    if (!cust.geocoded?.lat && cust.address) {
+      const geo = await geocodeAddress(cust.address, cust.city || '', cust.zip || '');
+      if (geo) {
+        cust.geocoded = geo;
+        _customer.geocoded = geo;
+        const geoEl = document.getElementById('geoStatus');
+        if (geoEl) geoEl.textContent = `📍 ${Number(geo.lat).toFixed(5)}, ${Number(geo.lng).toFixed(5)} · ${geo.accuracy||''}`;
+      }
+    }
+    await fetch(`${API}/customers`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(db)
+    });
+    _customer.property = prop;
+    try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
+    status.textContent = '✓ Saved';
+    setTimeout(() => { status.textContent = ''; }, 2500);
+    // Re-render section to show "Measured" badge and updated timestamp
+    renderPropertyMeasurements(_customer);
+  } catch(e) {
+    status.textContent = '✗ ' + e.message;
+  }
+}
+
+// US Census Bureau Geocoder — free, no API key, works for all US addresses
+async function geocodeAddress(address, city, zip) {
+  try {
+    const params = new URLSearchParams({
+      street: address, city: city || '', state: 'FL', zip: zip || '',
+      benchmark: 'Public_AR_Current', format: 'json'
+    });
+    const res  = await fetch(`https://geocoding.geo.census.gov/geocoder/locations/address?${params}`);
+    const data = await res.json();
+    const m    = (data?.result?.addressMatches || [])[0];
+    if (!m) return null;
+    return { lat: m.coordinates.y, lng: m.coordinates.x, accuracy: 'ROOFTOP', formattedAddress: m.matchedAddress || '', geocodedAt: new Date().toISOString() };
+  } catch(e) { console.warn('[geocode]', e.message); return null; }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init(){
+  const params=new URLSearchParams(location.search);
+  const phone=params.get('phone');
+  if(!phone){
+    showError('No phone number provided','Add ?phone=XXXXXXXXXX to the URL.');
+    return;
+  }
+
+  try{
+    const [custResp, evtResp]=await Promise.all([
+      fetch(`${API}/customers`),
+      fetch(`${API}/events?phone=${encodeURIComponent(phone)}`)
+    ]);
+    if(!custResp.ok) throw new Error('Failed to load customers');
+    const custData=await custResp.json();
+    const evtData=await evtResp.json();
+    const customers=custData.customers||[];
+    const events=evtData.events||[];
+
+    const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
+    const customer=customers.find(c=>_nph(c.phone)===_nph(phone));
+    if(!customer){
+      showError('Customer not found',`No record found for phone number ${fmtPh(phone)}.`);
+      return;
+    }
+
+    document.getElementById('stateLoading').style.display='none';
+    document.getElementById('profileContent').style.display='';
+    document.title=`${((customer.firstName||'')+' '+(customer.lastName||'')).trim()} — Pure Cleaning`;
+    renderProfile(customer, events);
+
+  } catch(err){
+    showError('Failed to load data', err.message||'Please check your connection and try again.');
+  }
+}
+
+function showError(title, sub){
+  document.getElementById('stateLoading').style.display='none';
+  document.getElementById('errorTitle').textContent=title;
+  document.getElementById('errorSub').textContent=sub;
+  document.getElementById('stateError').style.display='flex';
+}
+
+init();
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg) {
+  let el = document.getElementById('_profileToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = '_profileToast';
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#0a1628;color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:9999;white-space:nowrap;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.style.transform = 'translateX(-50%) translateY(80px)'; }, 3500);
+}
+
+// ── Follow-up SMS ─────────────────────────────────────────────────────────────
+function openFollowUpSms() {
+  if (!_customer) return;
+  const fn = _customer.firstName || 'there';
+  const body = `Hi ${fn}! Just checking in after your recent service with Pure Cleaning — everything look good?\n\nIf you're happy, we'd love a quick Google review:\nhttps://g.page/r/pure-cleaning-review\n\nOr just reply here with any feedback. Thanks for choosing us!\n\n— Pure Cleaning Family\n954-389-2642`;
+  window.location.href = `sms:+1${_customer.phone}?&body=${encodeURIComponent(body)}`;
+}
+
+// ── Log Reply Modal ───────────────────────────────────────────────────────────
+function openLogReplyModal() {
+  const m = document.getElementById('logReplyModal');
+  m.style.display = 'flex';
+  document.getElementById('replyText').value = '';
+  document.getElementById('replyMethod').value = 'sms';
+  document.getElementById('replySentiment').value = 'positive';
+}
+function closeLogReplyModal() { document.getElementById('logReplyModal').style.display = 'none'; }
+
+async function saveLogReply() {
+  if (!_customer) return;
+  const method    = document.getElementById('replyMethod').value;
+  const sentiment = document.getElementById('replySentiment').value;
+  const text      = document.getElementById('replyText').value.trim();
+  const evt = {
+    eventType: 'customer_reply_logged',
+    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
+    replyMethod: method, replyText: text, sentiment, loggedBy: 'operator', loggedAt: new Date().toISOString()
+  };
+  closeLogReplyModal();
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
+    });
+    _allEvents.unshift(evt);
+    renderTimeline(buildTimeline(_customer, _allEvents));
+    showToast('Reply logged ✓');
+  } catch(e) { showToast('Error saving: ' + e.message); }
+}
+
+// ── Log Feedback Modal ────────────────────────────────────────────────────────
+function openLogFeedbackModal() {
+  const m = document.getElementById('logFeedbackModal');
+  m.style.display = 'flex';
+  document.getElementById('fbText').value = '';
+  document.getElementById('fbSentiment').value = 'positive';
+  const r = document.querySelector('input[name="fbReview"][value="no"]');
+  if (r) r.checked = true;
+}
+function closeLogFeedbackModal() { document.getElementById('logFeedbackModal').style.display = 'none'; }
+
+// ── Mark Google Review Received ───────────────────────────────────────────────
+async function markReviewReceived() {
+  if (!_customer) return;
+  if (!confirm(`Mark that ${_customer.firstName || 'this customer'} left a Google review?`)) return;
+  const evt = {
+    eventType: 'review_received',
+    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
+    loggedBy: 'operator',
+    loggedAt: new Date().toISOString()
+  };
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
+    });
+    _allEvents.unshift(evt);
+    renderTimeline(buildTimeline(_customer, _allEvents));
+    showToast('⭐ Review received logged — great job!');
+  } catch(e) { showToast('Error saving: ' + e.message); }
+}
+
+async function saveLogFeedback() {
+  if (!_customer) return;
+  const reviewLeft = document.querySelector('input[name="fbReview"]:checked')?.value === 'yes';
+  const sentiment  = document.getElementById('fbSentiment').value;
+  const text       = document.getElementById('fbText').value.trim();
+  const evt = {
+    eventType: 'post_job_feedback',
+    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
+    reviewLeft, reviewRating: reviewLeft ? 5 : null, sentiment, feedback: text,
+    loggedBy: 'operator', loggedAt: new Date().toISOString()
+  };
+  closeLogFeedbackModal();
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
+    });
+    _allEvents.unshift(evt);
+    renderTimeline(buildTimeline(_customer, _allEvents));
+    showToast('Feedback logged ✓');
+  } catch(e) { showToast('Error saving: ' + e.message); }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,2263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Calendar & Crew — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--bg:#f4f6f9;--card:#fff;--text:#1a1f2e;--muted:#6b7280;--border:#e2e8f0;--shadow:0 2px 8px rgba(0,0,0,.08);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+
+/* ── NAV BAR ── */
+.topbar{background:var(--navy);padding:.75rem 1.25rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:200;}
+.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;letter-spacing:1px;margin-right:6px;}
+.topbar-logo span{color:var(--gold);}
+.back-link{font-size:12px;color:var(--gold);text-decoration:none;font-weight:600;margin-right:10px;}
+.week-nav{display:flex;align-items:center;gap:6px;}
+.nav-btn{background:rgba(255,255,255,.12);border:none;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.nav-btn:hover{background:rgba(255,255,255,.22);}
+.block-week-btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap;}
+.block-week-btn:hover{background:rgba(255,255,255,.14);color:#e2e8f0;}
+.block-week-btn.is-blocked{background:var(--gold);color:var(--navy);border-color:var(--gold);}
+.block-week-btn.is-blocked:hover{background:#e09610;}
+.week-label{font-size:14px;font-weight:600;color:#fff;min-width:210px;text-align:center;}
+.topbar-sep{flex:1;}
+.topbar-action{background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.2);color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.topbar-action:hover{background:rgba(255,255,255,.2);}
+
+/* ── THREE-COLUMN LAYOUT ── */
+.layout{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 54px);overflow:hidden;transition:grid-template-columns .2s;}
+.layout.crew-visible{grid-template-columns:280px 1fr 250px;}
+.left-col{background:var(--card);border-right:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;}
+.main-col{overflow:auto;background:var(--bg);}
+.right-col{background:var(--card);border-left:1px solid var(--border);overflow-y:auto;display:none;}
+.layout.crew-visible .right-col{display:block;}
+
+/* ── LEFT SIDEBAR ── */
+.sidebar-hdr{padding:.875rem 1rem .625rem;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);background:var(--card);position:sticky;top:0;z-index:10;}
+.needs-list{padding:.75rem;flex:1;}
+.empty-sidebar{text-align:center;padding:2rem 1rem;color:var(--muted);}
+.empty-sidebar div{font-size:28px;margin-bottom:.5rem;}
+
+/* ── UNSCHEDULED JOB CARD ── */
+.job-unscheduled{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:grab;transition:box-shadow .15s,border-color .15s;user-select:none;}
+.job-unscheduled:hover{border-color:var(--sky);box-shadow:0 4px 12px rgba(45,125,210,.15);}
+.job-unscheduled:active{cursor:grabbing;}
+@keyframes scheduleHighlight {
+  0%,100% { box-shadow:0 0 0 2px transparent; border-color:var(--border); }
+  50%      { box-shadow:0 0 0 3px var(--gold); border-color:var(--gold); }
+}
+.pulse-highlight { animation:scheduleHighlight 0.8s ease-in-out 3; }
+.jn{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:4px;}
+.jd{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:2px;}
+/* Sidebar card vertical layout */
+.jcard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:5px;}
+.jcard-name{font-size:14px;font-weight:700;color:var(--navy);flex:1;min-width:0;word-break:break-word;}
+.jcard-badges{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px;}
+.jcard-price{margin-bottom:5px;}
+.drag-hint{font-size:10px;color:#b0bac8;margin-top:4px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;}
+.card-sms-btn{font-size:10px;color:var(--sky);cursor:pointer;padding:3px 0 0;font-weight:600;letter-spacing:.2px;display:block;-webkit-tap-highlight-color:transparent;}
+.card-sms-btn:hover{text-decoration:underline;}
+.card-del-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:16px;line-height:1;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
+.card-del-btn:hover{color:#dc2626;background:#fee2e2;}
+.test-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+.phone-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+.seal-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+.updated-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#ecfdf5;color:#065f46;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
+/* Alert toasts — bottom-right, persistent */
+#alertContainer{position:fixed;bottom:1.5rem;right:1.25rem;z-index:9998;display:flex;flex-direction:column;gap:10px;max-width:340px;}
+@keyframes alertIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.alert-toast{background:#0d1e35;border:1px solid rgba(244,166,32,.3);border-radius:13px;padding:.875rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,.5);animation:alertIn .3s ease;color:#e8edf5;}
+.alert-toast-type{font-size:10px;font-weight:700;letter-spacing:1px;color:#f4a620;margin-bottom:.3rem;}
+.alert-toast-body{font-size:13px;line-height:1.5;margin-bottom:.625rem;}
+.alert-toast-actions{display:flex;gap:8px;}
+.alert-view-btn{flex:1;padding:6px;background:rgba(244,166,32,.15);color:#f4a620;border:1px solid rgba(244,166,32,.25);border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.alert-dismiss-btn{flex:1;padding:6px;background:none;color:#7a8aaa;border:1px solid #1e2e4a;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.test-expiry{font-size:10px;color:#b45309;margin-top:2px;}
+.card-top-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+
+/* ── CALENDAR GRID ── */
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(175px,1fr));min-width:1225px;gap:0;}
+.day-col{border-right:1px solid var(--border);}
+.day-col:last-child{border-right:none;}
+.day-hdr{padding:8px 10px 6px;background:var(--navy2);border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;position:sticky;top:0;z-index:5;}
+.day-hdr:hover{background:#162440;}
+.day-name{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gold);}
+.day-date{font-size:16px;font-weight:700;color:#fff;line-height:1.2;}
+.day-date.today{color:var(--gold);}
+.day-labor{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
+.day-labor.has-cost{color:#86efac;}
+/* Today column highlight */
+.day-col.today-col{background:rgba(244,166,32,.03);}
+.day-col.today-col .day-hdr{background:#1b2e46;}
+
+/* ── RIG LANES ── */
+.rig-section{border-bottom:1px solid var(--border);}
+.rig-section:last-child{border-bottom:none;}
+.rig-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 10px;background:#f8f9fb;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;font-size:12px;font-weight:600;color:var(--navy);}
+.rig-hdr:hover{background:#eff3f9;}
+.rig-icon{font-size:14px;}
+.rig-name{flex:1;}
+.rig-crew-label{font-size:11px;color:var(--sky);font-weight:600;}
+.rig-jobs{min-height:160px;padding:8px;background:transparent;}
+.rig-jobs.empty-hint{background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,.015) 8px,rgba(0,0,0,.015) 16px);}
+
+/* ── SCHEDULED JOB CARD ── */
+.job-scheduled{background:var(--white);border:1.5px solid #dbeafe;border-left:4px solid var(--sky);border-radius:10px;padding:7px 9px;margin-bottom:5px;cursor:pointer;transition:box-shadow .15s;user-select:none;font-size:12px;}
+.job-scheduled:hover{box-shadow:0 3px 10px rgba(45,125,210,.18);}
+.job-scheduled.in_progress{border-left-color:var(--gold);border-color:#fef3c7;}
+.job-scheduled.completed{border-left-color:var(--green);border-color:#d1fae5;opacity:.75;}
+.js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
+.js-meta{color:var(--muted);margin-top:1px;}
+.job-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
+.job-amount.missing{color:var(--muted);font-weight:400;}
+.jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
+.jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
+.jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
+.rig-gross{font-size:11px;font-weight:700;color:#c2410c;padding:2px 8px 2px;letter-spacing:.2px;}
+.rig-gross.zero{color:var(--muted);font-weight:400;}
+.rig-labor-net{font-size:10px;color:var(--muted);padding:0 8px 4px;line-height:1.5;}
+.rig-net-val{color:#16a34a;font-weight:700;}
+
+/* ── ARRIVAL TEXTS ── */
+.arrival-section{padding:5px 8px 8px;border-top:1px dashed #e2e8f0;}
+.arrival-btn{display:flex;align-items:center;gap:7px;width:100%;padding:6px 9px;border:1.5px solid #dbeafe;border-radius:8px;background:#f8faff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;margin-bottom:4px;text-align:left;line-height:1.3;}
+.arrival-btn:hover:not(.sent):not(.no-phone){background:#dbeafe;border-color:#93c5fd;}
+.arrival-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;}
+.arrival-btn.no-phone{opacity:.38;cursor:not-allowed;}
+.arrival-btn-icon{font-size:13px;flex-shrink:0;}
+.arrival-btn-text{flex:1;min-width:0;overflow:hidden;}
+.arrival-btn-name{font-weight:700;display:inline;}
+.arrival-btn-slot{font-weight:400;opacity:.75;}
+
+/* ── REVIEW REQUEST BUTTON (on completed job cards) ── */
+.js-review-btn{display:block;width:100%;padding:5px 8px;border:1.5px solid #dbeafe;border-radius:6px;background:#eff6ff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:center;margin-top:6px;transition:all .15s;line-height:1.4;}
+.js-review-btn:hover:not(:disabled){background:#dbeafe;border-color:#93c5fd;}
+.js-review-btn.sent{background:#f0fdf4 !important;border-color:#86efac !important;color:#166534 !important;cursor:default;}
+.js-review-btn.no-phone{background:#f9fafb !important;border-color:#e5e7eb !important;color:#9ca3af !important;cursor:default;}
+
+/* ── PRINT BUTTONS ── */
+.js-print-btn{display:block;width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;background:#f9fafb;color:#374151;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-print-btn:hover{background:#e5e7eb;}
+.rig-print-row{padding:2px 8px 4px;}
+.rig-print-btn{font-size:10px;color:#6b7280;background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .1s;}
+.rig-print-btn:hover{background:#f1f5f9;color:#374151;border-color:#cbd5e1;}
+
+/* ── REVIEW TIMING STATES ── */
+.js-review-btn.timing-wait   {background:#f9fafb;border-color:#e5e7eb;color:#9ca3af;}
+.js-review-btn.timing-optimal{background:#f0fdf4;border-color:#86efac;color:#166534;font-weight:700;}
+.js-review-btn.timing-closing{background:#fffbeb;border-color:#fde68a;color:#92400e;}
+.js-review-btn.timing-passed {background:#f9fafb;border-color:#e5e7eb;color:#9ca3af;}
+.js-review-btn.blocked       {background:#fef2f2 !important;border-color:#fecaca !important;color:#dc2626 !important;cursor:not-allowed;}
+
+/* ── COMPLAINT ── */
+.complaint-badge{display:inline-block;background:#fee2e2;color:#dc2626;border-radius:3px;font-size:9px;font-weight:700;padding:1px 4px;vertical-align:middle;margin-left:3px;letter-spacing:.3px;}
+.js-complaint-link{font-size:10px;color:#d1d5db;cursor:pointer;background:none;border:none;padding:1px 0;display:block;margin-top:2px;text-align:right;font-family:'DM Sans',sans-serif;transition:color .1s;line-height:1;}
+.js-complaint-link:hover{color:#dc2626;}
+
+/* ── REVIEW ALERT BAR ── */
+.review-alert-bar{background:#0a2040;border-bottom:1px solid #1e3a5f;padding:5px 1.25rem;display:flex;align-items:center;gap:8px;font-size:12px;color:#e2e8f0;}
+.review-alert-bar.hidden{display:none;}
+.review-alert-count{background:#f0fdf4;color:#166534;font-weight:700;border-radius:20px;padding:1px 8px;font-size:11px;display:inline-block;}
+.review-alert-cta{color:var(--gold);font-weight:700;cursor:pointer;margin-left:auto;font-size:12px;text-decoration:underline;}
+
+.day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
+.day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
+.js-alerts{font-size:13px;margin-top:2px;}
+.sortable-ghost{opacity:.4;background:#dbeafe !important;border-style:dashed !important;}
+.sortable-chosen{box-shadow:0 6px 20px rgba(0,0,0,.2) !important;transform:rotate(1deg);}
+
+/* ── RIGHT SIDEBAR ── */
+.rside-hdr{padding:.875rem 1rem .625rem;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);position:sticky;top:0;background:var(--card);z-index:10;}
+.crew-card{margin:.625rem .75rem;background:var(--bg);border-radius:10px;padding:10px 12px;border:1.5px solid var(--border);}
+.cc-name{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:700;color:var(--navy);margin-bottom:6px;}
+.cc-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.cc-week{display:flex;gap:3px;margin-bottom:5px;}
+.cc-day{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;}
+.cc-day.worked{background:var(--sky);color:#fff;}
+.cc-day.worked.half{background:#bfdbfe;color:#1e40af;}
+.cc-day.off{background:#fee2e2;color:#991b1b;font-size:9px;}
+.cc-day.empty{background:#f1f3f5;color:#d1d5db;}
+.cc-day-label{font-size:8px;color:var(--muted);text-align:center;width:26px;}
+.cc-stats{font-size:12px;color:var(--muted);}
+.cc-stats strong{color:var(--text);}
+.cc-owner{font-size:11px;color:var(--muted);font-style:italic;}
+.payroll-footer{margin:.75rem;background:var(--navy2);border-radius:12px;padding:12px 14px;}
+.pf-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--gold);margin-bottom:6px;}
+.pf-total{font-family:'Bebas Neue',sans-serif;font-size:28px;color:#fff;letter-spacing:1px;}
+.pf-sub{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
+.pf-breakdown{margin-top:8px;font-size:11px;color:rgba(255,255,255,.7);line-height:1.8;}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:999;display:flex;align-items:center;gap:12px;white-space:nowrap;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast-undo{background:var(--gold);color:var(--navy);border:none;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+
+/* ── MODALS ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.overlay.hidden{display:none;}
+.modal{background:var(--card);border-radius:18px;padding:1.5rem;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.25);}
+.modal-title{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:1rem;}
+.modal-field{margin-bottom:.875rem;}
+.modal-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.modal-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;}
+.modal-input:focus{border-color:var(--sky);}
+.modal-footer{display:flex;gap:10px;margin-top:1.25rem;}
+.mbtn-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
+.mbtn-save{flex:2;padding:11px;border:none;border-radius:10px;background:var(--sky);color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.mbtn-save:hover{background:#2470c0;}
+.mbtn-danger{flex:1;padding:11px;border:none;border-radius:10px;background:#fef2f2;color:var(--red);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+.mbtn-green{flex:1;padding:11px;border:none;border-radius:10px;background:#d1fae5;color:#047857;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+
+/* ── CREW POPOVER ── */
+.crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
+.crew-pop.hidden{display:none;}
+.cp-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:.75rem;}
+.cp-crew-item{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:8px;cursor:pointer;transition:background .1s;}
+.cp-crew-item:hover{background:#f5f7fb;}
+.cp-crew-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--sky);}
+.cp-crew-label{font-size:13px;font-weight:600;color:var(--text);flex:1;}
+.cp-crew-sub{font-size:11px;color:var(--muted);}
+.cp-crew-item.disabled{opacity:.45;cursor:not-allowed;}
+.cp-crew-item.disabled *{pointer-events:none;}
+
+/* ── PAYROLL TABLE ── */
+.payroll-table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:1rem;}
+.payroll-table th{padding:8px 10px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:2px solid var(--border);}
+.payroll-table td{padding:8px 10px;border-bottom:1px solid var(--border);}
+.payroll-table tr:last-child td{border-bottom:none;}
+.pay-total-row td{font-weight:700;border-top:2px solid var(--border);padding-top:10px;}
+
+/* ── JOB STATUS BADGES ── */
+.status-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+.status-scheduled{background:#dbeafe;color:#1e40af;}
+.status-progress{background:#fef3c7;color:#92400e;}
+.status-completed{background:#d1fae5;color:#065f46;}
+
+/* ── PRINT ── */
+@media print{
+  .topbar,.left-col,.right-col{display:none !important;}
+  .layout{display:block;}
+  .main-col{overflow:visible;height:auto;}
+  .day-col{page-break-after:always;min-height:0;}
+  .day-hdr{background:#eee !important;color:#000 !important;}
+  .day-name,.day-date,.day-labor{color:#000 !important;}
+}
+@media(max-width:900px){
+  .layout,.layout.crew-visible{grid-template-columns:1fr;}
+  .left-col,.right-col,.layout.crew-visible .right-col{display:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <a href="/pure_cleaning_admin.html" class="back-link">← Admin</a>
+  <div class="topbar-logo">Pure <span>Cleaning</span></div>
+  <div class="week-nav">
+    <button class="nav-btn" onclick="changeWeek(-1)">‹ Prev</button>
+    <div class="week-label" id="weekLabel">Loading…</div>
+    <button class="nav-btn" onclick="changeWeek(1)">Next ›</button>
+    <button class="nav-btn" onclick="goToday()">Today</button>
+    <button class="block-week-btn" id="blockWeekBtn" onclick="toggleWeekBlocked()">Mark Booked</button>
+  </div>
+  <div class="topbar-sep"></div>
+  <button class="topbar-action" onclick="openDayOffModal()">+ Day Off</button>
+  <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
+  <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
+  <button class="topbar-action" onclick="window.print()">🖨</button>
+</div>
+
+<!-- REVIEW ALERT BAR -->
+<div class="review-alert-bar hidden" id="reviewAlertBar">
+  <span>⭐</span>
+  <span><span class="review-alert-count" id="reviewAlertCount">0</span> customer(s) in optimal review request window (1–2 days after job)</span>
+  <span class="review-alert-cta" onclick="openReviewAlertPanel()">See list →</span>
+</div>
+
+<!-- THREE-COLUMN LAYOUT -->
+<div class="layout" id="mainLayout">
+
+  <!-- LEFT: NEEDS MINI QUOTE + NEEDS SCHEDULING -->
+  <div class="left-col">
+    <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
+    <div class="needs-list" id="mqList"></div>
+    <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
+    <div style="padding:.5rem .75rem .25rem;">
+      <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
+    </div>
+    <div class="needs-list" id="needsList"></div>
+  </div>
+
+  <!-- MAIN: CALENDAR -->
+  <div class="main-col">
+    <div class="cal-grid" id="calGrid"></div>
+  </div>
+
+  <!-- RIGHT: CREW & PAYROLL -->
+  <div class="right-col">
+    <div class="rside-hdr">👥 Crew & Payroll</div>
+    <div id="crewPanel"></div>
+  </div>
+
+</div>
+
+<!-- ── JOB DETAIL MODAL ── -->
+<div class="overlay hidden" id="jobModal" onclick="if(event.target===this)closeJobModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-title" id="jmTitle">Job Details</div>
+    <div id="jmBody"></div>
+    <div class="modal-footer" id="jmFooter"></div>
+  </div>
+</div>
+
+<!-- ── CREW ASSIGNMENT POPOVER ── -->
+<div class="crew-pop hidden" id="crewPop">
+  <div class="cp-title" id="cpTitle">Assign Crew</div>
+  <div style="margin-bottom:.75rem;padding-bottom:.625rem;border-bottom:1px solid var(--border);">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Day type</div>
+    <div style="display:flex;gap:16px;">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">
+        <input type="radio" name="cpDayType" id="cpDtFull" value="full" onchange="cpUpdateDayType('full')" checked> Full day
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text);">
+        <input type="radio" name="cpDayType" id="cpDtHalf" value="half" onchange="cpUpdateDayType('half')"> <span style="color:var(--gold);">½</span> Half day
+      </label>
+    </div>
+  </div>
+  <div id="cpList"></div>
+  <div class="modal-footer" style="margin-top:.75rem;">
+    <button class="mbtn-cancel" onclick="closeCrewPop()">Cancel</button>
+    <button class="mbtn-save" onclick="saveCrewPop()">Save</button>
+  </div>
+</div>
+
+<!-- ── PAYROLL MODAL ── -->
+<div class="overlay hidden" id="payrollModal" onclick="if(event.target===this)closePayrollModal()">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-title">📊 Weekly Payroll</div>
+    <div id="payrollBody"></div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closePayrollModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── DAY OFF MODAL ── -->
+<div class="overlay hidden" id="dayOffModal" onclick="if(event.target===this)closeDayOffModal()">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-title">Mark Day Off</div>
+    <div class="modal-field">
+      <label>Crew Member</label>
+      <select id="doCrew" class="modal-input"></select>
+    </div>
+    <div class="modal-field">
+      <label>Date</label>
+      <input type="date" id="doDate" class="modal-input">
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeDayOffModal()">Cancel</button>
+      <button class="mbtn-save" onclick="saveDayOff()">Mark Off</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── POST-JOB LOG MODAL ── -->
+<div class="overlay hidden" id="jobLogModal" onclick="if(event.target===this)skipJobLog()">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-title">✓ Job Complete — Quick Log</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">Takes 30 seconds. Skip anytime.</p>
+    <div class="modal-field">
+      <label>Customer satisfied?</label>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="custSatisfied" value="yes" checked> 😊 Yes
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="custSatisfied" value="concerned"> 😐 Concerned
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="custSatisfied" value="no"> 😞 No
+        </label>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Finish time (optional)</label>
+      <input type="time" id="jobEndTime" class="modal-input">
+    </div>
+    <div class="modal-field">
+      <label>Any issues?</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueTime" style="accent-color:var(--sky);"> Took longer</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueEquip" style="accent-color:var(--sky);"> Equipment</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueScope" style="accent-color:var(--sky);"> Scope change</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" id="issueWeather" style="accent-color:var(--sky);"> Weather delay</label>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Notes (optional)</label>
+      <textarea id="jobLogNotes" class="modal-input" rows="2" style="resize:none;" placeholder="Anything notable about this job…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="skipJobLog()">Skip</button>
+      <button class="mbtn-save" onclick="saveJobLog()">Save & Complete ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── COMPLAINT MODAL ── -->
+<div class="overlay hidden" id="complaintModal" onclick="if(event.target===this)closeComplaintModal()">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-title" id="complaintModalTitle">⚠ Log Complaint</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">Logging a complaint will disable the review request button for this customer.</p>
+    <div class="modal-field">
+      <label>Complaint Type</label>
+      <select id="complaintType" class="modal-input">
+        <option value="">— Select type —</option>
+        <option value="quality_issue">Quality issue (stains remaining, missed area, damage)</option>
+        <option value="pricing_dispute">Pricing dispute</option>
+        <option value="scheduling_issue">Scheduling / timing issue</option>
+        <option value="crew_behavior">Crew behavior</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>What happened? (optional)</label>
+      <textarea id="complaintDesc" class="modal-input" rows="3" style="resize:none;" placeholder="Brief description of the issue…"></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Resolution</label>
+      <select id="complaintRes" class="modal-input">
+        <option value="">— Select resolution —</option>
+        <option value="resolved_on_site">Resolved on-site</option>
+        <option value="resolved_refund">Resolved with refund / discount</option>
+        <option value="resolved_reclean">Resolved with re-clean</option>
+        <option value="unresolved">Unresolved</option>
+        <option value="customer_refused">Customer refused resolution</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeComplaintModal()">Cancel</button>
+      <button class="mbtn-danger" onclick="saveComplaint()">Save Complaint</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REVIEW ALERT PANEL ── -->
+<div class="overlay hidden" id="reviewAlertPanel" onclick="if(event.target===this)closeReviewAlertPanel()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title">⭐ Optimal Review Request Window</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">Customers with jobs completed 1–2 days ago. Best window for review requests — memory is fresh, service experience is still warm.</p>
+    <div id="reviewAlertList" style="max-height:52vh;overflow-y:auto;"></div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeReviewAlertPanel()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CONFIRM DELETE MODAL ── -->
+<div class="overlay hidden" id="confirmModal" onclick="if(event.target===this)closeConfirmModal()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title" id="cmTitle">Confirm</div>
+    <div id="cmBody" style="font-size:14px;color:#4b5563;line-height:1.6;margin-bottom:1rem;"></div>
+    <div class="modal-field" id="cmReasonWrap" style="display:none;">
+      <label>Reason</label>
+      <select id="cmReason" class="modal-input">
+        <option value="customer_canceled">Customer canceled</option>
+        <option value="reschedule_later">Customer rescheduled to later date</option>
+        <option value="weather">Weather delay</option>
+        <option value="tyler_canceled">Tyler canceled</option>
+        <option value="no_show">Customer no-show</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeConfirmModal()">Cancel</button>
+      <button id="cmConfirmBtn" style="flex:1;padding:12px;border-radius:10px;background:#dc2626;color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+<div id="alertContainer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+const PCPC_API       = 'https://purecleaning-api.tylerfumero.workers.dev';
+const QUOTE_BASE_CAL = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const _SL_ALP_CAL    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function shortenUrlCal(longUrl) {
+  let code=''; for(let i=0;i<8;i++) code+=_SL_ALP_CAL[Math.floor(Math.random()*32)];
+  const short='https://purecleaningpressurecleaning.com/q.html?id='+code;
+  (async()=>{
+    try{
+      const r = await fetch(`${PCPC_API}/links`);
+      const data = await r.json();
+      const links = data.links || {};
+      links[code] = longUrl;
+      await fetch(`${PCPC_API}/links`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ links })
+      });
+    }catch(e){console.warn('[shortenUrlCal]',e.message);}
+  })();
+  return short;
+}
+
+function openCardSms(phone) {
+  const c = findCustomer(phone);
+  if (!c || !c.linkCode || !c.linkBin) return;
+  const fn = (c.firstName||c.fn||'there');
+  const longUrl  = `${QUOTE_BASE_CAL}?c=${c.linkBin}.${c.linkCode}`;
+  const shortUrl = shortenUrlCal(longUrl);
+  const body = `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`;
+  window.location.href = `sms:+1${(c.phone||'').replace(/\D/g,'')}?&body=${encodeURIComponent(body)}`;
+}
+
+// ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
+async function getCachedCustomerDB() {
+  const CACHE_KEY = 'pcpc_customer_db_cache';
+  const TTL_MS    = 60 * 1000;       // 60s — approved jobs appear within 1 minute
+  const STALE_MS  = 30 * 1000;       // background-refresh after 30s even if still valid
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      const age = Date.now() - timestamp;
+      // Also bust if a DB write happened after this cache was written
+      const writeTs = parseInt(localStorage.getItem('pcpc_db_write_ts') || '0');
+      const cacheIsStale = writeTs > timestamp;
+      if (age < TTL_MS && !cacheIsStale) {
+        // Stale-while-revalidate: if cache is 30-60s old, serve it but refresh in background
+        if (age > STALE_MS) {
+          fetch(`${PCPC_API}/customers`)
+            .then(r => r.json()).then(d => {
+              if (d) sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: d, timestamp: Date.now() }));
+            }).catch(()=>{});
+        }
+        return data;
+      }
+    }
+  } catch(e) { console.warn('[customerDB] cache read failed:', e); }
+  const res = await fetch(`${PCPC_API}/customers`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch(e) { console.warn('[customerDB] cache write failed:', e); }
+  return data;
+}
+
+const CREW_MEMBERS = [
+  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew'},
+  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew'},
+  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, halfRate:80,  role:'crew'},
+  {id:'tyler',    name:'Tyler',    color:'#a855f7', dailyRate:150, halfRate:75,  role:'owner_son'},
+  {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   halfRate:0,   role:'owner'}
+];
+const RIGS = ['rig_1','rig_2','rig_3'];
+const RIG_LABELS = {rig_1:'Old Tacoma', rig_2:'New Tacoma', rig_3:'Chevy'};
+
+// ── STATE ──────────────────────────────────────────────────────────────────────
+let dbRecord      = {};
+let weekOffset    = 0;
+let calState      = loadCalState();
+let cpDate        = null; // date currently editing in crew pop
+let cpRig         = null; // rig currently editing
+let cpSelCrew     = [];   // selected crew in popover
+let cpDayType     = 'full'; // 'full' | 'half' for current popover
+let jmPhone       = null; // phone in job modal
+let undoFn        = null;
+let sortables     = [];
+let wasDragging   = false;
+
+function loadCalState() {
+  try { return JSON.parse(localStorage.getItem('pcpc_calendar_state') || '{}'); } catch { return {}; }
+}
+function saveCalState() {
+  if (!calState.rigCrew)    calState.rigCrew    = {};
+  if (!calState.rigDayType) calState.rigDayType = {};
+  if (!calState.daysOff)    calState.daysOff    = [];
+  localStorage.setItem('pcpc_calendar_state', JSON.stringify(calState));
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+function renderShell() {
+  // Paint the calendar frame immediately (before DB loads) so it feels instant
+  document.getElementById('needsList').innerHTML = '<div style="padding:1rem;text-align:center;color:var(--muted);font-size:13px;">Loading jobs…</div>';
+  renderCalGrid(getWeekDates()); // renders with empty rig lanes (no jobs yet)
+}
+
+function cleanStaleSchedulingStates() {
+  // Reset any customer stuck in 'scheduled' state with no scheduledDate — these are
+  // orphaned states from mid-drag page reloads or failed drop handlers.
+  (dbRecord.customers || []).forEach(c => {
+    const ss = c.scheduledStatus;
+    if (ss && ss.state === 'scheduled' && !ss.scheduledDate) {
+      ss.state = 'needs_scheduling';
+      ss.rig = null;
+    }
+  });
+}
+
+async function cleanupExpiredTestRecords() {
+  const customers = dbRecord.customers || [];
+  const now = Date.now();
+  const expired = customers.filter(c =>
+    c.isTest === true &&
+    c.testExpiresAt &&
+    new Date(c.testExpiresAt).getTime() < now &&
+    (!c.lifetimeSpend || c.lifetimeSpend === 0) // safety — never touch records with real spend
+  );
+  if (expired.length === 0) return;
+
+  const expiredPhones = new Set(expired.map(c => c.phone));
+  dbRecord.customers = customers.filter(c => !expiredPhones.has(c.phone));
+
+  // Clean up related incoming requests
+  try {
+    const inc = await fetch(`${PCPC_API}/incoming`).then(r => r.json());
+    const cleanedReqs = (inc.requests || []).filter(r => {
+      const p = ((r.customerData && r.customerData.phone) || r.phone || '').replace(/\D/g, '');
+      return !expiredPhones.has(p);
+    });
+    if (cleanedReqs.length < (inc.requests || []).length) {
+      fetch(`${PCPC_API}/incoming`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...inc,requests:cleanedReqs}) });
+    }
+  } catch(e) { console.warn('[test cleanup] incoming:', e.message); }
+
+  // Clean up quote KV entries
+  expired.forEach(c => {
+    if (c.linkCode) fetch(`${PCPC_API}/quote/${c.linkCode}`, { method: 'DELETE' }).catch(() => {});
+  });
+
+  // Persist cleaned customer DB
+  await saveDb();
+
+  // Log the cleanup
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id:'evt_testclean_'+Date.now(), timestamp:new Date().toISOString(),
+      eventType:'test_records_cleaned', metadata:{ count:expired.length, phones:[...expiredPhones] } })
+  }).catch(() => {});
+
+  showToast(`🧪 Cleaned ${expired.length} expired test record${expired.length > 1 ? 's' : ''}`);
+}
+
+// ── LIVE UPDATES ──────────────────────────────────────────────────────────────
+const _justUpdated = new Map(); // phone → expiry timestamp
+
+async function pollCustomerUpdates() {
+  try {
+    const res = await fetch(`${PCPC_API}/customers`);
+    if (!res.ok) return;
+    const newDb = await res.json();
+    const newCusts = newDb.customers || [];
+    const oldCusts = dbRecord.customers || [];
+    let anyChange = false;
+    newCusts.forEach(nc => {
+      const old = oldCusts.find(c => c.phone === nc.phone);
+      if (!old) return;
+      const changed =
+        (nc.scheduledStatus?.approvedAmount !== old.scheduledStatus?.approvedAmount) ||
+        (nc.sealingInterest !== old.sealingInterest) ||
+        (JSON.stringify(nc.addOns) !== JSON.stringify(old.addOns));
+      if (changed) {
+        _justUpdated.set(nc.phone, Date.now() + 30_000);
+        anyChange = true;
+        Object.assign(old, nc);
+      }
+    });
+    if (anyChange) {
+      dbRecord = newDb;
+      renderSidebar();
+      setTimeout(() => { _justUpdated.clear(); renderSidebar(); }, 30_000);
+    }
+  } catch(e) { console.warn('[pollCustomerUpdates]', e.message); }
+}
+
+// ── TOAST ALERT SYSTEM ─────────────────────────────────────────────────────────
+const _ALERT_SINCE_KEY = 'pcpc_alert_since';
+const _ALERT_SEEN_KEY  = 'pcpc_alert_seen';
+const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
+
+async function checkAlerts() {
+  const since = sessionStorage.getItem(_ALERT_SINCE_KEY)
+    || new Date(Date.now() - 24*60*60*1000).toISOString();
+  const seen  = JSON.parse(sessionStorage.getItem(_ALERT_SEEN_KEY) || '[]');
+  sessionStorage.setItem(_ALERT_SINCE_KEY, new Date().toISOString());
+  try {
+    const res = await fetch(`${PCPC_API}/events?since=${encodeURIComponent(since)}`);
+    if (!res.ok) return;
+    const { events = [] } = await res.json();
+    const newEvts = events.filter(e => _ALERT_TYPES.includes(e.eventType) && !seen.includes(e.id));
+    if (!newEvts.length) return;
+    sessionStorage.setItem(_ALERT_SEEN_KEY, JSON.stringify([...seen, ...newEvts.map(e => e.id)]));
+    newEvts.forEach(showAlertToast);
+  } catch {}
+}
+
+function showAlertToast(evt) {
+  const isAddon = evt.eventType === 'addon_confirmed';
+  const cust = evt.customer || {};
+  const name = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
+  const ph   = cust.ph || '';
+  const title = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
+  let body;
+  if (isAddon) {
+    body = `<strong>${_ea(name)}</strong><br>Added: ${_ea(evt.addonName||'')} ($${evt.bundlePrice||''})<br>New total: $${evt.newAmount||''}`;
+  } else {
+    body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+  }
+  const id = 'at-' + (evt.id || Date.now());
+  const el = document.createElement('div');
+  el.id = id; el.className = 'alert-toast';
+  el.innerHTML = `<div class="alert-toast-type">${title}</div><div class="alert-toast-body">${body}</div><div class="alert-toast-actions">${ph?`<button class="alert-view-btn" onclick="_alertView('${ph}','${id}')">View Card</button>`:''}<button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
+  document.getElementById('alertContainer').appendChild(el);
+}
+
+function _alertView(phone, toastId) {
+  document.getElementById(toastId)?.remove();
+  const card = document.querySelector(`.job-unscheduled[data-phone="${phone}"]`);
+  if (card) {
+    card.scrollIntoView({behavior:'smooth', block:'center'});
+    card.style.outline = '2px solid var(--gold)';
+    setTimeout(() => { card.style.outline = ''; }, 2500);
+  }
+}
+
+function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function init() {
+  renderShell();
+  loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
+  try {
+    dbRecord = (await getCachedCustomerDB()) || {};
+    cleanStaleSchedulingStates();
+    cleanupExpiredTestRecords(); // fire-and-forget — removes expired test records silently
+    render();
+  } catch(e) {
+    dbRecord = {customers:[]};
+    render();
+    showToast('⚠️ Could not load database — some data may be stale');
+  }
+  // URL-based highlight (from toast "View Card" or direct link)
+  const hlPhone = new URLSearchParams(window.location.search).get('highlight') ||
+                  new URLSearchParams(window.location.search).get('phone');
+  if (hlPhone) highlightSidebarJob(hlPhone);
+
+  // Poll for customer changes every 60 seconds
+  setInterval(pollCustomerUpdates, 60_000);
+  // Cross-tab trigger: mini_quote page sets localStorage after updating customer
+  window.addEventListener('storage', e => {
+    if (e.key === 'pcpc_db_changed_at') pollCustomerUpdates();
+  });
+  // Alert toast polling every 60 seconds
+  checkAlerts();
+  setInterval(checkAlerts, 60_000);
+}
+
+function highlightSidebarJob(phone) {
+  setTimeout(() => {
+    const card = document.querySelector(`.job-unscheduled[data-phone="${phone}"]`);
+    if (!card) {
+      showToast('Customer not in unscheduled list — they may already be scheduled');
+      return;
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('pulse-highlight');
+    setTimeout(() => card.classList.remove('pulse-highlight'), 2500);
+  }, 300);
+}
+
+async function saveDb() {
+  await fetch(`${PCPC_API}/customers`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(dbRecord)
+  });
+  sessionStorage.removeItem('pcpc_customer_db_cache');
+}
+
+// ── WEEK HELPERS ──────────────────────────────────────────────────────────────
+function getWeekDates() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const sunday = new Date(today); sunday.setDate(today.getDate() - today.getDay() + weekOffset * 7);
+  return Array.from({length:7}, (_,i) => {
+    const d = new Date(sunday); d.setDate(sunday.getDate() + i);
+    return d.toISOString().split('T')[0];
+  });
+}
+function isoToday() { return new Date().toISOString().split('T')[0]; }
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render() {
+  const dates = getWeekDates();
+  const fmt1 = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  document.getElementById('weekLabel').textContent = `${fmt1(dates[0])} – ${fmt1(dates[6])}`;
+
+  renderSidebar();
+  renderCalGrid(dates);
+  renderCrewPanel(dates);
+  updateReviewAlertBanner();
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function renderSidebar() {
+  // Needs Mini Quote queue
+  const mqJobs = getMiniQuoteNeeded();
+  const mqHdr = document.getElementById('mqHdr');
+  const mqEl  = document.getElementById('mqList');
+  document.getElementById('mqCount').textContent = mqJobs.length;
+  if (mqJobs.length) {
+    mqHdr.style.display = '';
+    mqEl.innerHTML = mqJobs.map(c => jobCardMiniQuote(c)).join('');
+  } else {
+    mqHdr.style.display = 'none';
+    mqEl.innerHTML = '';
+  }
+
+  // Needs Scheduling queue
+  const jobs = getUnscheduled();
+  document.getElementById('needsCount').textContent = jobs.length;
+  const el = document.getElementById('needsList');
+  if (!jobs.length) {
+    el.innerHTML = `<div class="empty-sidebar"><div>🎉</div><p style="font-size:14px;font-weight:600;color:var(--navy);">All caught up!</p><p style="font-size:13px;margin-top:4px;">No jobs waiting to be scheduled.</p></div>`;
+  } else {
+    el.innerHTML = jobs.map(c => jobCardSidebar(c)).join('');
+  }
+  initSortables();
+}
+
+function getMiniQuoteNeeded() {
+  const seen = new Set();
+  return (dbRecord.customers||[]).filter(x => {
+    if (!x.phone || seen.has(x.phone)) return false;
+    const match = x.quoteStatus && x.quoteStatus.state === 'phone_quoted_pending_mini_quote';
+    if (match) seen.add(x.phone);
+    return match;
+  });
+}
+
+function jobCardMiniQuote(c) {
+  const name = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const qs   = c.quoteStatus || {};
+  const amt  = qs.mainAmount || qs.approvedAmount;
+  const svc  = esc(qs.mainServices || qs.notes || '');
+  const savedAt = qs.quotedDate
+    ? new Date(qs.quotedDate).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+    : '';
+  const testBadge = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
+  return `<div class="job-unscheduled" data-phone="${c.phone}" style="border-left:3px solid var(--gold);cursor:default;" title="${name}">
+    <div class="jcard-top">
+      <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" target="_blank">${name}</a>${testBadge}</div>
+      <span class="phone-badge">📞 Phone</span>
+    </div>
+    ${svc || amt ? `<div class="jd" style="font-weight:600;color:var(--navy);">${svc}${amt ? ' — $'+Number(amt).toLocaleString() : ''}</div>` : ''}
+    ${savedAt ? `<div class="jd">Saved ${savedAt}</div>` : ''}
+    <a href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" style="display:inline-block;margin-top:7px;padding:5px 13px;background:var(--gold);color:var(--navy);border-radius:7px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.2px;" onclick="event.stopPropagation();">Build Mini Quote →</a>
+  </div>`;
+}
+
+function jobAmount(c) {
+  const amt = (c.scheduledStatus || {}).approvedAmount;
+  if (!amt) return { html: '<span class="jn-amount missing">—</span>', val: 0 };
+  return { html: `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>`, val: Number(amt) };
+}
+
+function calculateRigTotal(date, rig) {
+  return getScheduledForRig(date, rig).reduce((s, c) => s + (jobAmount(c).val), 0);
+}
+
+function calculateDayTotal(date) {
+  return RIGS.reduce((s, rig) => s + calculateRigTotal(date, rig), 0);
+}
+
+function jobCardSidebar(c) {
+  const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const ss     = c.scheduledStatus || {};
+  const dur    = ss.estimatedDuration || 2;
+  const notes  = esc(ss.jobNotes || '');
+  const alerts = alertIcons(c.alerts||[]);
+  const phone  = fmtPh(c.phone);
+  const city   = formatCity(c.city || '');
+  const { html: amtHtml } = jobAmount(c);
+
+  // Collect badges
+  const badges = [
+    c.isTest                                                           ? '<span class="test-badge">🧪 TEST</span>' : '',
+    c.source === 'phone_quoted'                                        ? '<span class="phone-badge">📞 Phone quoted</span>' : '',
+    c.sealingInterest                                                  ? '<span class="seal-badge">💎 Seal int</span>' : '',
+    (_justUpdated.has(c.phone) && _justUpdated.get(c.phone) > Date.now()) ? '<span class="updated-badge">💫 Just updated</span>' : '',
+  ].filter(Boolean);
+
+  const badgesHtml = badges.length ? `<div class="jcard-badges">${badges.join('')}</div>` : '';
+
+  const testExpiry = c.isTest && c.testExpiresAt
+    ? `<div class="test-expiry">Auto-removes ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
+    : '';
+
+  let wantsLine = '';
+  if (ss.customerSelectedDate) {
+    const d = new Date(ss.customerSelectedDate + 'T12:00:00');
+    wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))}</div>`;
+  }
+
+  const addOnsLine = (c.addOns && c.addOns.length)
+    ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
+    : '';
+
+  return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
+    <div class="jcard-top">
+      <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'" target="_blank">${name}</a>${alerts}</div>
+      <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
+    </div>
+    ${badgesHtml}
+    <div class="jcard-price">${amtHtml}</div>
+    ${testExpiry}
+    ${wantsLine}
+    <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
+    ${addOnsLine}
+    ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
+    <div class="drag-hint">⠿ Drag to schedule</div>
+    ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
+  </div>`;
+}
+
+// ── CALENDAR GRID ─────────────────────────────────────────────────────────────
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function renderCalGrid(dates) {
+  const today = isoToday();
+  const html = dates.map(date => {
+    const d = new Date(date+'T12:00:00');
+    const dayName = DAY_NAMES[d.getDay()];
+    const dayLabel = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+    const isToday = date === today;
+    const labor = calcDailyLabor(date);
+    const dayTotal = calculateDayTotal(date);
+    const dayNet = dayTotal - labor;
+    const dayGrossStr = dayTotal > 0
+      ? `$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} gross`
+      : '$0 gross';
+    const dayLaborNetStr = labor > 0
+      ? `-$${labor.toLocaleString()} labor · $${dayNet.toLocaleString()} net`
+      : '';
+    const rigsHtml = RIGS.map(rig => {
+      const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+      const crewLabel = crew.map(id => CREW_MEMBERS.find(c=>c.id===id)?.name||id).join(' + ');
+      const dayType = getRigDayType(date, rig);
+      const halfBadge = dayType === 'half' ? ' <span style="font-size:10px;font-weight:700;color:var(--gold);background:rgba(244,166,32,.15);border-radius:4px;padding:1px 4px;margin-left:2px;">½</span>' : '';
+      const jobs = getScheduledForRig(date, rig);
+      const jobsHtml = jobs.map(c => jobCardScheduled(c)).join('');
+      const emptyClass = jobs.length ? '' : ' empty-hint';
+      const rigTotal = calculateRigTotal(date, rig);
+      const rigLabor = calcRigLabor(date, rig);
+      const rigNet   = rigTotal - rigLabor;
+      const rigGrossStr = rigTotal > 0
+        ? `$${rigTotal.toLocaleString('en-US',{maximumFractionDigits:0})}`
+        : '$0';
+      const rigGrossCls = rigTotal > 0 ? 'rig-gross' : 'rig-gross zero';
+      const rigLaborNetHtml = rigLabor > 0
+        ? `<div class="rig-labor-net">-$${rigLabor.toLocaleString()} labor · <span class="rig-net-val">$${rigNet.toLocaleString()} net</span></div>`
+        : '';
+      const printableJobs = jobs.filter(j => !j.isTest && (j.scheduledStatus?.state||'scheduled') !== 'completed');
+      const bulkPrintHtml = printableJobs.length > 0
+        ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 Print ${printableJobs.length} job sheet${printableJobs.length>1?'s':''}</button></div>`
+        : '';
+      return `<div class="rig-section">
+        <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
+          <span class="rig-icon">🚛</span>
+          <span class="rig-name">${RIG_LABELS[rig]}${halfBadge}</span>
+          <span class="rig-crew-label">${crewLabel}</span>
+        </div>
+        <div class="${rigGrossCls}">${RIG_LABELS[rig]}: ${rigGrossStr}</div>
+        ${rigLaborNetHtml}
+        ${bulkPrintHtml}
+        <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+        ${renderArrivalButtons(date, rig, jobs)}
+      </div>`;
+    }).join('');
+    return `<div class="day-col${isToday?' today-col':''}">
+      <div class="day-hdr">
+        <div class="day-name">${dayName}</div>
+        <div class="day-date${isToday?' today':''}">${dayLabel}</div>
+        <div class="day-gross${dayTotal===0?' zero':''}">${dayGrossStr}</div>
+        ${labor>0 ? `<div class="day-labor has-cost">${dayLaborNetStr}</div>` : '<div class="day-labor">&nbsp;</div>'}
+      </div>
+      ${rigsHtml}
+    </div>`;
+  }).join('');
+  document.getElementById('calGrid').innerHTML = html;
+  initSortables();
+}
+
+function jobCardScheduled(c) {
+  const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const ss    = c.scheduledStatus || {};
+  const time  = ss.startTime || '9:00am';
+  const dur   = ss.estimatedDuration || 2;
+  const state = ss.state || 'scheduled';
+  const alerts= alertIcons(c.alerts||[]);
+  const city  = c.city ? esc(formatCity(c.city)) : '';
+  const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
+  const { html: amtHtml } = jobAmount(c);
+  const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
+  const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
+  const jobDate  = ss.scheduledDate || '';
+  const jobRig   = ss.rig || '';
+  const hasCmpt  = !c.isTest && isComplaintLogged(phone);
+  const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
+
+  let reviewBtnHtml = '';
+  let printBtnHtml  = '';
+  const complaintLink = (!c.isTest && phone)
+    ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
+    : '';
+
+  if (state === 'completed') {
+    const fn = esc((c.firstName||c.fn||'').trim().split(' ')[0] || 'there');
+    const reqDate = phone ? getReviewRequestedDate(phone) : null;
+    if (hasCmpt) {
+      reviewBtnHtml = `<button class="js-review-btn blocked" disabled onclick="event.stopPropagation()" title="Review request blocked — complaint logged">⚠ Review blocked · complaint logged${reqDate ? ' (sent '+reqDate+')' : ''}</button>`;
+    } else if (reqDate) {
+      reviewBtnHtml = `<button class="js-review-btn sent" disabled onclick="event.stopPropagation()">✓ Review Requested ${reqDate}</button>`;
+    } else if (!phone) {
+      reviewBtnHtml = `<button class="js-review-btn no-phone" disabled onclick="event.stopPropagation()">📝 Request review — no phone</button>`;
+    } else {
+      const timing = getReviewTiming(ss.completedDate);
+      reviewBtnHtml = `<button class="js-review-btn timing-${timing.state}" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)"${timing.state==='wait'?' title="Better response rates 24-48 hours after job"':''}>📝 Request review · ${timing.label}</button>`;
+    }
+    if (!c.isTest && phone) {
+      printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print invoice</button>`;
+    }
+  } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
+    printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
+  }
+
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}</span>${amtHtml}</div>
+    <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
+    ${reviewBtnHtml}
+    ${printBtnHtml}
+    ${complaintLink}
+  </div>`;
+}
+
+// ── RIGHT SIDEBAR ─────────────────────────────────────────────────────────────
+function renderCrewPanel(dates) {
+  const today = isoToday();
+  const worked = crewWorkedDays(dates);
+  const payBreakdown = crewPayBreakdown(dates);
+  const totalPaid = CREW_MEMBERS.filter(cm=>cm.role!=='owner')
+    .reduce((s,cm) => s + (payBreakdown[cm.id]?.total||0), 0);
+
+  let html = CREW_MEMBERS.map(cm => {
+    const days = worked[cm.id] || [];
+    const isOff = (date) => (calState.daysOff||[]).some(o=>o.crewId===cm.id&&o.date===date);
+    const weekHtml = dates.map((date, i) => {
+      const dn = ['S','M','T','W','T','F','S'][i];
+      const on = days.includes(date);
+      const off = isOff(date);
+      const half = on && isCrewHalfDay(cm.id, date);
+      const cls = off ? 'off' : half ? 'worked half' : on ? 'worked' : 'empty';
+      const lbl = off ? 'Off' : half ? '½' : dn;
+      return `<div class="cc-day ${cls}" title="${date}">${lbl}</div>`;
+    }).join('');
+    const bd = payBreakdown[cm.id] || {full:0, half:0, total:0};
+    const breakStr = [
+      bd.full > 0 ? `${bd.full} full` : '',
+      bd.half > 0 ? `${bd.half} half` : ''
+    ].filter(Boolean).join(' + ') || '—';
+    const statsHtml = cm.role==='owner'
+      ? `<div class="cc-owner">Owner — not paid</div>`
+      : `<div class="cc-stats"><strong>${breakStr}</strong> · $${bd.total.toLocaleString()}/wk</div>`;
+    return `<div class="crew-card">
+      <div class="cc-name"><div class="cc-dot" style="background:${cm.color}"></div>${cm.name}</div>
+      <div class="cc-week">${weekHtml}</div>
+      ${statsHtml}
+    </div>`;
+  }).join('');
+
+  html += `<div class="payroll-footer">
+    <div class="pf-title">💰 Weekly Labor Cost</div>
+    <div class="pf-total">$${totalPaid.toLocaleString()}</div>
+    <div class="pf-sub">Excludes Tony (owner)</div>
+    <div class="pf-breakdown">${dates.map((date,i)=>{
+      const dl = calcDailyLabor(date);
+      return dl>0 ? `${DAY_NAMES[i]}: $${dl}` : '';
+    }).filter(Boolean).join('<br>')}</div>
+  </div>`;
+
+  document.getElementById('crewPanel').innerHTML = html;
+}
+
+// ── PAYROLL CALC ──────────────────────────────────────────────────────────────
+function getRigDayType(date, rig) {
+  return ((calState.rigDayType||{})[date]||{})[rig] || 'full';
+}
+
+function isCrewHalfDay(id, date) {
+  for (const rig of RIGS) {
+    const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+    if (crew.includes(id)) return getRigDayType(date, rig) === 'half';
+  }
+  return false;
+}
+
+function crewPayBreakdown(dates) {
+  const result = {};
+  CREW_MEMBERS.forEach(cm => result[cm.id] = {full:0, half:0, total:0});
+  for (const date of dates) {
+    const seen = new Set();
+    for (const rig of RIGS) {
+      const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+      const dayType = getRigDayType(date, rig);
+      for (const id of crew) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const cm = CREW_MEMBERS.find(c=>c.id===id);
+        if (!cm) continue;
+        if (dayType === 'half') { result[id].half++; result[id].total += cm.halfRate||0; }
+        else                    { result[id].full++; result[id].total += cm.dailyRate;   }
+      }
+    }
+  }
+  return result;
+}
+
+function calcDailyLabor(date) {
+  let total = 0;
+  const seen = new Set();
+  for (const rig of RIGS) {
+    const crew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+    const dayType = getRigDayType(date, rig);
+    for (const id of crew) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const cm = CREW_MEMBERS.find(c=>c.id===id);
+      if (!cm) continue;
+      total += dayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+    }
+  }
+  return total;
+}
+
+// Per-rig labor — deduplicates crew across rigs in RIGS order so sum = calcDailyLabor
+function calcRigLabor(date, rig) {
+  const seen = new Set();
+  for (const r of RIGS) {
+    if (r === rig) break;
+    for (const id of (((calState.rigCrew||{})[date]||{})[r]||[])) seen.add(id);
+  }
+  let total = 0;
+  const dayType = getRigDayType(date, rig);
+  for (const id of (((calState.rigCrew||{})[date]||{})[rig]||[])) {
+    if (seen.has(id)) continue;
+    const cm = CREW_MEMBERS.find(c=>c.id===id);
+    if (cm) total += dayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+  }
+  return total;
+}
+
+function crewWorkedDays(dates) {
+  const result = {};
+  CREW_MEMBERS.forEach(cm => result[cm.id] = []);
+  for (const date of dates) {
+    const rigs = ((calState.rigCrew||{})[date])||{};
+    const seen = new Set();
+    for (const rig of RIGS) { for (const id of (rigs[rig]||[])) if(!seen.has(id)){seen.add(id);result[id].push(date);} }
+  }
+  return result;
+}
+
+function calcPayroll(dates) {
+  const bd = crewPayBreakdown(dates);
+  const result = {};
+  for (const [id, data] of Object.entries(bd)) result[id] = data.total;
+  return result;
+}
+
+// ── DATA QUERIES ──────────────────────────────────────────────────────────────
+function getUnscheduled() {
+  const seen = new Set();
+  return (dbRecord.customers||[]).filter(x => {
+    if (!x.phone || seen.has(x.phone)) return false;
+    const matches =
+      (x.scheduledStatus && x.scheduledStatus.state === 'needs_scheduling') ||
+      (x.quoteStatus && x.quoteStatus.state === 'approved' && (!x.scheduledStatus || !x.scheduledStatus.state));
+    if (matches) seen.add(x.phone);
+    return matches;
+  });
+}
+
+function getScheduledForRig(date, rig) {
+  return (dbRecord.customers||[]).filter(c => {
+    const ss = c.scheduledStatus;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed') && ss.scheduledDate===date && ss.rig===rig;
+  });
+}
+
+function findCustomer(phone) {
+  return (dbRecord.customers||[]).find(c=>c.phone===phone);
+}
+
+// ── DRAG AND DROP ─────────────────────────────────────────────────────────────
+function initSortables() {
+  sortables.forEach(s => { try { s.destroy(); } catch {} });
+  sortables = [];
+
+  const sidebarEl = document.getElementById('needsList');
+  if (sidebarEl) {
+    sortables.push(Sortable.create(sidebarEl, {
+      group:{ name:'jobs', pull:true, put:true },
+      animation:150,
+      ghostClass:'sortable-ghost',
+      chosenClass:'sortable-chosen',
+      filter: '.card-del-btn,.card-sms-btn',
+      onStart:()=>{ wasDragging=true; },
+      onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
+      onAdd: evt => handleDropToSidebar(evt.item.dataset.phone, evt)
+    }));
+  }
+
+  document.querySelectorAll('.rig-jobs').forEach(lane => {
+    sortables.push(Sortable.create(lane, {
+      group:{ name:'jobs', pull:true, put: to => {
+        // Max 2 jobs per rig slot? No — only crew has max. Multiple jobs per rig allowed.
+        return true;
+      }},
+      animation:150,
+      ghostClass:'sortable-ghost',
+      chosenClass:'sortable-chosen',
+      onStart:()=>{ wasDragging=true; },
+      onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
+      onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig)
+    }));
+  });
+}
+
+async function handleDropToRig(phone, date, rig) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  if (!c.scheduledStatus) c.scheduledStatus = { estimatedDuration:2, startTime:'09:00', jobNotes:'', crew:[] };
+  c.scheduledStatus.state = 'scheduled';
+  c.scheduledStatus.scheduledDate = date;
+  c.scheduledStatus.rig = rig;
+
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const dateStr = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  showToast(`📅 ${esc(name)} → ${dateStr} · ${RIG_LABELS[rig]}`, 'Undo', () => { undoAction(phone, prev); });
+
+  saveDb().catch(()=>{});
+  renderCalGrid(getWeekDates());
+  renderCrewPanel(getWeekDates());
+  renderSidebar(); // keep sidebar in sync — "All caught up!" when last card is scheduled
+}
+
+async function handleDropToSidebar(phone, evt) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  // Only clear scheduling-specific fields — never touch name, phone, amount, quoteStatus, etc.
+  if (c.scheduledStatus) {
+    c.scheduledStatus.state = 'needs_scheduling';
+    c.scheduledStatus.scheduledDate = null;
+    c.scheduledStatus.rig = null;
+  } else {
+    c.scheduledStatus = { state: 'needs_scheduling', scheduledDate: null, rig: null };
+  }
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`↩ ${esc(name)} moved back to Needs Scheduling`, 'Undo', () => { undoAction(phone, prev); });
+  saveDb().catch(()=>{});
+  renderCalGrid(getWeekDates());
+  renderCrewPanel(getWeekDates());
+  // Re-render sidebar with proper sidebar card HTML — fixes stuck calendar card + missing X button
+  renderSidebar();
+}
+
+function undoAction(phone, prevStatus) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  c.scheduledStatus = prevStatus;
+  saveDb().catch(()=>{});
+  render();
+  showToast('↩ Action undone');
+}
+
+// ── CREW POPOVER ──────────────────────────────────────────────────────────────
+function openCrewPop(date, rig, el) {
+  cpDate = date; cpRig = rig;
+  const currentCrew = ((calState.rigCrew||{})[date]||{})[rig] || [];
+  cpSelCrew = [...currentCrew];
+  cpDayType = getRigDayType(date, rig);
+
+  document.getElementById('cpTitle').textContent = `${RIG_LABELS[rig]} · ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})}`;
+  document.getElementById('cpDtFull').checked = cpDayType !== 'half';
+  document.getElementById('cpDtHalf').checked = cpDayType === 'half';
+
+  const isOff = id => (calState.daysOff||[]).some(o=>o.crewId===id&&o.date===date);
+  const onOtherRig = id => RIGS.filter(r=>r!==rig).some(r => ((calState.rigCrew||{})[date]||{})[r]?.includes(id));
+
+  document.getElementById('cpList').innerHTML = CREW_MEMBERS.map(cm => {
+    const off     = isOff(cm.id);
+    const other   = onOtherRig(cm.id);
+    const checked = currentCrew.includes(cm.id);
+    const rate    = cpDayType === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+    const sub     = off   ? `<span class="cp-crew-sub">Off</span>`
+                  : other ? `<span class="cp-crew-sub">On other rig</span>`
+                  :         `<span class="cp-crew-sub" id="cpc-rate-${cm.id}">$${rate}/day${cm.role==='owner'?' (Owner)':''}</span>`;
+    const disabled = off || other;
+    return `<div class="cp-crew-item${disabled?' disabled':''}" onclick="${disabled?'':' toggleCpCrew(\''+cm.id+'\')'}"  >
+      <input type="checkbox" id="cpc-${cm.id}" ${checked?'checked':''} ${disabled?'disabled':''}>
+      <div><div class="cp-crew-label" style="color:${cm.color}">${cm.name}</div>${sub}</div>
+    </div>`;
+  }).join('');
+
+  const pop = document.getElementById('crewPop');
+  const rect = el.getBoundingClientRect();
+  pop.style.top  = Math.min(rect.bottom + 4, window.innerHeight - 320) + 'px';
+  pop.style.left = Math.min(rect.left, window.innerWidth - 256) + 'px';
+  pop.classList.remove('hidden');
+  document.addEventListener('click', crewPopOutside, true);
+}
+
+function toggleCpCrew(id) {
+  const cb = document.getElementById('cpc-' + id);
+  if (!cb) return;
+  if (cpSelCrew.includes(id)) {
+    cpSelCrew = cpSelCrew.filter(x=>x!==id);
+    cb.checked = false;
+  } else {
+    if (cpSelCrew.length >= 2) { showToast('Max 2 crew per rig'); return; }
+    cpSelCrew.push(id);
+    cb.checked = true;
+  }
+}
+
+function saveCrewPop() {
+  if (!calState.rigCrew)              calState.rigCrew              = {};
+  if (!calState.rigCrew[cpDate])      calState.rigCrew[cpDate]      = {};
+  if (!calState.rigDayType)           calState.rigDayType           = {};
+  if (!calState.rigDayType[cpDate])   calState.rigDayType[cpDate]   = {};
+  calState.rigCrew[cpDate][cpRig]    = [...cpSelCrew];
+  calState.rigDayType[cpDate][cpRig] = cpDayType;
+  saveCalState();
+  closeCrewPop();
+  render();
+}
+
+function closeCrewPop() {
+  document.getElementById('crewPop').classList.add('hidden');
+  document.removeEventListener('click', crewPopOutside, true);
+}
+
+function cpUpdateDayType(type) {
+  cpDayType = type;
+  CREW_MEMBERS.forEach(cm => {
+    const el = document.getElementById('cpc-rate-'+cm.id);
+    if (!el || cm.role === 'owner') return;
+    const rate = type === 'half' ? (cm.halfRate||0) : cm.dailyRate;
+    el.textContent = '$'+rate+'/day';
+  });
+}
+
+function crewPopOutside(e) {
+  const pop = document.getElementById('crewPop');
+  if (!pop.contains(e.target)) closeCrewPop();
+}
+
+// ── JOB DETAIL MODAL ──────────────────────────────────────────────────────────
+function openJobModal(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  jmPhone = phone;
+  const ss   = c.scheduledStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const crew = ss.crew || ( ss.rig && ss.scheduledDate ? (((calState.rigCrew||{})[ss.scheduledDate]||{})[ss.rig]||[]) : [] );
+  const crewNames = crew.map(id => CREW_MEMBERS.find(cm=>cm.id===id)?.name||id).join(', ') || '—';
+  const ph = c.phone ? `<a href="tel:${c.phone}" style="color:var(--sky)">📞 ${fmtPh(c.phone)}</a>` : '';
+  const addr = c.address ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address+' '+c.city)}" target="_blank" style="color:var(--sky)">📍 ${esc(c.address)}${c.city?', '+esc(formatCity(c.city)):''}</a>` : '';
+  const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
+
+  document.getElementById('jmTitle').textContent = name;
+  document.getElementById('jmBody').innerHTML = `
+    <div style="margin-bottom:.875rem;display:flex;gap:8px;align-items:center;">
+      <span class="status-badge ${stateBadge}">${ss.state||'scheduled'}</span>
+      ${ss.scheduledDate ? `<span style="font-size:13px;color:var(--muted);">${new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span>` : ''}
+    </div>
+    <div style="font-size:14px;line-height:2;margin-bottom:1rem;">
+      ${ph ? ph+'<br>' : ''}
+      ${addr ? addr+'<br>' : ''}
+      ${crewNames ? `👤 ${crewNames}<br>` : ''}
+      ${alertIcons(c.alerts||[])} ${(c.alerts||[]).map(a=>a.label).join(', ')||'No alerts'}<br>
+    </div>
+    <div class="modal-field">
+      <label>Duration (hours)</label>
+      <select id="jmDur" class="modal-input">
+        ${[1,2,3,4,5,6].map(h=>`<option value="${h}" ${(ss.estimatedDuration||2)===h?'selected':''}>${h} hour${h===1?'':'s'}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Start Time</label>
+      <input type="time" id="jmStart" class="modal-input" value="${ss.startTime||'09:00'}">
+    </div>
+    <div class="modal-field">
+      <label>Job Notes (internal)</label>
+      <input type="text" id="jmNotes" class="modal-input" value="${esc(ss.jobNotes||'')}" placeholder="Services, address notes…">
+    </div>
+  `;
+
+  const isCompleted = ss.state === 'completed';
+  document.getElementById('jmFooter').innerHTML = `
+    <button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>
+    ${!isCompleted ? `<button class="mbtn-green" onclick="markComplete()">✓ Complete</button>` : ''}
+    <button style="flex:1;padding:10px;border-radius:10px;background:#fee2e2;color:#dc2626;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptCancelJob('${phone}')">✕ Cancel Job</button>
+    <button class="mbtn-save" onclick="saveJobModal()">Save</button>
+  `;
+  document.getElementById('jobModal').classList.remove('hidden');
+}
+
+function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); jmPhone=null; }
+
+function saveJobModal() {
+  const c = findCustomer(jmPhone);
+  if (!c || !c.scheduledStatus) return;
+  c.scheduledStatus.estimatedDuration = parseInt(document.getElementById('jmDur').value)||2;
+  c.scheduledStatus.startTime = document.getElementById('jmStart').value || '09:00';
+  c.scheduledStatus.jobNotes  = document.getElementById('jmNotes').value.trim();
+  saveDb().catch(()=>{});
+  closeJobModal();
+  render();
+}
+
+function markComplete() {
+  // Show post-job log modal before marking complete
+  const now = new Date();
+  document.getElementById('jobEndTime').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  document.querySelector('input[name="custSatisfied"][value="yes"]').checked = true;
+  ['issueTime','issueEquip','issueScope','issueWeather'].forEach(id => { const el = document.getElementById(id); if(el) el.checked = false; });
+  const n = document.getElementById('jobLogNotes'); if (n) n.value = '';
+  document.getElementById('jobLogModal').classList.remove('hidden');
+}
+
+function skipJobLog() {
+  document.getElementById('jobLogModal').classList.add('hidden');
+  _doCompleteJob({});
+}
+
+function saveJobLog() {
+  document.getElementById('jobLogModal').classList.add('hidden');
+  const issues = [];
+  if (document.getElementById('issueTime')?.checked)    issues.push('took_longer');
+  if (document.getElementById('issueEquip')?.checked)   issues.push('equipment');
+  if (document.getElementById('issueScope')?.checked)   issues.push('scope_change');
+  if (document.getElementById('issueWeather')?.checked) issues.push('weather');
+  const satisfied = document.querySelector('input[name="custSatisfied"]:checked')?.value || 'yes';
+  const endTime   = document.getElementById('jobEndTime')?.value || '';
+  const notes     = document.getElementById('jobLogNotes')?.value?.trim() || '';
+  _doCompleteJob({ satisfied, endTime, issues, notes });
+}
+
+function _doCompleteJob(log) {
+  const c = findCustomer(jmPhone);
+  if (!c || !c.scheduledStatus) return;
+  const ss = c.scheduledStatus;
+  ss.state = 'completed';
+  ss.completedDate = isoToday();
+  if (Object.keys(log).length) {
+    ss.jobLog = { ...log, loggedAt: new Date().toISOString(), loggedBy: 'operator' };
+  }
+  // Update customer history
+  const amt = ss.approvedAmount || 0;
+  if (amt > 0) c.lifetimeSpend = (c.lifetimeSpend || 0) + amt;
+  c.totalJobs = (c.totalJobs || 0) + 1;
+  c.lastService = isoToday();
+  saveDb().catch(()=>{});
+  closeJobModal();
+  render();
+  showToast('✓ Job completed — customer history updated');
+}
+
+// ── DELETE / CANCEL FLOWS ──────────────────────────────────────────────────────
+let _confirmCallback = null;
+let _deletedSnapshot = null; // for undo
+
+function closeConfirmModal() {
+  document.getElementById('confirmModal').classList.add('hidden');
+  _confirmCallback = null;
+}
+
+function promptDeleteFromQueue(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const amt = (c.scheduledStatus||{}).approvedAmount;
+  const amtStr = amt ? ` · $${Number(amt).toLocaleString()}` : '';
+  document.getElementById('cmTitle').textContent = 'Remove from Queue';
+  document.getElementById('cmBody').innerHTML = `Remove <strong>${esc(name)}</strong> from the scheduling queue?${amtStr}<br><span style="color:#dc2626;font-size:12px;">This clears the job. The customer record is preserved.</span>`;
+  document.getElementById('cmReasonWrap').style.display = 'none';
+  document.getElementById('cmConfirmBtn').textContent = 'Remove';
+  _confirmCallback = () => executeDeleteFromQueue(phone);
+  document.getElementById('cmConfirmBtn').onclick = () => { const cb = _confirmCallback; closeConfirmModal(); cb && cb(); };
+  document.getElementById('confirmModal').classList.remove('hidden');
+}
+
+function executeDeleteFromQueue(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  // Clear job state but preserve customer record
+  if (c.lifetimeSpend > 0) {
+    c.quoteStatus = null;
+    c.scheduledStatus = null;
+  } else {
+    // Test/no-history record — clear entirely
+    c.quoteStatus = null;
+    c.scheduledStatus = null;
+  }
+  logEvent('job_deleted', phone, {name, reason:'removed_from_queue'});
+  saveDb().catch(()=>{});
+  render();
+  showToast(`🗑 ${esc(name)} removed`, 'Undo', () => undoDelete(phone));
+}
+
+function promptCancelJob(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const ss = c.scheduledStatus || {};
+  const dateStr = ss.scheduledDate ? new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : '';
+  document.getElementById('cmTitle').textContent = 'Cancel Job';
+  document.getElementById('cmBody').innerHTML = `Cancel <strong>${esc(name)}</strong>${dateStr ? `'s job on ${dateStr}` : ''}?<br><span style="font-size:12px;color:var(--muted);">Customer record preserved. Choose a reason below.</span>`;
+  document.getElementById('cmReasonWrap').style.display = 'block';
+  document.getElementById('cmConfirmBtn').textContent = 'Cancel Job';
+  document.getElementById('cmConfirmBtn').onclick = () => {
+    const reason = document.getElementById('cmReason').value;
+    closeConfirmModal();
+    closeJobModal();
+    executeCancelJob(phone, reason);
+  };
+  document.getElementById('confirmModal').classList.remove('hidden');
+}
+
+function executeCancelJob(phone, reason) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+
+  if (reason === 'reschedule_later') {
+    // Return to queue rather than cancel
+    c.scheduledStatus.state = 'needs_scheduling';
+    c.scheduledStatus.scheduledDate = null;
+    c.scheduledStatus.rig = null;
+    logEvent('job_rescheduled', phone, {name, reason});
+    saveDb().catch(()=>{});
+    render();
+    showToast(`↺ ${esc(name)} returned to queue for rescheduling`, 'Undo', () => undoDelete(phone));
+    return;
+  }
+
+  c.scheduledStatus.state = 'canceled';
+  c.scheduledStatus.canceledDate = isoToday();
+  c.scheduledStatus.canceledReason = reason;
+
+  // Customer-initiated cancels trigger 6-month cooldown in reactivation
+  if (reason === 'customer_canceled' || reason === 'no_show') {
+    try {
+      const contacts = JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}');
+      const sixMonths = new Date(Date.now() + 6*30*24*60*60*1000);
+      contacts[phone] = { contactedAt: new Date().toISOString(), cooldownUntil: sixMonths.toISOString() };
+      localStorage.setItem('pcpc_reactivation_contacts', JSON.stringify(contacts));
+    } catch(e) {}
+  }
+
+  logEvent('job_canceled', phone, {name, reason});
+  saveDb().catch(()=>{});
+  render();
+  showToast(`✕ ${esc(name)}'s job canceled`, 'Undo', () => undoDelete(phone));
+}
+
+function undoDelete(phone) {
+  if (!_deletedSnapshot || _deletedSnapshot.phone !== phone) return;
+  const c = findCustomer(phone);
+  if (!c) return;
+  c.quoteStatus = _deletedSnapshot.quoteStatus;
+  c.scheduledStatus = _deletedSnapshot.scheduledStatus;
+  _deletedSnapshot = null;
+  saveDb().catch(()=>{});
+  render();
+  showToast('↩ Action undone');
+}
+
+function logEvent(type, phone, meta) {
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      id: 'evt_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      eventType: type,
+      customerPhone: phone,
+      metadata: meta || {}
+    })
+  }).catch(() => {});
+}
+
+function unscheduleJob() {
+  const c = findCustomer(jmPhone);
+  if (!c || !c.scheduledStatus) return;
+  c.scheduledStatus.state = 'needs_scheduling';
+  c.scheduledStatus.scheduledDate = null;
+  c.scheduledStatus.rig = null;
+  saveDb().catch(()=>{});
+  closeJobModal();
+  render();
+}
+
+// ── PAYROLL MODAL ─────────────────────────────────────────────────────────────
+function openPayrollModal() {
+  const dates      = getWeekDates();
+  const payBD      = crewPayBreakdown(dates);
+  const total      = CREW_MEMBERS.filter(cm=>cm.role!=='owner')
+    .reduce((s,cm) => s + (payBD[cm.id]?.total||0), 0);
+  const rows = CREW_MEMBERS.map(cm => {
+    const bd = payBD[cm.id] || {full:0, half:0, total:0};
+    const daysStr = cm.role==='owner' ? '—'
+      : (bd.full>0 && bd.half>0) ? `${bd.full}F + ${bd.half}H`
+      : bd.half>0 ? `${bd.half} half`
+      : `${bd.full}`;
+    const rateStr = cm.role==='owner' ? '—' : `$${cm.dailyRate} / $${cm.halfRate||0}`;
+    return `<tr>
+      <td style="font-weight:600">${cm.name}</td>
+      <td>${daysStr}</td>
+      <td style="font-size:11px;color:var(--muted)">${rateStr}</td>
+      <td style="font-weight:600">${cm.role==='owner' ? '<em style="color:var(--muted)">Owner</em>' : '$'+bd.total.toLocaleString()}</td>
+    </tr>`;
+  }).join('');
+  const breakdown = dates.map((date,i) => {
+    const dl = calcDailyLabor(date);
+    const hasHalf = RIGS.some(rig => getRigDayType(date,rig)==='half' && (((calState.rigCrew||{})[date]||{})[rig]||[]).length>0);
+    const halfNote = hasHalf ? ' <span style="color:var(--gold);font-size:10px;font-weight:700;">½</span>' : '';
+    return `<tr><td>${DAY_NAMES[i]} ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}${halfNote}</td><td colspan="2">—</td><td style="font-weight:600">${dl>0?'$'+dl.toLocaleString():'-'}</td></tr>`;
+  }).join('');
+  document.getElementById('payrollBody').innerHTML = `
+    <table class="payroll-table">
+      <thead><tr><th>Crew</th><th>Days (F/H)</th><th>Full/Half $</th><th>Total</th></tr></thead>
+      <tbody>${rows}
+        <tr class="pay-total-row"><td colspan="3">PAID TOTAL</td><td>$${total.toLocaleString()}</td></tr>
+      </tbody>
+    </table>
+    <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:.5rem;">Day-by-Day</div>
+    <table class="payroll-table"><tbody>${breakdown}</tbody></table>`;
+  document.getElementById('payrollModal').classList.remove('hidden');
+}
+function closePayrollModal() { document.getElementById('payrollModal').classList.add('hidden'); }
+
+// ── DAY OFF ───────────────────────────────────────────────────────────────────
+function openDayOffModal() {
+  const sel = document.getElementById('doCrew');
+  sel.innerHTML = CREW_MEMBERS.map(cm => `<option value="${cm.id}">${cm.name}</option>`).join('');
+  document.getElementById('doDate').value = isoToday();
+  document.getElementById('dayOffModal').classList.remove('hidden');
+}
+function closeDayOffModal() { document.getElementById('dayOffModal').classList.add('hidden'); }
+function saveDayOff() {
+  const crewId = document.getElementById('doCrew').value;
+  const date   = document.getElementById('doDate').value;
+  if (!crewId || !date) return;
+  if (!calState.daysOff) calState.daysOff = [];
+  if (!calState.daysOff.some(o=>o.crewId===crewId&&o.date===date)) {
+    calState.daysOff.push({crewId, date});
+    saveCalState();
+  }
+  closeDayOffModal();
+  render();
+  const name = CREW_MEMBERS.find(c=>c.id===crewId)?.name||crewId;
+  showToast(`${name} marked off on ${new Date(date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}`);
+}
+
+// ── WEEK NAV ──────────────────────────────────────────────────────────────────
+function changeWeek(dir) { weekOffset += dir; render(); updateBlockWeekBtn(); }
+function goToday()       { weekOffset = 0; render(); updateBlockWeekBtn(); }
+
+let _crewVisible = false;
+function toggleCrewPanel() {
+  _crewVisible = !_crewVisible;
+  document.getElementById('mainLayout').classList.toggle('crew-visible', _crewVisible);
+  document.getElementById('crewToggleBtn').textContent = _crewVisible ? '👥 Crew ‹' : '👥 Crew';
+}
+
+// ── BLOCKED WEEKS ─────────────────────────────────────────────────────────────
+let _calBlockedWeeks = [];
+
+async function loadBlockedWeeksCal() {
+  try {
+    const res = await fetch(`${PCPC_API}/blocked-weeks`);
+    if (res.ok) { const d = await res.json(); _calBlockedWeeks = d.blockedWeeks || []; }
+  } catch(e) {}
+  updateBlockWeekBtn();
+}
+
+function getViewedWeekStart() {
+  const dates = getWeekDates();
+  return dates.find(d => new Date(d+'T12:00:00').getDay() === 1) || dates[1];
+}
+
+function isCurrentViewBlocked() {
+  const ws = getViewedWeekStart();
+  return _calBlockedWeeks.some(bw => bw.weekStart === ws);
+}
+
+function updateBlockWeekBtn() {
+  const btn = document.getElementById('blockWeekBtn');
+  if (!btn) return;
+  const blocked = isCurrentViewBlocked();
+  btn.textContent = blocked ? '✓ Week Booked' : 'Mark Booked';
+  btn.className = 'block-week-btn' + (blocked ? ' is-blocked' : '');
+}
+
+async function toggleWeekBlocked() {
+  const weekStart = getViewedWeekStart();
+  const dates = getWeekDates();
+  const fmt = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const label = `${fmt(dates[0])} – ${fmt(dates[6])}`;
+  const currently = isCurrentViewBlocked();
+  const msg = currently
+    ? `Unblock week of ${label}?\n\nCustomers will be able to request this week again on the quote form.`
+    : `Mark week of ${label} as fully booked?\n\nThis week will appear as unavailable on the customer quote form.`;
+  if (!confirm(msg)) return;
+  if (currently) {
+    _calBlockedWeeks = _calBlockedWeeks.filter(bw => bw.weekStart !== weekStart);
+  } else {
+    const dates7 = getWeekDates();
+    _calBlockedWeeks.push({weekStart, weekEnd:dates7[dates7.length-1], blockedDate:new Date().toISOString().slice(0,10)});
+  }
+  updateBlockWeekBtn();
+  try {
+    await fetch(`${PCPC_API}/blocked-weeks`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ blockedWeeks: _calBlockedWeeks })
+    });
+    showToast(currently ? '✓ Week unblocked — now visible to customers' : '✓ Week marked booked — hidden from quote form');
+  } catch(e) {
+    showToast('⚠️ Could not save — try again');
+    if (currently) _calBlockedWeeks.push({weekStart, weekEnd:getWeekDates()[6], blockedDate:new Date().toISOString().slice(0,10)});
+    else _calBlockedWeeks = _calBlockedWeeks.filter(bw => bw.weekStart !== weekStart);
+    updateBlockWeekBtn();
+  }
+}
+
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+let _toastTimer = null;
+function showToast(msg, actionLabel, actionFn) {
+  const el = document.getElementById('toast');
+  undoFn = actionFn || null;
+  el.innerHTML = `<span>${msg}</span>${actionLabel ? `<button class="toast-undo" onclick="(undoFn&&undoFn());document.getElementById('toast').classList.remove('show')">${actionLabel}</button>` : ''}`;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 4500);
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function alertIcons(alerts) {
+  if (!alerts||!alerts.length) return '';
+  return '<span style="font-size:13px;margin-left:2px;">' + alerts.slice(0,3).map(a=>`<span title="${esc(a.label)}">${a.icon}</span>`).join('') + (alerts.length>3?`+${alerts.length-3}`:'') + '</span>';
+}
+function fmtPh(p) { return (!p||p.length!==10)?p||'':(`(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`); }
+function esc(s)   { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const _CITY_ABBR = { sw:'Southwest', ft:'Fort', n:'North', s:'South', e:'East', w:'West', ne:'Northeast', nw:'Northwest', se:'Southeast', sw:'Southwest' };
+function formatCity(city) {
+  if (!city) return '';
+  return city.trim().toLowerCase().split(/\s+/).map(w => {
+    const bare = w.replace(/[.,]$/,'');
+    return (_CITY_ABBR[bare] || (bare.charAt(0).toUpperCase() + bare.slice(1)));
+  }).join(' ');
+}
+
+// ── REVIEW TIMING & COMPLAINT SYSTEM ─────────────────────────────────────────
+function getReviewTiming(completedDate) {
+  if (!completedDate) return { state:'passed', label:'Optional' };
+  const days = (Date.now() - new Date(completedDate+'T12:00:00').getTime()) / 864e5;
+  if (days < 1)  return { state:'wait',    label:'⏳ Wait 24hrs' };
+  if (days <= 2) return { state:'optimal', label:'⭐ Optimal Time' };
+  if (days <= 7) return { state:'closing', label:'⚠ Window Closing' };
+  return          { state:'passed',  label:'Optional' };
+}
+
+function isComplaintLogged(phone) {
+  if (!phone) return false;
+  const c = findCustomer(phone);
+  if (c?.hasComplaints) return true;
+  try { return !!localStorage.getItem(`pcpc_complaint_${phone}`); } catch { return false; }
+}
+
+function isReviewSkipped(phone) {
+  try { return !!localStorage.getItem(`pcpc_rev_skip_${phone}`); } catch { return false; }
+}
+
+// ── COMPLAINT MODAL ───────────────────────────────────────────────────────────
+let _complaintPhone = null;
+
+function openComplaintModal(phone) {
+  _complaintPhone = phone;
+  const c = findCustomer(phone);
+  const name = c ? ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim() : phone;
+  document.getElementById('complaintModalTitle').textContent = `⚠ Log Complaint · ${name}`;
+  document.getElementById('complaintType').value = '';
+  document.getElementById('complaintDesc').value = '';
+  document.getElementById('complaintRes').value  = '';
+  document.getElementById('complaintModal').classList.remove('hidden');
+}
+
+function closeComplaintModal() {
+  document.getElementById('complaintModal').classList.add('hidden');
+  _complaintPhone = null;
+}
+
+async function saveComplaint() {
+  const phone = _complaintPhone;
+  if (!phone) return;
+  const type = document.getElementById('complaintType').value;
+  const desc = document.getElementById('complaintDesc').value.trim();
+  const res  = document.getElementById('complaintRes').value;
+  if (!type) { showToast('Please select a complaint type'); return; }
+
+  closeComplaintModal();
+
+  const now = new Date().toISOString();
+  const c   = findCustomer(phone);
+  const complaint = {
+    id: `c_${Date.now()}`,
+    loggedAt: now,
+    loggedBy: 'operator',
+    type,
+    description: desc,
+    resolution: res,
+    jobDate: c?.scheduledStatus?.scheduledDate || isoToday(),
+  };
+
+  try { localStorage.setItem(`pcpc_complaint_${phone}`, JSON.stringify({ logged: true, at: now, type })); } catch {}
+
+  try {
+    const db = await pcpcApi.getCustomerDB();
+    const cust = (db.customers||[]).find(x => x.phone === phone);
+    if (cust) {
+      if (!cust.complaints) cust.complaints = [];
+      cust.complaints.push(complaint);
+      cust.hasComplaints = true;
+      cust.complaintCount = cust.complaints.length;
+      cust.lastComplaintDate = now;
+      await pcpcApi.saveCustomerDB(db);
+      if (c) { c.complaints = cust.complaints; c.hasComplaints = true; c.complaintCount = cust.complaints.length; c.lastComplaintDate = now; }
+    }
+  } catch(e) { console.error('Complaint save error', e); }
+
+  pcpcApi.logEvent({ eventType:'complaint_logged', phone, customer:{fn:c?.firstName||'',ln:c?.lastName||''}, complaint, loggedAt:now });
+  render();
+  showToast('⚠ Complaint logged — review request blocked');
+}
+
+// ── REVIEW ALERT BANNER & PANEL ───────────────────────────────────────────────
+function getOptimalReviewCandidates() {
+  return (dbRecord?.customers||[]).filter(c => {
+    if (c.isTest) return false;
+    const ss = c.scheduledStatus || {};
+    if (ss.state !== 'completed') return false;
+    if (!ss.completedDate) return false;
+    if (getReviewTiming(ss.completedDate).state !== 'optimal') return false;
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    if (isComplaintLogged(phone)) return false;
+    if (isReviewSkipped(phone)) return false;
+    if (getReviewRequestedDate(phone)) return false;
+    return true;
+  });
+}
+
+function updateReviewAlertBanner() {
+  const bar = document.getElementById('reviewAlertBar');
+  const cnt = document.getElementById('reviewAlertCount');
+  if (!bar || !cnt) return;
+  const n = getOptimalReviewCandidates().length;
+  cnt.textContent = n;
+  bar.classList.toggle('hidden', n === 0);
+}
+
+function openReviewAlertPanel() {
+  renderReviewAlertList();
+  document.getElementById('reviewAlertPanel').classList.remove('hidden');
+}
+
+function closeReviewAlertPanel() {
+  document.getElementById('reviewAlertPanel').classList.add('hidden');
+}
+
+function renderReviewAlertList() {
+  const el = document.getElementById('reviewAlertList');
+  if (!el) return;
+  const candidates = getOptimalReviewCandidates();
+  if (!candidates.length) {
+    el.innerHTML = '<div style="text-align:center;padding:2rem 1rem;color:var(--muted);font-size:13px;">No customers in the optimal window right now.</div>';
+    return;
+  }
+  el.innerHTML = candidates.map(c => {
+    const name  = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    const fn    = esc((c.firstName||c.fn||'').trim().split(' ')[0]||'there');
+    const ss    = c.scheduledStatus || {};
+    const days  = Math.round((Date.now() - new Date((ss.completedDate||isoToday())+'T12:00:00').getTime()) / 864e5);
+    const svc   = (ss.jobNotes||'').substring(0, 45);
+    return `<div class="rev-alert-row" style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--navy);">${esc(name)}</div>
+          <div style="font-size:11px;color:var(--muted);">${days} day${days===1?'':'s'} after job${svc?' · '+esc(svc):''}</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:8px;padding:2px 7px;white-space:nowrap;flex-shrink:0;">⭐ Optimal</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button onclick="sendReviewRequestFromPanel('${phone}','${fn}',this.parentElement.parentElement)" style="flex:2;padding:7px;background:var(--navy);color:var(--gold);border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📝 Request Review</button>
+        <button onclick="skipFromPanel('${phone}',this.parentElement.parentElement)" style="flex:1;padding:7px;background:#f9fafb;color:var(--muted);border:1px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">⏭ Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function sendReviewRequestFromPanel(phone, firstName, rowEl) {
+  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
+  const today = isoToday();
+  localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
+  pcpcApi.logEvent({ eventType:'review_request_sent', phone, customer:{fn:firstName, ph:phone}, sentAt:new Date().toISOString() });
+  rowEl?.remove();
+  updateReviewAlertBanner();
+  showToast(`✓ Review requested · iMessage opened`);
+}
+
+function skipFromPanel(phone, rowEl) {
+  try { localStorage.setItem(`pcpc_rev_skip_${phone}`, JSON.stringify({ skippedAt: new Date().toISOString() })); } catch {}
+  rowEl?.remove();
+  updateReviewAlertBanner();
+  showToast('⏭ Skipped — removed from review window list');
+}
+
+// ── PRINT INFRASTRUCTURE ─────────────────────────────────────────────────────
+const PRINT_CO      = 'Pure Cleaning Pressure Cleaning, LLC';
+const PRINT_PHONE   = '954-389-2642';
+const PRINT_WEBSITE = 'purecleaningpressurecleaning.com';
+
+function _printCss() {
+  return `<style>
+    @page{size:letter;margin:.5in;}
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#1a1a1a;line-height:1.5;}
+    table{width:100%;border-collapse:collapse;}
+    td,th{vertical-align:top;}
+    @media print{.no-print{display:none!important;}}
+  </style>`;
+}
+
+function _openPrintWin(html, title) {
+  const w = window.open('', '_blank', 'width=860,height=1100');
+  if (!w) { alert('Please allow pop-ups to print.'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>${_printCss()}</head><body onload="setTimeout(()=>window.print(),400)">${html}</body></html>`);
+  w.document.close();
+}
+
+// ── INVOICE ───────────────────────────────────────────────────────────────────
+function printInvoice(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const yr   = new Date().getFullYear();
+  const invNum = `PC-${yr}-${(c.phone||'').slice(-4)}-${Date.now().toString().slice(-3)}`;
+  const dateFmt  = d => d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  const compDate = dateFmt(ss.completedDate);
+  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services';
+  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const addOns   = c.addOns || [];
+  const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
+
+  let serviceRows = items.map(s=>`<tr><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;">${s}</td><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;text-align:right;"></td></tr>`).join('');
+  if (addOns.length) {
+    serviceRows += addOns.map(a=>`<tr><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;padding-left:16pt;">+ ${esc(a.name||'')}</td><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;text-align:right;">$${Number(a.bundle||0).toFixed(2)}</td></tr>`).join('');
+  }
+
+  const html = `
+<table style="margin-bottom:20pt;">
+  <tr>
+    <td>
+      <div style="font-size:17pt;font-weight:bold;">${PRINT_CO}</div>
+      <div style="font-size:9pt;color:#666;margin-top:2pt;">Family-owned · Since 1995 &nbsp;·&nbsp; ${PRINT_PHONE} &nbsp;·&nbsp; ${PRINT_WEBSITE}</div>
+    </td>
+    <td style="text-align:right;">
+      <div style="font-size:26pt;font-weight:bold;color:#c2410c;letter-spacing:1pt;">INVOICE</div>
+      <div style="font-size:10pt;color:#555;margin-top:3pt;">Invoice #: ${invNum}<br>Date: ${compDate}</div>
+    </td>
+  </tr>
+</table>
+
+<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:8pt;">Bill To</div>
+<div style="font-size:12pt;margin-bottom:20pt;">
+  <strong>${esc(name)}</strong><br>
+  ${c.address ? esc(c.address)+'<br>' : '<span style="color:#c2410c;font-style:italic;">Address not on file</span><br>'}
+  ${c.city ? esc(c.city)+', FL'+(c.zip?' '+c.zip:'')+'<br>' : ''}
+  ${c.phone ? fmtPh(c.phone) : '<span style="font-style:italic;">No phone on file</span>'}
+</div>
+
+<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:4pt;">Services Performed</div>
+<table style="margin-bottom:4pt;">
+  <thead><tr>
+    <th style="font-size:9pt;text-transform:uppercase;letter-spacing:1pt;color:#888;text-align:left;padding:5pt 8pt;border-bottom:1pt solid #ccc;">Description</th>
+    <th style="font-size:9pt;text-transform:uppercase;letter-spacing:1pt;color:#888;text-align:right;padding:5pt 8pt;border-bottom:1pt solid #ccc;">Amount</th>
+  </tr></thead>
+  <tbody>${serviceRows}</tbody>
+  <tfoot><tr>
+    <td style="padding-top:8pt;border-top:1.5pt solid #1a1a1a;text-align:right;font-size:11pt;font-weight:bold;color:#555;">TOTAL</td>
+    <td style="padding-top:8pt;border-top:1.5pt solid #1a1a1a;text-align:right;font-size:16pt;font-weight:bold;color:#c2410c;">$${Number(amount).toFixed(2)}</td>
+  </tr></tfoot>
+</table>
+
+<div style="background:#f8f8f6;border:1pt solid #ddd;padding:10pt 14pt;margin-top:16pt;margin-bottom:20pt;">
+  <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:6pt;">Payment</div>
+  <table style="font-size:11pt;">
+    <tr><td style="padding:2pt 0;color:#555;width:180pt;">Methods Accepted:</td><td style="padding:2pt 8pt;font-weight:bold;">Zelle · Check · Cash · Venmo</td></tr>
+    <tr><td style="padding:2pt 0;color:#555;">Status:</td><td style="padding:2pt 8pt;font-weight:bold;color:${ss.paymentCollected?'#15803d':'#c2410c'};">${ss.paymentCollected?'✓ PAID':'PAYMENT DUE'}</td></tr>
+  </table>
+</div>
+
+<div style="margin-top:32pt;padding-top:12pt;border-top:1pt solid #ccc;font-size:9pt;color:#666;text-align:center;line-height:1.8;">
+  Thank you for trusting ${PRINT_CO}.<br>
+  30 years serving South Florida families.<br><br>
+  Questions? Call or text ${PRINT_PHONE}<br>
+  ${PRINT_CO}
+</div>`;
+
+  _openPrintWin(html, `Invoice ${invNum} — ${name}`);
+  pcpcApi.logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
+}
+
+// ── JOB SHEET GENERATOR ───────────────────────────────────────────────────────
+function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Services as discussed';
+  const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
+  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const addOns   = c.addOns || [];
+  const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
+  const rigLabel = RIG_LABELS[rig] || rig;
+  const mapsUrl  = c.address ? `https://maps.google.com/?q=${encodeURIComponent([c.address,c.city,'FL'].filter(Boolean).join(', '))}` : '';
+  const notes    = (c.notes||'') + (ss.customerNotes ? (c.notes?'\n':'')+ss.customerNotes : '');
+  const alertsHtml = (c.alerts||[]).map(a=>`<div style="color:#c2410c;font-weight:bold;font-size:10pt;margin-top:4pt;">⚠ ${esc(a.label||a||'')}</div>`).join('');
+
+  return `
+<div style="max-width:7.5in;margin:0 auto;">
+
+  <!-- Header bar -->
+  <table style="background:#0a1628;color:#fff;margin-bottom:14pt;">
+    <tr>
+      <td style="padding:10pt 14pt;">
+        <div style="font-size:14pt;font-weight:bold;letter-spacing:.5pt;">PURE CLEANING · JOB SHEET</div>
+        <div style="font-size:9pt;opacity:.75;margin-top:2pt;">${dateStr}</div>
+      </td>
+      <td style="padding:10pt 14pt;text-align:right;font-size:10pt;opacity:.85;">
+        ${esc(rigLabel)}<br>
+        <strong>Job ${jobOrder} of ${totalJobs}</strong>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Customer block -->
+  <table style="border:1.5pt solid #1a1a1a;margin-bottom:12pt;">
+    <tr>
+      <td style="padding:10pt 14pt;width:62%;border-right:1pt solid #ddd;">
+        <div style="font-size:20pt;font-weight:bold;margin-bottom:4pt;">${esc(name)}</div>
+        <div style="font-size:14pt;font-weight:bold;color:#0a1628;margin-bottom:6pt;">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+        <div style="font-size:12pt;">
+          ${c.address ? `${esc(c.address)}<br>${esc(c.city||'')}${c.city?', FL':''}${c.zip?' '+c.zip:''}` : '<span style="color:#c2410c;font-weight:bold;">⚠ Address pending</span>'}
+        </div>
+      </td>
+      <td style="padding:10pt 14pt;text-align:center;">
+        ${mapsUrl ? `<div style="margin-bottom:10pt;"><a href="${mapsUrl}" style="color:#0a1628;font-weight:bold;font-size:10pt;text-decoration:none;">🗺 Open in Maps</a></div>` : '<div style="font-size:9pt;color:#aaa;margin-bottom:10pt;">No address</div>'}
+        <div style="font-size:8pt;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:3pt;">Quoted Total</div>
+        <div style="font-size:20pt;font-weight:bold;color:#c2410c;">$${Number(amount).toFixed(0)}</div>
+        <div style="font-size:9pt;color:#888;margin-top:3pt;">Zelle · Check · Cash · Venmo</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Services + Notes -->
+  <table style="margin-bottom:12pt;border-spacing:8pt;border-collapse:separate;">
+    <tr>
+      <td style="width:52%;border:1pt solid #ccc;padding:10pt 12pt;">
+        <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Services</div>
+        ${items.map(s=>`<div style="padding:3pt 0;font-size:11pt;">☐ ${esc(s)}</div>`).join('')}
+        ${addOns.length ? `<div style="margin-top:6pt;padding-top:6pt;border-top:.5pt solid #eee;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:4pt;">Add-ons</div>${addOns.map(a=>`<div style="padding:2pt 0;font-size:11pt;">☐ ${esc(a.name||'')} (+$${a.bundle||0})</div>`).join('')}` : ''}
+      </td>
+      <td style="width:48%;border:1pt solid #ccc;padding:10pt 12pt;">
+        <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Notes / Gate Codes</div>
+        <div style="font-size:11pt;line-height:1.7;min-height:55pt;color:${notes?'#1a1a1a':'#bbb'};">${notes ? esc(notes).replace(/\n/g,'<br>') : '(none)'}</div>
+        ${alertsHtml}
+      </td>
+    </tr>
+  </table>
+
+  <!-- Completion checklist -->
+  <table style="border:1.5pt solid #1a1a1a;margin-bottom:10pt;">
+    <tr><td colspan="3" style="background:#0a1628;color:#fff;padding:5pt 12pt;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;">Completion Checklist</td></tr>
+    <tr>
+      <td style="padding:6pt 12pt;font-size:10pt;width:34%;border-right:.5pt solid #ddd;">
+        ☐ Property inspected before starting<br>
+        ☐ Plants/landscaping protected<br>
+        ☐ All services completed
+      </td>
+      <td style="padding:6pt 12pt;font-size:10pt;width:33%;border-right:.5pt solid #ddd;">
+        ☐ Walkthrough with customer<br>
+        ☐ Payment collected<br>
+        ☐ Customer satisfied
+      </td>
+      <td style="padding:6pt 12pt;font-size:10pt;">
+        <div style="margin-bottom:10pt;">Crew sign-off: ______________________</div>
+        <div>Time finished: ____________________</div>
+      </td>
+    </tr>
+  </table>
+
+  <div style="font-size:8pt;color:#aaa;text-align:center;">${PRINT_CO} · ${PRINT_PHONE} · Printed ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
+
+</div>`;
+}
+
+function printJobSheet(phone, date, rig) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const jobs = getScheduledForRig(date, rig).filter(j => !j.isTest);
+  const idx  = jobs.findIndex(j => j.phone === phone);
+  _openPrintWin(_jobSheetBody(c, idx+1, jobs.length, date, rig), `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
+  pcpcApi.logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
+}
+
+function printBulkJobSheets(date, rig) {
+  const jobs = getScheduledForRig(date, rig).filter(c => !c.isTest && (c.scheduledStatus?.state||'scheduled') !== 'completed');
+  if (!jobs.length) return;
+  const html = jobs.map((c, i) => {
+    const isLast = i === jobs.length - 1;
+    const body = _jobSheetBody(c, i+1, jobs.length, date, rig);
+    return isLast ? body : `<div style="page-break-after:always;">${body}</div>`;
+  }).join('\n');
+  const dateStr = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : 'Today';
+  _openPrintWin(html, `Job Sheets — ${RIG_LABELS[rig]||rig} · ${dateStr}`);
+  pcpcApi.logEvent({ eventType:'bulk_job_sheets_printed', rig, date, jobCount:jobs.length, printedAt:new Date().toISOString() });
+}
+
+// ── REVIEW REQUEST TEXTS ──────────────────────────────────────────────────────
+const GOOGLE_REVIEW_LINK = 'https://share.google/ChFC1uAe9Xdveb8XN';
+
+function getReviewRequestedDate(phone) {
+  try {
+    const raw = localStorage.getItem(`pcpc_rev_req_${phone}`);
+    if (!raw) return null;
+    return JSON.parse(raw).date || null;
+  } catch { return null; }
+}
+
+function sendReviewRequest(phone, firstName, btn) {
+  if (!phone) return;
+  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
+  const today = isoToday();
+  localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
+  btn.classList.add('sent');
+  btn.disabled = true;
+  btn.textContent = `✓ Review Requested ${today}`;
+  pcpcApi.logEvent({ eventType: 'review_request_sent', phone, customer: { fn: firstName, ph: phone }, sentAt: new Date().toISOString() });
+}
+
+// ── ARRIVAL TEXTS ─────────────────────────────────────────────────────────────
+const ARRIVAL_SLOTS = {
+  '~9-10am':    { label:'~9–10am',    msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way and should arrive around 9-10am. See you soon!` },
+  '~11am-noon': { label:'~11am–noon', msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading to you now — expect us around 11am-noon. See you soon!` },
+  '~noon-1pm':  { label:'~noon–1pm',  msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way, should be there around noon-1pm. See you soon!` },
+  '~2-3pm':     { label:'~2–3pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading your way now — expect us around 2-3pm. Thanks!` },
+  '~3-4pm':     { label:'~3–4pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 On our way — should arrive around 3-4pm. Thanks for your patience!` },
+  '~4-5pm':     { label:'~4–5pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 On our way to you now — expect us around 4-5pm. Thanks for your patience!` },
+};
+
+function getArrivalSlots(count) {
+  if (count === 1) return ['~9-10am'];
+  if (count === 2) return ['~9-10am', '~noon-1pm'];
+  if (count === 3) return ['~9-10am', '~11am-noon', '~2-3pm'];
+  if (count === 4) return ['~9-10am', '~11am-noon', '~2-3pm', '~4-5pm'];
+  return ['~9-10am', '~11am-noon', '~noon-1pm', '~2-3pm', '~3-4pm', '~4-5pm'].slice(0, Math.min(count, 6));
+}
+
+function isArrivalSent(date, rig, phone) {
+  try {
+    const raw = localStorage.getItem(`pcpc_arr_${date}_${rig}_${phone}`);
+    if (!raw) return false;
+    const { ts } = JSON.parse(raw);
+    return (Date.now() - ts) < 86400000;
+  } catch { return false; }
+}
+
+function markArrivalSent(date, rig, phone, slot) {
+  localStorage.setItem(`pcpc_arr_${date}_${rig}_${phone}`, JSON.stringify({ ts: Date.now(), slot }));
+}
+
+function renderArrivalButtons(date, rig, jobs) {
+  const active = jobs.filter(c => !c.isTest && (c.scheduledStatus?.state||'scheduled') !== 'completed');
+  if (!active.length) return '';
+  const slots = getArrivalSlots(active.length);
+  const btns = active.map((c, i) => {
+    const slot = slots[i] || slots[slots.length - 1];
+    const phone = (c.phone || '').replace(/\D/g,'').slice(-10);
+    const firstName = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim().split(' ')[0] || 'there';
+    const sent = phone ? isArrivalSent(date, rig, phone) : false;
+    const noPhone = !phone;
+    const slotLabel = ARRIVAL_SLOTS[slot]?.label || slot;
+    const cls = `arrival-btn${sent ? ' sent' : ''}${noPhone ? ' no-phone' : ''}`;
+    const handler = (!noPhone && !sent) ? `onclick="sendArrivalText('${phone}','${esc(firstName)}','${slot}','${date}','${rig}',this)"` : '';
+    const noPhoneTitle = noPhone ? 'title="No phone on file"' : '';
+    return `<button class="${cls}" ${handler} ${noPhoneTitle}>
+      <span class="arrival-btn-icon">${sent ? '✅' : '📍'}</span>
+      <span class="arrival-btn-text"><span class="arrival-btn-name">${esc(firstName)}</span><span class="arrival-btn-slot"> · ${slotLabel}</span></span>
+      <span style="font-size:10px;opacity:.65;flex-shrink:0">${sent ? '✓ Sent' : 'Tap'}</span>
+    </button>`;
+  }).join('');
+  return `<div class="arrival-section">${btns}</div>`;
+}
+
+function sendArrivalText(phone, name, slot, date, rig, btn) {
+  const tpl = ARRIVAL_SLOTS[slot];
+  if (!tpl || !phone) return;
+  const msg = tpl.msg(name);
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
+  markArrivalSent(date, rig, phone, slot);
+  btn.classList.add('sent');
+  btn.querySelector('.arrival-btn-icon').textContent = '✅';
+  const tapSpan = btn.querySelector('span:last-child');
+  if (tapSpan) tapSpan.textContent = '✓ Sent';
+  btn.onclick = null;
+  pcpcApi.logEvent({ eventType:'arrival_text_sent', phone, name, rig, slot, date, sentAt: new Date().toISOString() });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

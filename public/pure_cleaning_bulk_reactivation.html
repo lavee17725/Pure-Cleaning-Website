@@ -1,0 +1,2523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pure Cleaning — Bulk Reactivation</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--blue:#1a4a8a;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;--input-bg:#0a1628;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--white);letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.badge{font-size:11px;font-weight:600;background:var(--blue);color:var(--sky);padding:3px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;}
+.wrap{padding:1.25rem;max-width:960px;margin:0 auto;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;margin-top:1.5rem;display:flex;align-items:center;gap:8px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+.info-banner{background:rgba(45,125,210,.1);border:1.5px solid rgba(45,125,210,.3);border-radius:10px;padding:10px 14px;margin-top:1.25rem;font-size:13px;color:var(--sky);line-height:1.6;}
+.dropzone{border:2px dashed var(--border);border-radius:14px;padding:2rem;text-align:center;cursor:pointer;transition:all .2s;background:var(--card);}
+.dropzone:hover,.dropzone.drag{border-color:var(--sky);background:rgba(45,125,210,.06);}
+.dropzone-icon{font-size:40px;margin-bottom:.75rem;}
+.dropzone p{font-size:14px;color:var(--muted);}
+.dropzone strong{color:var(--text);}
+#fileInput{display:none;}
+.file-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:.75rem;align-items:center;}
+.file-pill{background:rgba(29,158,117,.15);border:1px solid var(--green);border-radius:8px;padding:4px 10px 4px 12px;font-size:12px;color:#5de0b3;font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;}
+.file-pill-x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0;margin-left:2px;transition:color .15s;}
+.file-pill-x:hover{color:#fc8181;}
+.clear-files-btn{background:rgba(229,62,62,.15);border:1px solid rgba(229,62,62,.4);color:#fc8181;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.clear-files-btn:hover{background:rgba(229,62,62,.25);}
+.field{margin-bottom:.875rem;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
+input,select,textarea{width:100%;padding:10px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color .2s;-webkit-appearance:none;resize:vertical;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--sky);}
+input::placeholder,textarea::placeholder{color:var(--muted);}
+.collapsible-btn{background:none;border:none;color:var(--sky);font-size:13px;cursor:pointer;padding:4px 0;font-family:'DM Sans',sans-serif;}
+.btn{padding:14px 24px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;cursor:pointer;transition:all .2s;}
+.btn-primary{background:var(--sky);color:#fff;width:100%;}
+.btn-primary:hover{background:#2470c0;}
+.btn-primary:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+.btn-green{background:var(--green);color:#fff;}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.btn-sm{font-size:13px;font-weight:700;padding:7px 16px;border-radius:8px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;}
+
+/* stats bar */
+.stats-bar{display:none;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:1.25rem;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.875rem;text-align:center;}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--gold);letter-spacing:1px;}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+
+/* filters */
+.filter-bar{display:none;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-top:1rem;}
+.filter-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px;}
+.filter-row:last-child{margin-bottom:0;}
+.tier-pill{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid transparent;transition:all .15s;user-select:none;}
+.tier-pill.on{opacity:1;}
+.tier-pill.off{opacity:.35;}
+.tp-hot{background:rgba(229,62,62,.15);color:#fc8181;border-color:rgba(229,62,62,.4);}
+.tp-warm{background:rgba(244,166,32,.15);color:var(--gold);border-color:rgba(244,166,32,.4);}
+.tp-sleeping{background:rgba(29,158,117,.15);color:#5de0b3;border-color:rgba(29,158,117,.4);}
+.tp-cold{background:rgba(45,125,210,.15);color:var(--sky);border-color:rgba(45,125,210,.4);}
+.tp-vip-seal{background:rgba(244,166,32,.2);color:#fbbf24;border-color:rgba(244,166,32,.6);}
+.tp-active{background:rgba(122,138,170,.15);color:var(--muted);border-color:var(--border);}
+.filter-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
+.filter-input{width:auto;padding:6px 10px;font-size:13px;}
+
+/* pool tabs */
+.pool-tabs{display:none;gap:8px;margin-top:.75rem;flex-wrap:wrap;}
+.pool-tabs.show{display:flex;}
+.pool-tab{padding:7px 14px;border:1.5px solid var(--border);border-radius:20px;background:var(--card);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.pool-tab:hover{border-color:var(--sky);}
+.pool-tab.active{border-color:var(--sky);background:#eff6ff;color:var(--sky);}
+.pool-badge{background:rgba(0,0,0,.1);border-radius:20px;padding:1px 6px;font-size:11px;}
+.pool-tab.active .pool-badge{background:rgba(45,125,210,.2);}
+.undo-btn{background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:3px;display:block;white-space:nowrap;}
+.undo-btn:hover{border-color:var(--red);color:var(--red);}
+.contact-info{font-size:11px;color:var(--muted);line-height:1.6;}
+.tab-summary{background:#f0f7ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-top:.75rem;font-size:13px;color:var(--text);}
+.day-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.day-chip{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--muted);}
+.day-chip.has-sends{color:var(--sky);border-color:#93c5fd;}
+.tab-summary.ts-green{background:#dcfce7;border-color:#86efac;color:#14532d;}
+.tab-summary.ts-yellow{background:#fef9c3;border-color:#fde047;color:#713f12;}
+.tab-summary.ts-amber{background:#fed7aa;border-color:#fb923c;color:#7c2d12;}
+.tab-summary.ts-red{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d;}
+.hours-banner{background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:.75rem 1rem;font-size:13px;color:#92400e;margin-top:.75rem;text-align:center;display:none;}
+.compliance-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem;}
+.compliance-modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem;max-width:480px;width:100%;text-align:center;}
+.compliance-icon{font-size:3rem;margin-bottom:.5rem;}
+.compliance-reason{color:var(--text);font-size:14px;line-height:1.6;margin:1rem 0;}
+.compliance-warning{background:#fef3c7;border-left:3px solid #f59e0b;padding:1rem;border-radius:8px;text-align:left;margin:1rem 0;font-size:13px;color:#78350f;}
+.compliance-warning ul{margin:.5rem 0 0 1.25rem;padding:0;line-height:1.8;}
+.compliance-actions{display:flex;gap:.75rem;margin-top:1.5rem;}
+.compliance-actions button{flex:1;padding:.75rem;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;border:none;}
+.btn-cancel{background:var(--border);color:var(--text);}
+.btn-override{background:#dc2626;color:#fff;}
+
+/* table */
+.table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
+.table-wrap::-webkit-scrollbar{height:8px;}
+.table-wrap::-webkit-scrollbar-track{background:var(--navy2);}
+.table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+.table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted);}
+table{width:100%;min-width:960px;border-collapse:collapse;font-size:13px;}
+thead th{background:var(--navy2);padding:10px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0;z-index:10;}
+/* sticky name column */
+thead th:nth-child(3){position:sticky;left:0;z-index:15;background:var(--navy2);}
+tbody td:nth-child(3){position:sticky;left:0;z-index:2;background:var(--navy);}
+tbody tr:hover td:nth-child(3){background:#0f1e35;}
+thead th:hover{color:var(--sky);}
+thead th.sorted{color:var(--sky);}
+tbody tr{border-top:1px solid var(--border);transition:background .1s;}
+tbody tr:hover{background:rgba(45,125,210,.05);}
+td{padding:9px 12px;vertical-align:middle;white-space:nowrap;}
+td.name{font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
+td.phone{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}
+td.money{font-family:'DM Mono',monospace;}
+.tier-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+
+/* generate bar */
+.gen-bar{display:none;position:sticky;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:.875rem 1.25rem;display:none;align-items:center;justify-content:space-between;gap:12px;z-index:100;}
+.gen-bar.show{display:flex;}
+
+/* output */
+.output-wrap{display:none;margin-top:1rem;}
+.output-wrap.show{display:block;}
+.output-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;}
+.code-block{font-family:'DM Mono',monospace;font-size:12px;background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:1rem;color:var(--text);white-space:pre-wrap;word-break:break-all;line-height:1.7;max-height:500px;overflow-y:auto;}
+.copy-btn{background:var(--green);color:#fff;border:none;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;}
+.copy-btn.copied{background:#0d7a5a;}
+
+/* excluded */
+.excluded-wrap{display:none;margin-top:1rem;}
+.excluded-list{font-family:'DM Mono',monospace;font-size:11px;background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:.75rem;color:var(--muted);max-height:240px;overflow-y:auto;line-height:1.8;}
+.exc-item{display:flex;align-items:center;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);}
+.exc-item:last-child{border-bottom:none;}
+.exc-tag-pm{color:var(--sky);font-size:10px;margin-left:6px;}
+.exc-tag-mp{color:var(--gold);font-size:10px;margin-left:6px;}
+.exc-tag-manual{color:#fc8181;font-size:10px;margin-left:6px;}
+.move-active-btn{background:rgba(29,158,117,.2);border:1px solid var(--green);color:#5de0b3;border-radius:4px;padding:1px 8px;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0;margin-left:8px;}
+.move-active-btn:hover{background:rgba(29,158,117,.35);}
+.tier-info-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 3px;line-height:1;vertical-align:middle;transition:color .15s;font-family:'DM Sans',sans-serif;}
+.tier-info-btn:hover,.tier-info-btn.tt-active{color:var(--sky);}
+/* tier tooltip */
+.tier-tooltip{position:fixed;z-index:9999;width:280px;background:var(--navy2);border:1.5px solid var(--border);border-radius:10px;padding:10px 13px 12px;font-size:12px;line-height:1.6;color:var(--text);box-shadow:0 6px 28px rgba(0,0,0,.55);pointer-events:none;opacity:0;transition:opacity .18s ease;display:none;}
+.tier-tooltip.visible{opacity:1;}
+.tier-tooltip::after{content:'';position:absolute;top:100%;left:var(--arrow-left,50%);transform:translateX(-50%);border:6px solid transparent;border-top-color:var(--border);}
+.tier-tooltip::before{content:'';position:absolute;top:100%;left:var(--arrow-left,50%);transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--navy2);z-index:1;margin-top:-1px;}
+.tt-title{font-weight:700;margin-bottom:5px;color:var(--text);}
+.tt-body{color:var(--muted);}
+.mark-commercial-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 6px;border-radius:4px;white-space:nowrap;font-family:'DM Sans',sans-serif;transition:color .15s;}
+.mark-commercial-btn:hover{color:#fc8181;}
+
+/* db banner */
+.db-banner{display:none;background:rgba(29,158,117,.12);border:1.5px solid var(--green);border-radius:10px;padding:10px 16px;margin-top:1.25rem;font-size:13px;color:#5de0b3;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.db-update-btn{background:rgba(29,158,117,.2);border:1px solid var(--green);color:#5de0b3;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
+.db-update-btn:hover{background:rgba(29,158,117,.35);}
+.db-saving{opacity:.6;font-size:11px;color:var(--muted);}
+
+/* select all row */
+.table-controls{display:none;justify-content:space-between;align-items:center;margin-top:.75rem;}
+.table-controls.show{display:flex;}
+.sel-info{font-size:13px;color:var(--muted);}
+.sel-info strong{color:var(--text);}
+
+/* search bar */
+.search-wrap{position:relative;flex:1;min-width:220px;max-width:500px;}
+.search-input{padding-right:30px !important;}
+.search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:2px 3px;display:none;transition:color .15s;}
+.search-clear.visible{display:block;}
+.search-clear:hover{color:var(--text);}
+
+/* add customer button */
+.add-customer-btn{background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0;transition:border-color .15s,color .15s;}
+.add-customer-btn:hover{border-color:var(--sky);color:var(--sky);}
+
+/* add customer modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.modal-overlay.hidden{display:none;}
+.modal-card{background:var(--navy2);border:1px solid var(--border);border-radius:16px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;padding:1.5rem;}
+.modal-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:1.25rem;}
+.mfield{margin-bottom:.875rem;}
+.mfield label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.mfield .req{color:#fc8181;margin-left:2px;}
+.mfield .opt{color:var(--muted);font-weight:400;font-size:10px;margin-left:3px;text-transform:none;letter-spacing:0;}
+.mfield input{width:100%;}
+.mfield input.merror{border-color:#fc8181 !important;}
+.merr{font-size:11px;color:#fc8181;margin-top:3px;min-height:14px;}
+.mrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.mcheck{display:flex;align-items:center;gap:10px;margin-bottom:.875rem;}
+.mcheck input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--sky);}
+.mcheck label{font-size:13px;color:var(--text);cursor:pointer;}
+.mdup{background:rgba(244,166,32,.1);border:1.5px solid rgba(244,166,32,.35);border-radius:8px;padding:9px 12px;font-size:12px;color:var(--gold);margin-bottom:.875rem;line-height:1.5;display:none;}
+.modal-footer{display:flex;gap:10px;margin-top:1.25rem;}
+.mbtn-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s;}
+.mbtn-cancel:hover{border-color:var(--sky);color:var(--text);}
+.mbtn-submit{flex:2;padding:11px;border:none;border-radius:10px;background:var(--sky);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;transition:background .15s;}
+.mbtn-submit:hover{background:#2470c0;}
+.mbtn-submit:disabled{background:var(--border);color:var(--muted);cursor:not-allowed;}
+
+/* alert icon badges */
+.alert-badge-wrap{display:inline-flex;align-items:center;gap:1px;font-size:13px;margin-left:4px;vertical-align:middle;}
+.alert-badge-more{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;}
+
+/* text-now column */
+.text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
+.text-now-btn:hover{background:#2470c0;}
+.texted-badge{background:rgba(29,158,117,.2);color:#5de0b3;border:1px solid var(--green);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.test-send-btn{background:none;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;letter-spacing:.2px;}
+.test-send-btn:hover{border-color:var(--sky);color:var(--sky);}
+.send-confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center;}
+.send-confirm-box{background:#fff;border-radius:16px;padding:1.5rem;max-width:340px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+.send-confirm-title{font-size:15px;font-weight:700;color:#0a1628;margin:0 0 10px;}
+.send-confirm-body{font-size:14px;color:#374151;line-height:1.7;margin-bottom:16px;}
+.send-confirm-row{display:flex;gap:10px;}
+.send-confirm-cancel{flex:1;padding:10px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;background:#fff;color:#374151;font-family:'DM Sans',sans-serif;}
+.send-confirm-go{flex:1;padding:10px;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;background:#0a1628;color:#fff;font-family:'DM Sans',sans-serif;}
+.text-disconnected-btn{background:rgba(229,62,62,.1);color:#fc8181;border:1px solid rgba(229,62,62,.3);border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:default;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.contact-stats{font-size:12px;color:var(--muted);padding:5px 2px;}
+
+/* dormant / ancient tier pills */
+.tp-dormant{background:rgba(147,197,253,.15);color:#93c5fd;border-color:rgba(147,197,253,.4);}
+.tp-ancient{background:rgba(167,139,250,.15);color:#a78bfa;border-color:rgba(167,139,250,.4);}
+
+/* row ⋯ overflow menu */
+.row-menu-btn{background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 8px;font-size:14px;cursor:pointer;transition:all .15s;font-family:'DM Sans',sans-serif;line-height:1;}
+.row-menu-btn:hover,.row-menu-btn.menu-open{border-color:var(--sky);color:var(--sky);}
+.row-menu-item{display:block;width:100%;background:none;border:none;color:var(--muted);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;border-radius:5px;text-align:left;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:color .15s,background .15s;}
+.row-menu-item:hover{background:rgba(255,255,255,.06);color:var(--text);}
+.row-menu-item.danger{color:#fc8181;}.row-menu-item.danger:hover{background:rgba(229,62,62,.1);}
+.row-menu-item.phone-act:hover{color:#fb923c;}
+.opted-out-badge{display:inline-block;background:rgba(229,62,62,.12);border:1px solid rgba(229,62,62,.35);color:#fc8181;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-left:4px;}
+.restore-btn{background:none;border:1px solid rgba(45,125,210,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--sky);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.restore-btn:hover{background:rgba(45,125,210,.12);}
+.moved-away-badge{display:inline-block;background:rgba(20,184,166,.1);border:1px solid rgba(20,184,166,.35);color:#2dd4bf;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-left:4px;}
+.restore-moved-btn{background:none;border:1px solid rgba(20,184,166,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:#2dd4bf;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.restore-moved-btn:hover{background:rgba(20,184,166,.1);}
+.row-menu-item.moved-act{color:#2dd4bf;}.row-menu-item.moved-act:hover{background:rgba(20,184,166,.08);}
+
+/* upload summary modal */
+.summary-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.summary-row:last-child{border-bottom:none;}
+.summary-key{color:var(--muted);}
+.summary-val{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);}
+
+@media(max-width:600px){.stats-bar{grid-template-columns:1fr 1fr;}}
+</style>
+</head>
+<body>
+
+<div style="background:#111f38;border-bottom:1px solid #1e2e4a;padding:6px 1.25rem;">
+  <a href="/pure_cleaning_admin.html" style="color:#7a8aaa;text-decoration:none;font-size:12px;font-family:'DM Sans',sans-serif;">← Admin Home</a>
+</div>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="badge">Bulk Reactivation</div>
+</div>
+
+<div class="wrap">
+
+  <div class="info-banner">
+    📋 Upload your master CSVs → get a sorted table of reactivation targets → generate personalized pre-fill links and SMS drafts in one click.
+  </div>
+
+  <!-- DB BANNER (shown when database is already loaded) -->
+  <div class="db-banner" id="dbBanner">
+    <span id="dbBannerText"></span>
+    <button class="db-update-btn" onclick="enterUpdateMode()">↻ Update from new CSV upload</button>
+  </div>
+
+  <!-- UPLOAD SECTION (hidden by default; shown only via ↻ Update button) -->
+  <div id="uploadSection" style="display:none;">
+    <div class="section-title" style="margin-top:1.25rem;">Upload CSVs</div>
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+      <div class="dropzone-icon">📂</div>
+      <p><strong>Click to upload</strong> or drag and drop your CSV files here</p>
+      <p style="margin-top:4px;font-size:12px;">Select all three master CSVs at once</p>
+    </div>
+    <input type="file" id="fileInput" multiple accept=".csv">
+    <div class="file-pills" id="filePills"></div>
+
+    <!-- SKIP LIST -->
+    <div class="section-title">Skip-list</div>
+    <button class="collapsible-btn" onclick="toggleSkip()">▶ Paste phone numbers to exclude (customers who said STOP, recently booked, etc.)</button>
+    <div id="skipWrap" style="display:none;margin-top:.5rem;">
+      <div class="field">
+        <textarea id="skipInput" rows="4" placeholder="One phone per line (any format):&#10;954-540-6076&#10;7543001234&#10;+1 305 555 0199"></textarea>
+      </div>
+    </div>
+
+    <div style="margin-top:1.25rem;">
+      <button class="btn btn-primary" id="processBtn" onclick="processFiles()" disabled>Process Files →</button>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-label">Total Rows</div></div>
+    <div class="stat-card"><div class="stat-val" id="sExcluded">0</div><div class="stat-label">Commercial Excl.</div></div>
+    <div class="stat-card"><div class="stat-val" id="sUnique">0</div><div class="stat-label">Unique Customers</div></div>
+    <div class="stat-card"><div class="stat-val" id="sHotWarm" style="color:#fc8181;">0</div><div class="stat-label">🔥 Hot + Warm</div></div>
+    <div class="stat-card"><div class="stat-val" id="sVipSeal" style="color:#fbbf24;">0</div><div class="stat-label">💎 VIP Seal</div></div>
+    <div class="stat-card"><div class="stat-val" id="sSleeping" style="color:#5de0b3;">0</div><div class="stat-label">🟢 Sleeping</div></div>
+  </div>
+
+  <!-- EXCLUDED ACCOUNTS -->
+  <div class="excluded-wrap" id="excludedWrap">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:.5rem;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">Excluded as commercial</span>
+      <button class="collapsible-btn" id="excludedToggle" onclick="toggleExcluded()">(show)</button>
+    </div>
+    <div id="excludedList" class="excluded-list" style="display:none;"></div>
+  </div>
+
+  <!-- HOURS BANNER -->
+  <div class="hours-banner" id="hoursBanner">
+    ⏰ Outreach paused — Mon-Fri 9 AM to 7 PM ET only. Resumes <span id="resumesIn"></span>.
+  </div>
+
+  <!-- POOL TABS -->
+  <div class="pool-tabs" id="poolTabs">
+    <button class="pool-tab active" onclick="setPoolTab('active')">🎯 Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('today')">📲 Today <span class="pool-badge" id="tabTodayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('week')">📅 This Week <span class="pool-badge" id="tabWeekCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('opted_out')" style="border-color:rgba(229,62,62,.35);color:#fc8181;">🚫 Opted Out <span class="pool-badge" id="tabOptedOutCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('moved_away')" style="border-color:rgba(20,184,166,.35);color:#2dd4bf;">🏠 Moved Away <span class="pool-badge" id="tabMovedAwayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filter-bar" id="filterBar">
+    <div class="filter-row">
+      <div class="search-wrap">
+        <input type="text" id="searchInput" class="filter-input search-input" placeholder="🔍 Search by name, phone, city, or address…" oninput="onSearchInput(this.value)" autocomplete="off" autocorrect="off" spellcheck="false">
+        <button class="search-clear" id="searchClear" onclick="clearSearch()" title="Clear search">✕</button>
+      </div>
+      <button class="add-customer-btn" onclick="openAddCustomerModal()">+ Add Customer</button>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">Tier:</span>
+      <button id="tierInfoBtn" class="tier-info-btn" title="How tiers work">ⓘ</button>
+      <span class="tier-pill tp-vip-seal on" data-tier="VIP_SEAL" onclick="toggleTier(this)">💎 VIP Seal</span>
+      <span class="tier-pill tp-hot on" data-tier="HOT" onclick="toggleTier(this)">🔥 Hot</span>
+      <span class="tier-pill tp-warm on" data-tier="WARM" onclick="toggleTier(this)">🟡 Warm</span>
+      <span class="tier-pill tp-sleeping on" data-tier="SLEEPING" onclick="toggleTier(this)">🟢 Sleeping</span>
+      <span class="tier-pill tp-cold on" data-tier="COLD" onclick="toggleTier(this)">❄️ Cold</span>
+      <span class="tier-pill tp-dormant on" data-tier="DORMANT" onclick="toggleTier(this)">🧊 Dormant</span>
+      <span class="tier-pill tp-ancient on" data-tier="ANCIENT" onclick="toggleTier(this)">👻 Ancient</span>
+      <span class="tier-pill tp-active off" data-tier="ACTIVE" onclick="toggleTier(this)">⏸️ Active</span>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">Phones:</span>
+      <select id="phoneFilterSel" class="filter-input" style="min-width:200px;" onchange="setPhoneFilter(this.value)">
+        <option value="active">Active phones only</option>
+        <option value="all">All (incl. disconnected)</option>
+        <option value="disconnected">Disconnected only</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <span class="filter-label">City:</span>
+      <select id="cityFilter" class="filter-input" style="min-width:160px;" onchange="applyFilters()">
+        <option value="">All cities</option>
+      </select>
+      <span class="filter-label">Min lifetime $:</span>
+      <input type="number" id="minSpend" class="filter-input" style="width:90px;" placeholder="0" oninput="applyFilters()">
+      <span class="filter-label">Sort:</span>
+      <select id="sortSel" class="filter-input" style="min-width:160px;" onchange="applySort()">
+        <option value="monthsSince">Months since (urgent first)</option>
+        <option value="lifetimeSpend">Lifetime $ (highest first)</option>
+        <option value="avgTicket">Avg ticket (highest first)</option>
+        <option value="lastService">Last service date</option>
+        <option value="totalJobs">Job count</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- TABLE CONTROLS -->
+  <div class="table-controls" id="tableControls">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+      <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"> Select all visible
+    </label>
+    <span class="sel-info" id="selInfo"><strong>0</strong> selected</span>
+  </div>
+
+  <!-- CONTACT STATS -->
+  <div class="contact-stats" id="contactStats" style="display:none;"></div>
+
+  <!-- TAB SUMMARY BAR (today / this week) -->
+  <div id="tabSummaryBar" style="display:none;"></div>
+
+  <!-- TABLE -->
+  <div class="table-wrap" id="tableWrap">
+    <table id="mainTable">
+      <thead>
+        <tr>
+          <th style="width:32px;cursor:default;"></th>
+          <th style="width:120px;cursor:default;">Text Now</th>
+          <th onclick="clickSort('name')">Name</th>
+          <th onclick="clickSort('phone')">Phone</th>
+          <th onclick="clickSort('city')">City</th>
+          <th onclick="clickSort('lastService')">Last Service</th>
+          <th onclick="clickSort('totalJobs')">Jobs</th>
+          <th onclick="clickSort('lifetimeSpend')">Lifetime $</th>
+          <th onclick="clickSort('avgTicket')">Avg Ticket</th>
+          <th onclick="clickSort('monthsSince')">Months Since</th>
+          <th onclick="clickSort('tier')">Tier</th>
+          <th style="width:70px;cursor:default;"></th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+</div><!-- end .wrap -->
+
+<!-- GENERATE BAR (sticky) -->
+<div class="gen-bar" id="genBar">
+  <span style="font-size:14px;color:var(--muted);">
+    <strong id="genCount" style="color:var(--text);">0</strong> customers selected
+  </span>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-gold" style="font-size:16px;padding:10px 20px;" onclick="generateLinks()" id="genBtn">Generate Links →</button>
+  </div>
+</div>
+
+<!-- OUTPUT -->
+<div class="wrap">
+  <div class="output-wrap" id="outputWrap">
+    <div class="output-hdr">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">SMS Drafts — ready to send</span>
+      <div style="display:flex;gap:8px;">
+        <button class="copy-btn" onclick="copyOutput()">Copy All</button>
+        <button class="btn-sm" style="background:var(--blue);color:var(--sky);" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div id="outputBlock" class="code-block"></div>
+  </div>
+  <div style="height:80px;"></div>
+</div>
+
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+const PCPC_API_BR = 'https://purecleaning-api.tylerfumero.workers.dev';
+const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const _SL_ALPHA_BR       = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function _genShortCodeBR() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += _SL_ALPHA_BR[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+function shortenUrl(longUrl) {
+  const code = _genShortCodeBR();
+  const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
+  (async () => {
+    try {
+      const sl = await fetch(`${PCPC_API_BR}/links`).then(r => r.json());
+      const links = sl.links || {};
+      links[code] = longUrl;
+      await fetch(`${PCPC_API_BR}/links`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
+    } catch(e) { console.warn('[shortenUrl]', e.message); }
+  })();
+  return short;
+}
+// ═══════════════════════════════════════════════════
+// VARIANT SYSTEM
+// Currently active: B (personal feedback ask)
+// Stored but hidden: A1, A2, C
+// To re-enable A/C: uncomment HIDDEN_VARIANTS below, restore getNextVariant() rotation,
+// and add a variant selector in the textBtn render block (search "textBtn" below).
+// ═══════════════════════════════════════════════════
+
+// Tyler: set to your 10-digit phone number before first test run (digits only)
+const TEST_PHONE = '';
+
+const ACTIVE_VARIANT = {
+  label: 'B',
+  template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. I've been working on something to make booking easier for our customers and built a new way to send quotes. Many of you know me personally, so I figured I'd reach out and see what you think.
+
+Take a look — your info's already filled in:
+
+{link}
+
+Would love your honest feedback either way. And if you don't want to use the link but need our services, just give us a call at 954-389-2642 — always happy to hear from you.
+
+— Tyler (Pure Cleaning Family)
+Reply STOP to opt out.`
+};
+
+/* HIDDEN_VARIANTS — stored for future activation, not currently sent
+const HIDDEN_VARIANTS = [
+  {
+    label: 'A1', // surface/floor timing reminder
+    template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned for you about {months} months ago — usually about the time driveways and patios start showing buildup again.
+
+If you'd like a fresh quote, your info's already saved:
+
+{link}
+
+— Pure Cleaning Family
+954-389-2642
+Reply STOP to opt out.`
+  },
+  {
+    label: 'A2', // roof timing reminder
+    template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. Roofs typically need a refresh every 12-18 months and it's been about {months} months since we cleaned yours. Wanted to reach out personally.
+
+Quick way to get a quote — your info's already saved:
+
+{link}
+
+— Pure Cleaning Family
+954-389-2642
+Reply STOP to opt out.`
+  },
+  {
+    label: 'C', // roof discount — DEFERRED: discount integration not built yet
+    template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. Reaching out to past roof customers — if you book a roof cleaning in the next 2 weeks, I'll take $50 off any roof job $200 or more.
+
+Tap to see your quote (info already filled in):
+
+{link}
+
+— Pure Cleaning Family
+954-389-2642
+Reply STOP to opt out.`
+  }
+];
+*/
+
+// ── EVENT TRACKING ────────────────────────────────────────────────
+const _tracked = new Set();
+async function trackQuoteEvent(eventType, phone, variant, meta) {
+  const key = eventType + ':' + (phone || 'anon');
+  if (_tracked.has(key)) return;
+  _tracked.add(key);
+  try {
+    const evt = { id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+      timestamp:new Date().toISOString(), eventType, customerPhone:phone||null,
+      variant:variant||null, pageVersion:'v1', metadata:meta||{} };
+    await fetch(`${PCPC_API_BR}/events`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(evt)
+    });
+  } catch(e) { console.warn('[track]', e.message); }
+}
+const COMMERCIAL_RE = /\b(management|association|condominiums?|condo|llc|inc|corp|properties|property keepers|realty|hoa|apartments|plaza|building|holdings|supply|films|akam|tech air|services)\b|referral/i;
+const PROPERTY_MANAGERS = ['karen niece','nelson faguaga','patrick willis','alex rosales','maria eganez','patricia calderon','bob better'];
+const BUILDING_KEYWORDS = ['the edge','lakewood condo','pine ridge','pine island','country gardens','racquet club','lakeview','lighthouse cove','sabal palm','palm springs','pembroke lakes','stirling','town center','shopping plaza','davie square','realmanage','university parc','parc residences','residences'];
+const BUILDING_PATTERN_RE = /^the\s+\w+$|\bat\s+\d|\b\d+$/i;
+
+// ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
+async function getCachedCustomerDB() {
+  const CACHE_KEY = 'pcpc_customer_db_cache';
+  const TTL_MS    = 5 * 60 * 1000;
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < TTL_MS) {
+        console.log('[customerDB] cache hit, age:', Math.round((Date.now() - timestamp)/1000) + 's');
+        return data;
+      }
+      console.log('[customerDB] cache expired, refetching');
+    }
+  } catch(e) { console.warn('[customerDB] cache read failed:', e); }
+  console.log('[customerDB] fetching fresh');
+  const res = await fetch(`${PCPC_API_BR}/customers`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch(e) { console.warn('[customerDB] cache write failed:', e); }
+  return data;
+}
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let allCustomers = [];
+let filteredCustomers = [];
+let selectedPhones = new Set();
+let activeTiers = new Set(['VIP_SEAL','HOT','WARM','SLEEPING','COLD','DORMANT','ANCIENT']);
+let uploadedFiles = [];
+let generatedLinks = []; // [{customer, code, link, sms}]
+let fileRowCounts = {}; // filename → data row count (set after processing)
+let excludedRecords = []; // [{displayName, phone, reason, customerData}]
+let manualOverrides = loadOverrides(); // {phone: 'include'|'exclude'}
+let sealPhones = new Set(); // phones with any seal job history (used across processFiles + moveToActive)
+let oldDbCustomers = []; // saved before update mode merge
+let updateMode = false; // true when re-processing CSVs to merge with existing DB
+let lastTotalRows = 0; // total raw rows from last processFiles run (stored for DB stats)
+let poolTab       = 'active'; // 'active' | 'contacted' | 'all'
+let phoneFilter   = 'active'; // 'active' | 'all' | 'disconnected'
+let searchQuery   = '';
+let openRowMenu   = null; // phone of currently open ⋯ menu
+
+// ─── OVERRIDES ───────────────────────────────────────────────────────────────
+function loadOverrides() {
+  try { return JSON.parse(localStorage.getItem('pcpc_manual_overrides') || '{}'); } catch { return {}; }
+}
+function saveOverrides() {
+  localStorage.setItem('pcpc_manual_overrides', JSON.stringify(manualOverrides));
+}
+
+// ─── PERSISTENT DATABASE ─────────────────────────────────────────────────────
+async function loadDatabase() {
+  const rec = await getCachedCustomerDB();
+  return (rec && rec.customers && rec.customers.length) ? rec : null;
+}
+
+function customerToDbRecord(c) {
+  return {
+    phone: c.phone,
+    firstName: c.fn,
+    lastName: c.ln,
+    address: c.address || '',
+    city: c.city || '',
+    lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+    totalJobs: c.totalJobs,
+    lifetimeSpend: Math.round(c.lifetimeSpend),
+    hasSealHistory: c.hasSeal || false,
+    phoneStatus: c.phoneStatus || 'active',
+    linkCode: c.linkCode || null,
+    linkBin: c.linkBin || null,
+    lastTextedDate: c.lastTextedDate || null,
+    quoteStatus: c.quoteStatus || null,
+    scheduledStatus: c.scheduledStatus || null,
+    alerts: c.alerts || [],
+    optOut: c.optOut || null,
+    movedAway: c.movedAway || null
+  };
+}
+
+function dbRecordToCustomer(r) {
+  const lastDateObj = r.lastService ? new Date(r.lastService) : null;
+  const ms = monthsSince(lastDateObj);
+  const avgTicket = r.totalJobs ? r.lifetimeSpend / r.totalJobs : 0;
+  const hasSeal = r.hasSealHistory || false;
+  const tier = calcTier({ monthsSince: ms, totalJobs: r.totalJobs, avgTicket, lifetimeSpend: r.lifetimeSpend, hasSeal });
+  return {
+    fn: r.firstName, ln: r.lastName, phone: r.phone,
+    address: r.address || '', city: r.city || '',
+    lastDateObj, totalJobs: r.totalJobs, lifetimeSpend: r.lifetimeSpend,
+    avgTicket, maxTicket: 0, hasSeal, tier, monthsSince: ms,
+    addresses: new Set(),
+    lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
+    phoneStatus: r.phoneStatus || 'active',
+    linkCode: r.linkCode || null, linkBin: r.linkBin || null, lastTextedDate: r.lastTextedDate || null,
+    quoteStatus: r.quoteStatus || null,
+    scheduledStatus: r.scheduledStatus || null,
+    alerts: r.alerts || [],
+    optOut: r.optOut || null,
+    movedAway: r.movedAway || null
+  };
+}
+
+async function saveDatabase() {
+  const tierCounts = {};
+  for (const c of allCustomers) tierCounts[c.tier] = (tierCounts[c.tier] || 0) + 1;
+  const db = {
+    lastUpdated: new Date().toISOString(),
+    stats: {
+      totalRows: lastTotalRows,
+      uniqueCustomers: allCustomers.length,
+      commercialExcluded: excludedRecords.length,
+      vipSeal: tierCounts['VIP_SEAL'] || 0,
+      hot: tierCounts['HOT'] || 0,
+      warm: tierCounts['WARM'] || 0,
+      sleeping: tierCounts['SLEEPING'] || 0,
+      cold: tierCounts['COLD'] || 0,
+      dormant: tierCounts['DORMANT'] || 0,
+      ancient: tierCounts['ANCIENT'] || 0,
+      active: tierCounts['ACTIVE'] || 0
+    },
+    customers: allCustomers.map(customerToDbRecord),
+    excluded: excludedRecords.map(e => ({ name: e.displayName, reason: e.reason, phone: e.phone || null }))
+  };
+  const res = await fetch(`${PCPC_API_BR}/customers`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(db)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Worker save failed (${res.status}): ${err.message || JSON.stringify(err)}`);
+  }
+  sessionStorage.removeItem('pcpc_customer_db_cache');
+  return db;
+}
+
+function populateFromDatabase(db) {
+  if (!db || !db.customers || !db.customers.length) return false;
+  sealPhones = new Set(db.customers.filter(r => r.hasSealHistory).map(r => r.phone));
+  allCustomers = db.customers.map(dbRecordToCustomer);
+  excludedRecords = (db.excluded || []).map(e => ({ displayName: e.name, phone: e.phone, reason: e.reason, customerData: null }));
+  return true;
+}
+
+function showDbBanner(db) {
+  const d = db.lastUpdated
+    ? new Date(db.lastUpdated).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})
+    : 'unknown';
+  document.getElementById('dbBannerText').textContent =
+    `Database last updated ${d} · ${allCustomers.length.toLocaleString()} customers loaded`;
+  document.getElementById('dbBanner').style.display = 'flex';
+}
+
+function enterUpdateMode() {
+  updateMode = true;
+  oldDbCustomers = [...allCustomers];
+  document.getElementById('uploadSection').style.display = 'block';
+  document.getElementById('processBtn').textContent = 'Process & Merge →';
+  document.getElementById('processBtn').disabled = uploadedFiles.length === 0;
+}
+
+async function tryLoadDatabase() {
+  // Always show banner with loading state — upload section stays hidden unless Update is tapped
+  const banner = document.getElementById('dbBanner');
+  const bannerText = document.getElementById('dbBannerText');
+  banner.style.display = 'flex';
+  bannerText.textContent = 'Loading customer database…';
+
+  try {
+    const db = await loadDatabase();
+    if (!populateFromDatabase(db)) {
+      bannerText.textContent = '⚠️ Database is empty — tap ↻ Update to process CSVs.';
+      return;
+    }
+
+    // Rebuild city filter
+    const cities = [...new Set(allCustomers.map(c => c.city).filter(Boolean))].sort();
+    const cf = document.getElementById('cityFilter');
+    cf.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option>${c}</option>`).join('');
+
+    renderExcludedList();
+    document.getElementById('excludedWrap').style.display = 'block';
+
+    const s = db.stats || {};
+    document.getElementById('sTotal').textContent = s.totalRows || allCustomers.length;
+    document.getElementById('sExcluded').textContent = excludedRecords.length;
+    document.getElementById('sUnique').textContent = allCustomers.length;
+    document.getElementById('sHotWarm').textContent = (s.hot || 0) + (s.warm || 0);
+    document.getElementById('sVipSeal').textContent = s.vipSeal || 0;
+    document.getElementById('sSleeping').textContent = s.sleeping || 0;
+    document.getElementById('statsBar').style.display = 'grid';
+
+    document.getElementById('filterBar').style.display = 'block';
+    document.getElementById('poolTabs').classList.add('show');
+    document.getElementById('tableWrap').style.display = 'block';
+    document.getElementById('tableControls').classList.add('show');
+
+    showDbBanner(db);
+    applyFilters();
+    updateContactStats();
+    updateHoursBanner();
+  } catch(e) {
+    bannerText.textContent = `⚠️ Could not load database — check connection and refresh. (${e.message})`;
+    console.error('DB load error:', e);
+  }
+}
+
+// ─── CSV PARSING ─────────────────────────────────────────────────────────────
+function parseCSVText(text) {
+  const rows = [];
+  let row = [], field = '', inQ = false;
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i <= text.length; i++) {
+    const ch = i < text.length ? text[i] : '\n';
+    if (inQ) {
+      if (ch === '"' && text[i+1] === '"') { field += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else field += ch;
+    } else {
+      if (ch === '"') { inQ = true; }
+      else if (ch === ',') { row.push(field.trim()); field = ''; }
+      else if (ch === '\n') {
+        row.push(field.trim()); field = '';
+        if (row.some(f => f)) rows.push(row);
+        row = [];
+      } else field += ch;
+    }
+  }
+  return rows;
+}
+
+function mapCols(headers) {
+  const m = {};
+  headers.forEach((h, i) => {
+    const n = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (n.includes('date')) m.date = i;
+    else if (n === 'customer') m.customer = i;
+    else if (n === 'address') m.address = i;
+    else if (n === 'city') m.city = i;
+    else if (n === 'phone') m.phone = i;
+    else if (n === 'total') m.total = i;
+    else if (n === 'services') m.services = i;
+  });
+  return m;
+}
+
+function parseDate(raw) {
+  if (!raw) return null;
+  raw = String(raw).trim();
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    let y = parseInt(m[3]);
+    if (y < 100) y += 2000;
+    return new Date(y, parseInt(m[1]) - 1, parseInt(m[2]));
+  }
+  const d = new Date(raw);
+  return isNaN(d) ? null : d;
+}
+
+function parseMoney(raw) {
+  if (!raw) return 0;
+  const n = parseFloat(String(raw).replace(/[$,\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const d = String(raw).replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('1')) return d.slice(1);
+  if (d.length === 10) return d;
+  return null;
+}
+
+function formatPhone(digits) {
+  if (!digits || digits.length !== 10) return digits || '';
+  return `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`;
+}
+
+function isCommercial(name) {
+  return COMMERCIAL_RE.test(name);
+}
+
+function isPropManager(name) {
+  const lower = name.toLowerCase();
+  return PROPERTY_MANAGERS.some(pm => lower.includes(pm));
+}
+
+function isBuilding(name) {
+  const lower = name.toLowerCase();
+  if (BUILDING_KEYWORDS.some(kw => lower.includes(kw))) return true;
+  // Strip parentheticals before pattern check
+  const clean = name.replace(/\(.*?\)/g, '').trim();
+  return BUILDING_PATTERN_RE.test(clean);
+}
+
+function splitName(full) {
+  // Strip parentheticals like "(referral)", "(Attn: ...)"
+  let clean = full.replace(/\(.*?\)/g, '').trim();
+  // Remove trailing notes after " - " or " / " that contain company keywords
+  let primary = clean;
+  const lastWord = clean.split(/\s+/).filter(Boolean).pop() || '';
+
+  if (clean.includes('/')) primary = clean.split('/')[0].trim();
+  else if (clean.includes(' - ')) primary = clean.split(' - ')[0].trim();
+
+  const parts = primary.split(/\s+/).filter(Boolean);
+  const fn = parts[0] || '';
+  let ln = parts.slice(1).join(' ') || '';
+  // If no last name from primary part, grab last word of full cleaned name
+  if (!ln && lastWord && lastWord !== fn) ln = lastWord;
+  return { fn, ln };
+}
+
+function monthsSince(dateObj) {
+  if (!dateObj) return 999;
+  const now = new Date();
+  return ((now - dateObj) / (1000 * 60 * 60 * 24 * 30.44));
+}
+
+function calcTier(c) {
+  const m = c.monthsSince;
+  // VIP Seal: has seal history, premium spend, in the 6mo–3yr engagement window
+  if (c.hasSeal && c.lifetimeSpend >= 1000 && m >= 6 && m <= 36) return 'VIP_SEAL';
+  const quality = c.totalJobs >= 2 || c.avgTicket >= 400;
+  if (m <  6)  return 'ACTIVE';
+  if (m < 12)  return quality ? 'HOT' : 'WARM';
+  if (m < 18)  return quality ? 'WARM' : 'SLEEPING';
+  if (m < 24)  return 'SLEEPING';
+  if (m < 48)  return 'COLD';    // 2–4 years
+  if (m < 96)  return 'DORMANT'; // 4–8 years
+  return 'ANCIENT';              // 8+ years
+}
+
+function tierLabel(t) {
+  return {VIP_SEAL:'💎 VIP Seal',HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',DORMANT:'🧊 Dormant',ANCIENT:'👻 Ancient',ACTIVE:'⏸️ Active'}[t] || t;
+}
+
+function tierClass(t) {
+  return {VIP_SEAL:'tp-vip-seal',HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',DORMANT:'tp-dormant',ANCIENT:'tp-ancient',ACTIVE:'tp-active'}[t] || '';
+}
+
+// ─── MAIN PROCESSING ─────────────────────────────────────────────────────────
+async function processFiles() {
+  if (!uploadedFiles.length) return;
+
+  const skipLines = document.getElementById('skipInput').value;
+  const skipPhones = new Set(skipLines.split('\n').map(l => normalizePhone(l.trim())).filter(Boolean));
+
+  let rawRows = [];
+  excludedRecords = [];
+  let totalRows = 0;
+  let skippedErrors = 0;
+  fileRowCounts = {};
+  const seenExcKeys = new Set();
+
+  // Parse each file once and cache
+  const parsedFiles = [];
+  for (const file of uploadedFiles) {
+    const text = await file.text();
+    const parsed = parseCSVText(text);
+    if (!parsed.length) continue;
+    fileRowCounts[file.name] = Math.max(0, parsed.length - 1);
+    const cols = mapCols(parsed[0]);
+    parsedFiles.push({ file, parsed, cols });
+  }
+
+  // Pre-scan: collect all phones that have ANY seal job — these are always residential
+  sealPhones = new Set();
+  for (const { parsed, cols } of parsedFiles) {
+    if (cols.services == null) continue;
+    for (let i = 1; i < parsed.length; i++) {
+      const phone = normalizePhone(parsed[i][cols.phone]);
+      const services = parsed[i][cols.services] || '';
+      if (phone && /seal/i.test(services)) sealPhones.add(phone);
+    }
+  }
+
+  // Main processing loop
+  for (const { parsed, cols } of parsedFiles) {
+    for (let i = 1; i < parsed.length; i++) {
+      const row = parsed[i];
+      const customer = row[cols.customer] || '';
+      const phone = normalizePhone(row[cols.phone]);
+      const dateObj = parseDate(row[cols.date]);
+      const total = parseMoney(row[cols.total]);
+      const address = row[cols.address] || '';
+      const city = row[cols.city] || '';
+
+      if (!customer) continue;
+      totalRows++;
+
+      const override = phone ? manualOverrides[phone] : null;
+      const hasSealHistory = phone ? sealPhones.has(phone) : false;
+
+      // Name-based exclusions — bypassed for manual include OR any seal history
+      if (override !== 'include' && !hasSealHistory) {
+        let reason = null;
+        if (isCommercial(customer)) reason = 'keyword';
+        else if (isPropManager(customer)) reason = 'property_manager';
+        else if (isBuilding(customer)) reason = 'building';
+        if (reason) {
+          const key = phone || customer.toLowerCase();
+          if (!seenExcKeys.has(key)) {
+            seenExcKeys.add(key);
+            excludedRecords.push({ displayName: customer, phone, reason, customerData: null });
+          }
+          continue;
+        }
+      }
+
+      if (!phone) continue;
+      if (skipPhones.has(phone)) continue;
+
+      // Manual exclude override
+      if (override === 'exclude') {
+        if (!seenExcKeys.has(phone)) {
+          seenExcKeys.add(phone);
+          excludedRecords.push({ displayName: customer, phone, reason: 'manual', customerData: null });
+        }
+        continue;
+      }
+
+      const { fn, ln } = splitName(customer);
+      if (!fn) { skippedErrors++; continue; }
+      rawRows.push({ fn, ln, phone, dateObj, total, address, city });
+    }
+  }
+
+  // Dedupe by phone — track unique addresses for multi-property heuristic
+  const byPhone = {};
+  for (const r of rawRows) {
+    if (!byPhone[r.phone]) {
+      byPhone[r.phone] = { fn: r.fn, ln: r.ln, phone: r.phone, address: r.address, city: r.city, lastDateObj: null, totalJobs: 0, lifetimeSpend: 0, maxTicket: 0, addresses: new Set() };
+    }
+    const c = byPhone[r.phone];
+    c.totalJobs++;
+    c.lifetimeSpend += r.total;
+    if (r.total > c.maxTicket) c.maxTicket = r.total;
+    if (r.address) c.addresses.add(r.address.toLowerCase().trim());
+    if (r.dateObj && (!c.lastDateObj || r.dateObj > c.lastDateObj)) {
+      c.lastDateObj = r.dateObj;
+      c.fn = r.fn; c.ln = r.ln; c.address = r.address; c.city = r.city;
+    }
+  }
+
+  // Multi-property heuristic — seal customers are exempt
+  for (const [phone, c] of Object.entries(byPhone)) {
+    if (sealPhones.has(phone)) continue;
+    if (c.totalJobs >= 4 && c.addresses.size >= 3 && manualOverrides[phone] !== 'include') {
+      excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'multi_property', customerData: c });
+      delete byPhone[phone];
+    }
+  }
+
+  // High-ticket heuristic: single job >= $1,500 AND no seal history → commercial
+  for (const [phone, c] of Object.entries(byPhone)) {
+    if (sealPhones.has(phone)) continue;
+    if (c.maxTicket >= 1500 && manualOverrides[phone] !== 'include') {
+      excludedRecords.push({ displayName: `${c.fn} ${c.ln}`, phone, reason: 'high_ticket', customerData: c });
+      delete byPhone[phone];
+    }
+  }
+
+  allCustomers = Object.values(byPhone).map(c => {
+    const ms = monthsSince(c.lastDateObj);
+    const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
+    const hasSeal = sealPhones.has(c.phone);
+    const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket, lifetimeSpend: c.lifetimeSpend, hasSeal });
+    return { ...c, monthsSince: ms, avgTicket, hasSeal, tier,
+      lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
+  });
+
+  // Merge with existing DB data if in update mode
+  if (updateMode) {
+    const oldByPhone = {};
+    for (const c of oldDbCustomers) oldByPhone[c.phone] = c;
+    const newByPhone = {};
+    for (const c of allCustomers) newByPhone[c.phone] = c;
+    // Keep old-only customers; new data wins on shared phones but preserves link/texted/status info
+    for (const [phone, old] of Object.entries(oldByPhone)) {
+      if (!newByPhone[phone]) {
+        newByPhone[phone] = old;
+      } else {
+        newByPhone[phone].phoneStatus     = old.phoneStatus     || 'active';
+        newByPhone[phone].linkCode        = old.linkCode        || null;
+        newByPhone[phone].linkBin         = old.linkBin         || null;
+        newByPhone[phone].lastTextedDate  = old.lastTextedDate  || null;
+        newByPhone[phone].quoteStatus     = old.quoteStatus     || null;
+        newByPhone[phone].scheduledStatus = old.scheduledStatus || null;
+        newByPhone[phone].alerts          = old.alerts          || [];
+        newByPhone[phone].optOut          = old.optOut          || null;
+        newByPhone[phone].movedAway       = old.movedAway       || null;
+      }
+    }
+    allCustomers = Object.values(newByPhone);
+  }
+
+  lastTotalRows = totalRows;
+
+  // Populate city filter
+  const cities = [...new Set(allCustomers.map(c => c.city).filter(Boolean))].sort();
+  const cf = document.getElementById('cityFilter');
+  cf.innerHTML = '<option value="">All cities</option>' + cities.map(c => `<option>${c}</option>`).join('');
+
+  // Show excluded panel
+  renderExcludedList();
+  document.getElementById('excludedWrap').style.display = 'block';
+
+  // Stats
+  const vipSeal = allCustomers.filter(c => c.tier === 'VIP_SEAL').length;
+  const hot = allCustomers.filter(c => c.tier === 'HOT').length;
+  const warm = allCustomers.filter(c => c.tier === 'WARM').length;
+  const sleeping = allCustomers.filter(c => c.tier === 'SLEEPING').length;
+  document.getElementById('sTotal').textContent = totalRows;
+  document.getElementById('sExcluded').textContent = excludedRecords.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+  document.getElementById('sHotWarm').textContent = hot + warm;
+  document.getElementById('sVipSeal').textContent = vipSeal;
+  document.getElementById('sSleeping').textContent = sleeping;
+  document.getElementById('statsBar').style.display = 'grid';
+
+  applyFilters();
+  updateContactStats();
+
+  document.getElementById('filterBar').style.display = 'block';
+  document.getElementById('tableWrap').style.display = 'block';
+  document.getElementById('tableControls').classList.add('show');
+
+  renderFilePills();
+
+  // Build upload summary before saving
+  let summaryNew = allCustomers.length, summaryUpdated = 0;
+  if (updateMode) {
+    const oldPhones = new Set(oldDbCustomers.map(c => c.phone));
+    summaryNew     = allCustomers.filter(c => !oldPhones.has(c.phone)).length;
+    summaryUpdated = allCustomers.filter(c =>  oldPhones.has(c.phone)).length;
+  }
+  const tierDist = {};
+  for (const c of allCustomers) tierDist[c.tier] = (tierDist[c.tier] || 0) + 1;
+  const uploadSummary = {
+    filesProcessed: uploadedFiles.length,
+    totalRows,
+    newCustomers: summaryNew,
+    updatedCustomers: summaryUpdated,
+    commercialExcluded: excludedRecords.length,
+    skippedErrors,
+    tiers: tierDist
+  };
+
+  // Persist to database (non-blocking; show banner on success)
+  const savingNote = document.getElementById('dbBannerText');
+  if (savingNote) savingNote.textContent = 'Saving to database…';
+  document.getElementById('dbBanner').style.display = 'flex';
+  saveDatabase().then(db => {
+    updateMode = false;
+    oldDbCustomers = [];
+    showDbBanner(db);
+    document.getElementById('uploadSection').style.display = 'none';
+    showUploadSummary(uploadSummary);
+  }).catch(e => {
+    updateMode = false;
+    document.getElementById('dbBannerText').textContent = `⚠️ Database save failed: ${e.message}`;
+    console.error('DB save error:', e);
+  });
+}
+
+// ─── FILTER / SORT ───────────────────────────────────────────────────────────
+function applyFilters() {
+  const city = document.getElementById('cityFilter').value;
+  const minSpend = parseFloat(document.getElementById('minSpend').value) || 0;
+  const q = searchQuery.toLowerCase();
+  const qDigits = q.replace(/\D/g, '');
+
+  filteredCustomers = allCustomers.filter(c => {
+    if (poolTab === 'opted_out')   return !!c.optOut;
+    if (poolTab === 'moved_away')  return !!c.movedAway;
+    if (c.optOut)    return false;
+    if (c.movedAway) return false;
+    if (!activeTiers.has(c.tier)) return false;
+    if (city && c.city !== city) return false;
+    if (c.lifetimeSpend < minSpend) return false;
+    if (phoneFilter === 'active'       && c.phoneStatus === 'disconnected') return false;
+    if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
+    if (poolTab === 'active'    && isInCooldown(c.phone))  return false;
+    if (poolTab === 'contacted' && !isInCooldown(c.phone)) return false;
+    if (poolTab === 'today') {
+      const rec = loadContactRecord(c.phone);
+      if (!rec || !rec.contactedAt || !isContactedToday(rec.contactedAt)) return false;
+    }
+    if (poolTab === 'week') {
+      const rec = loadContactRecord(c.phone);
+      if (!rec || !rec.contactedAt || !isContactedThisWeek(rec.contactedAt)) return false;
+    }
+    if (q) {
+      const fullName = (c.fn + ' ' + c.ln).toLowerCase();
+      const matches =
+        fullName.includes(q) ||
+        (c.fn || '').toLowerCase().includes(q) ||
+        (c.ln || '').toLowerCase().includes(q) ||
+        (c.city || '').toLowerCase().includes(q) ||
+        (c.address || '').toLowerCase().includes(q) ||
+        (qDigits && c.phone && c.phone.includes(qDigits));
+      if (!matches) return false;
+    }
+    return true;
+  });
+
+  applySort();
+  updateTabCounts();
+}
+
+function onSearchInput(val) {
+  searchQuery = val.trim();
+  document.getElementById('searchClear').classList.toggle('visible', searchQuery.length > 0);
+  applyFilters();
+}
+
+function clearSearch() {
+  searchQuery = '';
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchClear').classList.remove('visible');
+  applyFilters();
+}
+
+function applySort() {
+  if (poolTab === 'contacted' || poolTab === 'today' || poolTab === 'week') {
+    filteredCustomers.sort((a, b) => {
+      const ta = (loadContactRecord(a.phone) || {}).contactedAt || '';
+      const tb = (loadContactRecord(b.phone) || {}).contactedAt || '';
+      return tb.localeCompare(ta);
+    });
+    renderTable(); return;
+  }
+  const key = document.getElementById('sortSel').value;
+  const numericAsc = ['monthsSince'];
+  filteredCustomers.sort((a, b) => {
+    let av = a[key] ?? 0, bv = b[key] ?? 0;
+    if (typeof av === 'string') av = av.toLowerCase();
+    if (typeof bv === 'string') bv = bv.toLowerCase();
+    if (numericAsc.includes(key)) return av - bv; // ascending for months
+    if (typeof av === 'number') return bv - av;   // descending for money/jobs
+    return av < bv ? -1 : av > bv ? 1 : 0;
+  });
+  renderTable();
+}
+
+function clickSort(col) {
+  document.getElementById('sortSel').value = col;
+  applySort();
+}
+
+function toggleTier(el) {
+  const t = el.dataset.tier;
+  if (activeTiers.has(t)) { activeTiers.delete(t); el.classList.remove('on'); el.classList.add('off'); }
+  else { activeTiers.add(t); el.classList.add('on'); el.classList.remove('off'); }
+  applyFilters();
+}
+
+const OPT_OUT_LABELS = {
+  customer_request: 'Customer request',
+  wrong_number: 'Wrong number',
+  deceased: 'Deceased',
+  moved: 'Moved away',
+  do_not_contact: 'Do not contact'
+};
+
+// ─── TABLE RENDERING ─────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  const emptyTabs = ['today','week','opted_out','moved_away'];
+  if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
+    const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.'};
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msgs[poolTab]}</td></tr>`;
+    updateSelInfo();
+    document.getElementById('selectAll').checked = false;
+    return;
+  }
+  tbody.innerHTML = filteredCustomers.map(c => {
+    const checked = selectedPhones.has(c.phone);
+    const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
+    const tc = tierClass(c.tier);
+    const sealIcon   = c.hasSeal ? '🛡️ ' : '';
+    const alertBadge = renderAlertIcons(c.alerts);
+
+    // Moved-away tab: show address, move date, location, restore
+    if (poolTab === 'moved_away') {
+      const atStr = c.movedAway.at ? new Date(c.movedAway.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const loc = c.movedAway.location ? ` → ${c.movedAway.location}` : '';
+      const textBtn = `<div class="contact-info">🏠 Moved away${atStr ? ' · ' + atStr : ''}${loc}</div><button class="restore-moved-btn" onclick="restoreMovedAway('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.7;">
+        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td>${textBtn}</td>
+        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${c.city || '—'}</td>
+        <td>${c.lastServiceStr}</td>
+        <td class="money">${c.totalJobs}</td>
+        <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="money">$${Math.round(c.avgTicket)}</td>
+        <td class="money">${mo}</td>
+        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }
+
+    // Opted-out tab: show reason + restore, no text button
+    if (poolTab === 'opted_out') {
+      const reasonLabel = OPT_OUT_LABELS[c.optOut && c.optOut.reason] || c.optOut.reason || 'Unknown';
+      const atStr = c.optOut.at ? new Date(c.optOut.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const textBtn = `<div class="contact-info">🚫 Opted out<br><span style="font-size:10px;">${reasonLabel}${atStr ? ' · ' + atStr : ''}</span></div><button class="restore-btn" onclick="restoreOptOut('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.7;">
+        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td>${textBtn}</td>
+        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${c.city || '—'}</td>
+        <td>${c.lastServiceStr}</td>
+        <td class="money">${c.totalJobs}</td>
+        <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="money">$${Math.round(c.avgTicket)}</td>
+        <td class="money">${mo}</td>
+        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }
+
+    const rec     = loadContactRecord(c.phone);
+    const cooldown = isInCooldown(c.phone);
+    const isDisc = c.phoneStatus === 'disconnected';
+    let textBtn;
+    if (isDisc) {
+      textBtn = `<button class="text-disconnected-btn" disabled title="Phone marked disconnected">📵 Disconnected</button>`;
+    } else if (poolTab === 'today' && rec && rec.contactedAt) {
+      textBtn = `<div class="contact-info">📲 Sent at ${etTimeStr(rec.contactedAt)}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
+    } else if (poolTab === 'week' && rec && rec.contactedAt) {
+      textBtn = `<div class="contact-info">📲 ${etDayTimeStr(rec.contactedAt)}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
+    } else if (cooldown) {
+      textBtn = `<div class="contact-info">📲 Texted ${formatContactDate(rec.contactedAt)}<br>Until ${new Date(rec.cooldownUntil).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'})}</div><button class="undo-btn" onclick="undoContact('${c.phone}')">↶ Undo — didn't send</button>`;
+    } else if (rec) {
+      textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="texted-badge" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">✓ Texted ${formatContactDate(rec.contactedAt)}</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
+    } else {
+      textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
+    }
+    return `<tr>
+      <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+      <td>${textBtn}</td>
+      <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+      <td class="phone">${formatPhone(c.phone)}</td>
+      <td>${c.city || '—'}</td>
+      <td>${c.lastServiceStr}</td>
+      <td class="money">${c.totalJobs}</td>
+      <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td class="money">$${Math.round(c.avgTicket)}</td>
+      <td class="money">${mo}</td>
+      <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+      <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+    </tr>`;
+  }).join('');
+  updateSelInfo();
+  document.getElementById('selectAll').checked =
+    filteredCustomers.length > 0 && filteredCustomers.every(c => selectedPhones.has(c.phone));
+}
+
+function toggleRow(cb) {
+  const phone = cb.dataset.phone;
+  if (cb.checked) selectedPhones.add(phone); else selectedPhones.delete(phone);
+  updateSelInfo();
+}
+
+function toggleSelectAll(masterCb) {
+  filteredCustomers.forEach(c => { if (masterCb.checked) selectedPhones.add(c.phone); else selectedPhones.delete(c.phone); });
+  renderTable();
+}
+
+function updateSelInfo() {
+  const n = selectedPhones.size;
+  document.getElementById('selInfo').innerHTML = `<strong>${n}</strong> selected`;
+  document.getElementById('genCount').textContent = n;
+  const bar = document.getElementById('genBar');
+  if (n > 0) bar.classList.add('show'); else bar.classList.remove('show');
+}
+
+function renderAlertIcons(alerts) {
+  if (!alerts || !alerts.length) return '';
+  const icons = alerts.slice(0,3).map(a=>`<span title="${a.label}">${a.icon}</span>`).join('');
+  const more  = alerts.length > 3 ? `<span class="alert-badge-more">+${alerts.length-3}</span>` : '';
+  return `<span class="alert-badge-wrap">${icons}${more}</span>`;
+}
+
+// ─── CONTACT TRACKING ────────────────────────────────────────────────────────
+function loadContacts() {
+  try { return JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}'); } catch { return {}; }
+}
+function saveContacts(c) {
+  localStorage.setItem('pcpc_reactivation_contacts', JSON.stringify(c));
+}
+function formatContactDate(iso) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+function etDateStr(d) {
+  return new Date(d).toLocaleDateString('en-US',
+    {timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'});
+}
+function etWeekKey(d) {
+  const [m,dd,y] = etDateStr(d).split('/').map(Number);
+  const date = new Date(y, m-1, dd);
+  const dow = date.getDay();
+  const toMon = dow === 0 ? -6 : 1 - dow;
+  const mon = new Date(date); mon.setDate(date.getDate() + toMon);
+  return `${mon.getFullYear()}-${mon.getMonth()+1}-${mon.getDate()}`;
+}
+function isContactedToday(iso) {
+  return !!iso && etDateStr(iso) === etDateStr(new Date());
+}
+function isContactedThisWeek(iso) {
+  return !!iso && etWeekKey(iso) === etWeekKey(new Date());
+}
+function etTimeStr(iso) {
+  return new Date(iso).toLocaleTimeString('en-US',
+    {timeZone:'America/New_York', hour:'numeric', minute:'2-digit', hour12:true});
+}
+function etDayTimeStr(iso) {
+  return new Date(iso).toLocaleString('en-US',
+    {timeZone:'America/New_York', weekday:'short', hour:'numeric', minute:'2-digit', hour12:true});
+}
+function renderTabSummary(tab) {
+  const bar = document.getElementById('tabSummaryBar');
+  if (!bar) return;
+  if (tab !== 'today' && tab !== 'week') { bar.style.display = 'none'; return; }
+  const records = Object.entries(loadContacts())
+    .map(([phone, v]) => ({phone, iso: typeof v === 'string' ? v : (v && v.contactedAt)}))
+    .filter(r => r.iso);
+  if (tab === 'today') {
+    const n = records.filter(r => isContactedToday(r.iso)).length;
+    const cap = 30, rem = Math.max(0, cap - n);
+    const cls = n >= 31 ? 'ts-red' : n >= 26 ? 'ts-amber' : n >= 16 ? 'ts-yellow' : 'ts-green';
+    const statusIcon = n >= 31 ? '🚫' : n >= 26 ? '⚠️' : '📲';
+    bar.style.display = 'block';
+    bar.innerHTML = `<div class="tab-summary ${cls}">${statusIcon} Sent today: <strong>${n}</strong> &nbsp;·&nbsp; Daily cap: ${cap} &nbsp;·&nbsp; <strong>${rem >= 0 ? rem : 0}</strong> remaining</div>`;
+    return;
+  }
+  const weekRecs = records.filter(r => isContactedThisWeek(r.iso));
+  const n = weekRecs.length;
+  const cap = 150, rem = Math.max(0, cap - n);
+  const wcls = n >= 151 ? 'ts-red' : n >= 131 ? 'ts-amber' : 'ts-green';
+  const wIcon = n >= 151 ? '🚫' : n >= 131 ? '⚠️' : '📅';
+  const counts = {Mon:0, Tue:0, Wed:0, Thu:0, Fri:0, Sat:0, Sun:0};
+  weekRecs.forEach(r => {
+    const dn = new Date(r.iso).toLocaleDateString('en-US',{timeZone:'America/New_York',weekday:'short'});
+    if (counts[dn] !== undefined) counts[dn]++;
+  });
+  const chips = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d =>
+    `<span class="day-chip${counts[d] > 0 ? ' has-sends' : ''}">${d}: ${counts[d]}</span>`).join('');
+  bar.style.display = 'block';
+  bar.innerHTML = `<div class="tab-summary ${wcls}">${wIcon} This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem >= 0 ? rem : 0}</strong> remaining<div class="day-chips">${chips}</div></div>`;
+}
+// ─── COMPLIANCE ENFORCEMENT ──────────────────────────────────────────────────
+function isWithinSendingHours() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', hour12: false
+  }).formatToParts(now);
+  const weekday = parts.find(p => p.type === 'weekday').value;
+  const hour = parseInt(parts.find(p => p.type === 'hour').value);
+  return !['Sat','Sun'].includes(weekday) && hour >= 9 && hour < 19;
+}
+
+function getDailySendCount() {
+  return Object.values(loadContacts())
+    .map(v => typeof v === 'string' ? v : (v && v.contactedAt))
+    .filter(Boolean)
+    .filter(iso => isContactedToday(iso)).length;
+}
+
+function getWeeklySendCount() {
+  return Object.values(loadContacts())
+    .map(v => typeof v === 'string' ? v : (v && v.contactedAt))
+    .filter(Boolean)
+    .filter(iso => isContactedThisWeek(iso)).length;
+}
+
+function getNextSendingWindow() {
+  const now = new Date();
+  const wdParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'long'
+  }).formatToParts(now);
+  const weekday = wdParts.find(p => p.type === 'weekday').value;
+  const hour = parseInt(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', hour12: false
+  }).formatToParts(now).find(p => p.type === 'hour').value);
+  if (['Saturday','Sunday'].includes(weekday)) return 'Monday at 9 AM ET';
+  if (hour < 9) return 'Today at 9 AM ET';
+  if (hour >= 19) return weekday === 'Friday' ? 'Monday at 9 AM ET' : 'Tomorrow at 9 AM ET';
+  return 'now';
+}
+
+function checkCompliance() {
+  if (!isWithinSendingHours()) {
+    return {
+      allowed: false,
+      reason: `Sending paused — Mon-Fri 9 AM to 7 PM ET only. Resumes ${getNextSendingWindow()}.`,
+      override: true,
+      severity: 'time'
+    };
+  }
+  const dailyCount = getDailySendCount();
+  const weeklyCount = getWeeklySendCount();
+  if (dailyCount >= 100) {
+    return {
+      allowed: false,
+      reason: `Hard ceiling reached: ${dailyCount} sends today. Sending locked until midnight ET to protect your phone number.`,
+      override: false,
+      severity: 'hard_daily'
+    };
+  }
+  if (dailyCount >= 31) {
+    return {
+      allowed: false,
+      reason: `Daily cap reached: ${dailyCount}/30 sent today. Sending past 30 risks carrier flags on your business number.`,
+      override: true,
+      severity: 'soft_daily'
+    };
+  }
+  if (weeklyCount >= 151) {
+    return {
+      allowed: false,
+      reason: `Weekly cap reached: ${weeklyCount}/150 sent this week. Resumes Monday morning.`,
+      override: true,
+      severity: 'soft_weekly'
+    };
+  }
+  return { allowed: true };
+}
+
+function showComplianceBlock(compliance) {
+  const overrideHtml = compliance.override ? `
+    <div class="compliance-warning">
+      <strong>If you override:</strong>
+      <ul>
+        <li>TCPA violations cost $500–$1,500 per message</li>
+        <li>Carriers may flag your business number</li>
+        <li>Reply quality will suffer outside business hours</li>
+      </ul>
+    </div>
+    <div class="compliance-actions">
+      <button class="btn-cancel" onclick="this.closest('.compliance-modal-backdrop').remove()">Cancel</button>
+      <button class="btn-override" onclick="overrideAndSend('${currentTextNowPhone}')">Override &amp; Send Anyway</button>
+    </div>` : `
+    <div class="compliance-actions">
+      <button class="btn-cancel" style="width:100%" onclick="this.closest('.compliance-modal-backdrop').remove()">Got it</button>
+    </div>`;
+  const icon = compliance.severity === 'hard_daily' ? '🚫' : '⏰';
+  const modal = document.createElement('div');
+  modal.className = 'compliance-modal-backdrop';
+  modal.innerHTML = `<div class="compliance-modal">
+    <div class="compliance-icon">${icon}</div>
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:.25rem;">${compliance.severity === 'hard_daily' ? 'Sending Locked' : 'Sending Paused'}</h3>
+    <p class="compliance-reason">${compliance.reason}</p>
+    ${overrideHtml}
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+let currentTextNowPhone = null;
+
+function overrideAndSend(phone) {
+  document.querySelector('.compliance-modal-backdrop')?.remove();
+  executeTextNow(phone);
+}
+
+function updateHoursBanner() {
+  const banner = document.getElementById('hoursBanner');
+  const resumesEl = document.getElementById('resumesIn');
+  if (!banner) return;
+  if (isWithinSendingHours()) {
+    banner.style.display = 'none';
+  } else {
+    if (resumesEl) resumesEl.textContent = getNextSendingWindow();
+    banner.style.display = 'block';
+  }
+}
+
+function getNextVariant() {
+  return ACTIVE_VARIANT; // always Variant B — to re-enable rotation, restore cycling logic here
+}
+
+function buildVariantBody(variant, customer, link) {
+  const months = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  return variant.template
+    .replace(/{firstName}/g, customer.fn || 'there')
+    .replace(/{months}/g, months)
+    .replace(/{link}/g, link);
+}
+
+function showVariantToast(label) {
+  let toast = document.getElementById('variantToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'variantToast';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1d9e75;color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;font-weight:700;letter-spacing:.5px;z-index:9999;pointer-events:none;transition:opacity .4s;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = `Sent — Variant ${label}`;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+}
+
+// ── SEND CONFIRMATION MODAL ───────────────────────────────────────────────────
+let _confirmPhone = null;
+
+function showSendConfirm(phone) {
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+  _confirmPhone = phone;
+  document.getElementById('scName').textContent = `${c.fn} ${c.ln}`;
+  document.getElementById('scPhone').textContent = formatPhone(c.phone);
+  document.getElementById('sendConfirmModal').style.display = 'flex';
+}
+function closeSendConfirm() {
+  document.getElementById('sendConfirmModal').style.display = 'none';
+  _confirmPhone = null;
+}
+function confirmSend() {
+  const phone = _confirmPhone;
+  closeSendConfirm();
+  if (phone) executeTextNow(phone);
+}
+
+// ── TEST SEND TO ME ───────────────────────────────────────────────────────────
+async function testSendToMe(phone) {
+  if (!TEST_PHONE) {
+    alert('Set TEST_PHONE in the code (near the top of the script) to your 10-digit number before using test send.');
+    return;
+  }
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+
+  let code = c.linkCode;
+  if (!code) {
+    // Generate a real link so the URL works, but don't stamp the customer record
+    code = generateCode();
+    const customerRecord = {
+      fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
+      city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+      totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
+    };
+    fetch(`${PCPC_API_BR}/quote/${code}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(customerRecord)
+    }).catch(() => {});
+  }
+
+  const longUrl = `${QUOTE_BASE}?c=${code}&v=B_TEST`;
+  const shortLink = shortenUrl(longUrl);
+  const body = buildVariantBody(ACTIVE_VARIANT, c, shortLink);
+  const testBody = `[TEST — would have gone to ${c.fn}]\n\n${body}`;
+
+  // No customer record update, no event log, no cap counting
+  window.location.href = `sms:${TEST_PHONE}&body=${encodeURIComponent(testBody)}`;
+}
+
+function buildMonthsText(ms) {
+  const n = Math.round(ms);
+  if (n <= 0) return 'a few weeks';
+  if (n === 1) return 'about a month';
+  return `about ${n} months`;
+}
+function contactStats() {
+  const contacts = loadContacts();
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  let today = 0, week = 0, allTime = 0;
+  for (const v of Object.values(contacts)) {
+    if (!v) continue;
+    const iso = typeof v === 'string' ? v : v.contactedAt;
+    if (!iso) continue;
+    allTime++;
+    const d = new Date(iso);
+    if (d >= weekAgo) week++;
+    if (iso.startsWith(todayStr)) today++;
+  }
+  return { today, week, allTime };
+}
+function updateContactStats() {
+  const el = document.getElementById('contactStats');
+  if (!el || !allCustomers.length) return;
+  const { today, week, allTime } = contactStats();
+  el.style.display = 'block';
+  el.textContent = `📱 Texted today: ${today} · This week: ${week} · All time: ${allTime}`;
+}
+function loadContactRecord(phone) {
+  try {
+    const v = loadContacts()[phone];
+    if (!v) return null;
+    return typeof v === 'string' ? { contactedAt: v, cooldownUntil: null } : v;
+  } catch { return null; }
+}
+function isInCooldown(phone) {
+  const r = loadContactRecord(phone);
+  return !!(r && r.cooldownUntil && new Date(r.cooldownUntil) > new Date());
+}
+function undoContact(phone) {
+  const c = loadContacts(); delete c[phone]; saveContacts(c);
+  applyFilters();
+}
+function setPoolTab(tab) {
+  poolTab = tab;
+  document.querySelectorAll('.pool-tab').forEach((el, i) => {
+    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','all'][i] === tab);
+  });
+  renderTabSummary(tab);
+  applyFilters();
+}
+function updateTabCounts() {
+  const el = document.getElementById('tabActiveCount');
+  if (!el || !allCustomers.length) return;
+  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0;
+  allCustomers.forEach(c => {
+    if (c.optOut)    { optedOutCt++;   return; }
+    if (c.movedAway) { movedAwayCt++;  return; }
+    const rec = loadContactRecord(c.phone);
+    if (isInCooldown(c.phone)) {
+      contacted++;
+      if (rec && rec.contactedAt) {
+        if (isContactedToday(rec.contactedAt)) todayCt++;
+        if (isContactedThisWeek(rec.contactedAt)) weekCt++;
+      }
+    } else {
+      active++;
+    }
+  });
+  document.getElementById('tabActiveCount').textContent    = active;
+  document.getElementById('tabTodayCount').textContent     = todayCt;
+  document.getElementById('tabWeekCount').textContent      = weekCt;
+  document.getElementById('tabContactedCount').textContent = contacted;
+  document.getElementById('tabAllCount').textContent       = allCustomers.length;
+  document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
+  document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
+}
+function textNow(phone) {
+  const compliance = checkCompliance();
+  if (!compliance.allowed) {
+    currentTextNowPhone = phone;
+    showComplianceBlock(compliance);
+    return;
+  }
+  showSendConfirm(phone);
+}
+
+async function executeTextNow(phone) {
+  const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+
+  let code = c.linkCode;
+
+  if (!code) {
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+      code = generateCode();
+      const customerRecord = {
+        fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
+        city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+        totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
+      };
+      await fetch(`${PCPC_API_BR}/quote/${code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customerRecord)
+      });
+
+      c.linkCode = code;
+      c.quoteStatus = { state: 'sent', sentDate: new Date().toISOString().split('T')[0], viewedDate: null, approvedDate: null, lostDate: null, lostReason: null, notes: null };
+      saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Text Now'; btn.className = 'text-now-btn'; }
+      alert('Could not generate link: ' + e.message);
+      return;
+    }
+  }
+
+  const baseLink = `${QUOTE_BASE}?c=${code}`;
+  const variant = getNextVariant();
+  const linkWithVariant = `${baseLink}&v=${variant.label}`;
+  const shortLink = shortenUrl(linkWithVariant);
+  const body = buildVariantBody(variant, c, shortLink);
+
+  window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
+
+  trackQuoteEvent('reactivation_sent', c.phone, variant.label, {
+    tier: c.tier, sentBy: 'tyler', sentAt: new Date().toISOString()
+  });
+  showVariantToast(variant.label);
+
+  const now = new Date();
+  const sixMonths = new Date(now.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);
+  const contacts = loadContacts();
+  contacts[c.phone] = { contactedAt: now.toISOString(), cooldownUntil: sixMonths.toISOString() };
+  saveContacts(contacts);
+  applyFilters();
+  updateContactStats();
+}
+
+// ─── LINK GENERATION ─────────────────────────────────────────────────────────
+function generateCode() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+  return c;
+}
+
+async function generateLinks() {
+  const selected = allCustomers.filter(c => selectedPhones.has(c.phone));
+  if (!selected.length) return;
+
+  const btn = document.getElementById('genBtn');
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+
+  try {
+    generatedLinks = [];
+    for (const c of selected) {
+      const code = generateCode();
+      const customerRecord = { fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address, city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null, totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString() };
+      await fetch(`${PCPC_API_BR}/quote/${code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(customerRecord)
+      });
+      const longLink = `${QUOTE_BASE}?c=${code}`;
+      const link = shortenUrl(longLink);
+      const months = Math.round(c.monthsSince);
+      const years  = Math.floor(c.monthsSince / 12);
+      const sms = (c.tier === 'DORMANT' || c.tier === 'ANCIENT')
+        ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in:\n\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
+        : c.tier === 'VIP_SEAL'
+          ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${months} month${months===1?'':'s'} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
+          : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home about ${months} month${months===1?'':'s'} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in:\n\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+      generatedLinks.push({ customer: c, code, link, sms, months });
+    }
+
+    // Stamp link codes onto allCustomers so DB save preserves them
+    for (const g of generatedLinks) {
+      const customer = allCustomers.find(a => a.phone === g.customer.phone);
+      if (customer) { customer.linkCode = g.code; }
+    }
+    saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
+
+    renderOutput();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.textContent = 'Generate Links →';
+    btn.disabled = false;
+  }
+}
+
+function renderOutput() {
+  const lines = generatedLinks.map(g => {
+    const c = g.customer;
+    const tierStr = {VIP_SEAL:'💎 VIP SEAL',HOT:'🔥 HOT',WARM:'🟡 WARM',SLEEPING:'🟢 SLEEPING',COLD:'❄️ COLD',ACTIVE:'⏸️ ACTIVE'}[c.tier] || c.tier;
+    return `${'='.repeat(60)}\n${c.fn} ${c.ln} | ${formatPhone(c.phone)} | ${c.city} | last cleaned ~${g.months} months ago | ${tierStr}\n${'-'.repeat(60)}\n${g.sms}`;
+  }).join('\n\n');
+  document.getElementById('outputBlock').textContent = lines;
+  const ow = document.getElementById('outputWrap');
+  ow.classList.add('show');
+  ow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ─── COPY / EXPORT ───────────────────────────────────────────────────────────
+function copyOutput() {
+  const text = document.getElementById('outputBlock').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event.target;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy All'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function exportCSV() {
+  const rows = [['first_name','last_name','phone','city','last_service','months_since','total_jobs','lifetime_spend','avg_ticket','tier','link']];
+  for (const g of generatedLinks) {
+    const c = g.customer;
+    rows.push([c.fn, c.ln, formatPhone(c.phone), c.city, c.lastServiceStr, Math.round(c.monthsSince), c.totalJobs, Math.round(c.lifetimeSpend), Math.round(c.avgTicket), c.tier, g.link]);
+  }
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `pure_cleaning_reactivation_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ─── UI HELPERS ──────────────────────────────────────────────────────────────
+function toggleSkip() {
+  const w = document.getElementById('skipWrap');
+  w.style.display = w.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleExcluded() {
+  const el = document.getElementById('excludedList');
+  const btn = document.getElementById('excludedToggle');
+  const shown = el.style.display !== 'none';
+  el.style.display = shown ? 'none' : 'block';
+  btn.textContent = shown ? '(show)' : '(hide)';
+}
+
+function renderExcludedList() {
+  const el = document.getElementById('excludedList');
+  if (!excludedRecords.length) { el.innerHTML = '<span style="color:var(--muted)">None</span>'; return; }
+
+  const counts = { keyword: 0, property_manager: 0, building: 0, multi_property: 0, high_ticket: 0, manual: 0 };
+  excludedRecords.forEach(e => { if (counts[e.reason] != null) counts[e.reason]++; });
+
+  const breakdown = `<div style="font-size:10px;color:var(--muted);padding:4px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;line-height:2;">` +
+    `<span style="margin-right:12px;">Company keyword: <strong style="color:var(--text);">${counts.keyword}</strong></span>` +
+    `<span style="margin-right:12px;">Property manager: <strong style="color:var(--sky);">${counts.property_manager}</strong></span>` +
+    `<span style="margin-right:12px;">Building pattern: <strong style="color:#c084fc;">${counts.building}</strong></span>` +
+    `<span style="margin-right:12px;">Multi-property: <strong style="color:var(--gold);">${counts.multi_property}</strong></span>` +
+    `<span style="margin-right:12px;">High-ticket: <strong style="color:#fb923c;">${counts.high_ticket}</strong></span>` +
+    `<span>Manual: <strong style="color:#fc8181;">${counts.manual}</strong></span>` +
+    `</div>`;
+
+  const rows = excludedRecords.map(e => {
+    const tagHtml = {
+      keyword: '',
+      property_manager: '<span class="exc-tag-pm">(Property Manager)</span>',
+      building: '<span style="color:#c084fc;font-size:10px;margin-left:6px;">(Building)</span>',
+      multi_property: '<span class="exc-tag-mp">(Multi-property)</span>',
+      high_ticket: '<span style="color:#fb923c;font-size:10px;margin-left:6px;">(High-ticket)</span>',
+      manual: '<span class="exc-tag-manual">(Manual)</span>'
+    }[e.reason] || '';
+    const moveBtn = e.phone
+      ? `<button class="move-active-btn" onclick="moveToActive('${e.phone}')">Move to active</button>`
+      : '';
+    return `<div class="exc-item"><span>${e.displayName}${tagHtml}</span>${moveBtn}</div>`;
+  }).join('');
+
+  el.innerHTML = breakdown + rows;
+}
+
+function moveToActive(phone) {
+  manualOverrides[phone] = 'include';
+  saveOverrides();
+  const rec = excludedRecords.find(e => e.phone === phone);
+  if (rec) {
+    // Restore full customer if we have the data (multi-property case)
+    let customer;
+    if (rec.customerData) {
+      const c = rec.customerData;
+      const ms = monthsSince(c.lastDateObj);
+      const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
+      const hasSeal = sealPhones.has(c.phone);
+      const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket, lifetimeSpend: c.lifetimeSpend, hasSeal });
+      customer = { ...c, monthsSince: ms, avgTicket, hasSeal, tier,
+        lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
+    } else {
+      // Build stub from name — re-process for full stats
+      const { fn, ln } = splitName(rec.displayName);
+      const hasSeal = sealPhones.has(phone);
+      customer = { fn, ln, phone, address: '', city: '', lastDateObj: null, totalJobs: 0,
+        lifetimeSpend: 0, monthsSince: 999, avgTicket: 0, hasSeal, tier: 'COLD', lastServiceStr: '—', addresses: new Set() };
+    }
+    allCustomers.push(customer);
+  }
+  excludedRecords = excludedRecords.filter(e => e.phone !== phone);
+  renderExcludedList();
+  document.getElementById('sExcluded').textContent = excludedRecords.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+  applyFilters();
+}
+
+function promptOptOut(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  const name = `${c.fn} ${c.ln}`;
+  const modal = document.createElement('div');
+  modal.className = 'compliance-modal-backdrop';
+  modal.id = 'optOutModal';
+  modal.innerHTML = `<div class="compliance-modal" style="text-align:left;">
+    <div style="font-size:1.5rem;margin-bottom:.5rem;">🚫</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:.25rem;">Mark Opted Out</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">${name} — ${formatPhone(phone)}<br>Customer will be hidden from all reactivation views. Record is preserved.</p>
+    <div style="margin-bottom:1rem;">
+      <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px;">Reason</label>
+      <select id="optOutReasonSel" style="width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+        <option value="customer_request">Customer request</option>
+        <option value="wrong_number">Wrong number</option>
+        <option value="deceased">Deceased</option>
+        <option value="moved">Moved away</option>
+        <option value="do_not_contact">Do not contact</option>
+      </select>
+    </div>
+    <div class="compliance-actions">
+      <button class="btn-cancel" onclick="document.getElementById('optOutModal').remove()">Cancel</button>
+      <button class="btn-override" onclick="markOptedOut('${phone}', document.getElementById('optOutReasonSel').value)">Confirm Opt-Out</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function markOptedOut(phone, reason) {
+  document.getElementById('optOutModal')?.remove();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.optOut = { reason: reason || 'customer_request', at: new Date().toISOString() };
+  selectedPhones.delete(phone);
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function restoreOptOut(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.optOut = null;
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function promptMovedAway(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  const modal = document.createElement('div');
+  modal.className = 'compliance-modal-backdrop';
+  modal.id = 'movedAwayModal';
+  modal.innerHTML = `<div class="compliance-modal" style="text-align:left;">
+    <div style="font-size:1.5rem;margin-bottom:.5rem;">🏠</div>
+    <h3 style="font-size:17px;font-weight:700;margin-bottom:.25rem;">Mark as Moved Away</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">${c.fn} ${c.ln} — ${formatPhone(phone)}<br>
+    This permanently removes them from all reactivation outreach. Customer record is preserved.</p>
+    <div style="margin-bottom:1rem;">
+      <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:6px;">Where did they move? <span style="font-weight:400;text-transform:none;">(optional)</span></label>
+      <input id="movedAwayLocation" type="text" placeholder="e.g. Tampa, FL or Out of state" style="width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;">
+    </div>
+    <div class="compliance-actions">
+      <button class="btn-cancel" onclick="document.getElementById('movedAwayModal').remove()">Cancel</button>
+      <button style="flex:1;padding:.75rem;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;border:none;background:#0d9488;color:#fff;" onclick="markMovedAway('${phone}', document.getElementById('movedAwayLocation').value.trim())">Mark as Moved</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
+function markMovedAway(phone, location) {
+  document.getElementById('movedAwayModal')?.remove();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.movedAway = { at: new Date().toISOString(), location: location || null };
+  selectedPhones.delete(phone);
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function restoreMovedAway(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.movedAway = null;
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function markCommercial(phone) {
+  manualOverrides[phone] = 'exclude';
+  saveOverrides();
+  const customer = allCustomers.find(c => c.phone === phone);
+  allCustomers = allCustomers.filter(c => c.phone !== phone);
+  if (customer) {
+    excludedRecords.push({ displayName: `${customer.fn} ${customer.ln}`, phone, reason: 'manual', customerData: null });
+    document.getElementById('excludedWrap').style.display = 'block';
+    renderExcludedList();
+  }
+  selectedPhones.delete(phone);
+  document.getElementById('sExcluded').textContent = excludedRecords.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+  applyFilters();
+}
+
+// ─── FILE HANDLING ───────────────────────────────────────────────────────────
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+fileInput.addEventListener('change', e => {
+  handleFiles(e.target.files);
+  fileInput.value = ''; // reset so the same file can be re-selected
+});
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+
+function handleFiles(files) {
+  const incoming = [...files].filter(f => f.name.endsWith('.csv'));
+  const existingNames = new Set(uploadedFiles.map(f => f.name));
+  for (const f of incoming) if (!existingNames.has(f.name)) uploadedFiles.push(f);
+  renderFilePills();
+}
+
+function removeFile(name) {
+  uploadedFiles = uploadedFiles.filter(f => f.name !== name);
+  renderFilePills();
+}
+
+function clearFiles() {
+  uploadedFiles = [];
+  fileRowCounts = {};
+  renderFilePills();
+}
+
+function renderFilePills() {
+  const pills = document.getElementById('filePills');
+  if (!uploadedFiles.length) {
+    pills.innerHTML = '';
+  } else {
+    const pillsHTML = uploadedFiles.map(f => {
+      const count = fileRowCounts[f.name];
+      const rowBadge = count != null
+        ? ` <span style="color:var(--green);font-size:11px;">(${count.toLocaleString()} rows ✓)</span>`
+        : '';
+      const safeName = f.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return `<span class="file-pill">📄 ${f.name}${rowBadge}<button class="file-pill-x" onclick="removeFile('${safeName}')" title="Remove">×</button></span>`;
+    }).join('');
+    pills.innerHTML = pillsHTML + `<button class="clear-files-btn" onclick="clearFiles()">Clear all</button>`;
+  }
+  document.getElementById('processBtn').disabled = uploadedFiles.length === 0;
+}
+
+// ─── TOOLTIPS ────────────────────────────────────────────────────────────────
+const TIER_TOOLTIPS = {
+  VIP_SEAL: {
+    title: '💎 VIP SEAL — Premium sealing customers due for renewal',
+    body: "Customers with sealing history, $1,000+ lifetime spend, last serviced 6–36 months ago. Highest-priority reactivation targets — sealer typically lasts 2–3 years and these customers have already paid premium prices. South Florida's dry season (Oct–April) is ideal cure conditions."
+  },
+  HOT: {
+    title: '🔥 HOT — Recent high-value customers in renewal window',
+    body: 'Customers last serviced 6–12 months ago who are either repeat customers (2+ jobs) or high-ticket ($400+ avg). Strong reactivation candidates — recent enough to remember you, due enough to need service.'
+  },
+  WARM: {
+    title: '🟡 WARM — Approaching due window',
+    body: "Customers last serviced 12–18 months ago with repeat history or high average ticket. Soft re-engagement window — they're due, but not urgent yet. Good for batch outreach."
+  },
+  SLEEPING: {
+    title: '🟢 SLEEPING — Past due, still recoverable',
+    body: 'Customers last serviced 18–24 months ago. May have used a competitor once or just forgot to book — worth a friendly check-in. Lower conversion rate than HOT/WARM but still meaningful volume.'
+  },
+  COLD: {
+    title: '❄️ COLD — Long inactive',
+    body: 'Customers last serviced 24–48 months ago. Some may have moved, sold their home, or switched providers. Lower conversion rate — but still worth a single low-pressure outreach for the ones who do convert.'
+  },
+  DORMANT: {
+    title: '🧊 DORMANT — 4–8 year inactive customers',
+    body: "Customers last serviced 4–8 years ago. Many have moved or used competitors. Lower conversion rate but emotionally meaningful — these customers knew Darla and Tony personally in the early years of the business. Best for 'checking in after years' soft outreach."
+  },
+  ANCIENT: {
+    title: '👻 ANCIENT — 8+ year inactive customers',
+    body: "Customers last serviced 8+ years ago. Phone numbers may be disconnected, addresses may have changed hands. Worth attempting once with a 'remember us?' message but expect low response rate."
+  },
+  ACTIVE: {
+    title: '⏸️ ACTIVE — Recently serviced, do not text',
+    body: 'Customers last serviced less than 6 months ago. Skip these — texting them a "we miss you" message would be confusing because you literally just worked with them.'
+  }
+};
+const INFO_TOOLTIP_TEXT = "Tiers are calculated from each customer's last service date, total jobs, and average ticket. Customers with seal history get the special 💎 VIP SEAL tier when their lifetime spend is $1,000+ and they're 6–36 months out. The system updates automatically when you reprocess CSVs.";
+
+let _ttHoverTimer = null;
+let _ttLongPressTimer = null;
+let _ttLongPressFired = false;
+
+function _ttShow(anchor, title, body) {
+  const tt = document.getElementById('tierTooltip');
+  tt.querySelector('.tt-title').textContent = title;
+  tt.querySelector('.tt-body').textContent = body;
+  tt.style.display = 'block';
+  tt.classList.remove('visible');
+
+  const TT_W = 280;
+  const rect = anchor.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - TT_W / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - TT_W - 8));
+
+  tt.style.left = left + 'px';
+  tt.style.width = TT_W + 'px';
+
+  // Arrow points to center of anchor
+  const arrowLeft = Math.max(16, Math.min(rect.left + rect.width / 2 - left, TT_W - 16));
+  tt.style.setProperty('--arrow-left', arrowLeft + 'px');
+
+  // Position above anchor after measuring height
+  const ttH = tt.offsetHeight;
+  tt.style.top = (rect.top - ttH - 12) + 'px';
+
+  tt.getBoundingClientRect(); // force reflow for transition
+  tt.classList.add('visible');
+}
+
+function _ttHide() {
+  const tt = document.getElementById('tierTooltip');
+  tt.classList.remove('visible');
+  setTimeout(() => { if (!tt.classList.contains('visible')) tt.style.display = 'none'; }, 200);
+}
+
+function initTooltips() {
+  // Tier pill tooltips
+  document.querySelectorAll('[data-tier]').forEach(el => {
+    const info = TIER_TOOLTIPS[el.dataset.tier];
+    if (!info) return;
+
+    // Desktop: 300ms hover delay
+    el.addEventListener('mouseenter', () => {
+      _ttHoverTimer = setTimeout(() => _ttShow(el, info.title, info.body), 300);
+    });
+    el.addEventListener('mouseleave', () => {
+      clearTimeout(_ttHoverTimer);
+      _ttHide();
+    });
+
+    // Mobile: long-press 500ms (short tap still toggles tier normally)
+    el.addEventListener('touchstart', () => {
+      _ttLongPressFired = false;
+      _ttLongPressTimer = setTimeout(() => {
+        _ttLongPressFired = true;
+        _ttShow(el, info.title, info.body);
+      }, 500);
+    }, { passive: true });
+    el.addEventListener('touchmove', () => { clearTimeout(_ttLongPressTimer); }, { passive: true });
+    el.addEventListener('touchend', e => {
+      clearTimeout(_ttLongPressTimer);
+      if (_ttLongPressFired) e.preventDefault(); // suppress click/toggle
+    });
+  });
+
+  // ⓘ info button — click-toggle, hover preview
+  const infoBtn = document.getElementById('tierInfoBtn');
+  if (infoBtn) {
+    let infoOpen = false;
+    const openInfo = () => { infoOpen = true; infoBtn.classList.add('tt-active'); _ttShow(infoBtn, 'ⓘ How tiers work', INFO_TOOLTIP_TEXT); };
+    const closeInfo = () => { infoOpen = false; infoBtn.classList.remove('tt-active'); _ttHide(); };
+
+    infoBtn.addEventListener('click', e => { e.stopPropagation(); infoOpen ? closeInfo() : openInfo(); });
+    infoBtn.addEventListener('mouseenter', () => { if (!infoOpen) _ttShow(infoBtn, 'ⓘ How tiers work', INFO_TOOLTIP_TEXT); });
+    infoBtn.addEventListener('mouseleave', () => { if (!infoOpen) _ttHide(); });
+  }
+
+  // Dismiss on outside click
+  document.addEventListener('click', () => {
+    const infoBtn = document.getElementById('tierInfoBtn');
+    if (infoBtn) { infoBtn.classList.remove('tt-active'); }
+    _ttHide();
+    closeRowMenus();
+  });
+}
+
+// ─── ADD CUSTOMER MODAL ───────────────────────────────────────────────────────
+function openAddCustomerModal() {
+  ['mFn','mLn','mPhone','mEmail','mAddr','mCity','mZip','mSpend','mJobs'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; el.classList.remove('merror'); }
+  });
+  ['mFnErr','mLnErr','mPhoneErr','mAddrErr','mCityErr'].forEach(id => {
+    document.getElementById(id).textContent = '';
+  });
+  document.getElementById('mHasSeal').checked = false;
+  document.getElementById('mLastService').value = '';
+  document.getElementById('mJobs').value = '1';
+  document.getElementById('mSpend').value = '0';
+  document.getElementById('mDupWarn').style.display = 'none';
+  document.getElementById('addCustomerModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('mFn').focus(), 60);
+}
+
+function closeAddCustomerModal() {
+  document.getElementById('addCustomerModal').classList.add('hidden');
+}
+
+function submitAddCustomer() {
+  ['mFnErr','mLnErr','mPhoneErr','mAddrErr','mCityErr'].forEach(id => {
+    document.getElementById(id).textContent = '';
+  });
+  ['mFn','mLn','mPhone','mAddr','mCity'].forEach(id => {
+    document.getElementById(id).classList.remove('merror');
+  });
+  document.getElementById('mDupWarn').style.display = 'none';
+
+  const fn     = document.getElementById('mFn').value.trim();
+  const ln     = document.getElementById('mLn').value.trim();
+  const phone  = normalizePhone(document.getElementById('mPhone').value.trim());
+  const addr   = document.getElementById('mAddr').value.trim();
+  const city   = document.getElementById('mCity').value.trim();
+  const lastSv = document.getElementById('mLastService').value;
+  const spend  = parseFloat(document.getElementById('mSpend').value) || 0;
+  const jobs   = Math.max(1, parseInt(document.getElementById('mJobs').value) || 1);
+  const hasSeal = document.getElementById('mHasSeal').checked;
+
+  let ok = true;
+  if (!fn)    { _mErr('mFn','mFnErr','Required'); ok = false; }
+  if (!ln)    { _mErr('mLn','mLnErr','Required'); ok = false; }
+  if (!phone) { _mErr('mPhone','mPhoneErr','Enter a valid 10-digit US number'); ok = false; }
+  if (!addr)  { _mErr('mAddr','mAddrErr','Required'); ok = false; }
+  if (!city)  { _mErr('mCity','mCityErr','Required'); ok = false; }
+  if (!ok) return;
+
+  const dup = allCustomers.find(c => c.phone === phone);
+  if (dup) {
+    const w = document.getElementById('mDupWarn');
+    w.textContent = `A customer with this phone already exists: ${dup.fn} ${dup.ln}. Use that record or change the phone number.`;
+    w.style.display = 'block';
+    document.getElementById('mPhone').classList.add('merror');
+    return;
+  }
+
+  const lastDateObj = lastSv ? new Date(lastSv + 'T12:00:00') : null;
+  const ms       = monthsSince(lastDateObj);
+  const avgTicket = spend / jobs;
+  const tier     = calcTier({ monthsSince: ms, totalJobs: jobs, avgTicket, lifetimeSpend: spend, hasSeal });
+
+  const customer = {
+    fn, ln, phone, address: addr, city,
+    lastDateObj, totalJobs: jobs, lifetimeSpend: spend,
+    avgTicket, maxTicket: avgTicket, hasSeal, tier, monthsSince: ms,
+    addresses: new Set([addr.toLowerCase().trim()]),
+    lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
+    linkCode: null, linkBin: null, lastTextedDate: null
+  };
+
+  allCustomers.push(customer);
+  if (hasSeal) sealPhones.add(phone);
+  saveDatabase().catch(e => console.warn('Add customer save failed:', e.message));
+
+  // Update unique count stat
+  document.getElementById('sUnique').textContent = allCustomers.length;
+
+  // Rebuild city dropdown if new city
+  const cf = document.getElementById('cityFilter');
+  const existing = [...cf.options].map(o => o.value).filter(Boolean);
+  if (city && !existing.includes(city)) {
+    const all = [...new Set([...existing, city])].sort();
+    cf.innerHTML = '<option value="">All cities</option>' + all.map(v => `<option>${v}</option>`).join('');
+  }
+
+  closeAddCustomerModal();
+  applyFilters();
+  updateContactStats();
+}
+
+function _mErr(inputId, errId, msg) {
+  document.getElementById(inputId).classList.add('merror');
+  document.getElementById(errId).textContent = msg;
+}
+
+// ─── PHONE STATUS ────────────────────────────────────────────────────────────
+function setPhoneFilter(val) {
+  phoneFilter = val;
+  applyFilters();
+}
+
+function markPhoneDisconnected(phone) {
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.phoneStatus = 'disconnected';
+  closeRowMenus();
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+function markPhoneActive(phone) {
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  c.phoneStatus = 'active';
+  closeRowMenus();
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+}
+
+// ─── ROW OVERFLOW MENU ───────────────────────────────────────────────────────
+function toggleRowMenu(phone, btn) {
+  if (openRowMenu === phone) { closeRowMenus(); return; }
+  closeRowMenus();
+  openRowMenu = phone;
+
+  const c = allCustomers.find(x => x.phone === phone);
+  const isDisc = c && c.phoneStatus === 'disconnected';
+  const isOptedOut = c && !!c.optOut;
+  const isMovedAway = c && !!c.movedAway;
+  const menu = document.getElementById('rowMenuDropdown');
+  menu.innerHTML =
+    (isOptedOut
+      ? `<button class="row-menu-item" onclick="restoreOptOut('${phone}')">↩ Restore from opt-out</button>`
+      : `<button class="row-menu-item danger" onclick="promptOptOut('${phone}')">🚫 Mark opted out</button>`
+    ) +
+    (isMovedAway
+      ? `<button class="row-menu-item moved-act" onclick="restoreMovedAway('${phone}')">↩ Restore (un-mark moved)</button>`
+      : `<button class="row-menu-item moved-act" onclick="promptMovedAway('${phone}')">🏠 Mark as moved away</button>`
+    ) +
+    `<button class="row-menu-item danger" onclick="markCommercial('${phone}')">⊘ Exclude (commercial)</button>` +
+    (isDisc
+      ? `<button class="row-menu-item phone-act" onclick="markPhoneActive('${phone}')">📞 Mark phone active</button>`
+      : `<button class="row-menu-item phone-act" onclick="markPhoneDisconnected('${phone}')">📵 Mark phone disconnected</button>`
+    );
+
+  const rect = btn.getBoundingClientRect();
+  menu.style.top   = (rect.bottom + 2) + 'px';
+  menu.style.right = (window.innerWidth - rect.right) + 'px';
+  menu.style.left  = 'auto';
+  menu.style.display = 'block';
+  btn.classList.add('menu-open');
+}
+
+function closeRowMenus() {
+  if (!openRowMenu) return;
+  openRowMenu = null;
+  const menu = document.getElementById('rowMenuDropdown');
+  if (menu) menu.style.display = 'none';
+  document.querySelectorAll('.row-menu-btn.menu-open').forEach(b => b.classList.remove('menu-open'));
+}
+
+// ─── UPLOAD SUMMARY MODAL ────────────────────────────────────────────────────
+function showUploadSummary(s) {
+  const ALL_TIERS = ['VIP_SEAL','HOT','WARM','SLEEPING','COLD','DORMANT','ANCIENT','ACTIVE'];
+  const tierRows = ALL_TIERS.filter(t => (s.tiers[t] || 0) > 0).map(t =>
+    `<div class="summary-row"><span class="summary-key">${tierLabel(t)}</span><span class="summary-val">${s.tiers[t]}</span></div>`
+  ).join('');
+  document.getElementById('uploadSummaryContent').innerHTML = `
+    <div class="summary-row"><span class="summary-key">Files processed</span><span class="summary-val">${s.filesProcessed}</span></div>
+    <div class="summary-row"><span class="summary-key">Total rows</span><span class="summary-val">${s.totalRows.toLocaleString()}</span></div>
+    <div class="summary-row"><span class="summary-key" style="color:#5de0b3;">New customers added</span><span class="summary-val" style="color:#5de0b3;">${s.newCustomers}</span></div>
+    <div class="summary-row"><span class="summary-key" style="color:var(--sky);">Existing updated</span><span class="summary-val" style="color:var(--sky);">${s.updatedCustomers}</span></div>
+    <div class="summary-row"><span class="summary-key">Commercial excluded</span><span class="summary-val">${s.commercialExcluded}</span></div>
+    ${s.skippedErrors > 0 ? `<div class="summary-row"><span class="summary-key" style="color:#fc8181;">Skipped (errors)</span><span class="summary-val" style="color:#fc8181;">${s.skippedErrors}</span></div>` : ''}
+    <div style="padding:.5rem 0 .25rem;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);">Tier distribution</div>
+    ${tierRows}
+  `;
+  document.getElementById('uploadSummaryModal').classList.remove('hidden');
+}
+
+function closeUploadSummary() {
+  document.getElementById('uploadSummaryModal').classList.add('hidden');
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  tryLoadDatabase();
+  initTooltips();
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); }
+  });
+});
+</script>
+
+<!-- ADD CUSTOMER MODAL -->
+<div class="modal-overlay hidden" id="addCustomerModal" onclick="if(event.target===this)closeAddCustomerModal()">
+  <div class="modal-card">
+    <div class="modal-title">+ Add Customer</div>
+    <div class="mdup" id="mDupWarn"></div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>First Name<span class="req">*</span></label>
+        <input type="text" id="mFn" placeholder="Tyler">
+        <div class="merr" id="mFnErr"></div>
+      </div>
+      <div class="mfield">
+        <label>Last Name<span class="req">*</span></label>
+        <input type="text" id="mLn" placeholder="Fumero">
+        <div class="merr" id="mLnErr"></div>
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>Phone<span class="req">*</span></label>
+        <input type="tel" id="mPhone" placeholder="954-555-1234">
+        <div class="merr" id="mPhoneErr"></div>
+      </div>
+      <div class="mfield">
+        <label>Email<span class="opt">(optional)</span></label>
+        <input type="email" id="mEmail" placeholder="tyler@example.com">
+      </div>
+    </div>
+
+    <div class="mfield">
+      <label>Street Address<span class="req">*</span></label>
+      <input type="text" id="mAddr" placeholder="123 Main St">
+      <div class="merr" id="mAddrErr"></div>
+    </div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>City<span class="req">*</span></label>
+        <input type="text" id="mCity" placeholder="Weston">
+        <div class="merr" id="mCityErr"></div>
+      </div>
+      <div class="mfield">
+        <label>Zip<span class="opt">(optional)</span></label>
+        <input type="text" id="mZip" placeholder="33326">
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mfield">
+        <label>Last Service Date<span class="opt">(optional)</span></label>
+        <input type="date" id="mLastService">
+      </div>
+      <div class="mfield">
+        <label>Lifetime Spend<span class="opt">(optional)</span></label>
+        <input type="number" id="mSpend" placeholder="0" min="0" step="1">
+      </div>
+    </div>
+
+    <div class="mfield" style="max-width:50%;">
+      <label>Total Jobs<span class="opt">(optional)</span></label>
+      <input type="number" id="mJobs" placeholder="1" min="1" step="1">
+    </div>
+
+    <div class="mcheck">
+      <input type="checkbox" id="mHasSeal">
+      <label for="mHasSeal">🛡️ Has seal history</label>
+    </div>
+
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeAddCustomerModal()">Cancel</button>
+      <button class="mbtn-submit" id="mSubmitBtn" onclick="submitAddCustomer()">Add Customer</button>
+    </div>
+  </div>
+</div>
+
+<!-- TIER TOOLTIP (shared, repositioned by JS) -->
+<div id="tierTooltip" class="tier-tooltip" role="tooltip">
+  <div class="tt-title"></div>
+  <div class="tt-body"></div>
+</div>
+
+<!-- ROW OVERFLOW MENU (global, repositioned by JS) -->
+<div id="rowMenuDropdown" style="position:fixed;display:none;background:var(--navy2);border:1.5px solid var(--border);border-radius:8px;padding:4px;z-index:9000;min-width:210px;box-shadow:0 4px 20px rgba(0,0,0,.55);"></div>
+
+<!-- UPLOAD SUMMARY MODAL -->
+<div class="modal-overlay hidden" id="uploadSummaryModal" onclick="if(event.target===this)closeUploadSummary()">
+  <div class="modal-card" style="max-width:400px;">
+    <div class="modal-title">📊 Upload Complete</div>
+    <div id="uploadSummaryContent"></div>
+    <div class="modal-footer" style="margin-top:1.25rem;">
+      <button class="mbtn-submit" onclick="closeUploadSummary()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEND CONFIRMATION MODAL -->
+<div class="send-confirm-overlay" id="sendConfirmModal">
+  <div class="send-confirm-box">
+    <div class="send-confirm-title">Send message?</div>
+    <div class="send-confirm-body">
+      <strong id="scName"></strong><br>
+      📞 <span id="scPhone"></span><br>
+      Variant: <strong>B</strong> — personal feedback ask
+    </div>
+    <div class="send-confirm-row">
+      <button class="send-confirm-cancel" onclick="closeSendConfirm()">Cancel</button>
+      <button class="send-confirm-go" onclick="confirmSend()">Send →</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

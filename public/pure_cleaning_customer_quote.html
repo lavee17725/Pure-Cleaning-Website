@@ -89,7 +89,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 .success-screen { display: none; text-align: center; padding: 3rem 1.5rem; }
 .success-screen.show { display: block; }
 .success-icon { font-size: 64px; margin-bottom: 1rem; }
-.success-title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; color: var(--navy); letter-spacing: 2px; margin-bottom: 0.5rem; }
+.success-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--navy); letter-spacing: 1.5px; margin-bottom: 0.5rem; line-height: 1.1; }
 .success-sub { font-size: 15px; color: var(--muted); line-height: 1.7; }
 .success-detail { background: white; border-radius: 12px; padding: 1rem; margin: 1.5rem 0; text-align: left; border: 0.5px solid var(--border); }
 .success-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
@@ -97,6 +97,27 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 
 @keyframes bump { 0%{transform:scale(1)} 50%{transform:scale(1.05)} 100%{transform:scale(1)} }
 .bump { animation: bump 0.3s ease; }
+
+/* PRIMARY DATE CARD */
+.primary-date-card { background: linear-gradient(135deg, #0a1628 0%, #1a4a8a 100%); border-radius: 14px; padding: 1.5rem; margin-bottom: 1rem; color: white; text-align: center; }
+.primary-date-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: rgba(255,255,255,.6); margin-bottom: 8px; }
+.primary-date-day { font-family: 'Bebas Neue', sans-serif; font-size: 44px; letter-spacing: 2px; color: white; line-height: 1; margin-bottom: 4px; }
+.primary-date-full { font-size: 15px; color: rgba(255,255,255,.75); }
+.confirm-btn { width: 100%; padding: 18px; background: #2d7dd2; color: white; border: none; border-radius: 14px; font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 2px; cursor: pointer; transition: all 0.2s; margin-bottom: 12px; }
+.confirm-btn:hover { background: #2470c0; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(45,125,210,.3); }
+.alt-trigger { display: block; text-align: center; font-size: 13px; color: var(--muted); text-decoration: none; padding: 4px 0 8px; transition: color .15s; }
+.alt-trigger:hover { color: var(--sky); }
+
+/* RESCHEDULE */
+.day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 1rem; }
+.day-chip { padding: 8px 14px; border: 2px solid var(--border); border-radius: 20px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; transition: all .15s; user-select: none; }
+.day-chip.active { border-color: var(--sky); color: var(--sky); background: #eff6ff; }
+.time-pref { display: flex; gap: 8px; margin-bottom: 1rem; }
+.time-opt { flex: 1; padding: 10px 6px; border: 2px solid var(--border); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; text-align: center; transition: all .15s; user-select: none; }
+.time-opt.active { border-color: var(--sky); color: var(--sky); background: #eff6ff; }
+.reschedule-notes { width: 100%; padding: 10px 12px; border: 2px solid var(--border); border-radius: 10px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text); margin-bottom: 1rem; resize: none; height: 80px; box-sizing: border-box; }
+.reschedule-notes:focus { outline: none; border-color: var(--sky); }
+.reschedule-btn { width: 100%; padding: 15px; background: var(--sky); color: white; border: none; border-radius: 12px; font-family: 'Bebas Neue', sans-serif; font-size: 20px; letter-spacing: 2px; cursor: pointer; transition: all .2s; }
 </style>
 </head>
 <body>
@@ -106,9 +127,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
   <a href="tel:9543892642" class="header-phone">📞 954-389-2642</a>
 </div>
 
+<!-- LOADING STATE -->
+<div id="loadingState" style="display:none;text-align:center;padding:4rem 2rem;">
+  <div style="font-size:36px;margin-bottom:1rem;">💧</div>
+  <div style="font-size:16px;font-weight:600;color:#1a1f2e;margin-bottom:6px;">Loading your quote...</div>
+  <div style="font-size:13px;color:#6b7280;">Just a moment</div>
+</div>
+
 <!-- MAIN QUOTE -->
-<div id="quoteView">
-  <div class="hero">
+<div id="quoteView" style="display:none;">
+  <div class="hero" id="sec-hero">
     <div class="hero-sub">Your quote is ready</div>
     <h1 id="heroName">Hi there!</h1>
     <div class="hero-addr" id="heroAddr"></div>
@@ -116,69 +144,302 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray); color: var(-
 
   <div class="wrap">
 
-    <div class="price-card">
+    <div class="price-card" id="sec-price">
       <div class="price-label">Your total</div>
       <div class="price-total" id="displayTotal">$0</div>
-      <div class="price-includes" id="priceIncludes"></div>
       <div class="price-expiry" id="priceExpiry"></div>
     </div>
 
-    <div class="services-card">
+    <div class="services-card" id="sec-services">
       <div class="card-title">What's included</div>
       <div id="servicesList"></div>
     </div>
 
-    <div class="addons-card" id="addonsSection" style="display:none;">
+    <div class="addons-card" id="sec-addons" style="display:none;">
       <div class="card-title">Want to add anything?</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Tap to include — your total updates instantly.</div>
       <div id="addonsList"></div>
     </div>
 
-    <div class="dates-card">
-      <div class="card-title">Choose your date</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">We're holding both dates for you. Pick the one that works best.</div>
-      <div id="datesList"></div>
+    <div class="dates-card" id="sec-dates">
+      <!-- Primary date (default view) -->
+      <div id="primaryDateView">
+        <div class="card-title">Your scheduled date</div>
+        <div id="primaryDateCard" class="primary-date-card"></div>
+        <button class="confirm-btn" onclick="confirmPrimaryDate()">Confirm This Date ✓</button>
+        <a href="#" class="alt-trigger" onclick="revealAlternateDates(event)">This date doesn't work for me →</a>
+      </div>
+
+      <!-- Backup dates (revealed on request) -->
+      <div id="backupDatesView" style="display:none;">
+        <div class="card-title" style="margin-bottom:12px;">Backup dates</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick the one that works best.</div>
+        <div id="backupDatesList"></div>
+        <a href="#" class="alt-trigger" id="noneWorkLink" onclick="revealReschedule(event)">None of these work for me →</a>
+      </div>
+
+      <!-- Reschedule form (last resort) -->
+      <div id="rescheduleView" style="display:none;">
+        <div class="card-title" style="margin-bottom:8px;">Request a different date</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Tell us which days work — we'll reach out to confirm.</div>
+        <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Best days</div>
+        <div class="day-chips" id="dayChips">
+          <div class="day-chip" onclick="toggleDay(this,'Monday')">Mon</div>
+          <div class="day-chip" onclick="toggleDay(this,'Tuesday')">Tue</div>
+          <div class="day-chip" onclick="toggleDay(this,'Wednesday')">Wed</div>
+          <div class="day-chip" onclick="toggleDay(this,'Thursday')">Thu</div>
+          <div class="day-chip" onclick="toggleDay(this,'Friday')">Fri</div>
+          <div class="day-chip" onclick="toggleDay(this,'Saturday')">Sat</div>
+        </div>
+        <textarea class="reschedule-notes" id="rescheduleNotes" placeholder="Anything else? Gate code, dogs, or timing preferences..."></textarea>
+        <button class="reschedule-btn" onclick="submitReschedule()">Send Request →</button>
+        <div id="rescheduleSuccess" style="display:none;text-align:center;padding:1.5rem 0;">
+          <div style="font-size:48px;margin-bottom:10px;">📅</div>
+          <div style="font-size:17px;font-weight:700;color:var(--navy);margin-bottom:6px;">Got it!</div>
+          <div style="font-size:14px;color:var(--muted);line-height:1.6;">We'll reach out within 24 hours to lock in a time that works for you.</div>
+        </div>
+      </div>
     </div>
 
     <div class="notes-card" id="notesCard">
-      <strong>📋 Note from Tyler:</strong> <span id="notesText"></span>
+      <strong>📋 Note from us:</strong> <span id="notesText"></span>
     </div>
 
-    <button class="approve-btn" id="approveBtn" onclick="approveQuote()" disabled>
-      Select a Date to Approve
-    </button>
+    <div id="sec-approve" style="display:none;">
+      <button class="approve-btn" id="approveBtn" onclick="approveQuote()" disabled>
+        Select a Date to Approve
+      </button>
+    </div>
 
-    <div class="trust-row">
+    <div class="trust-row" id="sec-trust">
       <div class="trust-item"><div class="trust-dot"></div>Family owned since 1995</div>
       <div class="trust-item"><div class="trust-dot"></div>South Florida's best</div>
       <div class="trust-item"><div class="trust-dot"></div>Same-day response</div>
     </div>
+    <div style="text-align:center;margin-top:.75rem;font-size:11px;color:var(--muted);">We track which sections you view and interact with to improve our quotes.</div>
 
   </div>
 </div>
 
 <!-- SUCCESS SCREEN -->
 <div class="success-screen" id="successScreen">
-  <div class="success-icon">🎉</div>
-  <div class="success-title">You're booked!</div>
-  <div class="success-sub">Tyler will confirm your appointment shortly.<br>We'll see you on your selected date!</div>
+  <div class="success-icon">✓</div>
+  <div class="success-title">Confirmed.</div>
+  <div class="success-sub">We'll text or call you the night before with a rough arrival time. Looking forward to it!</div>
   <div class="success-detail" id="successDetail"></div>
-  <div style="font-size:14px;color:var(--muted);">Questions? Call or text Tyler at<br><a href="tel:9543892642" style="color:var(--sky);font-weight:700;">954-389-2642</a></div>
+  <div style="font-size:14px;color:var(--muted);">Questions? Call or text us at<br><a href="tel:9543892642" style="color:var(--sky);font-weight:700;">954-389-2642</a></div>
 </div>
 
 <script>
+const PCPC_API_CQ = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// ── EVENT TRACKING ────────────────────────────────────────────────
+const _tracked = new Set();
+async function trackQuoteEvent(eventType, phone, variant, meta) {
+  const key = eventType + ':' + (phone || 'anon');
+  if (_tracked.has(key)) return;
+  _tracked.add(key);
+  try {
+    const evt = { id:'evt_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+      timestamp:new Date().toISOString(), eventType, customerPhone:phone||null,
+      variant:variant||null, pageVersion:'v1', metadata:meta||{} };
+    await fetch(`${PCPC_API_CQ}/events`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(evt)
+    });
+  } catch(e) { console.warn('[track]', e.message); }
+}
+
+let hasEngaged = false;
+function fireEngagement() {
+  if (hasEngaged || !quoteData) return;
+  hasEngaged = true;
+  trackQuoteEvent('engaged', quoteData.phone||null, quoteData.variant||null);
+}
+
+// ── BEHAVIORAL TRACKING ──────────────────────────────────────────────────────
+const BT = (() => {
+  const sessId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  const t0 = Date.now();
+  const device = /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
+  let _phone = null, _variant = null, _isReturn = false;
+  let buf = [], flushing = false, flushTid = null;
+  let scrollFired = new Set(), dwellTids = {}, dwellStart = {};
+  let hiddenAt = null, hoverTid = null, dateSelected = false;
+
+  function mk(type, section, meta) {
+    return { id:'bt_'+Date.now()+'_'+Math.random().toString(36).slice(2,5),
+      timestamp: new Date().toISOString(), eventType: type, customerPhone: _phone,
+      variant: _variant, sessionId: sessId, sectionId: section||null,
+      secondsSincePageLoad: Math.round((Date.now()-t0)/1000),
+      deviceType: device, isReturnVisit: _isReturn, pageVersion:'v1', metadata: meta||{} };
+  }
+
+  function push(type, section, meta) { buf.push(mk(type, section, meta)); }
+
+  async function flush() {
+    if (!buf.length || flushing) return;
+    const batch = buf.splice(0);
+    flushing = true;
+    try {
+      await Promise.all(batch.map(evt =>
+        fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(evt)
+        })
+      ));
+    } catch(e) { buf.unshift(...batch); }
+    flushing = false;
+  }
+
+  function tick() { flush(); flushTid = setTimeout(tick, 10000); }
+
+  function setupScroll() {
+    window.addEventListener('scroll', () => {
+      const pct = Math.round((window.scrollY + window.innerHeight) / Math.max(1, document.body.scrollHeight) * 100);
+      [25,50,75,100].forEach(d => { if (pct >= d && !scrollFired.has(d)) { scrollFired.add(d); push('scroll_depth_'+d, null, {depth:d}); }});
+    }, {passive:true});
+  }
+
+  function setupSections() {
+    const SECS = ['sec-hero','sec-price','sec-services','sec-addons','sec-dates','sec-approve','sec-trust'];
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        const sid = e.target.dataset.bt;
+        if (e.isIntersecting) {
+          if (!dwellTids[sid]) {
+            dwellStart[sid] = Date.now();
+            dwellTids[sid] = setTimeout(() => { push('section_viewed', sid); }, 2000);
+          }
+        } else {
+          if (dwellTids[sid]) {
+            clearTimeout(dwellTids[sid]); delete dwellTids[sid];
+            const ms = Date.now() - (dwellStart[sid]||Date.now());
+            if (ms > 500) push('section_abandoned', sid, {dwellMs:ms});
+          }
+          delete dwellStart[sid];
+        }
+      });
+    }, {threshold:0.5});
+    SECS.forEach(id => { const el=document.getElementById(id); if(el){el.dataset.bt=id; obs.observe(el);} });
+  }
+
+  function setupHesitation() {
+    const btn = document.getElementById('approveBtn');
+    if (!btn) return;
+    const start = () => { hoverTid = setTimeout(() => { if(!btn.disabled) push('approve_hovered','sec-approve'); }, 3000); };
+    const stop  = () => clearTimeout(hoverTid);
+    btn.addEventListener('mouseenter', start); btn.addEventListener('mouseleave', stop);
+    btn.addEventListener('touchstart', start, {passive:true}); btn.addEventListener('touchend', stop);
+  }
+
+  function setupVisibility() {
+    const urlKey = 'pcpc_seen_' + (new URLSearchParams(window.location.search).get('id') ||
+      (new URLSearchParams(window.location.search).get('q')||'').slice(0,20));
+    if (urlKey.length > 10 && localStorage.getItem(urlKey)) {
+      _isReturn = true; push('page_returned', null, {trigger:'new_session'});
+    }
+    if (urlKey.length > 10) localStorage.setItem(urlKey, Date.now().toString());
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { hiddenAt = Date.now(); }
+      else if (hiddenAt) {
+        const ms = Date.now() - hiddenAt;
+        if (ms > 5000) push('page_returned', null, {trigger:'tab_refocus', hiddenSeconds: Math.round(ms/1000)});
+        hiddenAt = null;
+      }
+    });
+  }
+
+  function setupUnload() {
+    window.addEventListener('pagehide', () => {
+      push('time_on_page', null, {seconds: Math.round((Date.now()-t0)/1000)});
+      // Store any unflushed events in localStorage for next page load to flush
+      if (buf.length) {
+        try {
+          const pend = JSON.parse(localStorage.getItem('pcpc_bt_pending')||'[]');
+          pend.push(...buf); buf = [];
+          localStorage.setItem('pcpc_bt_pending', JSON.stringify(pend.slice(-60)));
+        } catch(e) {}
+      }
+    });
+  }
+
+  function flushStoredPending() {
+    try {
+      const pend = JSON.parse(localStorage.getItem('pcpc_bt_pending')||'[]');
+      if (pend.length) { buf.push(...pend); localStorage.removeItem('pcpc_bt_pending'); }
+    } catch(e) {}
+  }
+
+  return {
+    init(phone, variant) {
+      _phone = phone; _variant = variant;
+      flushStoredPending();
+      setupScroll(); setupVisibility(); setupHesitation();
+      setTimeout(() => { setupSections(); tick(); }, 600);
+      setupUnload();
+    },
+    trackAddon(id, on) { push('addon_toggled','sec-addons',{addon:id,newState:on}); },
+    trackDate(val) { push(dateSelected?'date_changed':'date_selected','sec-dates',{date:val}); dateSelected=true; },
+    trackApprove(total) {
+      push('approve_clicked','sec-approve',{total});
+      push('time_to_approve',null,{seconds:Math.round((Date.now()-t0)/1000),total});
+      flush();
+    },
+    trackExpand(sid) { push('section_expanded',sid); },
+    trackCollapse(sid) { push('section_collapsed',sid); }
+  };
+})();
+
 // Quote data — injected by builder or loaded from URL params
 let quoteData = null;
 let selectedDate = null;
 let selectedAddons = new Set();
 let basePrice = 0;
 
+// Primary date state
+let _primaryDateVal = null;
+let _primaryDateFull = null;
+let _rescheduleSelectedDays = new Set();
+let _rescheduleSelectedTime = 'Flexible';
+
 function loadFromParams() {
   const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
   const encoded = params.get('q');
+  const variantFromUrl = params.get('v') || null;
+
+  if (id) {
+    console.log('[JSONbin GET] fetching id:', id);
+    document.getElementById('loadingState').style.display = 'block';
+    fetch(`https://api.jsonbin.io/v3/b/${id}`, {
+      mode: 'cors'
+    })
+    .then(r => {
+      console.log('[JSONbin GET] HTTP status:', r.status);
+      return r.json();
+    })
+    .then(data => {
+      console.log('[JSONbin GET] full response:', JSON.stringify(data));
+      if (!data.record) {
+        console.error('[JSONbin GET] no record field — bin may not be public or id is wrong');
+        return;
+      }
+      quoteData = data.record;
+      quoteData.variant = quoteData.variant || variantFromUrl;
+      renderQuote();
+    })
+    .catch(e => { console.error('[JSONbin GET] network error:', e.message || e); });
+    return;
+  }
+
   if (encoded) {
     try {
       quoteData = JSON.parse(atob(encoded));
+      quoteData.variant = quoteData.variant || variantFromUrl;
       renderQuote();
       return;
     } catch(e) {}
@@ -204,6 +465,8 @@ function loadFromParams() {
 
 function renderQuote() {
   if (!quoteData) return;
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('quoteView').style.display = 'block';
   basePrice = quoteData.price;
 
   // Hero
@@ -228,74 +491,113 @@ function renderQuote() {
 
   // Add-ons
   if (quoteData.addons && quoteData.addons.length) {
-    document.getElementById('addonsSection').style.display = 'block';
+    document.getElementById('sec-addons').style.display = 'block';
     const addEl = document.getElementById('addonsList');
     addEl.innerHTML = quoteData.addons.map(a => `
-      <div class="addon-item" id="addonItem_${a.id}" onclick="toggleAddon('${a.id}', ${a.price})">
+      <div class="addon-item" id="addonItem_${a.id}" onclick="toggleAddon('${a.id}')">
         <div class="addon-icon">${a.icon}</div>
         <div class="addon-label">
           <div class="addon-name">${a.label}</div>
           <div class="addon-desc">${a.desc || 'Tap to add to your quote'}</div>
         </div>
-        <div class="addon-price">+$${a.price}</div>
+        <div class="addon-price">
+          ${a.regularPrice ? `<div style="font-size:11px;color:var(--muted);text-decoration:line-through;margin-bottom:2px;">Regular $${a.regularPrice}</div>` : ''}
+          <div>+$${a.price}</div>
+        </div>
         <div class="addon-check" id="addonCheck_${a.id}">✓</div>
       </div>
     `).join('');
   }
 
-  // Dates
-  const datesEl = document.getElementById('datesList');
-  const dates = [quoteData.date1, quoteData.date2].filter(Boolean);
-  datesEl.innerHTML = dates.map((d,i) => {
-    const dt = new Date(d+'T12:00:00');
-    const day = dt.toLocaleDateString('en-US',{weekday:'long'});
-    const full = dt.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-    return `
-      <div class="date-opt" id="dateOpt_${i}" onclick="selectDate(${i}, '${d}', '${full}')">
+  // Dates — primary + backup flow (backward-compat: also handle old date1/date2)
+  const primaryDate = quoteData.primaryDate || quoteData.date1 || null;
+  const backupDates = quoteData.backupDates || (quoteData.date2 ? [quoteData.date2] : []);
+
+  if (primaryDate) {
+    const dt = new Date(primaryDate + 'T12:00:00');
+    const pDay = dt.toLocaleDateString('en-US', {weekday: 'long'});
+    const pFull = dt.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'});
+    document.getElementById('primaryDateCard').innerHTML =
+      `<div class="primary-date-label">Your appointment</div>
+       <div class="primary-date-day">${pDay}</div>
+       <div class="primary-date-full">${pFull}</div>
+       <div style="font-size:12px;color:rgba(255,255,255,.5);margin-top:10px;">We'll let you know our arrival window the day before</div>`;
+    _primaryDateVal = primaryDate;
+    _primaryDateFull = pFull;
+    if (quoteData.phone) trackQuoteEvent('quote_primary_date_shown', quoteData.phone, quoteData.variant || null);
+  } else {
+    document.getElementById('primaryDateView').style.display = 'none';
+  }
+
+  if (backupDates.length) {
+    document.getElementById('backupDatesList').innerHTML = backupDates.map((d, i) => {
+      const dt2 = new Date(d + 'T12:00:00');
+      const bDay = dt2.toLocaleDateString('en-US', {weekday: 'long'});
+      const bFull = dt2.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'});
+      return `<div class="date-opt" id="backupOpt_${i}" onclick="selectBackupDate(${i},'${d}','${bFull}')">
         <div class="date-radio"><div class="date-radio-inner"></div></div>
-        <div class="date-info">
-          <div class="date-day">${day}</div>
-          <div class="date-full">${full}</div>
-        </div>
+        <div class="date-info"><div class="date-day">${bDay}</div><div class="date-full">${bFull}</div></div>
         <div style="font-size:20px;">📅</div>
-      </div>
-    `;
-  }).join('');
+      </div>`;
+    }).join('');
+  } else {
+    // No backups — hide "none work" link
+    const noneLink = document.getElementById('noneWorkLink');
+    if (noneLink) noneLink.style.display = 'none';
+  }
+
+  // If no primary and no backups, go straight to reschedule fallback
+  if (!primaryDate && !backupDates.length) {
+    document.getElementById('rescheduleView').style.display = 'block';
+  }
 
   // Notes
   if (quoteData.notes) {
     document.getElementById('notesText').textContent = quoteData.notes;
     document.getElementById('notesCard').classList.add('show');
   }
+
+  // Track viewed (real quotes only, not demo)
+  if (quoteData.phone) {
+    trackQuoteEvent('viewed', quoteData.phone, quoteData.variant||null);
+    window.addEventListener('scroll', function onScroll() {
+      if ((window.scrollY / document.body.scrollHeight) > 0.25) {
+        fireEngagement(); window.removeEventListener('scroll', onScroll);
+      }
+    }, {passive:true});
+    BT.init(quoteData.phone, quoteData.variant||null);
+  }
 }
 
 function updateTotal() {
   let total = basePrice;
-  selectedAddons.forEach(price => total += price);
+  if (quoteData.addons) quoteData.addons.forEach(a => { if (selectedAddons.has(a.id)) total += a.price; });
   const el = document.getElementById('displayTotal');
   el.textContent = '$' + total.toLocaleString();
   el.classList.add('bump');
   setTimeout(() => el.classList.remove('bump'), 300);
 
-  const addedNames = quoteData.addons ? quoteData.addons.filter(a => selectedAddons.has(a.price)).map(a => a.label) : [];
+  const addedNames = quoteData.addons ? quoteData.addons.filter(a => selectedAddons.has(a.id)).map(a => a.label) : [];
   const allServices = [...quoteData.services, ...addedNames];
-  document.getElementById('priceIncludes').textContent = allServices.join(' · ');
 }
 
-function toggleAddon(id, price) {
+function toggleAddon(id) {
+  fireEngagement();
   const item = document.getElementById('addonItem_'+id);
-  const check = document.getElementById('addonCheck_'+id);
-  if (selectedAddons.has(price)) {
-    selectedAddons.delete(price);
+  if (selectedAddons.has(id)) {
+    selectedAddons.delete(id);
     item.classList.remove('selected');
   } else {
-    selectedAddons.add(price);
+    selectedAddons.add(id);
     item.classList.add('selected');
   }
+  BT.trackAddon(id, selectedAddons.has(id));
   updateTotal();
 }
 
 function selectDate(idx, dateVal, dateFull) {
+  fireEngagement();
+  BT.trackDate(dateVal);
   document.querySelectorAll('.date-opt').forEach(d => d.classList.remove('selected'));
   document.getElementById('dateOpt_'+idx).classList.add('selected');
   selectedDate = { val: dateVal, full: dateFull };
@@ -311,8 +613,8 @@ async function approveQuote() {
   btn.disabled = true;
 
   let total = basePrice;
-  selectedAddons.forEach(p => total += p);
-  const addedServices = quoteData.addons ? quoteData.addons.filter(a => selectedAddons.has(a.price)).map(a => a.label) : [];
+  if (quoteData.addons) quoteData.addons.forEach(a => { if (selectedAddons.has(a.id)) total += a.price; });
+  const addedServices = quoteData.addons ? quoteData.addons.filter(a => selectedAddons.has(a.id)).map(a => a.label) : [];
 
   const approval = {
     event: 'QUOTE_APPROVED',
@@ -324,31 +626,204 @@ async function approveQuote() {
     addons_added: addedServices.join(', ') || 'None',
     final_total: total,
     selected_date: selectedDate.full,
+    alternate_date_used: selectedDate.source === 'alternate',
     approved_at: new Date().toLocaleString('en-US')
   };
 
-  // Fire to Zapier
-  if (quoteData.zapierWebhook) {
-    try {
-      await fetch(quoteData.zapierWebhook, {
-        method: 'POST',
-        body: JSON.stringify(approval),
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch(e) {}
-  }
+  trackQuoteEvent('approved', quoteData.phone||null, quoteData.variant||null,
+    {total, selectedDate: selectedDate.full, source: selectedDate.source || 'unknown'});
+  if (selectedDate.source !== 'primary') BT.trackApprove(total);
+
+  // Fire Zapier + Formspree + JSONbin simultaneously
+  const formspreeData = new FormData();
+  formspreeData.append('_subject', `✓ Booking Confirmed — ${quoteData.name}`);
+  formspreeData.append('Customer Name', approval.customer_name);
+  formspreeData.append('Phone', approval.phone);
+  formspreeData.append('Address', approval.address);
+  formspreeData.append('Services', approval.services);
+  formspreeData.append('Addons Added', approval.addons_added);
+  formspreeData.append('Final Total', '$' + total.toLocaleString());
+  formspreeData.append('Selected Date', approval.selected_date);
+  formspreeData.append('Approved At', approval.approved_at);
+
+  await Promise.all([
+    quoteData.zapierWebhook
+      ? fetch(quoteData.zapierWebhook, {
+          method: 'POST',
+          body: new URLSearchParams(approval),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        }).catch(() => {})
+      : Promise.resolve(),
+    fetch('https://formspree.io/f/xlgaylyd', {
+      method: 'POST',
+      body: formspreeData,
+      headers: { 'Accept': 'application/json' }
+    }).catch(() => {}),
+    fetch(`${PCPC_API_CQ}/events`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ...approval, quote: quoteData })
+    }).catch(() => {})
+  ]);
+
+  // Background: mark approved in customer DB
+  if (quoteData.phone) updateQuoteApproved(quoteData.phone, total);
 
   // Show success
   document.getElementById('quoteView').style.display = 'none';
   const success = document.getElementById('successScreen');
   success.classList.add('show');
+  // Personalize success title with the confirmed date
+  const bookedDt = new Date(selectedDate.val + 'T12:00:00');
+  const bookedDay = bookedDt.toLocaleDateString('en-US', {weekday: 'long'});
+  const bookedMd  = bookedDt.toLocaleDateString('en-US', {month: 'long', day: 'numeric'});
+  document.querySelector('.success-title').textContent = `You're booked for ${bookedDay}, ${bookedMd}`;
   document.getElementById('successDetail').innerHTML = `
-    <div class="success-row"><span>Customer</span><span>${quoteData.name}</span></div>
     <div class="success-row"><span>Services</span><span style="text-align:right;max-width:180px;">${[...quoteData.services,...addedServices].join(', ')}</span></div>
     <div class="success-row"><span>Date</span><span>${selectedDate.full}</span></div>
     <div class="success-row"><span>Total</span><span>$${total.toLocaleString()}</span></div>
   `;
   window.scrollTo(0,0);
+}
+
+function guessJobDuration() {
+  if (!quoteData || !quoteData.services) return 2;
+  const s = (Array.isArray(quoteData.services) ? quoteData.services.join(' ') : String(quoteData.services)).toLowerCase();
+  const hasRoof  = s.includes('roof');
+  const hasFloor = s.includes('driveway') || s.includes('patio') || s.includes('wall') || s.includes('fence');
+  if (hasRoof && hasFloor) return 4;
+  if (hasRoof) return 3;
+  return 2;
+}
+
+function updateQuoteApproved(phone, approvedTotal) {
+  const dur = guessJobDuration();
+  const svcStr = quoteData && quoteData.services
+    ? (Array.isArray(quoteData.services) ? quoteData.services.join(', ') : String(quoteData.services))
+    : '';
+  fetch(`${PCPC_API_CQ}/customers`)
+    .then(r => r.json())
+    .then(db => {
+      const c = (db.customers || []).find(x => x.phone === phone);
+      if (!c) return;
+      if (!c.quoteStatus) c.quoteStatus = {};
+      c.quoteStatus.state        = 'approved';
+      c.quoteStatus.approvedDate = new Date().toISOString().split('T')[0];
+      c.scheduledStatus = {
+        state: 'needs_scheduling', scheduledDate: null, rig: null, crew: [],
+        estimatedDuration: dur, jobNotes: svcStr, startTime: '09:00',
+        customerSelectedDate: selectedDate ? selectedDate.val : null,
+        approvedAmount: approvedTotal || null
+      };
+      return fetch(`${PCPC_API_CQ}/customers`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(db)
+      });
+    })
+    .then(() => {
+      // Bust calendar/quotes cache so Tyler sees the new job within 1 reload
+      try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
+    })
+    .catch(e => console.warn('[approval tracking]', e.message));
+}
+
+// ── PRIMARY DATE FLOW ─────────────────────────────────────────────
+function confirmPrimaryDate() {
+  if (!_primaryDateVal) return;
+  selectedDate = { val: _primaryDateVal, full: _primaryDateFull, source: 'primary' };
+  if (quoteData && quoteData.phone) {
+    trackQuoteEvent('quote_primary_confirmed', quoteData.phone, quoteData.variant || null, { date: _primaryDateVal });
+    BT.trackApprove(basePrice);
+  }
+  approveQuote();
+}
+
+function revealAlternateDates(e) {
+  e.preventDefault();
+  if (quoteData && quoteData.phone) trackQuoteEvent('quote_alternate_revealed', quoteData.phone, quoteData.variant || null);
+  const backupDates = (quoteData && quoteData.backupDates) || (quoteData && quoteData.date2 ? [quoteData.date2] : []);
+  document.getElementById('primaryDateView').style.display = 'none';
+  if (backupDates.length) {
+    document.getElementById('backupDatesView').style.display = 'block';
+    document.getElementById('sec-approve').style.display = 'block';
+  } else {
+    document.getElementById('rescheduleView').style.display = 'block';
+  }
+}
+
+function selectBackupDate(idx, dateVal, dateFull) {
+  fireEngagement();
+  BT.trackDate(dateVal);
+  document.querySelectorAll('[id^="backupOpt_"]').forEach(d => d.classList.remove('selected'));
+  const opt = document.getElementById('backupOpt_' + idx);
+  if (opt) opt.classList.add('selected');
+  selectedDate = { val: dateVal, full: dateFull, source: 'alternate' };
+  if (quoteData && quoteData.phone) trackQuoteEvent('quote_alternate_confirmed', quoteData.phone, quoteData.variant || null, { date: dateVal });
+  const btn = document.getElementById('approveBtn');
+  btn.textContent = `Approve & Book ${dateFull.split(',')[0]}`;
+  btn.disabled = false;
+}
+
+function revealReschedule(e) {
+  e.preventDefault();
+  document.getElementById('backupDatesView').style.display = 'none';
+  document.getElementById('rescheduleView').style.display = 'block';
+}
+
+function toggleDay(el, day) {
+  if (_rescheduleSelectedDays.has(day)) {
+    _rescheduleSelectedDays.delete(day);
+    el.classList.remove('active');
+  } else {
+    _rescheduleSelectedDays.add(day);
+    el.classList.add('active');
+  }
+}
+
+function selectTime(el, time) {
+  _rescheduleSelectedTime = time;
+  document.querySelectorAll('.time-opt').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+async function submitReschedule() {
+  const days = Array.from(_rescheduleSelectedDays);
+  const notes = (document.getElementById('rescheduleNotes').value || '').trim();
+  const payload = {
+    id: 'resc_' + Date.now(),
+    status: 'new',
+    customer_name: (quoteData && quoteData.name) || '',
+    phone: (quoteData && quoteData.phone) || '',
+    email: (quoteData && quoteData.email) || '',
+    address: (quoteData && quoteData.address) || '',
+    services: quoteData && Array.isArray(quoteData.services) ? quoteData.services.join(', ') : '',
+    notes: `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. ${notes}`,
+    timeframe: 'Flexible',
+    source: 'quote_reschedule',
+    created_at: new Date().toISOString()
+  };
+
+  if (quoteData && quoteData.phone) {
+    trackQuoteEvent('quote_reschedule_requested', quoteData.phone, quoteData.variant || null, { days });
+  }
+
+  const btn = document.querySelector('.reschedule-btn');
+  if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
+
+  try {
+    const inc = await fetch(`${PCPC_API_CQ}/incoming`).then(r => r.json());
+    const requests = inc.requests || [];
+    requests.unshift(payload);
+    await fetch(`${PCPC_API_CQ}/incoming`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ ...inc, requests })
+    });
+  } catch(e) { console.warn('[reschedule]', e.message); }
+
+  if (btn) btn.style.display = 'none';
+  document.getElementById('rescheduleSuccess').style.display = 'block';
 }
 
 loadFromParams();

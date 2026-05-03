@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Add Customer / Job — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--rust:#c2410c;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;--input-bg:#0a1628;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;padding-bottom:3rem;}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:.875rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--white);letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.back-btn{color:var(--muted);font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:4px;transition:color .15s;}
+.back-btn:hover{color:var(--sky);}
+.wrap{max-width:520px;margin:0 auto;padding:1.25rem 1rem;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;margin-top:1.5rem;display:flex;align-items:center;gap:8px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+.field{margin-bottom:1rem;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
+.field .help{font-size:11px;color:var(--muted);margin-top:4px;}
+input,select,textarea{width:100%;padding:13px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:16px;transition:border-color .2s;-webkit-appearance:none;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--sky);}
+input.error,select.error{border-color:var(--red);}
+input::placeholder,textarea::placeholder{color:var(--muted);}
+.error-msg{font-size:12px;color:#fc8181;margin-top:4px;}
+.lookup-card{background:var(--navy2);border:1.5px solid var(--border);border-radius:12px;padding:1rem;margin-top:.75rem;transition:border-color .2s;}
+.lookup-card.found{border-color:var(--green);}
+.lookup-card.not-found{border-color:var(--border);}
+.lookup-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:.5rem;}
+.lookup-label.found{color:#5de0b3;}
+.lookup-label.not-found{color:var(--muted);}
+.lookup-name{font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px;}
+.lookup-meta{font-size:12px;color:var(--muted);line-height:1.7;}
+.lookup-actions{display:flex;gap:8px;margin-top:.75rem;flex-wrap:wrap;}
+.btn{padding:12px 18px;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.btn-primary{background:var(--rust);color:#fff;width:100%;font-size:16px;padding:16px;}
+.btn-primary:hover{background:#b03a0b;}
+.btn-green{background:var(--green);color:#fff;}
+.btn-green:hover{background:#178c65;}
+.btn-outline{background:none;border:1.5px solid var(--border);color:var(--muted);}
+.btn-outline:hover{border-color:var(--sky);color:var(--sky);}
+.btn-sm{padding:8px 14px;font-size:13px;}
+.existing-card{background:var(--navy2);border:1.5px solid var(--green);border-radius:12px;padding:1rem;margin-bottom:1rem;}
+.existing-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#5de0b3;margin-bottom:.5rem;}
+.existing-name{font-size:17px;font-weight:700;color:var(--text);margin-bottom:3px;}
+.existing-meta{font-size:13px;color:var(--muted);line-height:1.7;}
+.services-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.svc-check{display:flex;align-items:center;gap:8px;padding:11px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;cursor:pointer;user-select:none;transition:all .15s;font-size:14px;font-weight:500;-webkit-tap-highlight-color:transparent;}
+.svc-check:hover{border-color:var(--sky);}
+.svc-check.on{border-color:var(--sky);background:rgba(45,125,210,.12);color:var(--text);}
+.svc-check input{display:none;}
+.svc-cb{width:18px;height:18px;border:2px solid var(--border);border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:transparent;transition:all .15s;}
+.svc-check.on .svc-cb{background:var(--sky);border-color:var(--sky);color:#fff;}
+.radio-group{display:flex;flex-direction:column;gap:8px;}
+.radio-opt{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.radio-opt.on{border-color:var(--sky);background:rgba(45,125,210,.1);}
+.radio-dot{width:18px;height:18px;border:2px solid var(--border);border-radius:50%;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;}
+.radio-opt.on .radio-dot{border-color:var(--sky);}
+.radio-dot-inner{width:9px;height:9px;border-radius:50%;background:var(--sky);display:none;}
+.radio-opt.on .radio-dot-inner{display:block;}
+.radio-label{font-size:14px;font-weight:600;color:var(--text);}
+.radio-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.direct-fields{background:var(--navy2);border:1.5px solid var(--border);border-radius:10px;padding:1rem;margin-top:.75rem;}
+.amount-wrap{position:relative;}
+.amount-prefix{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:18px;font-weight:700;color:var(--muted);pointer-events:none;}
+.amount-wrap input{padding-left:28px;}
+.pending-banner{background:rgba(244,166,32,.12);border:1.5px solid rgba(244,166,32,.4);border-radius:10px;padding:.75rem 1rem;font-size:13px;color:var(--gold);margin-bottom:1rem;display:none;}
+.success-screen{text-align:center;padding:3rem 1rem;}
+.success-icon{font-size:64px;margin-bottom:1rem;}
+.success-title{font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--white);letter-spacing:2px;margin-bottom:.5rem;}
+.success-sub{font-size:14px;color:var(--muted);line-height:1.7;margin-bottom:2rem;}
+.success-actions{display:flex;flex-direction:column;gap:10px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <a href="#" id="backLink" class="back-btn" onclick="goBack()">← Back</a>
+</div>
+
+<div class="wrap">
+
+  <!-- Pending sync banner -->
+  <div class="pending-banner" id="pendingBanner"></div>
+
+  <!-- FORM SECTIONS -->
+  <div id="formView">
+
+    <!-- STEP 1: PHONE -->
+    <div class="section-title">Customer Phone</div>
+    <div class="field">
+      <label>Phone number <span style="color:var(--red)">*</span></label>
+      <input type="tel" id="phoneInput" inputmode="numeric" maxlength="14" placeholder="(954) 555-1234" oninput="onPhoneInput()" autocomplete="tel">
+      <div id="phoneLookup"></div>
+    </div>
+
+    <!-- STEP 2B: NEW CUSTOMER FIELDS -->
+    <div id="newCustSection" style="display:none;">
+      <div class="section-title">Customer Info</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="field">
+          <label>First name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="firstName" placeholder="Karen" autocomplete="given-name">
+        </div>
+        <div class="field">
+          <label>Last name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="lastName" placeholder="Smith" autocomplete="family-name">
+        </div>
+      </div>
+      <div class="field">
+        <label>Street address <span style="color:var(--red)">*</span></label>
+        <input type="text" id="address" placeholder="1234 Palm Tree Dr" autocomplete="street-address">
+      </div>
+      <div class="field">
+        <label>City <span style="color:var(--red)">*</span></label>
+        <input type="text" id="city" placeholder="Weston" list="cityList" autocomplete="address-level2">
+        <datalist id="cityList">
+          <option value="Weston"><option value="Davie"><option value="Pembroke Pines">
+          <option value="Cooper City"><option value="Coral Springs"><option value="Southwest Ranches">
+          <option value="Plantation"><option value="Sunrise"><option value="Miramar">
+          <option value="Hollywood"><option value="Fort Lauderdale"><option value="Doral">
+          <option value="Hialeah"><option value="Miami"><option value="Boca Raton">
+        </datalist>
+      </div>
+      <div class="field">
+        <label>Email <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+        <input type="email" id="email" placeholder="karen@example.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Notes <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+        <textarea id="custNotes" rows="2" placeholder="Gate code, dog in yard, etc."></textarea>
+      </div>
+    </div>
+
+    <!-- STEP 2A: EXISTING CUSTOMER CONFIRMED -->
+    <div id="existingCustSection" style="display:none;">
+      <div class="section-title">Customer</div>
+      <div class="existing-card">
+        <div class="existing-label">Existing customer</div>
+        <div class="existing-name" id="existingName"></div>
+        <div class="existing-meta" id="existingMeta"></div>
+      </div>
+    </div>
+
+    <!-- STEP 3: JOB DETAILS -->
+    <div id="jobSection" style="display:none;">
+      <div class="section-title">Job Details</div>
+
+      <div class="field">
+        <label>Service(s) <span style="color:var(--red)">*</span></label>
+        <div class="services-grid" id="servicesGrid">
+          <label class="svc-check" onclick="toggleSvc(this,'Roof — Softwash')"><input type="checkbox"><div class="svc-cb">✓</div>Roof (softwash)</label>
+          <label class="svc-check" onclick="toggleSvc(this,'Roof — Traditional')"><input type="checkbox"><div class="svc-cb">✓</div>Roof (traditional)</label>
+          <label class="svc-check" onclick="toggleSvc(this,'Surface cleaning')"><input type="checkbox"><div class="svc-cb">✓</div>Surface cleaning</label>
+          <label class="svc-check" onclick="toggleSvc(this,'Sealing')"><input type="checkbox"><div class="svc-cb">✓</div>Sealing</label>
+          <label class="svc-check" onclick="toggleSvc(this,'Rust removal')"><input type="checkbox"><div class="svc-cb">✓</div>Rust removal</label>
+          <label class="svc-check" id="svcOtherToggle" onclick="toggleSvc(this,'other')"><input type="checkbox"><div class="svc-cb">✓</div>Other</label>
+        </div>
+        <input type="text" id="svcOtherText" style="display:none;margin-top:8px;" placeholder="Describe service…">
+      </div>
+
+      <div class="field">
+        <label>Job amount <span style="color:var(--red)">*</span></label>
+        <div class="help" style="margin-bottom:6px;">What did Tony quote them?</div>
+        <div class="amount-wrap">
+          <span class="amount-prefix">$</span>
+          <input type="number" id="jobAmount" inputmode="decimal" placeholder="350" min="1" step="1">
+        </div>
+        <div id="amountError" class="error-msg" style="display:none;">Please enter a price greater than $0</div>
+      </div>
+
+      <div class="field">
+        <label>Estimated duration <span style="color:var(--red)">*</span></label>
+        <select id="duration">
+          <option value="2">Quick · 1–2 hours</option>
+          <option value="3" selected>Half day · 2–4 hours</option>
+          <option value="6">Full day · 4–8 hours</option>
+          <option value="8">Multi-day · 8+ hours</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Schedule <span style="color:var(--red)">*</span></label>
+        <div class="radio-group">
+          <div class="radio-opt on" id="radioQueue" onclick="setSchedulePath('queue')">
+            <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+            <div><div class="radio-label">Add to scheduling queue</div><div class="radio-sub">I'll schedule this on the calendar later</div></div>
+          </div>
+          <div class="radio-opt" id="radioDirect" onclick="setSchedulePath('direct')">
+            <div class="radio-dot"><div class="radio-dot-inner"></div></div>
+            <div><div class="radio-label">Schedule directly</div><div class="radio-sub">Pick a date, rig, and time now</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- QUEUE PATH: optional requested date -->
+      <div id="queueFields">
+        <div class="field">
+          <label>Customer-requested date <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+          <input type="date" id="requestedDate">
+          <div class="help">What date did they ask for?</div>
+        </div>
+      </div>
+
+      <!-- DIRECT SCHEDULE PATH -->
+      <div id="directFields" style="display:none;">
+        <div class="direct-fields">
+          <div class="field">
+            <label>Date <span style="color:var(--red)">*</span></label>
+            <input type="date" id="schedDate">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field">
+              <label>Rig</label>
+              <select id="schedRig">
+                <option value="rig_1">Old Tacoma</option>
+                <option value="rig_2">New Tacoma</option>
+                <option value="rig_3">Chevy</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Start time</label>
+              <select id="schedTime">
+                <option value="07:00">7:00 AM</option>
+                <option value="07:30">7:30 AM</option>
+                <option value="08:00">8:00 AM</option>
+                <option value="08:30">8:30 AM</option>
+                <option value="09:00" selected>9:00 AM</option>
+                <option value="09:30">9:30 AM</option>
+                <option value="10:00">10:00 AM</option>
+                <option value="10:30">10:30 AM</option>
+                <option value="11:00">11:00 AM</option>
+                <option value="12:00">12:00 PM</option>
+                <option value="13:00">1:00 PM</option>
+                <option value="14:00">2:00 PM</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:.5rem;">
+        <label>Internal notes <span style="color:var(--muted);font-weight:400;">(optional)</span></label>
+        <textarea id="jobNotes" rows="2" placeholder="Price negotiated, special instructions, morning only…"></textarea>
+      </div>
+
+      <div id="saveError" class="error-msg" style="display:none;margin-bottom:.75rem;font-size:13px;"></div>
+      <div id="testRecordWrap" style="margin-bottom:.75rem;padding:10px 12px;background:#fafafa;border:1.5px solid #e2e8f0;border-radius:10px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="isTestRecord" style="width:16px;height:16px;cursor:pointer;accent-color:#f59e0b;flex-shrink:0;">
+          <div>
+            <div style="font-size:13px;color:#374151;font-weight:500;">🧪 Test record <span style="font-weight:400;color:#9ca3af;">(auto-removes in 24 hrs)</span></div>
+            <div style="font-size:11px;color:#9ca3af;margin-top:1px;">For demos and testing only — hidden if editing existing customer</div>
+          </div>
+        </label>
+      </div>
+      <button class="btn btn-primary" id="saveBtn" onclick="saveJob()">Save Customer &amp; Job →</button>
+    </div>
+
+  </div><!-- /formView -->
+
+  <!-- SUCCESS SCREEN -->
+  <div class="success-screen" id="successView" style="display:none;">
+    <div class="success-icon">✓</div>
+    <div class="success-title">Saved!</div>
+    <div class="success-sub" id="successMsg"></div>
+    <!-- SMS prompt -->
+    <div id="smsPrompt" class="success-actions">
+      <button class="btn btn-primary" id="smsBtn" onclick="openSms()" disabled style="opacity:.55;">
+        📱 Generating link…
+      </button>
+      <button class="btn btn-outline" onclick="skipSms()">Skip — send later</button>
+    </div>
+    <!-- Post-action buttons (shown after SMS sent or skipped) -->
+    <div id="postSmsActions" style="display:none;margin-top:16px;">
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline" style="flex:1;" onclick="resetForm()">+ Another</button>
+        <button class="btn btn-outline" style="flex:1;" onclick="goBack()">Done</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+const PCPC_API_AJ        = 'https://purecleaning-api.tylerfumero.workers.dev';
+const CACHE_KEY          = 'pcpc_customer_db_cache';
+const PENDING_KEY        = 'pcpc_pending_manual_jobs';
+const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+const _SL_ALP            = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const _CL_ALP            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+// Returns short URL immediately, writes mapping in background
+function shortenUrl(longUrl) {
+  let code = '';
+  for (let i = 0; i < 8; i++) code += _SL_ALP[Math.floor(Math.random()*32)];
+  const short = 'https://purecleaningpressurecleaning.com/q.html?id='+code;
+  (async()=>{
+    try {
+      const sl = await fetch(`${PCPC_API_AJ}/links`).then(r => r.json());
+      const links = sl.links || {};
+      links[code] = longUrl;
+      await fetch(`${PCPC_API_AJ}/links`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({links})});
+    } catch(e){console.warn('[shortenUrl]',e.message);}
+  })();
+  return short;
+}
+
+let _pendingSms = null;
+
+function generateQuoteCodeAJ() {
+  let c = '';
+  for (let i = 0; i < 8; i++) c += _CL_ALP[Math.floor(Math.random() * 32)];
+  return c;
+}
+
+function openSms() {
+  if(_pendingSms) window.location.href = _pendingSms;
+  document.getElementById('smsPrompt').style.display = 'none';
+  document.getElementById('postSmsActions').style.display = 'block';
+}
+
+function skipSms() {
+  document.getElementById('smsPrompt').style.display = 'none';
+  document.getElementById('postSmsActions').style.display = 'block';
+}
+
+let dbRecord     = null;
+let foundCustomer = null;   // existing customer found by phone
+let isExisting   = false;   // confirmed as existing
+let forceNew     = false;   // "different person" override
+let schedulePath = 'queue'; // 'queue' | 'direct'
+let selectedSvcs = new Set();
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+async function init() {
+  setDefaultDate();
+  // checkPendingJobs(); — disabled until campaign data is meaningful (re-enable Week 2)
+  try {
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < 5 * 60 * 1000) { dbRecord = data; return; }
+    }
+  } catch(e) {}
+  try {
+    const res = await fetch(`${PCPC_API_AJ}/customers`);
+    dbRecord = await res.json();
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: dbRecord, timestamp: Date.now() })); } catch(e) {}
+  } catch(e) { console.warn('[AddJob] DB load failed:', e.message); }
+}
+
+
+function setDefaultDate() {
+  // Next weekday
+  const d = new Date();
+  d.setDate(d.getDate() + (d.getDay() === 5 ? 3 : d.getDay() === 6 ? 2 : 1));
+  const iso = d.toISOString().split('T')[0];
+  document.getElementById('schedDate').value = iso;
+  document.getElementById('requestedDate').min = new Date().toISOString().split('T')[0];
+}
+
+function isoToday() { return new Date().toISOString().split('T')[0]; }
+function fmtPhone(p) {
+  const d = (p||'').replace(/\D/g,'');
+  if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+  return d;
+}
+function rawPhone(p) { return (p||'').replace(/\D/g,'').slice(0,10); }
+function goBack() {
+  const params = new URLSearchParams(window.location.search);
+  const back = params.get('back');
+  if (back === 'calendar') window.location.href = '/pure_cleaning_calendar.html';
+  else window.location.href = '/pure_cleaning_admin.html';
+}
+
+// ── PHONE INPUT ───────────────────────────────────────────────────────────────
+function onPhoneInput() {
+  const el = document.getElementById('phoneInput');
+  const digits = rawPhone(el.value);
+  // Format as typed
+  if (digits.length >= 7) el.value = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  else if (digits.length >= 4) el.value = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  else el.value = digits;
+
+  // Reset state if phone changes
+  foundCustomer = null; isExisting = false; forceNew = false;
+  document.getElementById('newCustSection').style.display = 'none';
+  document.getElementById('existingCustSection').style.display = 'none';
+  document.getElementById('jobSection').style.display = 'none';
+
+  if (digits.length >= 7) lookupPhone(digits);
+  else document.getElementById('phoneLookup').innerHTML = '';
+}
+
+function lookupPhone(digits) {
+  if (!dbRecord) { revealNew(); return; }
+  const match = (dbRecord.customers || []).find(c => c.phone === digits);
+  if (match && !forceNew) {
+    foundCustomer = match;
+    const name = `${match.firstName||''} ${match.lastName||''}`.trim();
+    const addr = [match.address, match.city].filter(Boolean).join(', ');
+    const lastSvc = match.lastService ? new Date(match.lastService+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : 'Never';
+    const spend = (match.lifetimeSpend||0).toLocaleString('en-US',{maximumFractionDigits:0});
+    document.getElementById('phoneLookup').innerHTML = `
+      <div class="lookup-card found">
+        <div class="lookup-label found">Existing customer found</div>
+        <div class="lookup-name">${esc(name)}</div>
+        <div class="lookup-meta">${esc(addr)}<br>Last service: ${lastSvc} &nbsp;·&nbsp; ${match.totalJobs||0} jobs &nbsp;·&nbsp; $${spend} lifetime</div>
+        <div class="lookup-actions">
+          <button class="btn btn-green btn-sm" onclick="confirmExisting()">Add new job for ${esc(match.firstName||'this customer')} →</button>
+          <button class="btn btn-outline btn-sm" onclick="chooseDifferentPerson()">Different person</button>
+        </div>
+      </div>`;
+  } else if (digits.length === 10) {
+    document.getElementById('phoneLookup').innerHTML = `
+      <div class="lookup-card not-found">
+        <div class="lookup-label not-found">New customer</div>
+        <div style="font-size:13px;color:var(--muted);">No one with this number — let's get their info.</div>
+      </div>`;
+    revealNew();
+  } else {
+    document.getElementById('phoneLookup').innerHTML = `<div style="font-size:12px;color:var(--muted);padding:6px 0;">Enter all 10 digits…</div>`;
+  }
+}
+
+function confirmExisting() {
+  isExisting = true;
+  const c = foundCustomer;
+  const name = `${c.firstName||''} ${c.lastName||''}`.trim();
+  const addr = [c.address, c.city].filter(Boolean).join(', ');
+  const spend = (c.lifetimeSpend||0).toLocaleString('en-US',{maximumFractionDigits:0});
+  document.getElementById('existingName').textContent = name;
+  document.getElementById('existingMeta').innerHTML = `${esc(addr)}<br>${c.totalJobs||0} previous jobs &nbsp;·&nbsp; $${spend} lifetime`;
+  document.getElementById('existingCustSection').style.display = 'block';
+  document.getElementById('newCustSection').style.display = 'none';
+  document.getElementById('jobSection').style.display = 'block';
+  document.getElementById('testRecordWrap').style.display = 'none'; // not applicable for existing customers
+  document.getElementById('jobSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function chooseDifferentPerson() {
+  if (foundCustomer) {
+    if (!confirm(`We already have someone with this number (${foundCustomer.firstName||''} ${foundCustomer.lastName||''}). Are you sure this is a different person?`)) return;
+  }
+  forceNew = true; foundCustomer = null; isExisting = false;
+  document.getElementById('phoneLookup').innerHTML = '';
+  revealNew();
+}
+
+function revealNew() {
+  document.getElementById('newCustSection').style.display = 'block';
+  document.getElementById('existingCustSection').style.display = 'none';
+  document.getElementById('jobSection').style.display = 'block';
+}
+
+// ── SERVICE TOGGLES ───────────────────────────────────────────────────────────
+function toggleSvc(el, val) {
+  const wasOn = el.classList.contains('on');
+  el.classList.toggle('on', !wasOn);
+  if (val === 'other') {
+    document.getElementById('svcOtherText').style.display = wasOn ? 'none' : 'block';
+    if (!wasOn) document.getElementById('svcOtherText').focus();
+    return;
+  }
+  if (wasOn) selectedSvcs.delete(val); else selectedSvcs.add(val);
+}
+
+function getServices() {
+  const svcs = [...selectedSvcs];
+  const otherEl = document.getElementById('svcOtherToggle');
+  if (otherEl.classList.contains('on')) {
+    const otherText = document.getElementById('svcOtherText').value.trim();
+    if (otherText) svcs.push(otherText);
+  }
+  return svcs;
+}
+
+// ── SCHEDULE PATH ─────────────────────────────────────────────────────────────
+function setSchedulePath(path) {
+  schedulePath = path;
+  document.getElementById('radioQueue').classList.toggle('on', path === 'queue');
+  document.getElementById('radioDirect').classList.toggle('on', path === 'direct');
+  document.getElementById('queueFields').style.display  = path === 'queue'  ? 'block' : 'none';
+  document.getElementById('directFields').style.display = path === 'direct' ? 'block' : 'none';
+}
+
+// ── VALIDATION ────────────────────────────────────────────────────────────────
+function esc(s) { return (s||'').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function validate() {
+  const phone = rawPhone(document.getElementById('phoneInput').value);
+  if (phone.length !== 10) { showErr('Please enter a valid 10-digit phone number.'); return false; }
+  if (!isExisting) {
+    if (!document.getElementById('firstName').value.trim()) { showErr('First name is required.'); highlightErr('firstName'); return false; }
+    if (!document.getElementById('lastName').value.trim()) { showErr('Last name is required.'); highlightErr('lastName'); return false; }
+    if (!document.getElementById('address').value.trim()) { showErr('Address is required.'); highlightErr('address'); return false; }
+    if (!document.getElementById('city').value.trim()) { showErr('City is required.'); highlightErr('city'); return false; }
+  }
+  if (getServices().length === 0) { showErr('Please select at least one service.'); return false; }
+  const amount = parseFloat(document.getElementById('jobAmount').value);
+  if (!amount || amount <= 0) {
+    showErr('Did Tony quote a price yet? Job amount must be greater than $0.');
+    document.getElementById('amountError').style.display = 'block';
+    return false;
+  }
+  if (schedulePath === 'direct') {
+    if (!document.getElementById('schedDate').value) { showErr('Please select a date.'); return false; }
+  }
+  return true;
+}
+
+function showErr(msg) {
+  const el = document.getElementById('saveError');
+  el.textContent = msg; el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+function highlightErr(id) {
+  const el = document.getElementById(id);
+  if (el) { el.classList.add('error'); el.focus(); el.addEventListener('input', () => el.classList.remove('error'), {once:true}); }
+}
+
+// ── SAVE ──────────────────────────────────────────────────────────────────────
+function saveJob() {
+  document.getElementById('saveError').style.display = 'none';
+  document.getElementById('amountError').style.display = 'none';
+  if (!validate()) return;
+
+  const phone  = rawPhone(document.getElementById('phoneInput').value);
+  const amount = parseFloat(document.getElementById('jobAmount').value);
+  const svcs   = getServices();
+  const dur    = parseInt(document.getElementById('duration').value) || 3;
+  const jobNotesVal = document.getElementById('jobNotes').value.trim();
+  const hasSeal = svcs.some(s => s.toLowerCase().includes('seal'));
+  const today  = isoToday();
+
+  let schedStatus;
+  let routeMsg;
+  if (schedulePath === 'direct') {
+    const date = document.getElementById('schedDate').value;
+    const rig  = document.getElementById('schedRig').value;
+    const time = document.getElementById('schedTime').value;
+    const rigName = {rig_1:'Old Tacoma', rig_2:'New Tacoma', rig_3:'Chevy'}[rig] || rig;
+    const dateStr = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    routeMsg = `Scheduled for ${dateStr} on ${rigName}`;
+    schedStatus = { state:'scheduled', scheduledDate:date, rig, crew:[], estimatedDuration:dur, jobNotes:svcs.join(', '), startTime:time, customerSelectedDate:null, approvedAmount:amount };
+  } else {
+    const reqDate = document.getElementById('requestedDate').value || null;
+    routeMsg = 'Added to scheduling queue';
+    schedStatus = { state:'needs_scheduling', scheduledDate:null, rig:null, crew:[], estimatedDuration:dur, jobNotes:svcs.join(', '), startTime:'09:00', customerSelectedDate:reqDate, approvedAmount:amount };
+  }
+
+  const quoteStatus = { state:'approved', approvedDate:today, sentDate:null, viewedDate:null, lostDate:null, lostReason:null, notes:jobNotesVal };
+
+  let customerRecord;
+  if (isExisting && foundCustomer) {
+    // Update existing
+    customerRecord = foundCustomer;
+    const prev = JSON.parse(JSON.stringify(customerRecord));
+    customerRecord.quoteStatus = quoteStatus;
+    customerRecord.scheduledStatus = schedStatus;
+    if (hasSeal) customerRecord.hasSealHistory = true;
+    if (jobNotesVal && !customerRecord.notes) customerRecord.notes = jobNotesVal;
+  } else {
+    // New customer
+    const fn = document.getElementById('firstName').value.trim();
+    const ln = document.getElementById('lastName').value.trim();
+    customerRecord = {
+      phone, firstName:fn, lastName:ln,
+      address: document.getElementById('address').value.trim(),
+      city: document.getElementById('city').value.trim(),
+      email: document.getElementById('email').value.trim(),
+      notes: document.getElementById('custNotes').value.trim(),
+      lastService: null, totalJobs: 0, lifetimeSpend: 0,
+      hasSealHistory: hasSeal, phoneStatus: 'active',
+      linkCode: null, linkBin: null, lastTextedDate: null,
+      alerts: [], optOut: null, movedAway: null,
+      quoteStatus, scheduledStatus: schedStatus,
+      source: 'manual_phone', enteredDate: today
+    };
+    const isTestChecked = document.getElementById('isTestRecord')?.checked;
+    if (isTestChecked) {
+      customerRecord.isTest = true;
+      customerRecord.testExpiresAt = new Date(Date.now() + 24*60*60*1000).toISOString();
+      customerRecord.testCreatedBy = 'system';
+    }
+  }
+
+  // Optimistic: show success immediately
+  const displayName = isExisting
+    ? `${foundCustomer.firstName||''} ${foundCustomer.lastName||''}`.trim()
+    : `${document.getElementById('firstName').value.trim()} ${document.getElementById('lastName').value.trim()}`.trim();
+
+  document.getElementById('formView').style.display = 'none';
+  document.getElementById('successView').style.display = 'block';
+  document.getElementById('successMsg').textContent = `${displayName} · $${amount.toLocaleString('en-US',{maximumFractionDigits:0})} · ${routeMsg}`;
+
+  // Apply to in-memory dbRecord and bust cache
+  if (!dbRecord) dbRecord = { customers: [] };
+  if (!dbRecord.customers) dbRecord.customers = [];
+  if (isExisting) {
+    const idx = dbRecord.customers.findIndex(c => c.phone === phone);
+    if (idx >= 0) dbRecord.customers[idx] = customerRecord;
+  } else {
+    dbRecord.customers.push(customerRecord);
+  }
+  sessionStorage.removeItem(CACHE_KEY);
+
+  // Background write
+  writeToJsonbin(dbRecord).catch(() => {
+    savePendingJob({ customerRecord, isExisting, phone, timestamp: Date.now() });
+    showPendingBanner();
+  });
+
+  // Generate quote link and prep SMS in background — enables the SMS button when ready
+  const _firstName = customerRecord.firstName || '';
+  const _phone     = phone;
+  const _cr        = customerRecord;
+  ;(async () => {
+    const smsBtn = document.getElementById('smsBtn');
+    try {
+      // Use pre-gen bin (already created during page load)
+      const code = generateQuoteCodeAJ();
+      const linkRec = {fn:_firstName, ln:_cr.lastName||'', ph:_phone, em:_cr.email||'', addr:_cr.address||'', city:_cr.city||'', zip:_cr.zip||'', lastService:null, totalJobs:0, lifetimeSpend:0, created:new Date().toISOString()};
+      fetch(`${PCPC_API_AJ}/quote/${code}`, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(linkRec)}).catch(()=>{});
+
+      _cr.linkCode = code;
+
+      // Short URL (returned instantly, written to shortener bin in background)
+      const longUrl  = `${QUOTE_BASE}?c=${code}`;
+      const shortUrl = shortenUrl(longUrl);
+
+      // Build SMS body — new customers get company-first template, returning get personal Tyler template
+      const fn   = _firstName || 'there';
+      const body = isExisting
+        ? `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`
+        : `Hi ${fn}! This is Pure Cleaning Pressure Cleaning — South Florida's family-owned pressure washing company since 1995. Thanks for reaching out!\n\nWe've put together a simple way to get your quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`;
+      _pendingSms = `sms:+1${_phone.replace(/\D/g,'')}?&body=${encodeURIComponent(body)}`;
+
+      if (smsBtn) { smsBtn.disabled = false; smsBtn.textContent = '📱 Send Quote Link'; smsBtn.style.opacity = ''; }
+    } catch(e) {
+      console.warn('[SMS setup]', e.message);
+      if (smsBtn) smsBtn.style.display = 'none';
+      document.getElementById('smsPrompt').style.display  = 'none';
+      document.getElementById('postSmsActions').style.display = 'block';
+    }
+  })();
+}
+
+async function writeToJsonbin(db) {
+  const res = await fetch(`${PCPC_API_AJ}/customers`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(db)
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+}
+
+function savePendingJob(job) {
+  try {
+    const pend = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
+    pend.push(job);
+    localStorage.setItem(PENDING_KEY, JSON.stringify(pend));
+  } catch(e) {}
+}
+
+async function checkPendingJobs() {
+  try {
+    const pend = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
+    if (!pend.length) return;
+    // Try to flush pending
+    const res = await fetch(`${PCPC_API_AJ}/customers`);
+    const db = await res.json();
+    if (!db.customers) db.customers = [];
+    for (const job of pend) {
+      if (job.isExisting) {
+        const idx = db.customers.findIndex(c => c.phone === job.phone);
+        if (idx >= 0) db.customers[idx] = job.customerRecord;
+      } else {
+        if (!db.customers.find(c => c.phone === job.phone)) db.customers.push(job.customerRecord);
+      }
+    }
+    await writeToJsonbin(db);
+    localStorage.removeItem(PENDING_KEY);
+    dbRecord = db;
+  } catch(e) { showPendingBanner(); }
+}
+
+function showPendingBanner() {
+  const pend = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
+  if (!pend.length) return;
+  const b = document.getElementById('pendingBanner');
+  b.textContent = `⚠️ ${pend.length} job(s) saved locally — will sync when connection is back`;
+  b.style.display = 'block';
+}
+
+function resetForm() {
+  // Reset all state for another entry
+  foundCustomer = null; isExisting = false; forceNew = false; schedulePath = 'queue';
+  selectedSvcs = new Set();
+  document.getElementById('phoneInput').value = '';
+  document.getElementById('phoneLookup').innerHTML = '';
+  document.getElementById('firstName').value = '';
+  document.getElementById('lastName').value = '';
+  document.getElementById('address').value = '';
+  document.getElementById('city').value = '';
+  document.getElementById('email').value = '';
+  document.getElementById('custNotes').value = '';
+  document.getElementById('jobAmount').value = '';
+  document.getElementById('jobNotes').value = '';
+  document.getElementById('requestedDate').value = '';
+  document.querySelectorAll('.svc-check').forEach(el => el.classList.remove('on'));
+  document.getElementById('svcOtherText').style.display = 'none';
+  document.getElementById('svcOtherText').value = '';
+  setSchedulePath('queue');
+  document.getElementById('newCustSection').style.display = 'none';
+  document.getElementById('existingCustSection').style.display = 'none';
+  document.getElementById('jobSection').style.display = 'none';
+  document.getElementById('saveError').style.display = 'none';
+  document.getElementById('amountError').style.display = 'none';
+  document.getElementById('formView').style.display = 'block';
+  document.getElementById('successView').style.display = 'none';
+  // Reset SMS state
+  _pendingSms = null;
+  const smsBtn = document.getElementById('smsBtn');
+  if (smsBtn) { smsBtn.disabled = true; smsBtn.textContent = '📱 Generating link…'; smsBtn.style.opacity = '.55'; smsBtn.style.display = ''; }
+  document.getElementById('smsPrompt').style.display = '';
+  document.getElementById('postSmsActions').style.display = 'none';
+  setDefaultDate();
+  window.scrollTo(0, 0);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
