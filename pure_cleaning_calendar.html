@@ -191,6 +191,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pf-sub{font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;}
 .pf-breakdown{margin-top:8px;font-size:11px;color:rgba(255,255,255,.7);line-height:1.8;}
 
+/* ── DISTANCE MARKERS (Stage 12) ── */
+.dist-marker{text-align:center;font-size:11px;font-weight:600;padding:2px 0;letter-spacing:.2px;user-select:none;pointer-events:none;}
+.dist-marker.dm-green{color:#16a34a;}
+.dist-marker.dm-gray{color:var(--muted);}
+.dist-marker.dm-yellow{color:#b45309;}
+.dist-marker.dm-red{color:#dc2626;}
+.dist-marker.dm-none{color:#d1d5db;}
+.route-summary{display:flex;align-items:center;justify-content:space-between;padding:5px 8px 3px;font-size:11px;font-weight:600;color:#374151;border-top:1px dashed #e2e8f0;margin-top:2px;}
+.route-warn{font-size:10px;color:#dc2626;padding:1px 8px 4px;font-weight:600;}
+.route-missing{font-size:10px;color:#9ca3af;padding:1px 8px 4px;}
+.optimize-btn{background:none;border:1px solid #d1d5db;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700;color:#374151;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .1s;white-space:nowrap;}
+.optimize-btn:hover{background:#f1f5f9;border-color:#9ca3af;}
+
 /* ── TOAST ── */
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.3);transition:transform .3s ease;z-index:999;display:flex;align-items:center;gap:12px;white-space:nowrap;}
 .toast.show{transform:translateX(-50%) translateY(0);}
@@ -564,6 +577,35 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
 </div>
 
+<!-- OPTIMIZE ROUTE MODAL -->
+<div class="overlay hidden" id="optimizeModal" onclick="if(event.target===this)cancelOptimize()">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-title">🧭 Optimize Route?</div>
+    <p style="font-size:14px;color:var(--muted);line-height:1.6;margin-bottom:1rem;">
+      Reorder jobs on this rig to minimize total driving distance.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1rem;">
+      <div style="text-align:center;background:#f9fafb;border-radius:10px;padding:10px;">
+        <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Current</div>
+        <div style="font-size:22px;font-weight:700;color:#dc2626;" id="optBefore">—</div>
+        <div style="font-size:11px;color:var(--muted);">miles</div>
+      </div>
+      <div style="text-align:center;background:#f0fdf4;border-radius:10px;padding:10px;">
+        <div style="font-size:11px;color:#16a34a;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Optimized</div>
+        <div style="font-size:22px;font-weight:700;color:#16a34a;" id="optAfter">—</div>
+        <div style="font-size:11px;color:#16a34a;">miles</div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:13px;font-weight:600;color:#374151;margin-bottom:1.25rem;">
+      Save <strong id="optSaved" style="color:#16a34a;">—</strong> miles of driving
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="mbtn-cancel" onclick="cancelOptimize()" style="flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
+      <button onclick="applyOptimize()" style="flex:2;padding:11px;border:none;border-radius:10px;background:var(--green);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;">Apply Order</button>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 <div id="alertContainer"></div>
@@ -667,6 +709,7 @@ function saveCalState() {
   if (!calState.rigCrew)    calState.rigCrew    = {};
   if (!calState.rigDayType) calState.rigDayType = {};
   if (!calState.daysOff)    calState.daysOff    = [];
+  if (!calState.jobOrder)   calState.jobOrder   = {};
   localStorage.setItem('pcpc_calendar_state', JSON.stringify(calState));
 }
 
@@ -825,6 +868,7 @@ async function init() {
     cleanStaleSchedulingStates();
     cleanupExpiredTestRecords(); // fire-and-forget — removes expired test records silently
     render();
+    autoGeocodeJobs(); // background geocode any scheduled jobs missing coordinates
   } catch(e) {
     dbRecord = {customers:[]};
     render();
@@ -962,6 +1006,184 @@ function calculateDayTotal(date) {
   return RIGS.reduce((s, rig) => s + calculateRigTotal(date, rig), 0);
 }
 
+// ── ROUTE DISTANCE (Stage 12) ─────────────────────────────────────────────────
+function distanceBetween(lat1, lng1, lat2, lng2) {
+  const toRad = d => d * Math.PI / 180;
+  const R = 3959;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function getJobCoords(c) {
+  const g = c.geocoded;
+  if (g && g.lat && g.lng) return { lat: +g.lat, lng: +g.lng };
+  return null;
+}
+
+function dmColorClass(drivingMiles) {
+  if (drivingMiles < 5)  return 'dm-green';
+  if (drivingMiles < 10) return 'dm-gray';
+  if (drivingMiles < 15) return 'dm-yellow';
+  return 'dm-red';
+}
+
+function calcTotalDriving(jobs) {
+  let total = 0;
+  for (let i = 0; i < jobs.length - 1; i++) {
+    const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i+1]);
+    if (a && b) total += distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
+  }
+  return total;
+}
+
+function buildJobsHtmlWithDist(jobs) {
+  if (!jobs.length) return '';
+  const parts = [];
+  for (let i = 0; i < jobs.length; i++) {
+    parts.push(jobCardScheduled(jobs[i]));
+    if (i < jobs.length - 1) {
+      const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i+1]);
+      if (a && b) {
+        const d = distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
+        const mins = Math.round((d / 30) * 60);
+        const cls = dmColorClass(d);
+        const warn = d > 15 ? ' ⚠️' : '';
+        parts.push(`<div class="dist-marker ${cls}">${d.toFixed(1)} mi · ~${mins} min${warn}</div>`);
+      } else {
+        parts.push(`<div class="dist-marker dm-none">· · ·</div>`);
+      }
+    }
+  }
+  return parts.join('');
+}
+
+function renderRouteSummary(jobs, date, rig) {
+  if (jobs.length < 2) return '';
+  let total = 0, anyMissing = false, maxLeg = 0, maxIdx = -1;
+  for (let i = 0; i < jobs.length - 1; i++) {
+    const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i+1]);
+    if (a && b) {
+      const d = distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
+      total += d;
+      if (d > maxLeg) { maxLeg = d; maxIdx = i; }
+    } else { anyMissing = true; }
+  }
+  const hasAnyCoords = jobs.some(j => getJobCoords(j));
+  if (!hasAnyCoords) return anyMissing ? `<div class="route-missing">📍 Addresses not geocoded — distances unavailable</div>` : '';
+  const mins = Math.round((total / 30) * 60);
+  const warnHtml = maxLeg > 15 ? `<div class="route-warn">⚠️ Far gap: jobs ${maxIdx+1}–${maxIdx+2} (${(maxLeg).toFixed(1)} mi)</div>` : '';
+  const missingNote = anyMissing ? `<div class="route-missing">⚬ Some addresses ungeocoded — estimate incomplete</div>` : '';
+  return `<div class="route-summary">
+    <span>🚗 ${total.toFixed(1)} mi · ~${mins} min drive</span>
+    <button class="optimize-btn" onclick="event.stopPropagation();promptOptimize('${date}','${rig}')">🧭 Optimize</button>
+  </div>${warnHtml}${missingNote}`;
+}
+
+function getScheduledForRigOrdered(date, rig) {
+  const jobs = getScheduledForRig(date, rig);
+  const savedOrder = (calState.jobOrder?.[date]?.[rig]) || [];
+  if (!savedOrder.length) return jobs;
+  const byPhone = {};
+  jobs.forEach(j => { byPhone[(j.phone||'').replace(/\D/g,'').slice(-10)] = j; });
+  const ordered = savedOrder.map(p => byPhone[p]).filter(Boolean);
+  jobs.forEach(j => {
+    const p = (j.phone||'').replace(/\D/g,'').slice(-10);
+    if (!savedOrder.includes(p)) ordered.push(j);
+  });
+  return ordered;
+}
+
+function optimizeRoute(jobs) {
+  const geocoded = jobs.filter(j => getJobCoords(j));
+  const ungeo = jobs.filter(j => !getJobCoords(j));
+  if (geocoded.length <= 1) return jobs;
+  const start = geocoded[0];
+  const remaining = geocoded.slice(1);
+  const ordered = [start];
+  let cur = start;
+  while (remaining.length) {
+    let best = 0, bestD = Infinity;
+    remaining.forEach((j, i) => {
+      const a = getJobCoords(cur), b = getJobCoords(j);
+      if (!a || !b) return;
+      const d = distanceBetween(a.lat, a.lng, b.lat, b.lng);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    cur = remaining[best];
+    ordered.push(cur);
+    remaining.splice(best, 1);
+  }
+  return [...ordered, ...ungeo]; // ungeocoded jobs go last
+}
+
+let _pendingOptimize = null;
+
+function promptOptimize(date, rig) {
+  const jobs = getScheduledForRigOrdered(date, rig);
+  if (jobs.length < 2) { showToast('Need 2+ jobs to optimize.'); return; }
+  const optimized = optimizeRoute(jobs);
+  const before = calcTotalDriving(jobs);
+  const after  = calcTotalDriving(optimized);
+  const saved  = before - after;
+  if (saved < 0.3) { showToast('🧭 Route is already optimal!'); return; }
+  _pendingOptimize = { date, rig, optimized };
+  document.getElementById('optBefore').textContent = before.toFixed(1);
+  document.getElementById('optAfter').textContent  = after.toFixed(1);
+  document.getElementById('optSaved').textContent  = saved.toFixed(1);
+  document.getElementById('optimizeModal').classList.remove('hidden');
+}
+
+function applyOptimize() {
+  if (!_pendingOptimize) return;
+  const { date, rig, optimized } = _pendingOptimize;
+  if (!calState.jobOrder) calState.jobOrder = {};
+  if (!calState.jobOrder[date]) calState.jobOrder[date] = {};
+  calState.jobOrder[date][rig] = optimized.map(j => (j.phone||'').replace(/\D/g,'').slice(-10));
+  saveCalState();
+  cancelOptimize();
+  renderCalGrid(getWeekDates());
+  showToast('🧭 Route optimized!');
+}
+
+function cancelOptimize() {
+  document.getElementById('optimizeModal').classList.add('hidden');
+  _pendingOptimize = null;
+}
+
+async function geocodeAddress(address, city, zip) {
+  try {
+    const params = new URLSearchParams({
+      street: address, city: city || '', zip: zip || '',
+      benchmark: 'Public_AR_Current', format: 'json'
+    });
+    const res = await fetch(`https://geocoding.geo.census.gov/geocoder/locations/address?${params}`);
+    const data = await res.json();
+    const m = data?.result?.addressMatches?.[0];
+    if (!m) return null;
+    return { lat: m.coordinates.y, lng: m.coordinates.x, accuracy: 'ROOFTOP',
+             formattedAddress: m.matchedAddress || '', geocodedAt: new Date().toISOString() };
+  } catch(e) { return null; }
+}
+
+async function autoGeocodeJobs() {
+  const scheduled = (dbRecord.customers||[]).filter(c => {
+    const ss = c.scheduledStatus;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && c.address && !c.geocoded?.lat;
+  });
+  if (!scheduled.length) return;
+  let updated = 0;
+  for (const c of scheduled) {
+    const geo = await geocodeAddress(c.address, c.city||'', c.zip||'');
+    if (geo) { c.geocoded = geo; updated++; }
+    await new Promise(r => setTimeout(r, 120)); // rate limit Census API
+  }
+  if (updated) {
+    saveDb().catch(()=>{});
+    renderCalGrid(getWeekDates());
+  }
+}
+
 function jobCardSidebar(c) {
   const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
   const ss     = c.scheduledStatus || {};
@@ -1041,8 +1263,8 @@ function renderCalGrid(dates) {
       const crewLabel = crew.map(id => CREW_MEMBERS.find(c=>c.id===id)?.name||id).join(' + ');
       const dayType = getRigDayType(date, rig);
       const halfBadge = dayType === 'half' ? ' <span style="font-size:10px;font-weight:700;color:var(--gold);background:rgba(244,166,32,.15);border-radius:4px;padding:1px 4px;margin-left:2px;">½</span>' : '';
-      const jobs = getScheduledForRig(date, rig);
-      const jobsHtml = jobs.map(c => jobCardScheduled(c)).join('');
+      const jobs = getScheduledForRigOrdered(date, rig);
+      const jobsHtml = buildJobsHtmlWithDist(jobs);
       const emptyClass = jobs.length ? '' : ' empty-hint';
       const rigTotal = calculateRigTotal(date, rig);
       const rigLabor = calcRigLabor(date, rig);
@@ -1058,6 +1280,7 @@ function renderCalGrid(dates) {
       const bulkPrintHtml = printableJobs.length > 0
         ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 Print ${printableJobs.length} job sheet${printableJobs.length>1?'s':''}</button></div>`
         : '';
+      const routeSummaryHtml = renderRouteSummary(jobs, date, rig);
       return `<div class="rig-section">
         <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
           <span class="rig-icon">🚛</span>
@@ -1068,6 +1291,7 @@ function renderCalGrid(dates) {
         ${rigLaborNetHtml}
         ${bulkPrintHtml}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+        ${routeSummaryHtml}
         ${renderArrivalButtons(date, rig, jobs)}
       </div>`;
     }).join('');
@@ -1346,16 +1570,25 @@ function initSortables() {
 
   document.querySelectorAll('.rig-jobs').forEach(lane => {
     sortables.push(Sortable.create(lane, {
-      group:{ name:'jobs', pull:true, put: to => {
-        // Max 2 jobs per rig slot? No — only crew has max. Multiple jobs per rig allowed.
-        return true;
-      }},
+      group:{ name:'jobs', pull:true, put:() => true },
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
+      filter: '.dist-marker,.route-summary,.route-warn,.route-missing',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
-      onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig)
+      onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
+      onUpdate: evt => {
+        const date = evt.to.dataset.date;
+        const rig  = evt.to.dataset.rig;
+        const phones = Array.from(evt.to.querySelectorAll('.job-scheduled[data-phone]'))
+          .map(el => (el.dataset.phone||'').replace(/\D/g,'').slice(-10));
+        if (!calState.jobOrder) calState.jobOrder = {};
+        if (!calState.jobOrder[date]) calState.jobOrder[date] = {};
+        calState.jobOrder[date][rig] = phones;
+        saveCalState();
+        renderCalGrid(getWeekDates());
+      }
     }));
   });
 }
@@ -1364,6 +1597,15 @@ async function handleDropToRig(phone, date, rig) {
   const c = findCustomer(phone);
   if (!c) return;
   const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  // Clear saved order for old rig/date so the job doesn't stay there
+  const prevDate = prev.scheduledDate, prevRig = prev.rig;
+  if (prevDate && prevRig && (prevDate !== date || prevRig !== rig)) {
+    if (calState.jobOrder?.[prevDate]?.[prevRig]) {
+      const p = (phone||'').replace(/\D/g,'').slice(-10);
+      calState.jobOrder[prevDate][prevRig] = calState.jobOrder[prevDate][prevRig].filter(x => x !== p);
+      saveCalState();
+    }
+  }
   if (!c.scheduledStatus) c.scheduledStatus = { estimatedDuration:2, startTime:'09:00', jobNotes:'', crew:[] };
   c.scheduledStatus.state = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
