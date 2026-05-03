@@ -245,6 +245,32 @@ td.money{font-family:'DM Mono',monospace;}
 .summary-val{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);}
 
 @media(max-width:600px){.stats-bar{grid-template-columns:1fr 1fr;}}
+
+/* timeline view */
+.timeline-view{margin-top:1rem;display:none;}
+.timeline-view.show{display:block;}
+.tl-section{margin-bottom:1.75rem;}
+.tl-section-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;display:flex;align-items:center;gap:8px;}
+.tl-section-hdr::after{content:'';flex:1;height:1px;background:var(--border);}
+.tl-section-hdr .tl-sec-count{background:rgba(0,0,0,.2);border-radius:12px;padding:1px 7px;font-size:11px;margin-left:2px;}
+.tl-cards{display:flex;flex-direction:column;gap:8px;}
+.tl-card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:11px 14px;display:flex;align-items:center;gap:12px;transition:border-color .15s;}
+.tl-card.tl-overdue{border-color:rgba(229,62,62,.45);}
+.tl-card.tl-due_now{border-color:rgba(244,166,32,.45);}
+.tl-card.tl-due_soon{border-color:rgba(45,125,210,.35);}
+.tl-card.tl-sent{opacity:.6;}
+.tl-info{flex:1;min-width:0;}
+.tl-name{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tl-meta{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5;}
+.tl-badges{margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;}
+.tl-chip{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;}
+.tl-chip-overdue{background:rgba(229,62,62,.18);color:#fc8181;}
+.tl-chip-due_now{background:rgba(244,166,32,.18);color:var(--gold);}
+.tl-chip-due_soon{background:rgba(45,125,210,.18);color:var(--sky);}
+.tl-chip-not_due{background:rgba(122,138,170,.12);color:var(--muted);}
+.tl-chip-sent{background:rgba(29,158,117,.18);color:#5de0b3;}
+.tl-action{flex-shrink:0;}
+.tl-empty{text-align:center;padding:2rem;color:var(--muted);font-size:14px;}
 </style>
 </head>
 <body>
@@ -327,6 +353,7 @@ td.money{font-family:'DM Mono',monospace;}
     <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('opted_out')" style="border-color:rgba(229,62,62,.35);color:#fc8181;">🚫 Opted Out <span class="pool-badge" id="tabOptedOutCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('moved_away')" style="border-color:rgba(20,184,166,.35);color:#2dd4bf;">🏠 Moved Away <span class="pool-badge" id="tabMovedAwayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('timeline')">📅 Timeline <span class="pool-badge" id="tabTimelineCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
   </div>
 
@@ -413,6 +440,9 @@ td.money{font-family:'DM Mono',monospace;}
       <tbody id="tableBody"></tbody>
     </table>
   </div>
+
+  <!-- TIMELINE VIEW -->
+  <div id="timelineView" class="timeline-view"></div>
 
 </div><!-- end .wrap -->
 
@@ -890,6 +920,40 @@ function calcTier(c) {
   return 'ANCIENT';              // 8+ years
 }
 
+function getLastServiceType(c) {
+  const text = [
+    (c.quoteStatus && c.quoteStatus.mainServices) || '',
+    (c.scheduledStatus && c.scheduledStatus.jobNotes) || '',
+    (c.quoteStatus && c.quoteStatus.notes) || '',
+    c.lastServiceStr || ''
+  ].join(' ').toLowerCase();
+  if (/roof|soft.?wash|tile|shingle/.test(text)) return 'roof';
+  return 'standard';
+}
+
+function reactivationMonths(c) {
+  return getLastServiceType(c) === 'roof' ? 18 : 6;
+}
+
+function reactivationDueDate(c) {
+  if (!c.lastDateObj) return null;
+  const due = new Date(c.lastDateObj);
+  due.setMonth(due.getMonth() + reactivationMonths(c));
+  return due;
+}
+
+function reactivationStatus(c) {
+  if (isInCooldown(c.phone)) return 'sent';
+  const due = reactivationDueDate(c);
+  if (!due) return 'not_due';
+  const now = new Date();
+  const monthsUntilDue = (due - now) / (1000 * 60 * 60 * 24 * 30.44);
+  if (monthsUntilDue < -1) return 'overdue';
+  if (monthsUntilDue <= 1) return 'due_now';
+  if (monthsUntilDue <= 2) return 'due_soon';
+  return 'not_due';
+}
+
 function tierLabel(t) {
   return {VIP_SEAL:'💎 VIP Seal',HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',DORMANT:'🧊 Dormant',ANCIENT:'👻 Ancient',ACTIVE:'⏸️ Active'}[t] || t;
 }
@@ -1130,6 +1194,26 @@ function applyFilters() {
   const q = searchQuery.toLowerCase();
   const qDigits = q.replace(/\D/g, '');
 
+  if (poolTab === 'timeline') {
+    filteredCustomers = allCustomers.filter(c => {
+      if (c.optOut || c.movedAway) return false;
+      if (!activeTiers.has(c.tier)) return false;
+      if (city && c.city !== city) return false;
+      if (c.lifetimeSpend < minSpend) return false;
+      if (q) {
+        const fullName = (c.fn + ' ' + c.ln).toLowerCase();
+        const matches = fullName.includes(q) || (c.fn||'').toLowerCase().includes(q) ||
+          (c.ln||'').toLowerCase().includes(q) || (c.city||'').toLowerCase().includes(q) ||
+          (c.address||'').toLowerCase().includes(q) || (qDigits && c.phone && c.phone.includes(qDigits));
+        if (!matches) return false;
+      }
+      return true;
+    });
+    updateTabCounts();
+    renderTimelineView();
+    return;
+  }
+
   filteredCustomers = allCustomers.filter(c => {
     if (poolTab === 'opted_out')   return !!c.optOut;
     if (poolTab === 'moved_away')  return !!c.movedAway;
@@ -1182,6 +1266,7 @@ function clearSearch() {
 }
 
 function applySort() {
+  if (poolTab === 'timeline') { renderTimelineView(); return; }
   if (poolTab === 'contacted' || poolTab === 'today' || poolTab === 'week') {
     filteredCustomers.sort((a, b) => {
       const ta = (loadContactRecord(a.phone) || {}).contactedAt || '';
@@ -1318,6 +1403,87 @@ function renderTable() {
   updateSelInfo();
   document.getElementById('selectAll').checked =
     filteredCustomers.length > 0 && filteredCustomers.every(c => selectedPhones.has(c.phone));
+}
+
+// ─── TIMELINE VIEW ───────────────────────────────────────────────────────────
+function renderTimelineView() {
+  const el = document.getElementById('timelineView');
+  if (!el) return;
+
+  const buckets = { overdue: [], due_now: [], due_soon: [], not_due: [], sent: [] };
+  filteredCustomers.forEach(c => {
+    const s = reactivationStatus(c);
+    buckets[s].push(c);
+  });
+
+  // Sort each bucket
+  const sortByDue = (a, b) => {
+    const da = reactivationDueDate(a), db = reactivationDueDate(b);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da - db;
+  };
+  buckets.overdue.sort(sortByDue);
+  buckets.due_now.sort(sortByDue);
+  buckets.due_soon.sort(sortByDue);
+  buckets.not_due.sort(sortByDue);
+  buckets.sent.sort(sortByDue);
+
+  const sections = [
+    { key: 'overdue',  label: '🔴 Overdue',  desc: 'Past their reactivation date' },
+    { key: 'due_now',  label: '🟡 Due Now',   desc: 'Ready to reach out this month' },
+    { key: 'due_soon', label: '🔵 Due Soon',  desc: 'Coming up in 1–2 months' },
+    { key: 'not_due',  label: '⏸️ Not Due',   desc: 'Not due for reactivation yet' },
+    { key: 'sent',     label: '✅ Sent',       desc: 'Already contacted (in cooldown)' },
+  ];
+
+  if (filteredCustomers.length === 0) {
+    el.innerHTML = '<div class="tl-empty">No customers match current filters.</div>';
+    return;
+  }
+
+  el.innerHTML = sections.map(sec => {
+    const list = buckets[sec.key];
+    if (!list.length) return '';
+    return `<div class="tl-section">
+      <div class="tl-section-hdr">${sec.label} <span class="tl-sec-count">${list.length}</span></div>
+      <div class="tl-cards">${list.map(c => renderTimelineCard(c, sec.key)).join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimelineCard(c, status) {
+  const due = reactivationDueDate(c);
+  const svcType = getLastServiceType(c);
+  const svcLabel = svcType === 'roof' ? '🏠 Roof (18 mo)' : '🚿 Standard (6 mo)';
+  const dueStr = due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const lastStr = c.lastServiceStr || '—';
+  const chipClass = `tl-chip tl-chip-${status}`;
+  const chipLabels = { overdue: '⚠️ Overdue', due_now: '📅 Due Now', due_soon: '🔜 Due Soon', not_due: 'Not Due', sent: '✅ Sent' };
+  const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo ago' : '—';
+
+  const rec = loadContactRecord(c.phone);
+  const cooldown = isInCooldown(c.phone);
+  let actionBtn = '';
+  if (status === 'sent' && rec) {
+    actionBtn = `<div style="font-size:11px;color:#5de0b3;text-align:right;">📲 Texted<br>${formatContactDate(rec.contactedAt)}</div>`;
+  } else if (status !== 'not_due') {
+    actionBtn = `<button class="text-now-btn" onclick="textNow('${c.phone}')" style="font-size:12px;padding:6px 12px;">Text Now</button>`;
+  }
+
+  return `<div class="tl-card tl-${status}">
+    <div class="tl-info">
+      <div class="tl-name">${c.fn} ${c.ln}${c.city ? ' · ' + c.city : ''}</div>
+      <div class="tl-meta">Last service: ${lastStr} (${mo}) · Due: ${dueStr}</div>
+      <div class="tl-badges">
+        <span class="${chipClass}">${chipLabels[status]}</span>
+        <span class="tl-chip tl-chip-not_due">${svcLabel}</span>
+        <span class="tier-badge ${tierClass(c.tier)}" style="font-size:10px;">${tierLabel(c.tier)}</span>
+      </div>
+    </div>
+    <div class="tl-action">${actionBtn}</div>
+  </div>`;
 }
 
 function toggleRow(cb) {
@@ -1666,15 +1832,20 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','all'][i] === tab);
+    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','timeline','all'][i] === tab);
   });
+  const isTimeline = tab === 'timeline';
+  const tw = document.getElementById('tableWrap');
+  const tv = document.getElementById('timelineView');
+  if (tw) tw.style.display = isTimeline ? 'none' : (allCustomers.length ? 'block' : 'none');
+  if (tv) tv.classList.toggle('show', isTimeline);
   renderTabSummary(tab);
   applyFilters();
 }
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0;
+  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, timelineUrgent = 0;
   allCustomers.forEach(c => {
     if (c.optOut)    { optedOutCt++;   return; }
     if (c.movedAway) { movedAwayCt++;  return; }
@@ -1688,6 +1859,8 @@ function updateTabCounts() {
     } else {
       active++;
     }
+    const rs = reactivationStatus(c);
+    if (rs === 'overdue' || rs === 'due_now') timelineUrgent++;
   });
   document.getElementById('tabActiveCount').textContent    = active;
   document.getElementById('tabTodayCount').textContent     = todayCt;
@@ -1696,6 +1869,7 @@ function updateTabCounts() {
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
   document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
   document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
+  document.getElementById('tabTimelineCount').textContent  = timelineUrgent;
 }
 function textNow(phone) {
   const compliance = checkCompliance();
