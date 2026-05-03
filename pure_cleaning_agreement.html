@@ -217,6 +217,43 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .footer-contact a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 14px; transition: background .15s; }
 .footer-contact a:hover { background: rgba(255,255,255,.15); }
 .footer-since { font-size: 11px; color: rgba(255,255,255,.3); }
+
+/* ── Print document ── */
+#print-header { display: none; }
+
+@media print {
+  .site-header, .trust-strip, .site-footer, .toast, .modal-overlay,
+  #state-loading, #state-error { display: none !important; }
+  #state-main .wrap > *:not(#print-header) { display: none !important; }
+  #print-header { display: block !important; }
+  body { background: #fff !important; font-family: 'DM Sans', Arial, sans-serif; }
+  .wrap { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+
+  .ph-co { font-size: 16px; font-weight: 700; color: #000; margin-bottom: 2px; }
+  .ph-tagline { font-size: 9.5px; color: #555; margin-bottom: 14px; letter-spacing: .2px; }
+  .ph-rule { height: 1.5px; background: #0a1628; margin: 12px 0; }
+  .ph-doc-title { font-size: 21px; font-weight: 800; color: #0a1628; margin-bottom: 12px; }
+  .ph-confirmed-badge { font-size: 11px; font-weight: 700; color: #1d9e75; border: 1.5px solid #1d9e75; border-radius: 20px; padding: 2px 10px; display: inline-block; margin-left: 10px; vertical-align: middle; }
+  .ph-meta-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  .ph-meta-table td { padding: 3px 0; vertical-align: top; line-height: 1.5; }
+  .ph-meta-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #666; width: 90px; padding-right: 10px; padding-top: 4px; }
+  .ph-meta-val { font-size: 13px; color: #1a1f2e; font-weight: 500; }
+  .ph-meta-val.highlight { font-weight: 700; color: #0a1628; }
+  .ph-section-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; display: block; }
+  .ph-line-items { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 6px; }
+  .ph-line-items td { padding: 6px 0; border-bottom: 1px solid #e8e2d8; }
+  .ph-li-name { color: #1a1f2e; font-weight: 500; }
+  .ph-li-tag { font-size: 10px; color: #888; margin-left: 5px; }
+  .ph-li-price { text-align: right; font-weight: 600; color: #1a1f2e; white-space: nowrap; }
+  .ph-total-row td { padding: 10px 0 4px !important; border-top: 2px solid #0a1628 !important; border-bottom: none !important; font-size: 15px !important; font-weight: 800 !important; color: #0a1628 !important; }
+  .ph-terms { font-size: 11px; color: #555; line-height: 1.6; margin-bottom: 4px; }
+  .ph-footer-area { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: flex-end; }
+  .ph-footer-co { font-size: 11px; font-weight: 700; color: #0a1628; }
+  .ph-footer-tagline { font-size: 9.5px; color: #777; }
+  .ph-sig-area { text-align: right; }
+  .ph-sig-line { display: block; width: 150px; height: 1px; background: #999; margin-bottom: 4px; margin-left: auto; }
+  .ph-sig-label { font-size: 9.5px; color: #777; display: block; }
+}
 </style>
 </head>
 <body>
@@ -913,10 +950,126 @@ async function submitConfirm() {
   }
 }
 
-// ── Stage 7 placeholders ──────────────────────────────────────────────────────
-function onPdfClick()   { showToast('PDF download coming in an update!'); }
-function onPrintClick() { showToast('Print feature coming in an update!'); }
-function onEmailClick() { showToast('Email copy coming in an update!'); }
+// ── PDF / Print / Email ───────────────────────────────────────────────────────
+function getCurrentTotal() {
+  const base = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  return base + addedAddons.reduce((s, ao) => s + (ao.bundle || 0), 0);
+}
+
+function buildPrintFilename() {
+  const fn = (quoteData.fn || '').replace(/\s+/g, '');
+  const ln = (quoteData.ln || '').replace(/\s+/g, '');
+  const d  = selectedDate ? selectedDate.date.replace(/-/g, '') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `PureCleaning_Agreement_${fn}_${ln}_${d}`;
+}
+
+function buildPrintContent() {
+  const base       = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total      = getCurrentTotal();
+  const services   = quoteData.mainServices || quoteData.services || '—';
+  const fullName   = [quoteData.fn || '', quoteData.ln || ''].filter(Boolean).join(' ');
+  const addr       = [quoteData.address || customer?.address, quoteData.city || customer?.city].filter(Boolean).join(', ');
+  const quotedDate = quoteData.created
+    ? new Date(quoteData.created).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : '';
+  const confDisp   = selectedDate?.display || 'TBD';
+
+  const aoRows = addedAddons.map(ao =>
+    `<tr><td class="ph-li-name">+ ${escHtml(ao.name)} <span class="ph-li-tag">bundled</span></td><td class="ph-li-price">$${ao.bundle}</td></tr>`
+  ).join('');
+
+  const savingsTotal = addedAddons.reduce((s, ao) => s + (ao.savings || 0), 0);
+  const savingsNote  = savingsTotal > 0
+    ? `<p class="ph-terms" style="color:#1d9e75;font-weight:600;">Bundle savings: $${savingsTotal} off standalone pricing.</p>`
+    : '';
+
+  return `
+    <div class="ph-co">🌴 Pure Cleaning Pressure Cleaning, LLC</div>
+    <div class="ph-tagline">Family-owned since 1995 &nbsp;·&nbsp; 954-389-2642 &nbsp;·&nbsp; purecleaningpressurecleaning.com</div>
+    <div class="ph-rule"></div>
+    <div class="ph-doc-title">Service Agreement<span class="ph-confirmed-badge">✓ Confirmed</span></div>
+    <table class="ph-meta-table">
+      <tr><td class="ph-meta-lbl">Customer</td><td class="ph-meta-val">${escHtml(fullName)}</td></tr>
+      ${addr       ? `<tr><td class="ph-meta-lbl">Address</td><td class="ph-meta-val">${escHtml(addr)}</td></tr>` : ''}
+      ${quotedDate ? `<tr><td class="ph-meta-lbl">Quoted</td><td class="ph-meta-val">${quotedDate}</td></tr>` : ''}
+      <tr><td class="ph-meta-lbl">Scheduled</td><td class="ph-meta-val highlight">${escHtml(confDisp)}</td></tr>
+      <tr><td class="ph-meta-lbl">Quoted by</td><td class="ph-meta-val">Tony Fumero, Pure Cleaning</td></tr>
+    </table>
+    <div class="ph-rule"></div>
+    <span class="ph-section-lbl">Services</span>
+    <table class="ph-line-items">
+      <tr><td class="ph-li-name">${escHtml(services)}</td><td class="ph-li-price">$${base}</td></tr>
+      ${aoRows}
+      <tr class="ph-total-row"><td>Total Today</td><td style="text-align:right;">$${total}</td></tr>
+    </table>
+    ${savingsNote}
+    <div class="ph-rule"></div>
+    <span class="ph-section-lbl" style="margin-bottom:6px;">Payment &amp; Terms</span>
+    <p class="ph-terms">Payment is due day of service. We accept Zelle, check, cash, and Venmo.</p>
+    <p class="ph-terms">We will call or text you the night before your service with a rough arrival window.</p>
+    <div class="ph-footer-area">
+      <div>
+        <div class="ph-footer-co">Pure Cleaning Pressure Cleaning, LLC</div>
+        <div class="ph-footer-tagline">Licensed &amp; Insured · South Florida · Since 1995</div>
+      </div>
+      <div class="ph-sig-area">
+        <div class="ph-sig-line"></div>
+        <div class="ph-sig-label">Authorized by Tony Fumero</div>
+      </div>
+    </div>`;
+}
+
+function _doPrint(eventName) {
+  if (pageState !== 'confirmed') return;
+
+  const ph = document.createElement('div');
+  ph.id = 'print-header';
+  ph.innerHTML = buildPrintContent();
+  const wrap = document.querySelector('#state-main .wrap');
+  if (wrap) wrap.insertBefore(ph, wrap.firstChild);
+
+  const prevTitle = document.title;
+  document.title  = buildPrintFilename();
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    document.title = prevTitle;
+    const el = document.getElementById('print-header');
+    if (el) el.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 12000); // safety fallback if afterprint doesn't fire
+
+  requestAnimationFrame(() => window.print());
+  logEvent(eventName, {date: selectedDate?.date, total: getCurrentTotal()});
+}
+
+function onPdfClick()   { _doPrint('agreement_pdf_downloaded'); }
+function onPrintClick() { _doPrint('agreement_printed'); }
+
+function onEmailClick() {
+  if (pageState !== 'confirmed') return;
+
+  const fn       = quoteData.fn || 'there';
+  const services = quoteData.mainServices || quoteData.services || 'your scheduled services';
+  const total    = getCurrentTotal();
+  const dateDisp = selectedDate?.display || 'TBD';
+  const url      = window.location.href;
+  const email    = customer?.email || '';
+
+  const subject = encodeURIComponent('Your Pure Cleaning Service Agreement');
+  const body    = encodeURIComponent(
+    `Hi ${fn},\n\nHere's your Pure Cleaning service agreement:\n\nService: ${services}\nTotal: $${total}\nScheduled: ${dateDisp}\n\nView your agreement here:\n${url}\n\nQuestions? Call us at 954-389-2642.\n\n— The Pure Cleaning Family`
+  );
+
+  const a = document.createElement('a');
+  a.href = `mailto:${email}?subject=${subject}&body=${body}`;
+  a.click();
+  logEvent('agreement_emailed_self', {date: selectedDate?.date, total});
+}
 
 // ── Event logging ─────────────────────────────────────────────────────────────
 function logEvent(eventType, extra = {}) {
