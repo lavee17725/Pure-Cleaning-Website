@@ -242,8 +242,12 @@ function renderBuilder(existing) {
     <div class="job-card">
       <div class="job-label"><span>✓</span> Main Job (already agreed)</div>
       <div class="job-services">${esc(services) || '<span style="color:var(--muted);">No services noted</span>'}</div>
-      ${amount ? `<div class="job-price">$${Number(amount).toLocaleString()}</div>` : ''}
-      ${hours   ? `<div class="job-meta">${hours} hrs · Date: TBD</div>` : '<div class="job-meta">Date: TBD</div>'}
+      <div style="margin-top:.75rem;">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;">Price Tony Quoted</label>
+        <div class="price-input-wrap" style="max-width:180px;">
+          <input type="number" class="price-input" id="mainJobPrice" value="${amount || ''}" min="0" placeholder="e.g. 300" style="font-size:20px;padding:10px 10px 10px 26px;">
+        </div>
+      </div>
     </div>
 
     <div class="sec">Custom Add-Ons</div>
@@ -432,7 +436,8 @@ async function saveMiniQuote(sendText) {
   const customNote   = (document.getElementById('customNote')?.value || '').trim();
   const now          = new Date().toISOString();
   const qs           = customer.quoteStatus || {};
-  const mainAmount   = qs.mainAmount   || qs.approvedAmount || 0;
+  // Prefer the price input the user just typed; fall back to whatever was stored
+  const mainAmount   = parseFloat(document.getElementById('mainJobPrice')?.value) || qs.mainAmount || qs.approvedAmount || 0;
   const mainServices = qs.mainServices || qs.notes || '';
 
   try {
