@@ -227,10 +227,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         </div>
         <div id="selectedSummary" style="font-size:13px;color:var(--sky);margin-top:6px;font-weight:600;min-height:18px;"></div>
       </div>
-      <div class="field">
-        <label>Price agreed<span class="field-req">*</span></label>
-        <input id="pPrice" class="fi" type="number" placeholder="350" oninput="checkReq()">
-      </div>
       <div class="field" style="margin-top:.5rem;">
         <label>How did they hear about us?</label>
         <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="document.getElementById('nReferrerWrap').style.display=this.value==='referral'?'block':'none'">
@@ -761,7 +757,7 @@ function startNew() {
 
 function resetForm() {
   resetServicePicker();
-  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pPrice'].forEach(id => {
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
   const ls = document.getElementById('nLeadSource'); if (ls) ls.value = 'unknown';
@@ -866,8 +862,7 @@ function checkReq() {
   let ok = !!(fn && ln && ph.length===10 && addr && city);
   if (ok && currentPath === 'phone') {
     const svc = getServicesAgreedValue();
-    const price = (document.getElementById('pPrice').value||'').trim();
-    ok = !!(svc.fullDescription && price);
+    ok = !!(svc.fullDescription);
   }
   if (btn) btn.disabled = !ok;
 }
@@ -911,7 +906,6 @@ async function submitPhonePath() {
   const notes   = document.getElementById('nNotes').value.trim();
   const svcAgreed = getServicesAgreedValue();
   const services  = svcAgreed.fullDescription;
-  const price    = parseFloat(document.getElementById('pPrice').value);
   try {
     let customer;
     if (!isNew && currentCustomer) {
@@ -924,7 +918,7 @@ async function submitPhonePath() {
         if (!customer.leadSource) customer.leadSource = { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' };
         customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
-          mainAmount: price,
+          mainAmount: null,
           mainServices: services,
           servicesAgreed: svcAgreed,
 
@@ -942,7 +936,7 @@ async function submitPhonePath() {
         leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
         quoteStatus: {
           state: 'phone_quoted_pending_mini_quote',
-          mainAmount: price,
+          mainAmount: null,
           mainServices: services,
           servicesAgreed: svcAgreed,
 
