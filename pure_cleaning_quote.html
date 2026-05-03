@@ -670,7 +670,7 @@
 
   <div class="field" style="margin-top:1.25rem;">
     <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px;">How did you hear about us? <span style="color:#e53e3e;">*</span></label>
-    <select id="leadSourceSelect" style="width:100%;padding:12px 14px;background:#fff;border:1.5px solid #e8e2d8;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1a1f2e;outline:none;" onchange="document.getElementById('referrerFieldWrap').style.display=this.value==='referral'?'block':'none'">
+    <select id="leadSourceSelect" style="width:100%;padding:12px 14px;background:#fff;border:1.5px solid #e8e2d8;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:#1a1f2e;outline:none;" onchange="document.getElementById('referrerFieldWrap').style.display=this.value==='referral'?'block':'none';if(this.value){this.style.borderColor='';this.style.boxShadow='';const e=document.getElementById('leadSourceError');if(e)e.remove();}">
       <option value="">Select one…</option>
       <option value="google_organic">Google search</option>
       <option value="google_ads">Google Ad</option>
@@ -1262,6 +1262,16 @@
         el.style.borderColor = '';
       }
     });
+    // Validate "How did you hear about us?" — required but was not enforced
+    const leadSelEl = document.getElementById('leadSourceSelect');
+    if (leadSelEl && !leadSelEl.value) {
+      leadSelEl.style.borderColor = '#e53e3e';
+      leadSelEl.style.boxShadow = '0 0 0 3px rgba(229,62,62,.15)';
+      valid = false;
+    } else if (leadSelEl) {
+      leadSelEl.style.borderColor = '';
+      leadSelEl.style.boxShadow = '';
+    }
     const services = [...document.querySelectorAll('input[name=service]:checked')].map(c => c.value);
     if (roofChecked) services.unshift('Roof cleaning');
     if (fenceChecked) services.push(selectedFenceType || 'Fence');
@@ -1270,7 +1280,26 @@
     if (services.length === 0) { alert('Please select at least one service.'); return; }
     if (roofChecked && !selectedRoofMethod) { alert('Please select a roof cleaning method — Softwash, Traditional, or Water Only.'); document.getElementById('roofMethodSection').scrollIntoView({behavior:'smooth'}); return; }
     if (fenceChecked && !selectedFenceType) { alert('Please select your fence type — Wood, Plastic/Vinyl, or Metal.'); document.getElementById('fenceTypeSection').scrollIntoView({behavior:'smooth'}); return; }
-    if (!valid) { alert('Please fill in all required fields.'); return; }
+    if (!valid) {
+      // Scroll to first invalid field
+      const firstInvalid = document.querySelector('input[style*="border-color: rgb(229"], select[style*="border-color: rgb(229"]') || document.querySelector('#leadSourceSelect');
+      if (firstInvalid) firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (leadSelEl && !leadSelEl.value) {
+        // Show message near the field
+        const existingMsg = document.getElementById('leadSourceError');
+        if (!existingMsg) {
+          const msg = document.createElement('div');
+          msg.id = 'leadSourceError';
+          msg.textContent = 'Please tell us how you heard about us.';
+          msg.style.cssText = 'color:#e53e3e;font-size:12px;font-weight:600;margin-top:4px;';
+          leadSelEl.parentNode.insertBefore(msg, leadSelEl.nextSibling);
+        }
+      }
+      return;
+    }
+    // Clear any lead source error on valid submit
+    const lsErr = document.getElementById('leadSourceError');
+    if (lsErr) lsErr.remove();
     if (!selectedWeekValue) {
       const wg = document.getElementById('weekError');
       if (wg) { wg.style.display = 'block'; document.getElementById('weekGrid').scrollIntoView({behavior:'smooth'}); }
@@ -1283,24 +1312,64 @@
     btn.textContent = 'Sending...';
     btn.disabled = true;
 
-    const formData = new FormData();
-    formData.append('_subject', '🧽 New Quote Request — Pure Cleaning');
-    formData.append('Customer Name', document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value);
-    formData.append('Phone', document.getElementById('phone').value);
-    formData.append('Email', document.getElementById('email').value);
-    formData.append('Address', document.getElementById('address').value + ', ' + document.getElementById('city').value + ' ' + document.getElementById('zip').value);
     const roofMethod = selectedRoofMethod ? ` (${selectedRoofMethod})` : '';
     const servicesWithMethod = services.flatMap(s =>
       s === 'Roof cleaning' ? [`Roof cleaning${roofMethod}`, 'Rinse Walls & Windows'] : [s]
     );
-    formData.append('Services Requested', servicesWithMethod.join(', '));
-    formData.append('Sealing Quote For', sealServices.length ? sealServices.join(', ') : 'Not requested');
-    formData.append('Returning Customer', returningCustomer ? 'Yes' : 'No');
     const timeframeVal = selectedWeekValue || 'Not specified';
-    formData.append('Preferred Timeframe', timeframeVal);
-    formData.append('Notes', document.getElementById('notes').value || 'None');
-    formData.append('How did you hear about us?', document.getElementById('leadSourceSelect')?.value || 'Not specified');
     const emailVal = document.getElementById('email').value.trim();
+    const leadSourceVal = document.getElementById('leadSourceSelect')?.value || '';
+    const referrerVal   = document.getElementById('referrerInput')?.value?.trim() || '';
+    const otherSvcs     = document.getElementById('otherServices')?.value?.trim() || '';
+    const notesVal      = document.getElementById('notes')?.value?.trim() || '';
+    const leadLabels    = { google_organic:'Google search', google_ads:'Google Ad', facebook:'Facebook / Instagram', referral:'Referral', repeat:'Returning customer', yard_sign:'Yard sign or van', nextdoor:'Nextdoor', angi:'Angi / HomeAdvisor', other:'Other' };
+    const leadLabel     = leadLabels[leadSourceVal] || leadSourceVal || 'Not specified';
+
+    // Data completeness check
+    const missing = [];
+    if (!leadSourceVal)                             missing.push('How heard');
+    if (!emailVal)                                  missing.push('Email');
+    if (!notesVal && !otherSvcs)                    missing.push('Notes');
+    const dataCheck = missing.length
+      ? `⚠️ Missing: ${missing.join(', ')}`
+      : '✓ All key fields captured';
+
+    const formData = new FormData();
+    formData.append('_subject', `🧽 New Quote Request — ${document.getElementById('firstName').value} ${document.getElementById('lastName').value}`);
+
+    // ── CUSTOMER INFO ───────��─────────────────────────────────────────────
+    formData.append('1 ─── CUSTOMER INFO ───', '');
+    formData.append('Name',    `${document.getElementById('firstName').value} ${document.getElementById('lastName').value}`);
+    formData.append('Phone',   document.getElementById('phone').value);
+    formData.append('Email',   emailVal || '(not provided)');
+    formData.append('Address', document.getElementById('address').value);
+    formData.append('City',    document.getElementById('city').value);
+    formData.append('Zip',     document.getElementById('zip').value || '(not provided)');
+    formData.append('Returning Customer', returningCustomer ? 'Yes — existing customer' : 'No — new customer');
+
+    // ── SERVICE DETAILS ────────────────────────────────────────────────────
+    formData.append('2 ─── SERVICE DETAILS ───', '');
+    formData.append('Services Requested', servicesWithMethod.join(', '));
+    if (otherSvcs) formData.append('Additional Surfaces / Notes', otherSvcs);
+    if (sealServices.length) formData.append('Sealing Quote For', sealServices.join(', '));
+    if (selectedRoofMethod) formData.append('Roof Method Selected', selectedRoofMethod);
+    if (selectedRustArea)   formData.append('Rust Removal Area', selectedRustArea);
+
+    // ── SCHEDULING ────────────────────────���───────────────────────────────
+    formData.append('3 ─── SCHEDULING ───', '');
+    formData.append('Preferred Timeframe', timeframeVal);
+    if (notesVal) formData.append('Special Instructions', notesVal);
+
+    // ── ATTRIBUTION ───────────────────────────────���───────────────────────
+    formData.append('4 ─── ATTRIBUTION ───', '');
+    formData.append('How Heard About Us', leadLabel);
+    if (leadSourceVal === 'referral' && referrerVal) formData.append('Referred By', referrerVal);
+    formData.append('Submitted At', new Date().toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' }) + ' ET');
+
+    // ── DATA CHECK ─────────────────���─────────────────────────────���────────
+    formData.append('5 ─── DATA CHECK ───', '');
+    formData.append('Status', dataCheck);
+
     if (emailVal) formData.append('_replyto', emailVal);
 
     // Attach rust photos to Formspree submission
@@ -1312,12 +1381,15 @@
     const zapData = {
       customer_name: document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value,
       phone: document.getElementById('phone').value,
-      email: document.getElementById('email').value,
+      email: emailVal,
       address: document.getElementById('address').value + ', ' + document.getElementById('city').value + ' ' + document.getElementById('zip').value,
       services: servicesWithMethod.join(', '),
+      other_services: otherSvcs || 'None',
       sealing: sealServices.length ? sealServices.join(', ') : 'Not requested',
-      dates: timeframeVal || 'Not specified',
-      notes: document.getElementById('notes').value || 'None'
+      dates: timeframeVal,
+      notes: notesVal || 'None',
+      lead_source: leadLabel,
+      referred_by: (leadSourceVal === 'referral' && referrerVal) ? referrerVal : ''
     };
     const _slim = {
       n: document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value,
@@ -1352,14 +1424,13 @@
         reminderFrequency: '',
         notes:             document.getElementById('notes').value || '',
         otherServices:     document.getElementById('otherServices').value || '',
-        leadSource: (() => {
-          try {
-            const sel = document.getElementById('leadSourceSelect')?.value;
-            const stored = JSON.parse(localStorage.getItem('pcpc_lead_source') || 'null');
-            if (sel) return { primary: sel, detail: document.getElementById('referrerInput')?.value?.trim() || stored?.detail || '', capturedAt: new Date().toISOString(), capturedBy: 'form' };
-            return stored || { primary: 'unknown', capturedAt: new Date().toISOString(), capturedBy: 'system' };
-          } catch(e) { return null; }
-        })()
+        leadSource: {
+          primary: leadSourceVal || 'unknown',
+          label: leadLabel,
+          detail: referrerVal || '',
+          capturedAt: new Date().toISOString(),
+          capturedBy: 'form'
+        }
       }
     }).catch(e => {
       console.warn('[incoming save]', e.message);
