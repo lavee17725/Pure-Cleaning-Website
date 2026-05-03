@@ -119,13 +119,48 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 const STANDARD_ADDONS = [
-  {id:'driveway',   name:'Driveway Cleaning',            icon:'🛣️'},
-  {id:'patio',      name:'Patio Cleaning',               icon:'🪨'},
-  {id:'walkways',   name:'Walkways / Sidewalks',         icon:'🚶'},
-  {id:'paver_sand', name:'Paver Joint Sand Replacement', icon:'🧱'},
-  {id:'rust',       name:'Rust Removal',                 icon:'🔧'},
-  {id:'awnings',    name:'Awning Cleaning',              icon:'🏠'},
+  {id:'roof_cleaning', name:'Roof Cleaning',              icon:'🏠'},
+  {id:'driveway',      name:'Driveway Cleaning',          icon:'🛣️'},
+  {id:'patio',         name:'Patio Cleaning',             icon:'🪨'},
+  {id:'pool_deck',     name:'Pool Deck Cleaning',         icon:'🏊'},
+  {id:'walkways',      name:'Walkways / Sidewalks',       icon:'🚶'},
+  {id:'paver_sand',    name:'Paver Joint Sand',           icon:'🧱'},
+  {id:'rust',          name:'Rust Removal',               icon:'🔧'},
+  {id:'awnings',       name:'Awning Cleaning',            icon:'🪟'},
 ];
+
+// Always show these regardless of what's booked (can't see the property)
+const ALWAYS_SHOW_ADDONS = new Set(['paver_sand', 'rust']);
+
+function getBookedServiceIds() {
+  const qs = customer?.quoteStatus || {};
+  // Prefer structured array from new service picker
+  if (qs.servicesAgreed?.structured?.length) {
+    return new Set(qs.servicesAgreed.structured);
+  }
+  // Fallback: parse mainServices text for known keywords
+  const text = (qs.mainServices || qs.notes || '').toLowerCase();
+  const booked = new Set();
+  if (/roof/.test(text))                      booked.add('roof_cleaning');
+  if (/driveway/.test(text))                  booked.add('driveway');
+  if (/patio/.test(text))                     booked.add('patio');
+  if (/pool/.test(text))                      booked.add('pool_deck');
+  if (/walkway|sidewalk/.test(text))          booked.add('walkway');
+  if (/entranceway|entrance/.test(text))      booked.add('entranceway');
+  if (/rinse walls|rinse_walls/.test(text))   booked.add('rinse_walls');
+  return booked;
+}
+
+function getRelevantAddons() {
+  const booked = getBookedServiceIds();
+  return STANDARD_ADDONS.filter(a => {
+    if (ALWAYS_SHOW_ADDONS.has(a.id)) return true;          // always suggest
+    if (booked.has(a.id)) return false;                     // already booked
+    if (a.id === 'walkways' && booked.has('driveway')) return false;  // auto-bundled with driveway
+    if (a.id === 'walkways' && booked.has('walkway'))  return false;  // same service, different id
+    return true;
+  });
+}
 
 let customer   = null;
 let defaults   = {};
@@ -178,7 +213,12 @@ function renderBuilder(existing) {
   const existingCustom = existing ? existing.customAddOns || [] : [];
   const existingNote   = existing ? (existing.customNote || '') : '';
 
-  const addonsHtml = STANDARD_ADDONS.map(a => {
+  const relevantAddons = getRelevantAddons();
+  const bookedCount = STANDARD_ADDONS.length - relevantAddons.length;
+  const filterNote = bookedCount > 0
+    ? `<div style="font-size:11px;color:var(--muted);font-style:italic;padding:6px 12px 0;">Showing suggestions · ${bookedCount} already-booked service${bookedCount>1?'s':''} hidden</div>`
+    : '';
+  const addonsHtml = filterNote + relevantAddons.map(a => {
     const prev = existingAddons.find(x => x.id === a.id);
     const enabled = prev ? prev.enabled : false;
     const bundle   = prev ? prev.bundle     : (defaults[a.id] ? defaults[a.id].bundle     : '');
