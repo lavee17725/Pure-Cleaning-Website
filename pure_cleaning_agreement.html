@@ -254,6 +254,25 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   .ph-sig-line { display: block; width: 150px; height: 1px; background: #999; margin-bottom: 4px; margin-left: auto; }
   .ph-sig-label { font-size: 9.5px; color: #777; display: block; }
 }
+
+/* ── Terms & Conditions section ── */
+.terms-section { background: #f8f9fb; border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; }
+.terms-company { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 2px; }
+.terms-tagline { font-size: 11px; color: var(--muted); margin-bottom: 1rem; }
+.terms-brief p { font-size: 12px; color: #555; line-height: 1.65; margin-bottom: .5rem; }
+.terms-brief p:last-child { margin-bottom: 0; }
+details.terms-expand { margin-top: .875rem; }
+summary.terms-expand-btn { font-size: 12px; font-weight: 700; color: var(--navy); cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 4px; -webkit-tap-highlight-color: transparent; padding: 0; }
+summary.terms-expand-btn::-webkit-details-marker { display: none; }
+.terms-expand-arrow { font-size: 12px; display: inline-block; transition: transform .2s; }
+details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
+.terms-full-body { margin-top: .875rem; padding-top: .875rem; border-top: 1px solid var(--border); }
+.terms-full-body h2 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--navy); margin-bottom: .625rem; }
+.terms-full-body ol { padding-left: 1.25rem; }
+.terms-full-body ol li { font-size: 11.5px; color: var(--text); line-height: 1.65; margin-bottom: .625rem; }
+.terms-full-body ol li strong { color: var(--navy); }
+.terms-full-body ul { list-style: disc; padding-left: 1.375rem; margin: .25rem 0; }
+.terms-full-body ul li { font-size: 11px; margin-bottom: .125rem; }
 </style>
 </head>
 <body>
@@ -385,6 +404,45 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 
     <!-- Action section (confirm button or confirmed state) -->
     <div id="action-section"></div>
+
+    <!-- Terms & Conditions -->
+    <div class="terms-section">
+      <div class="terms-company">Pure Cleaning Pressure Cleaning, LLC</div>
+      <div class="terms-tagline">Family-owned · South Florida · Since 1995 · Licensed &amp; Insured · 954-389-2642</div>
+      <div class="terms-brief">
+        <p>This quote is valid for 30 days from the quoted date.</p>
+        <p>Payment due day of service. We accept Zelle, check, cash, and Venmo.</p>
+        <p>Pure Cleaning is not responsible for damage to loose siding, paint, wood trim, or pre-existing conditions. Damages caused by gross negligence will be addressed within 30 days of written notice.</p>
+        <p>We may take before/after photos for documentation and marketing purposes.</p>
+        <p>Service may be rescheduled due to weather. We'll text you to coordinate.</p>
+      </div>
+      <details class="terms-expand">
+        <summary class="terms-expand-btn">Read full terms <span class="terms-expand-arrow">›</span></summary>
+        <div class="terms-full-body">
+          <h2>Terms &amp; Conditions</h2>
+          <ol>
+            <li><strong>Service Agreement.</strong> By confirming services, customer agrees to allow Pure Cleaning Pressure Cleaning, LLC and its employees on the property for the purposes specified in this agreement.</li>
+            <li><strong>Quote Validity.</strong> This quote is valid for 30 days from the quoted date. Pricing is subject to change after this period.</li>
+            <li><strong>Payment Terms.</strong> Payment is due upon completion of services. We accept Zelle, check, cash, and Venmo. Returned checks are subject to a $50 processing fee.</li>
+            <li><strong>Property Access.</strong> Customer agrees to provide outdoor water spigot access on the day of service and to move outdoor furniture, secure pets, and close windows prior to service.</li>
+            <li><strong>Liability Limitations.</strong> Pure Cleaning Pressure Cleaning, LLC is not responsible for damage to:
+              <ul>
+                <li>Loose siding, paint, wood trim, or fascia</li>
+                <li>Pre-existing structural conditions, cracks, or wear</li>
+                <li>Loose roof tiles or already-damaged shingles</li>
+                <li>Plants or landscaping where customer was warned of risk</li>
+              </ul>
+              Liability for damages caused by gross negligence is limited to the total cost of the service. Damages must be reported in writing within 30 days of service completion.
+            </li>
+            <li><strong>Weather Policy.</strong> Service may be rescheduled due to thunderstorms, sustained rain, or unsafe temperatures. Pure Cleaning will text or call to coordinate the next available date.</li>
+            <li><strong>Photo Documentation.</strong> Pure Cleaning may take before-and-after photographs for documentation, quality assurance, and marketing purposes. Customer may opt out by notifying Pure Cleaning in writing prior to the service date.</li>
+            <li><strong>Metal Roofs.</strong> Pure Cleaning does not service metal roofs.</li>
+            <li><strong>Insurance &amp; Licensing.</strong> Pure Cleaning Pressure Cleaning, LLC is fully licensed and insured for residential and commercial pressure washing services in South Florida.</li>
+            <li><strong>Contact.</strong> Pure Cleaning Pressure Cleaning, LLC · South Florida · 954-389-2642. Customer accepts these terms by confirming the service agreement.</li>
+          </ol>
+        </div>
+      </details>
+    </div>
 
   </div>
 </div>
@@ -972,7 +1030,10 @@ function buildPrintContent() {
   const quotedDate = quoteData.created
     ? new Date(quoteData.created).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
     : '';
-  const confDisp   = selectedDate?.display || 'TBD';
+  const confDisp      = selectedDate?.display || 'TBD';
+  const confTimestamp = quoteData.confirmedAt
+    ? new Date(quoteData.confirmedAt).toLocaleString('en-US', {month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'})
+    : '';
 
   const aoRows = addedAddons.map(ao =>
     `<tr><td class="ph-li-name">+ ${escHtml(ao.name)} <span class="ph-li-tag">bundled</span></td><td class="ph-li-price">$${ao.bundle}</td></tr>`
@@ -1004,17 +1065,18 @@ function buildPrintContent() {
     </table>
     ${savingsNote}
     <div class="ph-rule"></div>
-    <span class="ph-section-lbl" style="margin-bottom:6px;">Payment &amp; Terms</span>
-    <p class="ph-terms">Payment is due day of service. We accept Zelle, check, cash, and Venmo.</p>
-    <p class="ph-terms">We will call or text you the night before your service with a rough arrival window.</p>
+    <span class="ph-section-lbl" style="margin-bottom:6px;">Terms</span>
+    <p class="ph-terms">This quote is valid for 30 days from the quoted date. Payment is due day of service. We accept Zelle, check, cash, and Venmo. Returned checks subject to a $50 processing fee.</p>
+    <p class="ph-terms">Pure Cleaning is not responsible for damage to loose siding, paint, wood trim, or pre-existing conditions. Liability for damages caused by gross negligence is limited to the total cost of the service and must be reported within 30 days in writing.</p>
+    <p class="ph-terms">Service may be rescheduled due to weather. We'll call or text the night before with your arrival window. We may take before/after photos for documentation and marketing purposes.</p>
     <div class="ph-footer-area">
       <div>
         <div class="ph-footer-co">Pure Cleaning Pressure Cleaning, LLC</div>
-        <div class="ph-footer-tagline">Licensed &amp; Insured · South Florida · Since 1995</div>
+        <div class="ph-footer-tagline">Licensed &amp; Insured · South Florida · Since 1995 · 954-389-2642</div>
       </div>
       <div class="ph-sig-area">
         <div class="ph-sig-line"></div>
-        <div class="ph-sig-label">Authorized by Tony Fumero</div>
+        <div class="ph-sig-label">Confirmed by ${escHtml(quoteData.fn || 'Customer')}${confTimestamp ? ' · ' + confTimestamp : ''}</div>
       </div>
     </div>`;
 }
