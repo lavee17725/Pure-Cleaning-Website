@@ -690,6 +690,7 @@ function renderProfile(customer, events){
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Add Note</button>`,
     `<button class="action-btn" style="background:#7c3aed;color:#fff;" onclick="openLogReplyModal()">📥 Log Reply</button>`,
     `<button class="action-btn" style="background:#16a34a;color:#fff;" onclick="openLogFeedbackModal()">⭐ Log Feedback</button>`,
+    `<button class="action-btn" style="background:#ea580c;color:#fff;" onclick="markReviewReceived()">⭐ Review Received</button>`,
     c.email?`<a class="action-btn action-btn-email" href="mailto:${esc(c.email)}">📧 Email</a>`:''
   ].filter(Boolean).join('');
   document.getElementById('heroActions').innerHTML=actionsHtml;
@@ -1157,6 +1158,26 @@ function openLogFeedbackModal() {
   if (r) r.checked = true;
 }
 function closeLogFeedbackModal() { document.getElementById('logFeedbackModal').style.display = 'none'; }
+
+// ── Mark Google Review Received ───────────────────────────────────────────────
+async function markReviewReceived() {
+  if (!_customer) return;
+  if (!confirm(`Mark that ${_customer.firstName || 'this customer'} left a Google review?`)) return;
+  const evt = {
+    eventType: 'review_received',
+    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
+    loggedBy: 'operator',
+    loggedAt: new Date().toISOString()
+  };
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
+    });
+    _allEvents.unshift(evt);
+    renderTimeline(buildTimeline(_customer, _allEvents));
+    showToast('⭐ Review received logged — great job!');
+  } catch(e) { showToast('Error saving: ' + e.message); }
+}
 
 async function saveLogFeedback() {
   if (!_customer) return;

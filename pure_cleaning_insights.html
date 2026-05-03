@@ -310,6 +310,10 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   <!-- S14: SATISFACTION TRENDS -->
   <div class="sec-hdr">Customer Satisfaction Signals</div>
   <div id="satisfactionPanel" class="card" style="margin-bottom:.5rem;"></div>
+
+  <!-- S15: REVIEW REQUESTS -->
+  <div class="sec-hdr">Google Review Pipeline</div>
+  <div id="reviewRequestPanel" class="card" style="margin-bottom:.5rem;"></div>
 </main>
 
 <div id="ddOverlay" style="display:none;position:fixed;inset:0;z-index:800;background:rgba(0,0,0,.45);" onclick="if(event.target===this)closeDrilldown()"></div>
@@ -1690,6 +1694,30 @@ function renderSatisfaction() {
     ${feedbackEvs.length > 0 ? `<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.875rem;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:.5rem;">Recent Feedback</div>${feedbackEvs.slice(0,5).map(e => `<div style="padding:.5rem 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="font-weight:600;">${e.customer?.fn||''} ${e.customer?.ln||''}</span> — <span style="color:${e.sentiment==='positive'?'var(--green)':e.sentiment==='negative'?'var(--red)':'var(--muted)'};">${e.sentiment}</span>${e.feedback?` · "${e.feedback.substring(0,60)}${e.feedback.length>60?'…':''}"`:''}</div>`).join('')}</div>` : ''}`;
 }
 
+// ─── S15: Review Requests Pipeline ───────────────────────────────────────────
+function renderReviewRequests() {
+  const el = document.getElementById('reviewRequestPanel'); if (!el) return;
+  const sentEvs     = eventsData.filter(e => e.eventType === 'review_request_sent');
+  const receivedEvs = eventsData.filter(e => e.eventType === 'review_received');
+  const sent     = sentEvs.length;
+  const received = receivedEvs.length;
+  const pct      = sent > 0 ? Math.round(received / sent * 100) : 0;
+  if (!sent && !received) {
+    el.innerHTML = `<div class="card-title">📝 Google Review Pipeline</div><div class="card-sub">Review request texts sent from the calendar appear here.</div><div class="empty" style="margin-top:1rem;"><div class="empty-icon">⭐</div><div class="empty-title">No requests sent yet</div><div class="empty-body">Open the calendar, complete a job, and tap "📝 Request Google review" on the job card. Conversions are marked on the customer profile.</div></div>`;
+    return;
+  }
+  const recent = sentEvs.slice(0, 5);
+  el.innerHTML = `
+    <div class="card-title">📝 Google Review Pipeline</div>
+    <div class="card-sub">${sent} requests sent · ${received} confirmed received</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:1rem;">
+      <div class="stat-pill"><div class="stat-pill-lbl">Requests Sent</div><div class="stat-pill-val" style="color:var(--sky);">${sent}</div></div>
+      <div class="stat-pill"><div class="stat-pill-lbl">Reviews Confirmed</div><div class="stat-pill-val" style="color:var(--green);">${received}</div><div class="stat-pill-sub">manually marked</div></div>
+      <div class="stat-pill"><div class="stat-pill-lbl">Conversion Rate</div><div class="stat-pill-val">${pct}%</div><div class="stat-pill-sub">${sent} sent → ${received} confirmed</div></div>
+    </div>
+    ${recent.length ? `<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.875rem;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:.5rem;">Recent Requests</div>${recent.map(e=>`<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="font-weight:600;">${e.customer?.fn||''} ${e.customer?.ln||e.customer?.ph||''}</span><span style="color:var(--muted);font-size:11px;margin-left:6px;">${e.sentAt?e.sentAt.slice(0,10):''}</span></div>`).join('')}</div>` : ''}`;
+}
+
 function renderAll() {
   [
     ['Hero',               renderHero],
@@ -1709,6 +1737,7 @@ function renderAll() {
     ['CycleTime',          renderCycleTime],
     ['CrewPerformance',    renderCrewPerformance],
     ['Satisfaction',       renderSatisfaction],
+    ['ReviewRequests',     renderReviewRequests],
   ].forEach(([name, fn]) => {
     try { fn(); } catch(e) { console.error(`[insights] ${name} render failed:`, e); }
   });

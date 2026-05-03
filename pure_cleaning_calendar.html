@@ -133,6 +133,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .arrival-btn-name{font-weight:700;display:inline;}
 .arrival-btn-slot{font-weight:400;opacity:.75;}
 
+/* ── REVIEW REQUEST BUTTON (on completed job cards) ── */
+.js-review-btn{display:block;width:100%;padding:5px 8px;border:1.5px solid #dbeafe;border-radius:6px;background:#eff6ff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:center;margin-top:6px;transition:all .15s;line-height:1.4;}
+.js-review-btn:hover:not(:disabled){background:#dbeafe;border-color:#93c5fd;}
+.js-review-btn.sent{background:#f0fdf4 !important;border-color:#86efac !important;color:#166534 !important;cursor:default;}
+.js-review-btn.no-phone{background:#f9fafb !important;border-color:#e5e7eb !important;color:#9ca3af !important;cursor:default;}
+
 .day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
 .day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
 .js-alerts{font-size:13px;margin-top:2px;}
@@ -917,9 +923,23 @@ function jobCardScheduled(c) {
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
   const { html: amtHtml } = jobAmount(c);
   const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
+  let reviewBtnHtml = '';
+  if (state === 'completed') {
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    const fn    = esc((c.firstName||c.fn||'').trim().split(' ')[0] || 'there');
+    const reqDate = phone ? getReviewRequestedDate(phone) : null;
+    if (reqDate) {
+      reviewBtnHtml = `<button class="js-review-btn sent" disabled onclick="event.stopPropagation()">✓ Review Requested ${reqDate}</button>`;
+    } else if (!phone) {
+      reviewBtnHtml = `<button class="js-review-btn no-phone" disabled onclick="event.stopPropagation()">📝 Request review — no phone</button>`;
+    } else {
+      reviewBtnHtml = `<button class="js-review-btn" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)">📝 Request Google review · best 24-48h after</button>`;
+    }
+  }
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
+    ${reviewBtnHtml}
   </div>`;
 }
 
@@ -1656,6 +1676,29 @@ function formatCity(city) {
     const bare = w.replace(/[.,]$/,'');
     return (_CITY_ABBR[bare] || (bare.charAt(0).toUpperCase() + bare.slice(1)));
   }).join(' ');
+}
+
+// ── REVIEW REQUEST TEXTS ──────────────────────────────────────────────────────
+const GOOGLE_REVIEW_LINK = 'https://share.google/ChFC1uAe9Xdveb8XN';
+
+function getReviewRequestedDate(phone) {
+  try {
+    const raw = localStorage.getItem(`pcpc_rev_req_${phone}`);
+    if (!raw) return null;
+    return JSON.parse(raw).date || null;
+  } catch { return null; }
+}
+
+function sendReviewRequest(phone, firstName, btn) {
+  if (!phone) return;
+  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
+  const today = isoToday();
+  localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
+  btn.classList.add('sent');
+  btn.disabled = true;
+  btn.textContent = `✓ Review Requested ${today}`;
+  pcpcApi.logEvent({ eventType: 'review_request_sent', phone, customer: { fn: firstName, ph: phone }, sentAt: new Date().toISOString() });
 }
 
 // ── ARRIVAL TEXTS ─────────────────────────────────────────────────────────────
