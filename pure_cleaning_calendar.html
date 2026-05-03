@@ -211,6 +211,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .mbtn-save:hover{background:#2470c0;}
 .mbtn-danger{flex:1;padding:11px;border:none;border-radius:10px;background:#fef2f2;color:var(--red);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
 .mbtn-green{flex:1;padding:11px;border:none;border-radius:10px;background:#d1fae5;color:#047857;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+.js-edit-btn{display:block;width:100%;padding:4px 8px;border:1px solid #dbeafe;border-radius:5px;background:#eff6ff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-edit-btn:hover{background:#dbeafe;}
+.addon-edit-row{padding:5px 0;border-bottom:1px solid #f3f4f6;}
+.addon-edit-row:last-child{border-bottom:none;}
 
 /* ── CREW POPOVER ── */
 .crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
@@ -478,6 +482,40 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="modal-footer">
       <button class="mbtn-cancel" onclick="closeConfirmModal()">Cancel</button>
       <button id="cmConfirmBtn" style="flex:1;padding:12px;border-radius:10px;background:#dc2626;color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT SERVICES MODAL -->
+<div class="overlay hidden" id="editServicesModal" onclick="if(event.target===this)closeEditModal()">
+  <div class="modal">
+    <div class="modal-title">✏️ Edit — <span id="editModalName" style="color:var(--sky);"></span></div>
+    <div class="modal-field">
+      <label>Services</label>
+      <textarea id="editServices" class="modal-input" rows="3" placeholder="e.g. Roof Softwash, Rinse Walls, Driveway" style="resize:vertical;"></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Base Price</label>
+      <div style="position:relative;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
+        <input type="number" id="editBasePrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="300" oninput="updateEditTotal()">
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Add-ons</label>
+      <div id="editAddonsList" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px 10px;"></div>
+    </div>
+    <div style="font-size:15px;font-weight:700;color:var(--navy);padding:8px 0 4px;border-top:1px solid var(--border);margin-top:4px;">
+      Total: <span id="editTotal" style="color:var(--green);">$0</span>
+    </div>
+    <div class="modal-field" style="margin-top:.75rem;">
+      <label>Notes (optional — for edit history)</label>
+      <input type="text" id="editNotes" class="modal-input" placeholder="e.g. Customer added pool deck over phone">
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="mbtn-save"  onclick="saveEditServices(false)">💾 Save</button>
+      <button class="mbtn-green" onclick="saveEditServices(true)">💾 Save &amp; Notify</button>
     </div>
   </div>
 </div>
@@ -1043,12 +1081,17 @@ function jobCardScheduled(c) {
     printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
   }
 
+  const editBtnHtml = (!c.isTest && phone)
+    ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}')">✏️ Edit services</button>`
+    : '';
+
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
     ${reviewBtnHtml}
     ${printBtnHtml}
     ${complaintLink}
+    ${editBtnHtml}
   </div>`;
 }
 
@@ -2255,6 +2298,192 @@ function sendArrivalText(phone, name, slot, date, rig, btn) {
   if (tapSpan) tapSpan.textContent = '✓ Sent';
   btn.onclick = null;
   pcpcApi.logEvent({ eventType:'arrival_text_sent', phone, name, rig, slot, date, sentAt: new Date().toISOString() });
+}
+
+// ── EDIT SERVICES MODAL ───────────────────────────────────────────────────────
+const EDIT_ADDON_OPTIONS = [
+  {id:'driveway',     name:'Driveway Cleaning',    bundle:150, standalone:225},
+  {id:'patio',        name:'Patio Cleaning',        bundle:125, standalone:200},
+  {id:'pool_deck',    name:'Pool Deck Cleaning',    bundle:175, standalone:250},
+  {id:'walkways',     name:'Walkways / Sidewalks',  bundle:75,  standalone:125},
+  {id:'paver_sand',   name:'Paver Joint Sand',      bundle:125, standalone:200},
+  {id:'rust',         name:'Rust Removal',          bundle:100, standalone:175},
+  {id:'awnings',      name:'Awning Cleaning',       bundle:50,  standalone:100},
+  {id:'roof_cleaning',name:'Roof Cleaning',         bundle:250, standalone:400},
+  {id:'fence',        name:'Fence Cleaning',        bundle:100, standalone:175},
+];
+
+let _editPhone  = null;
+let _editCust   = null;
+let _editAddons = [];
+
+function openEditModal(phone) {
+  const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+  if (!c) return;
+  _editPhone = phone;
+  _editCust  = c;
+
+  const ss = c.scheduledStatus || {};
+  const qs = c.quoteStatus    || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+
+  document.getElementById('editModalName').textContent = name;
+  document.getElementById('editServices').value  = qs.mainServices || ss.jobNotes || qs.notes || '';
+  document.getElementById('editBasePrice').value  = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  document.getElementById('editNotes').value     = '';
+  _buildEditAddons(c);
+  updateEditTotal();
+  document.getElementById('editServicesModal').classList.remove('hidden');
+}
+
+function _buildEditAddons(c) {
+  const qs   = c.quoteStatus || {};
+  const mqData = qs.miniQuoteCustomData || {};
+  const addonMap = new Map();
+
+  // Builder-set addons
+  (mqData.addOns || []).forEach(a => addonMap.set(a.id, {...a, addedByCustomer: false}));
+
+  // Customer-added addons
+  (c.addOns || qs.addOns || []).forEach(a => {
+    if (addonMap.has(a.id)) {
+      const ex = addonMap.get(a.id);
+      addonMap.set(a.id, {...ex, enabled:true, addedByCustomer:true});
+    } else {
+      addonMap.set(a.id, {...a, enabled:true, addedByCustomer:true});
+    }
+  });
+
+  // Fill in common options not already in map
+  EDIT_ADDON_OPTIONS.forEach(opt => {
+    if (!addonMap.has(opt.id)) addonMap.set(opt.id, {...opt, enabled:false, addedByCustomer:false});
+  });
+
+  _editAddons = Array.from(addonMap.values());
+
+  const container = document.getElementById('editAddonsList');
+  if (!container) return;
+  container.innerHTML = _editAddons.map((a, i) => {
+    const custTag = a.addedByCustomer
+      ? ' <span style="font-size:10px;color:#047857;font-weight:700;background:#d1fae5;padding:1px 5px;border-radius:4px;">👤 customer</span>'
+      : '';
+    return `<div class="addon-edit-row">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;min-height:34px;">
+        <input type="checkbox" id="aec-${i}" ${a.enabled ? 'checked' : ''} onchange="onAddonEditToggle(${i})" style="width:15px;height:15px;cursor:pointer;flex-shrink:0;">
+        <span style="flex:1;font-size:13px;font-weight:600;color:var(--text);">${esc(a.name)}${custTag}</span>
+        <div id="aep-wrap-${i}" style="display:${a.enabled ? 'flex' : 'none'};align-items:center;gap:4px;">
+          <span style="font-size:12px;color:var(--muted);">$</span>
+          <input type="number" id="aep-${i}" value="${a.bundle || 0}" min="0" class="modal-input"
+            style="width:68px;padding:4px 8px;font-size:13px;" oninput="updateEditTotal()">
+        </div>
+      </label>
+    </div>`;
+  }).join('');
+}
+
+function onAddonEditToggle(i) {
+  if (!_editAddons[i]) return;
+  const chk = document.getElementById(`aec-${i}`);
+  const checked = chk && chk.checked;
+
+  if (!checked && _editAddons[i].addedByCustomer) {
+    if (!confirm(`"${_editAddons[i].name}" was added by the customer. Remove it?`)) {
+      if (chk) chk.checked = true;
+      return;
+    }
+  }
+
+  _editAddons[i].enabled = !!checked;
+  const wrap = document.getElementById(`aep-wrap-${i}`);
+  if (wrap) wrap.style.display = checked ? 'flex' : 'none';
+  updateEditTotal();
+}
+
+function updateEditTotal() {
+  const base = parseFloat(document.getElementById('editBasePrice')?.value) || 0;
+  let addonsSum = 0;
+  _editAddons.forEach((a, i) => {
+    const chk = document.getElementById(`aec-${i}`);
+    const pEl = document.getElementById(`aep-${i}`);
+    const enabled = !!(chk && chk.checked);
+    _editAddons[i].enabled = enabled;
+    if (enabled && pEl) {
+      const p = parseFloat(pEl.value) || 0;
+      _editAddons[i].bundle = p;
+      addonsSum += p;
+    }
+  });
+  const totalEl = document.getElementById('editTotal');
+  if (totalEl) totalEl.textContent = `$${base + addonsSum}`;
+}
+
+function closeEditModal() {
+  document.getElementById('editServicesModal').classList.add('hidden');
+  _editPhone = null;
+  _editCust  = null;
+  _editAddons = [];
+}
+
+async function saveEditServices(notifyCustomer) {
+  if (!_editPhone || !_editCust) return;
+
+  const services  = (document.getElementById('editServices')?.value || '').trim();
+  const basePrice = parseFloat(document.getElementById('editBasePrice')?.value) || 0;
+  const notes     = (document.getElementById('editNotes')?.value || '').trim();
+
+  // Snapshot what we need before closeEditModal clears state
+  const savedPhone = _editPhone;
+  const savedCust  = _editCust;
+  const savedAddons = _editAddons.map((a, i) => {
+    const pEl = document.getElementById(`aep-${i}`);
+    return {...a, bundle: parseFloat(pEl?.value) || a.bundle};
+  });
+  const qs         = savedCust.quoteStatus || {};
+  const quoteCode  = savedCust.miniQuoteCode || qs.miniQuoteCode || null;
+
+  // Disable buttons during save
+  const btns = document.querySelectorAll('#editServicesModal button');
+  btns.forEach(b => { b.disabled = true; });
+
+  try {
+    const res = await fetch(`${PCPC_API}/agreement/${savedPhone}/edit-services`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ servicesAgreed: services, basePrice, addOns: savedAddons, notes, editedBy: 'mom', quoteCode })
+    });
+    if (!res.ok) throw new Error('Save failed (' + res.status + ')');
+    const result = await res.json();
+
+    // Update local record
+    const localC = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === savedPhone);
+    if (localC) {
+      if (!localC.quoteStatus)    localC.quoteStatus = {};
+      if (!localC.scheduledStatus) localC.scheduledStatus = {};
+      localC.quoteStatus.mainServices = services;
+      localC.scheduledStatus.approvedAmount = result.totalAmount || (basePrice + savedAddons.filter(a=>a.enabled).reduce((s,a)=>s+(a.bundle||0),0));
+      localC.scheduledStatus.jobNotes       = services;
+      localC.quoteStatus.lastEditedAt       = new Date().toISOString();
+    }
+
+    closeEditModal();
+    showToast('✓ Services updated', null, 0);
+    render();
+
+    // Notify customer via iMessage
+    if (notifyCustomer) {
+      const fn = ((savedCust.firstName||savedCust.fn||'').trim().split(' ')[0]) || 'there';
+      const total = result.totalAmount || basePrice;
+      const link  = quoteCode ? `https://purecleaningpressurecleaning.com/pure_cleaning_agreement.html?id=${quoteCode}` : '';
+      const body  = `Hi ${fn}! We've updated your Pure Cleaning service: ${services}. New total: $${total}.${link ? '\n\nView your updated agreement:\n'+link : ''}\n\n— Pure Cleaning Family`;
+      const a = document.createElement('a');
+      a.href = `sms:+1${savedPhone}?&body=${encodeURIComponent(body)}`;
+      a.click();
+    }
+
+  } catch(e) {
+    alert('Error saving: ' + e.message);
+    btns.forEach(b => { b.disabled = false; });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);
