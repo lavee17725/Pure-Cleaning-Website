@@ -65,16 +65,34 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .add-custom-btn{display:flex;align-items:center;gap:7px;background:none;border:1.5px dashed var(--border);border-radius:11px;padding:11px 16px;width:100%;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;transition:all .15s;margin-top:.25rem;}
 .add-custom-btn:hover{background:#f0f6ff;border-color:var(--sky);}
 
-/* Sealing toggle */
-.sealing-toggle{background:var(--white);border:1.5px solid var(--border);border-radius:13px;padding:13px 15px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:border-color .15s;-webkit-tap-highlight-color:transparent;margin-bottom:1.75rem;}
-.sealing-toggle.enabled{border-color:#a855f7;}
-.sealing-check{flex-shrink:0;width:20px;height:20px;border:2px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;transition:all .15s;background:var(--white);}
-.sealing-toggle.enabled .sealing-check{background:#a855f7;border-color:#a855f7;}
-.sealing-check-icon{font-size:12px;color:#fff;display:none;}
-.sealing-toggle.enabled .sealing-check-icon{display:block;}
-.sealing-info{flex:1;}
-.sealing-label{font-size:15px;font-weight:600;color:var(--text);}
-.sealing-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+/* Section cards */
+.sec-card{background:var(--white);border:1.5px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:1.25rem;}
+.sec-card-hdr{padding:13px 15px 10px;border-bottom:1px solid var(--border);}
+.sec-card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--navy);margin-bottom:3px;}
+.sec-card-sub{font-size:12px;color:var(--muted);line-height:1.5;}
+.sec-card.bundle .sec-card-hdr{background:#f8faff;}
+.sec-card.bundle .sec-card-title{color:#1d4ed8;}
+.sec-card.protect .sec-card-hdr{background:#faf5ff;}
+.sec-card.protect .sec-card-title{color:#7e22ce;}
+.sec-card.fix .sec-card-hdr{background:#fff7ed;}
+.sec-card.fix .sec-card-title{color:#c2410c;}
+.sec-card .addon-row{border-radius:0;border:none;border-bottom:1px solid var(--border);margin-bottom:0;}
+.sec-card .addon-row:last-child{border-bottom:none;}
+.sec-card .addon-row.enabled{background:#f0f6ff;}
+.addon-bundle-note{font-size:11px;color:var(--muted);padding:0 15px 8px 47px;font-style:italic;}
+/* Sealing interest checkboxes */
+.sealing-interests{padding:2px 0;}
+.sealing-opt{display:flex;align-items:flex-start;gap:12px;padding:13px 15px;cursor:pointer;border-bottom:1px solid var(--border);-webkit-tap-highlight-color:transparent;transition:background .1s;}
+.sealing-opt:last-child{border-bottom:none;}
+.sealing-opt:hover{background:#faf5ff;}
+.sealing-opt.enabled{background:#faf5ff;}
+.si-check{flex-shrink:0;width:20px;height:20px;border:2px solid var(--border);border-radius:5px;display:flex;align-items:center;justify-content:center;transition:all .15s;background:var(--white);margin-top:1px;}
+.sealing-opt.enabled .si-check{background:#a855f7;border-color:#a855f7;}
+.si-check-icon{font-size:12px;color:#fff;display:none;}
+.sealing-opt.enabled .si-check-icon{display:block;}
+.si-text{flex:1;}
+.si-label{font-size:15px;font-weight:600;color:var(--text);}
+.si-sub{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4;}
 
 /* Custom note */
 .note-field label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;}
@@ -124,7 +142,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 </head>
 <body>
 <div class="header">
-  <a href="/pure_cleaning_calendar.html" class="back-link">← Calendar</a>
+  <a id="backLink" href="/pure_cleaning_calendar.html" class="back-link">← Back</a>
   <div class="logo">🌴 Pure <span>Cleaning</span></div>
   <div style="width:60px;"></div>
 </div>
@@ -140,6 +158,7 @@ const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 const STANDARD_ADDONS = [
   {id:'roof_cleaning', name:'Roof Cleaning',              icon:'🏠'},
+  {id:'rinse_walls',   name:'Rinse Walls & Windows',      icon:'🪟'},
   {id:'driveway',      name:'Driveway Cleaning',          icon:'🛣️'},
   {id:'patio',         name:'Patio Cleaning',             icon:'🪨'},
   {id:'pool_deck',     name:'Pool Deck Cleaning',         icon:'🏊'},
@@ -148,6 +167,10 @@ const STANDARD_ADDONS = [
   {id:'rust',          name:'Rust Removal',               icon:'🔧'},
   {id:'awnings',       name:'Awning Cleaning',            icon:'🪟'},
 ];
+
+// Section groupings for organized rendering
+const BUNDLE_SAVE_IDS  = ['rinse_walls','driveway','patio','pool_deck'];
+const PROBLEM_FIX_IDS  = ['rust','awnings'];
 
 // Suggested starting prices Mom can adjust; worker addons-config overrides when fetched
 const ADDON_DEFAULTS = {
@@ -194,10 +217,11 @@ function getRelevantAddons() {
   });
 }
 
-let customer   = null;
-let defaults   = {};
-let sealingOn  = false;
-let customRows = [];
+let customer      = null;
+let defaults      = {};
+let sealingOn     = false;
+let paverSandOn   = false;
+let customRows    = [];
 let customIdCounter = 0;
 let _dateSuggestions = []; // [{date,display,dayName,rig,rigLabel,reason,label,enabled,custom}]
 
@@ -220,6 +244,13 @@ async function init() {
     customer = matches.find(c => c.quoteStatus?.state === 'phone_quoted_pending_mini_quote')
             || matches.find(c => c.quoteStatus?.mainServices || c.quoteStatus?.servicesAgreed)
             || matches[matches.length - 1]; // last-inserted as final fallback
+
+    // Set back link to customer profile
+    const backEl = document.getElementById('backLink');
+    if (backEl && customer.phone) {
+      backEl.href = `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(customer.phone)}`;
+      backEl.textContent = '← Customer Info';
+    }
 
     const addonsData = addonsRes.ok ? await addonsRes.json() : { addons: [] };
     (addonsData.addons || []).forEach(a => { defaults[a.id] = { bundle: a.bundle, standalone: a.standalone }; });
@@ -245,8 +276,11 @@ function renderBuilder(existing) {
   const amount   = qs.mainAmount   || qs.approvedAmount || '';
   const hours    = qs.estimatedHours || null;
 
-  // Pre-fill sealing toggle and customNote from existing
-  if (existing) sealingOn = !!existing.sealingEnabled;
+  // Pre-fill sealing state and customNote from existing
+  if (existing) {
+    sealingOn   = !!existing.sealingEnabled;
+    paverSandOn = !!existing.paverSandInterest;
+  }
 
   const existingAddons = existing ? existing.addOns || [] : [];
   const existingCustom = existing ? existing.customAddOns || [] : [];
@@ -290,19 +324,51 @@ function renderBuilder(existing) {
       </div>
     </div>
 
-    <div class="sec">Custom Add-Ons</div>
-    <div id="addonsList">${addonsHtml}</div>
-    <button class="add-custom-btn" onclick="addCustomRow()">+ Add Custom Service</button>
-    <div id="customList">${renderCustomRows()}</div>
+    <!-- BUNDLE & SAVE -->
+    <div class="sec-card bundle" id="bundleSection">
+      <div class="sec-card-hdr">
+        <div class="sec-card-title">📦 Bundle &amp; Save — Add While We're There</div>
+        <div class="sec-card-sub">Most customers add at least one. Same crew, way less than a separate visit.</div>
+      </div>
+      <div id="addonsBundleSave"></div>
+    </div>
 
-    <div class="sec">Sealing</div>
-    <div class="sealing-toggle${sealingOn ? ' enabled' : ''}" id="sealingToggle" onclick="toggleSealing()">
-      <div class="sealing-check"><span class="sealing-check-icon">✓</span></div>
-      <div class="sealing-info">
-        <div class="sealing-label">💎 Show sealing interest section</div>
-        <div class="sealing-sub">No price — Tony quotes in person. Customer signals interest.</div>
+    <!-- PROTECT WHAT WE JUST CLEANED -->
+    <div class="sec-card protect">
+      <div class="sec-card-hdr">
+        <div class="sec-card-title">💎 Protect What We Just Cleaned</div>
+        <div class="sec-card-sub">Sealing locks in the clean look for 2–3 years and blocks mildew regrowth. We price it in person after seeing the surface.</div>
+      </div>
+      <div class="sealing-interests">
+        <div class="sealing-opt${sealingOn ? ' enabled' : ''}" id="sealingToggle" onclick="toggleSealing()">
+          <div class="si-check"><span class="si-check-icon">✓</span></div>
+          <div class="si-text">
+            <div class="si-label">Customer interested in sealing quote</div>
+            <div class="si-sub">We'll bring it up day-of. No commitment.</div>
+          </div>
+        </div>
+        <div class="sealing-opt${paverSandOn ? ' enabled' : ''}" id="paverSandToggle" onclick="togglePaverSand()">
+          <div class="si-check"><span class="si-check-icon">✓</span></div>
+          <div class="si-text">
+            <div class="si-label">Customer interested in sealing + paver sand</div>
+            <div class="si-sub">Joint sand replacement before sealing — stops weeds, restores the clean look between pavers.</div>
+          </div>
+        </div>
       </div>
     </div>
+
+    <!-- GOT A PROBLEM TO FIX? -->
+    <div class="sec-card fix" id="fixSection">
+      <div class="sec-card-hdr">
+        <div class="sec-card-title">🔧 Got a Problem to Fix?</div>
+        <div class="sec-card-sub">Specific concerns we can address on-site while we're already set up.</div>
+      </div>
+      <div id="addonsProblems"></div>
+    </div>
+
+    <!-- CUSTOM -->
+    <button class="add-custom-btn" onclick="addCustomRow()">+ Add Custom Service</button>
+    <div id="customList">${renderCustomRows()}</div>
 
     <div class="sec">Note to Customer</div>
     <div class="note-field">
@@ -327,6 +393,40 @@ function renderBuilder(existing) {
   if (existingCustom.filter(a => a.enabled !== false).length) {
     document.getElementById('customList').innerHTML = renderCustomRows();
   }
+  populateAddonSections();
+}
+
+function populateAddonSections() {
+  const booked   = getBookedServiceIds();
+  const relevant = getRelevantAddons();
+  const relevantIds = new Set(relevant.map(a => a.id));
+  const existingAddons = (customer.quoteStatus?.miniQuoteCustomData?.addOns) || [];
+
+  function renderGroup(ids) {
+    return ids
+      .filter(id => relevantIds.has(id))
+      .map(id => {
+        const a    = STANDARD_ADDONS.find(x => x.id === id);
+        if (!a) return '';
+        const prev = existingAddons.find(x => x.id === id);
+        const adDef  = defaults[id] || ADDON_DEFAULTS[id] || {};
+        const enabled  = prev ? prev.enabled : false;
+        const bundle   = prev ? prev.bundle     : (adDef.bundle     || '');
+        const regular  = prev ? prev.standalone : (adDef.standalone || '');
+        const note     = prev ? (prev.note || '') : '';
+        let html = addonRowHtml(a.id, a.name, a.icon, enabled, bundle, regular, note);
+        // Extra contextual note for driveway
+        if (id === 'driveway' && enabled) {
+          html += `<div class="addon-bundle-note">Includes Entranceway + Walkway &nbsp;·&nbsp; Tony bundles 90% of driveways</div>`;
+        }
+        return html;
+      }).join('');
+  }
+
+  const bundleEl = document.getElementById('addonsBundleSave');
+  const fixEl    = document.getElementById('addonsProblems');
+  if (bundleEl) bundleEl.innerHTML = renderGroup(BUNDLE_SAVE_IDS) || '<div style="padding:12px 15px;font-size:13px;color:var(--muted);">All bundle services already included in main job.</div>';
+  if (fixEl)    fixEl.innerHTML    = renderGroup(PROBLEM_FIX_IDS) || '<div style="padding:12px 15px;font-size:13px;color:var(--muted);">No problem-fix items to add.</div>';
 }
 
 function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
@@ -364,16 +464,36 @@ function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
   </div>`;
 }
 
-function toggleAddon(id) {
-  const row = document.getElementById('addon-' + id);
-  if (!row) return;
-  row.classList.toggle('enabled');
-}
-
 function toggleSealing() {
   sealingOn = !sealingOn;
   const el = document.getElementById('sealingToggle');
   if (el) el.classList.toggle('enabled', sealingOn);
+}
+
+function togglePaverSand() {
+  paverSandOn = !paverSandOn;
+  const el = document.getElementById('paverSandToggle');
+  if (el) el.classList.toggle('enabled', paverSandOn);
+}
+
+function toggleAddon(id) {
+  const row = document.getElementById('addon-' + id);
+  if (!row) return;
+  row.classList.toggle('enabled');
+  // Show driveway bundle note when enabled
+  if (id === 'driveway') {
+    const existing = row.parentNode.querySelector('.addon-bundle-note');
+    if (row.classList.contains('enabled')) {
+      if (!existing) {
+        const note = document.createElement('div');
+        note.className = 'addon-bundle-note';
+        note.textContent = 'Includes Entranceway + Walkway · Tony bundles 90% of driveways';
+        row.after(note);
+      }
+    } else if (existing) {
+      existing.remove();
+    }
+  }
 }
 
 function updateSavings(id) {
@@ -551,11 +671,11 @@ function addCustomDateRow() {
 // ── SAVE ──────────────────────────────────────────────────────────────────────
 function collectAddons() {
   return STANDARD_ADDONS.map(a => {
-    const row = document.getElementById('addon-' + a.id);
+    const row    = document.getElementById('addon-' + a.id);
     const enabled = row ? row.classList.contains('enabled') : false;
-    const bundle   = parseFloat(document.getElementById('bundle-' + a.id)?.value)   || 0;
-    const regular  = parseFloat(document.getElementById('regular-' + a.id)?.value) || 0;
-    const note     = (document.getElementById('note-' + a.id)?.value || '').trim();
+    const bundle  = parseFloat(document.getElementById('bundle-'  + a.id)?.value) || 0;
+    const regular = parseFloat(document.getElementById('regular-' + a.id)?.value) || 0;
+    const note    = (document.getElementById('note-' + a.id)?.value || '').trim();
     const savings = Math.max(0, Math.round(regular - bundle));
     return { id: a.id, name: a.name, icon: a.icon, bundle, standalone: regular, savings, note, enabled };
   });
@@ -623,6 +743,7 @@ async function saveMiniQuote(sendText) {
       addOns,
       customAddOns,
       sealingEnabled: sealingOn,
+      paverSandInterest: paverSandOn,
       customNote,
       dateSuggestions,
       builtAt: now,
