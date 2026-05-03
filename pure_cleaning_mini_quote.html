@@ -714,6 +714,17 @@ body {
 .date-option-label.alt { color: #1d4ed8; }
 .date-option-display { font-size: 16px; font-weight: 700; color: var(--navy); }
 .date-confirmed-msg { display: flex; align-items: center; gap: 10px; padding: .875rem 1rem; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 12px; font-size: 14px; font-weight: 600; color: var(--green); }
+
+/* Total Today summary */
+.total-summary { background: var(--navy); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.total-line { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+.total-line-label { font-size: 13px; color: rgba(255,255,255,.65); font-weight: 500; }
+.total-line-label.main { color: rgba(255,255,255,.9); font-weight: 600; }
+.total-line-amount { font-size: 14px; color: rgba(255,255,255,.8); font-weight: 600; }
+.total-divider { height: 1px; background: rgba(255,255,255,.15); margin: .625rem 0; }
+.total-row { display: flex; justify-content: space-between; align-items: center; }
+.total-row-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: rgba(255,255,255,.5); }
+.total-row-amount { font-size: 26px; font-weight: 800; color: var(--gold); letter-spacing: -.5px; }
 </style>
 </head>
 <body>
@@ -822,6 +833,11 @@ body {
         <div class="section-sub">Bundle pricing — only available today with this job.</div>
       </div>
       <div class="addons-grid" id="addons-list"></div>
+    </div>
+
+    <!-- ─── Total Today ─── -->
+    <div class="total-summary" id="total-summary" style="display:none;">
+      <div id="total-summary-inner"></div>
     </div>
 
     <!-- ─── Sealing ─── -->
@@ -1267,6 +1283,19 @@ function refreshBookingCard() {
   } else {
     breakdownEl.innerHTML = '';
   }
+
+  // Update running total card
+  const summaryInner = document.getElementById('total-summary-inner');
+  if (summaryInner) {
+    const mainLabel = (quoteData.mainServices || quoteData.services || 'Main service')
+      .split(/[,\n·•]+/)[0].trim();
+    let html = `<div class="total-line"><span class="total-line-label main">${escHtml(mainLabel)}</span><span class="total-line-amount">$${base}</span></div>`;
+    addedAddons.forEach(ao => {
+      html += `<div class="total-line"><span class="total-line-label">+ ${escHtml(ao.name)}</span><span class="total-line-amount">$${ao.bundle}</span></div>`;
+    });
+    html += `<div class="total-divider"></div><div class="total-row"><span class="total-row-label">Total Today</span><span class="total-row-amount">$${total}</span></div>`;
+    summaryInner.innerHTML = html;
+  }
 }
 
 function renderAddons() {
@@ -1276,6 +1305,8 @@ function renderAddons() {
   if (allAddons.length === 0) return;
 
   document.getElementById('addons-section').style.display = 'block';
+  const totalSummaryEl = document.getElementById('total-summary');
+  if (totalSummaryEl) totalSummaryEl.style.display = 'block';
 
   const listEl = document.getElementById('addons-list');
   listEl.innerHTML = '';

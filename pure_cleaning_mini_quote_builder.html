@@ -119,6 +119,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .date-custom-input:focus{border-color:var(--sky);}
 .add-date-btn{display:flex;align-items:center;gap:7px;background:none;border:1.5px dashed var(--border);border-radius:11px;padding:11px 16px;width:100%;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;transition:all .15s;margin-top:.25rem;}
 .add-date-btn:hover{background:#f0f6ff;border-color:var(--sky);}
+.addon-savings{font-size:13px;font-weight:700;color:var(--green);margin:.375rem 0 .5rem;}
 </style>
 </head>
 <body>
@@ -147,6 +148,18 @@ const STANDARD_ADDONS = [
   {id:'rust',          name:'Rust Removal',               icon:'🔧'},
   {id:'awnings',       name:'Awning Cleaning',            icon:'🪟'},
 ];
+
+// Suggested starting prices Mom can adjust; worker addons-config overrides when fetched
+const ADDON_DEFAULTS = {
+  roof_cleaning: {bundle: 250, standalone: 400},
+  driveway:      {bundle: 150, standalone: 225},
+  patio:         {bundle: 125, standalone: 200},
+  pool_deck:     {bundle: 175, standalone: 250},
+  walkways:      {bundle: 75,  standalone: 125},
+  paver_sand:    {bundle: 125, standalone: 200},
+  rust:          {bundle: 100, standalone: 175},
+  awnings:       {bundle: 50,  standalone: 100},
+};
 
 // Always show these regardless of what's booked (can't see the property)
 const ALWAYS_SHOW_ADDONS = new Set(['paver_sand', 'rust']);
@@ -240,11 +253,12 @@ function renderBuilder(existing) {
     ? `<div style="font-size:11px;color:var(--muted);font-style:italic;padding:6px 12px 0;">Showing suggestions · ${bookedCount} already-booked service${bookedCount>1?'s':''} hidden</div>`
     : '';
   const addonsHtml = filterNote + relevantAddons.map(a => {
-    const prev = existingAddons.find(x => x.id === a.id);
+    const prev   = existingAddons.find(x => x.id === a.id);
+    const adDef  = defaults[a.id] || ADDON_DEFAULTS[a.id] || {};
     const enabled = prev ? prev.enabled : false;
-    const bundle   = prev ? prev.bundle     : (defaults[a.id] ? defaults[a.id].bundle     : '');
-    const regular  = prev ? prev.standalone  : (defaults[a.id] ? defaults[a.id].standalone : '');
-    const note     = prev ? (prev.note || '') : '';
+    const bundle  = prev ? prev.bundle     : (adDef.bundle     || '');
+    const regular = prev ? prev.standalone : (adDef.standalone || '');
+    const note    = prev ? (prev.note || '') : '';
     return addonRowHtml(a.id, a.name, a.icon, enabled, bundle, regular, note);
   }).join('');
 
@@ -311,6 +325,11 @@ function renderBuilder(existing) {
 }
 
 function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
+  const bNum = parseFloat(bundle) || 0;
+  const rNum = parseFloat(regular) || 0;
+  const initSavings = (bNum > 0 && rNum > bNum) ? Math.round(rNum - bNum) : 0;
+  const savingsStyle = initSavings > 0 ? '' : ' style="display:none;"';
+  const hasDefault = defaults[id] || ADDON_DEFAULTS[id];
   return `<div class="addon-row${enabled ? ' enabled' : ''}" id="addon-${id}">
     <div class="addon-toggle-hdr" onclick="toggleAddon('${id}')">
       <div class="addon-check"><span class="addon-check-icon">✓</span></div>
@@ -322,19 +341,20 @@ function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
         <div class="price-field">
           <label>Bundle price (today)</label>
           <div class="price-input-wrap">
-            <input type="number" class="price-input" id="bundle-${id}" value="${bundle}" min="0" placeholder="150">
+            <input type="number" class="price-input" id="bundle-${id}" value="${bundle}" min="0" placeholder="150" oninput="updateSavings('${id}')">
           </div>
         </div>
         <div class="price-field">
-          <label>Regular price</label>
+          <label>Standalone (separately)</label>
           <div class="price-input-wrap">
-            <input type="number" class="price-input" id="regular-${id}" value="${regular}" min="0" placeholder="200">
+            <input type="number" class="price-input" id="regular-${id}" value="${regular}" min="0" placeholder="200" oninput="updateSavings('${id}')">
           </div>
         </div>
       </div>
+      <div class="addon-savings" id="savings-${id}"${savingsStyle}>↳ Customer saves $${initSavings}</div>
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);display:block;margin-bottom:5px;">Note (optional)</label>
       <textarea class="note-input" id="note-${id}" maxlength="200" placeholder="Any details for this customer…">${esc(note)}</textarea>
-      ${defaults[id] ? `<button class="reset-link" onclick="resetToDefault('${id}')">Reset to defaults</button>` : ''}
+      ${hasDefault ? `<button class="reset-link" onclick="resetToDefault('${id}')">Reset to defaults</button>` : ''}
     </div>
   </div>`;
 }
@@ -351,13 +371,28 @@ function toggleSealing() {
   if (el) el.classList.toggle('enabled', sealingOn);
 }
 
+function updateSavings(id) {
+  const bundle  = parseFloat(document.getElementById(`bundle-${id}`)?.value) || 0;
+  const regular = parseFloat(document.getElementById(`regular-${id}`)?.value) || 0;
+  const el      = document.getElementById(`savings-${id}`);
+  if (!el) return;
+  const savings = Math.round(regular - bundle);
+  if (savings > 0 && bundle > 0 && regular > 0) {
+    el.textContent = `↳ Customer saves $${savings}`;
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 function resetToDefault(id) {
-  const d = defaults[id];
+  const d = defaults[id] || ADDON_DEFAULTS[id];
   if (!d) return;
   const b = document.getElementById('bundle-' + id);
   const r = document.getElementById('regular-' + id);
   if (b) b.value = d.bundle;
   if (r) r.value = d.standalone;
+  updateSavings(id);
 }
 
 function updateCharCount() {
@@ -516,7 +551,8 @@ function collectAddons() {
     const bundle   = parseFloat(document.getElementById('bundle-' + a.id)?.value)   || 0;
     const regular  = parseFloat(document.getElementById('regular-' + a.id)?.value) || 0;
     const note     = (document.getElementById('note-' + a.id)?.value || '').trim();
-    return { id: a.id, name: a.name, icon: a.icon, bundle, standalone: regular, note, enabled };
+    const savings = Math.max(0, Math.round(regular - bundle));
+    return { id: a.id, name: a.name, icon: a.icon, bundle, standalone: regular, savings, note, enabled };
   });
 }
 
