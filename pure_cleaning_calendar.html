@@ -139,6 +139,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-review-btn.sent{background:#f0fdf4 !important;border-color:#86efac !important;color:#166534 !important;cursor:default;}
 .js-review-btn.no-phone{background:#f9fafb !important;border-color:#e5e7eb !important;color:#9ca3af !important;cursor:default;}
 
+/* ── PRINT BUTTONS ── */
+.js-print-btn{display:block;width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;background:#f9fafb;color:#374151;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-print-btn:hover{background:#e5e7eb;}
+.rig-print-row{padding:2px 8px 4px;}
+.rig-print-btn{font-size:10px;color:#6b7280;background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .1s;}
+.rig-print-btn:hover{background:#f1f5f9;color:#374151;border-color:#cbd5e1;}
+
 .day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
 .day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
 .js-alerts{font-size:13px;margin-top:2px;}
@@ -886,6 +893,10 @@ function renderCalGrid(dates) {
       const rigLaborNetHtml = rigLabor > 0
         ? `<div class="rig-labor-net">-$${rigLabor.toLocaleString()} labor · <span class="rig-net-val">$${rigNet.toLocaleString()} net</span></div>`
         : '';
+      const printableJobs = jobs.filter(j => !j.isTest && (j.scheduledStatus?.state||'scheduled') !== 'completed');
+      const bulkPrintHtml = printableJobs.length > 0
+        ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 Print ${printableJobs.length} job sheet${printableJobs.length>1?'s':''}</button></div>`
+        : '';
       return `<div class="rig-section">
         <div class="rig-hdr" onclick="openCrewPop('${date}','${rig}',this)">
           <span class="rig-icon">🚛</span>
@@ -894,6 +905,7 @@ function renderCalGrid(dates) {
         </div>
         <div class="${rigGrossCls}">${RIG_LABELS[rig]}: ${rigGrossStr}</div>
         ${rigLaborNetHtml}
+        ${bulkPrintHtml}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
         ${renderArrivalButtons(date, rig, jobs)}
       </div>`;
@@ -923,10 +935,15 @@ function jobCardScheduled(c) {
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
   const { html: amtHtml } = jobAmount(c);
   const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
+  const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
+  const jobDate  = ss.scheduledDate || '';
+  const jobRig   = ss.rig || '';
+
   let reviewBtnHtml = '';
+  let printBtnHtml  = '';
+
   if (state === 'completed') {
-    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
-    const fn    = esc((c.firstName||c.fn||'').trim().split(' ')[0] || 'there');
+    const fn = esc((c.firstName||c.fn||'').trim().split(' ')[0] || 'there');
     const reqDate = phone ? getReviewRequestedDate(phone) : null;
     if (reqDate) {
       reviewBtnHtml = `<button class="js-review-btn sent" disabled onclick="event.stopPropagation()">✓ Review Requested ${reqDate}</button>`;
@@ -935,11 +952,18 @@ function jobCardScheduled(c) {
     } else {
       reviewBtnHtml = `<button class="js-review-btn" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)">📝 Request Google review · best 24-48h after</button>`;
     }
+    if (!c.isTest && phone) {
+      printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print invoice</button>`;
+    }
+  } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
+    printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
   }
+
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
     ${reviewBtnHtml}
+    ${printBtnHtml}
   </div>`;
 }
 
@@ -1676,6 +1700,219 @@ function formatCity(city) {
     const bare = w.replace(/[.,]$/,'');
     return (_CITY_ABBR[bare] || (bare.charAt(0).toUpperCase() + bare.slice(1)));
   }).join(' ');
+}
+
+// ── PRINT INFRASTRUCTURE ─────────────────────────────────────────────────────
+const PRINT_CO      = 'Pure Cleaning Pressure Cleaning, LLC';
+const PRINT_PHONE   = '954-389-2642';
+const PRINT_WEBSITE = 'purecleaningpressurecleaning.com';
+
+function _printCss() {
+  return `<style>
+    @page{size:letter;margin:.5in;}
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#1a1a1a;line-height:1.5;}
+    table{width:100%;border-collapse:collapse;}
+    td,th{vertical-align:top;}
+    @media print{.no-print{display:none!important;}}
+  </style>`;
+}
+
+function _openPrintWin(html, title) {
+  const w = window.open('', '_blank', 'width=860,height=1100');
+  if (!w) { alert('Please allow pop-ups to print.'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>${_printCss()}</head><body onload="setTimeout(()=>window.print(),400)">${html}</body></html>`);
+  w.document.close();
+}
+
+// ── INVOICE ───────────────────────────────────────────────────────────────────
+function printInvoice(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const yr   = new Date().getFullYear();
+  const invNum = `PC-${yr}-${(c.phone||'').slice(-4)}-${Date.now().toString().slice(-3)}`;
+  const dateFmt  = d => d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  const compDate = dateFmt(ss.completedDate);
+  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services';
+  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const addOns   = c.addOns || [];
+  const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
+
+  let serviceRows = items.map(s=>`<tr><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;">${s}</td><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;text-align:right;"></td></tr>`).join('');
+  if (addOns.length) {
+    serviceRows += addOns.map(a=>`<tr><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;padding-left:16pt;">+ ${esc(a.name||'')}</td><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;text-align:right;">$${Number(a.bundle||0).toFixed(2)}</td></tr>`).join('');
+  }
+
+  const html = `
+<table style="margin-bottom:20pt;">
+  <tr>
+    <td>
+      <div style="font-size:17pt;font-weight:bold;">${PRINT_CO}</div>
+      <div style="font-size:9pt;color:#666;margin-top:2pt;">Family-owned · Since 1995 &nbsp;·&nbsp; ${PRINT_PHONE} &nbsp;·&nbsp; ${PRINT_WEBSITE}</div>
+    </td>
+    <td style="text-align:right;">
+      <div style="font-size:26pt;font-weight:bold;color:#c2410c;letter-spacing:1pt;">INVOICE</div>
+      <div style="font-size:10pt;color:#555;margin-top:3pt;">Invoice #: ${invNum}<br>Date: ${compDate}</div>
+    </td>
+  </tr>
+</table>
+
+<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:8pt;">Bill To</div>
+<div style="font-size:12pt;margin-bottom:20pt;">
+  <strong>${esc(name)}</strong><br>
+  ${c.address ? esc(c.address)+'<br>' : '<span style="color:#c2410c;font-style:italic;">Address not on file</span><br>'}
+  ${c.city ? esc(c.city)+', FL'+(c.zip?' '+c.zip:'')+'<br>' : ''}
+  ${c.phone ? fmtPh(c.phone) : '<span style="font-style:italic;">No phone on file</span>'}
+</div>
+
+<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:4pt;">Services Performed</div>
+<table style="margin-bottom:4pt;">
+  <thead><tr>
+    <th style="font-size:9pt;text-transform:uppercase;letter-spacing:1pt;color:#888;text-align:left;padding:5pt 8pt;border-bottom:1pt solid #ccc;">Description</th>
+    <th style="font-size:9pt;text-transform:uppercase;letter-spacing:1pt;color:#888;text-align:right;padding:5pt 8pt;border-bottom:1pt solid #ccc;">Amount</th>
+  </tr></thead>
+  <tbody>${serviceRows}</tbody>
+  <tfoot><tr>
+    <td style="padding-top:8pt;border-top:1.5pt solid #1a1a1a;text-align:right;font-size:11pt;font-weight:bold;color:#555;">TOTAL</td>
+    <td style="padding-top:8pt;border-top:1.5pt solid #1a1a1a;text-align:right;font-size:16pt;font-weight:bold;color:#c2410c;">$${Number(amount).toFixed(2)}</td>
+  </tr></tfoot>
+</table>
+
+<div style="background:#f8f8f6;border:1pt solid #ddd;padding:10pt 14pt;margin-top:16pt;margin-bottom:20pt;">
+  <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:6pt;">Payment</div>
+  <table style="font-size:11pt;">
+    <tr><td style="padding:2pt 0;color:#555;width:180pt;">Methods Accepted:</td><td style="padding:2pt 8pt;font-weight:bold;">Zelle · Check · Cash · Venmo</td></tr>
+    <tr><td style="padding:2pt 0;color:#555;">Status:</td><td style="padding:2pt 8pt;font-weight:bold;color:${ss.paymentCollected?'#15803d':'#c2410c'};">${ss.paymentCollected?'✓ PAID':'PAYMENT DUE'}</td></tr>
+  </table>
+</div>
+
+<div style="margin-top:32pt;padding-top:12pt;border-top:1pt solid #ccc;font-size:9pt;color:#666;text-align:center;line-height:1.8;">
+  Thank you for trusting ${PRINT_CO}.<br>
+  30 years serving South Florida families.<br><br>
+  Questions? Call or text ${PRINT_PHONE}<br>
+  ${PRINT_CO}
+</div>`;
+
+  _openPrintWin(html, `Invoice ${invNum} — ${name}`);
+  pcpcApi.logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
+}
+
+// ── JOB SHEET GENERATOR ───────────────────────────────────────────────────────
+function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Services as discussed';
+  const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
+  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const addOns   = c.addOns || [];
+  const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
+  const rigLabel = RIG_LABELS[rig] || rig;
+  const mapsUrl  = c.address ? `https://maps.google.com/?q=${encodeURIComponent([c.address,c.city,'FL'].filter(Boolean).join(', '))}` : '';
+  const notes    = (c.notes||'') + (ss.customerNotes ? (c.notes?'\n':'')+ss.customerNotes : '');
+  const alertsHtml = (c.alerts||[]).map(a=>`<div style="color:#c2410c;font-weight:bold;font-size:10pt;margin-top:4pt;">⚠ ${esc(a.label||a||'')}</div>`).join('');
+
+  return `
+<div style="max-width:7.5in;margin:0 auto;">
+
+  <!-- Header bar -->
+  <table style="background:#0a1628;color:#fff;margin-bottom:14pt;">
+    <tr>
+      <td style="padding:10pt 14pt;">
+        <div style="font-size:14pt;font-weight:bold;letter-spacing:.5pt;">PURE CLEANING · JOB SHEET</div>
+        <div style="font-size:9pt;opacity:.75;margin-top:2pt;">${dateStr}</div>
+      </td>
+      <td style="padding:10pt 14pt;text-align:right;font-size:10pt;opacity:.85;">
+        ${esc(rigLabel)}<br>
+        <strong>Job ${jobOrder} of ${totalJobs}</strong>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Customer block -->
+  <table style="border:1.5pt solid #1a1a1a;margin-bottom:12pt;">
+    <tr>
+      <td style="padding:10pt 14pt;width:62%;border-right:1pt solid #ddd;">
+        <div style="font-size:20pt;font-weight:bold;margin-bottom:4pt;">${esc(name)}</div>
+        <div style="font-size:14pt;font-weight:bold;color:#0a1628;margin-bottom:6pt;">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+        <div style="font-size:12pt;">
+          ${c.address ? `${esc(c.address)}<br>${esc(c.city||'')}${c.city?', FL':''}${c.zip?' '+c.zip:''}` : '<span style="color:#c2410c;font-weight:bold;">⚠ Address pending</span>'}
+        </div>
+      </td>
+      <td style="padding:10pt 14pt;text-align:center;">
+        ${mapsUrl ? `<div style="margin-bottom:10pt;"><a href="${mapsUrl}" style="color:#0a1628;font-weight:bold;font-size:10pt;text-decoration:none;">🗺 Open in Maps</a></div>` : '<div style="font-size:9pt;color:#aaa;margin-bottom:10pt;">No address</div>'}
+        <div style="font-size:8pt;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:3pt;">Quoted Total</div>
+        <div style="font-size:20pt;font-weight:bold;color:#c2410c;">$${Number(amount).toFixed(0)}</div>
+        <div style="font-size:9pt;color:#888;margin-top:3pt;">Zelle · Check · Cash · Venmo</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Services + Notes -->
+  <table style="margin-bottom:12pt;border-spacing:8pt;border-collapse:separate;">
+    <tr>
+      <td style="width:52%;border:1pt solid #ccc;padding:10pt 12pt;">
+        <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Services</div>
+        ${items.map(s=>`<div style="padding:3pt 0;font-size:11pt;">☐ ${esc(s)}</div>`).join('')}
+        ${addOns.length ? `<div style="margin-top:6pt;padding-top:6pt;border-top:.5pt solid #eee;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:4pt;">Add-ons</div>${addOns.map(a=>`<div style="padding:2pt 0;font-size:11pt;">☐ ${esc(a.name||'')} (+$${a.bundle||0})</div>`).join('')}` : ''}
+      </td>
+      <td style="width:48%;border:1pt solid #ccc;padding:10pt 12pt;">
+        <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Notes / Gate Codes</div>
+        <div style="font-size:11pt;line-height:1.7;min-height:55pt;color:${notes?'#1a1a1a':'#bbb'};">${notes ? esc(notes).replace(/\n/g,'<br>') : '(none)'}</div>
+        ${alertsHtml}
+      </td>
+    </tr>
+  </table>
+
+  <!-- Completion checklist -->
+  <table style="border:1.5pt solid #1a1a1a;margin-bottom:10pt;">
+    <tr><td colspan="3" style="background:#0a1628;color:#fff;padding:5pt 12pt;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;">Completion Checklist</td></tr>
+    <tr>
+      <td style="padding:6pt 12pt;font-size:10pt;width:34%;border-right:.5pt solid #ddd;">
+        ☐ Property inspected before starting<br>
+        ☐ Plants/landscaping protected<br>
+        ☐ All services completed
+      </td>
+      <td style="padding:6pt 12pt;font-size:10pt;width:33%;border-right:.5pt solid #ddd;">
+        ☐ Walkthrough with customer<br>
+        ☐ Payment collected<br>
+        ☐ Customer satisfied
+      </td>
+      <td style="padding:6pt 12pt;font-size:10pt;">
+        <div style="margin-bottom:10pt;">Crew sign-off: ______________________</div>
+        <div>Time finished: ____________________</div>
+      </td>
+    </tr>
+  </table>
+
+  <div style="font-size:8pt;color:#aaa;text-align:center;">${PRINT_CO} · ${PRINT_PHONE} · Printed ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
+
+</div>`;
+}
+
+function printJobSheet(phone, date, rig) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const jobs = getScheduledForRig(date, rig).filter(j => !j.isTest);
+  const idx  = jobs.findIndex(j => j.phone === phone);
+  _openPrintWin(_jobSheetBody(c, idx+1, jobs.length, date, rig), `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
+  pcpcApi.logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
+}
+
+function printBulkJobSheets(date, rig) {
+  const jobs = getScheduledForRig(date, rig).filter(c => !c.isTest && (c.scheduledStatus?.state||'scheduled') !== 'completed');
+  if (!jobs.length) return;
+  const html = jobs.map((c, i) => {
+    const isLast = i === jobs.length - 1;
+    const body = _jobSheetBody(c, i+1, jobs.length, date, rig);
+    return isLast ? body : `<div style="page-break-after:always;">${body}</div>`;
+  }).join('\n');
+  const dateStr = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : 'Today';
+  _openPrintWin(html, `Job Sheets — ${RIG_LABELS[rig]||rig} · ${dateStr}`);
+  pcpcApi.logEvent({ eventType:'bulk_job_sheets_printed', rig, date, jobCount:jobs.length, printedAt:new Date().toISOString() });
 }
 
 // ── REVIEW REQUEST TEXTS ──────────────────────────────────────────────────────
