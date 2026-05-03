@@ -81,6 +81,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .card.removing{animation:fadeout .3s ease forwards;overflow:hidden;transform-origin:top;}
 .schedule-btn{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;background:var(--sky);color:#fff;border-radius:12px;font-size:14px;font-weight:700;text-decoration:none;transition:background .15s;-webkit-tap-highlight-color:transparent;}
 .schedule-btn:active{background:#2470c0;}
+
+/* ── Delete button (top-right of card) ── */
+.card{position:relative;}
+.card-del-btn{position:absolute;top:10px;right:10px;background:none;border:none;cursor:pointer;color:#d1d5db;font-size:17px;padding:4px 6px;border-radius:6px;line-height:1;transition:color .12s,background .12s;-webkit-tap-highlight-color:transparent;}
+.card-del-btn:hover{color:#dc2626;background:#fee2e2;}
+/* ── Delete confirm modal (centered, not bottom sheet) ── */
+.del-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:700;display:flex;align-items:center;justify-content:center;padding:1.25rem;}
+.del-overlay.hidden{display:none;}
+.del-modal{background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:380px;box-shadow:0 16px 48px rgba(0,0,0,.25);}
+.del-icon{font-size:34px;text-align:center;margin-bottom:.625rem;}
+.del-title{font-size:17px;font-weight:700;color:var(--text);text-align:center;margin-bottom:.375rem;}
+.del-sub{font-size:13px;color:var(--muted);text-align:center;line-height:1.55;margin-bottom:1.25rem;}
+.del-foot{display:flex;gap:10px;}
+.del-cancel{flex:1;padding:14px;border:2px solid var(--border);border-radius:11px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
+.del-confirm{flex:1;padding:14px;border:none;border-radius:11px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.del-cancel:active{background:#f5f7fa;}
+.del-confirm:active{background:#b91c1c;}
 </style>
 </head>
 <body>
@@ -115,6 +132,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div id="pane-waiting" class="pane" style="display:none;"></div>
 <div id="pane-booked"  class="pane" style="display:none;"></div>
 <div id="pane-lost"    class="pane" style="display:none;"></div>
+
+<!-- DELETE CONFIRM MODAL — centered -->
+<div class="del-overlay hidden" id="delModal" onclick="if(event.target===this)closeDeleteModal()">
+  <div class="del-modal">
+    <div class="del-icon">🗑️</div>
+    <div class="del-title" id="delTitle">Delete this quote?</div>
+    <div class="del-sub" id="delSub">This removes it from the pipeline. The customer record stays intact — use this only for test entries, duplicates, or wrong submissions.</div>
+    <div class="del-foot">
+      <button class="del-cancel" onclick="closeDeleteModal()">Cancel</button>
+      <button class="del-confirm" onclick="confirmDelete()">Yes, Delete</button>
+    </div>
+  </div>
+</div>
 
 <!-- LOST MODAL — bottom sheet -->
 <div class="moverlay hidden" id="lostModal" onclick="if(event.target===this)closeLostModal()">
@@ -216,7 +246,7 @@ function showPane(name) {
 }
 
 function updateCounts() {
-  document.getElementById('cnt-waiting').textContent = allQuotes.filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed').length;
+  document.getElementById('cnt-waiting').textContent = allQuotes.filter(c => (c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed') && !c.quoteStatus.deleted).length;
   document.getElementById('cnt-booked').textContent  = allQuotes.filter(c => c.quoteStatus.state === 'approved').length;
   const canceledCount = (dbRecord.customers||[]).filter(c => c.scheduledStatus && c.scheduledStatus.state === 'canceled').length;
   document.getElementById('cnt-lost').textContent    = allQuotes.filter(c => c.quoteStatus.state === 'lost').length + canceledCount;
@@ -232,7 +262,7 @@ function renderPane(name) {
 
 function renderWaiting() {
   const quotes = allQuotes
-    .filter(c => c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed')
+    .filter(c => (c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed') && !c.quoteStatus.deleted)
     .sort((a,b) => new Date(b.quoteStatus.sentDate) - new Date(a.quoteStatus.sentDate));
   if (!quotes.length) return `<div class="empty"><div class="empty-icon">🎉</div><h3>You're all caught up!</h3><p>No quotes waiting on customer response.</p></div>`;
   return quotes.map(c => {
@@ -245,7 +275,8 @@ function renderWaiting() {
     else if (days >= 7)                   tag = '<span class="tag tag-nudge">⏰ Needs nudge</span>';
     const ago = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
     return `<div class="card" id="card-${c.phone}">
-      <div class="cn">${name}${alertBadge(c.alerts)}</div>
+      <button class="card-del-btn" onclick="openDeleteModal('${c.phone}','${name}')" title="Delete quote">⋯</button>
+      <div class="cn" style="padding-right:28px;">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
       <div class="cm"><span style="color:var(--muted);font-size:13px;">Sent ${ago}</span>${tag}</div>
@@ -407,6 +438,36 @@ async function resendQuote(phone) {
     ? `Hey ${c.firstName||'there'}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home ${mt} ago and wanted to reach out again.\n\nYour info is already filled in here:\n${link}\n\nJust tap to confirm what you'd like cleaned. — Tyler | 954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
     : `Hey ${c.firstName||'there'}! It's Tyler — Darla and Tony's son with Pure Cleaning. Wanted to reach out again about a quote. Give us a call or text at 954-389-2642. — Tyler`;
   window.location.href = `sms:${phone}&body=${encodeURIComponent(body)}`;
+}
+
+// ── DELETE (SOFT) ─────────────────────────────────────────────────────────────
+let deletePhone = null;
+
+function openDeleteModal(phone, name) {
+  deletePhone = phone;
+  document.getElementById('delTitle').textContent = `Delete quote for ${name}?`;
+  document.getElementById('delSub').textContent   = 'This removes it from the pipeline. The customer record stays intact — use this only for test entries, duplicates, or wrong submissions.';
+  document.getElementById('delModal').classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+  document.getElementById('delModal').classList.add('hidden');
+  deletePhone = null;
+}
+
+async function confirmDelete() {
+  if (!deletePhone) return;
+  const phone = deletePhone;
+  closeDeleteModal();
+
+  const today = isoToday();
+  const c = allQuotes.find(x => x.phone === phone);
+  if (c?.quoteStatus) { c.quoteStatus.deleted = true; c.quoteStatus.deletedAt = today; }
+  const dbC = (dbRecord.customers || []).find(x => x.phone === phone);
+  if (dbC?.quoteStatus) { dbC.quoteStatus.deleted = true; dbC.quoteStatus.deletedAt = today; }
+
+  animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
+  saveDb().catch(e => console.warn('Delete save failed:', e));
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
