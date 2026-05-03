@@ -987,7 +987,10 @@ function jobCardSidebar(c) {
     : '';
 
   let wantsLine = '';
-  if (ss.customerSelectedDate) {
+  if (ss.state === 'scheduled' && ss.scheduledDate && !ss.rig) {
+    const d = new Date(ss.scheduledDate + 'T12:00:00');
+    wantsLine = `<div class="jd" style="color:var(--green);font-weight:700;">📅 Scheduled: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))} — assign rig</div>`;
+  } else if (ss.customerSelectedDate) {
     const d = new Date(ss.customerSelectedDate + 'T12:00:00');
     wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))}</div>`;
   }
@@ -1301,9 +1304,11 @@ function getUnscheduled() {
   const seen = new Set();
   return (dbRecord.customers||[]).filter(x => {
     if (!x.phone || seen.has(x.phone)) return false;
+    const ss = x.scheduledStatus;
     const matches =
-      (x.scheduledStatus && x.scheduledStatus.state === 'needs_scheduling') ||
-      (x.quoteStatus && x.quoteStatus.state === 'approved' && (!x.scheduledStatus || !x.scheduledStatus.state));
+      (ss && ss.state === 'needs_scheduling') ||
+      (ss && ss.state === 'scheduled' && !ss.rig) || // auto-scheduled but rig not yet assigned
+      (x.quoteStatus && x.quoteStatus.state === 'approved' && (!ss || !ss.state));
     if (matches) seen.add(x.phone);
     return matches;
   });
