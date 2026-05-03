@@ -121,6 +121,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .rig-gross.zero{color:var(--muted);font-weight:400;}
 .rig-labor-net{font-size:10px;color:var(--muted);padding:0 8px 4px;line-height:1.5;}
 .rig-net-val{color:#16a34a;font-weight:700;}
+
+/* ── ARRIVAL TEXTS ── */
+.arrival-section{padding:5px 8px 8px;border-top:1px dashed #e2e8f0;}
+.arrival-btn{display:flex;align-items:center;gap:7px;width:100%;padding:6px 9px;border:1.5px solid #dbeafe;border-radius:8px;background:#f8faff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;margin-bottom:4px;text-align:left;line-height:1.3;}
+.arrival-btn:hover:not(.sent):not(.no-phone){background:#dbeafe;border-color:#93c5fd;}
+.arrival-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;}
+.arrival-btn.no-phone{opacity:.38;cursor:not-allowed;}
+.arrival-btn-icon{font-size:13px;flex-shrink:0;}
+.arrival-btn-text{flex:1;min-width:0;overflow:hidden;}
+.arrival-btn-name{font-weight:700;display:inline;}
+.arrival-btn-slot{font-weight:400;opacity:.75;}
+
 .day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
 .day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
 .js-alerts{font-size:13px;margin-top:2px;}
@@ -877,6 +889,7 @@ function renderCalGrid(dates) {
         <div class="${rigGrossCls}">${RIG_LABELS[rig]}: ${rigGrossStr}</div>
         ${rigLaborNetHtml}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+        ${renderArrivalButtons(date, rig, jobs)}
       </div>`;
     }).join('');
     return `<div class="day-col${isToday?' today-col':''}">
@@ -1643,6 +1656,74 @@ function formatCity(city) {
     const bare = w.replace(/[.,]$/,'');
     return (_CITY_ABBR[bare] || (bare.charAt(0).toUpperCase() + bare.slice(1)));
   }).join(' ');
+}
+
+// ── ARRIVAL TEXTS ─────────────────────────────────────────────────────────────
+const ARRIVAL_SLOTS = {
+  '~9-10am':    { label:'~9–10am',    msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way and should arrive around 9-10am. See you soon!` },
+  '~11am-noon': { label:'~11am–noon', msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading to you now — expect us around 11am-noon. See you soon!` },
+  '~noon-1pm':  { label:'~noon–1pm',  msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way, should be there around noon-1pm. See you soon!` },
+  '~2-3pm':     { label:'~2–3pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading your way now — expect us around 2-3pm. Thanks!` },
+  '~3-4pm':     { label:'~3–4pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 On our way — should arrive around 3-4pm. Thanks for your patience!` },
+  '~4-5pm':     { label:'~4–5pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 On our way to you now — expect us around 4-5pm. Thanks for your patience!` },
+};
+
+function getArrivalSlots(count) {
+  if (count === 1) return ['~9-10am'];
+  if (count === 2) return ['~9-10am', '~noon-1pm'];
+  if (count === 3) return ['~9-10am', '~11am-noon', '~2-3pm'];
+  if (count === 4) return ['~9-10am', '~11am-noon', '~2-3pm', '~4-5pm'];
+  return ['~9-10am', '~11am-noon', '~noon-1pm', '~2-3pm', '~3-4pm', '~4-5pm'].slice(0, Math.min(count, 6));
+}
+
+function isArrivalSent(date, rig, phone) {
+  try {
+    const raw = localStorage.getItem(`pcpc_arr_${date}_${rig}_${phone}`);
+    if (!raw) return false;
+    const { ts } = JSON.parse(raw);
+    return (Date.now() - ts) < 86400000;
+  } catch { return false; }
+}
+
+function markArrivalSent(date, rig, phone, slot) {
+  localStorage.setItem(`pcpc_arr_${date}_${rig}_${phone}`, JSON.stringify({ ts: Date.now(), slot }));
+}
+
+function renderArrivalButtons(date, rig, jobs) {
+  const active = jobs.filter(c => !c.isTest && (c.scheduledStatus?.state||'scheduled') !== 'completed');
+  if (!active.length) return '';
+  const slots = getArrivalSlots(active.length);
+  const btns = active.map((c, i) => {
+    const slot = slots[i] || slots[slots.length - 1];
+    const phone = (c.phone || '').replace(/\D/g,'').slice(-10);
+    const firstName = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim().split(' ')[0] || 'there';
+    const sent = phone ? isArrivalSent(date, rig, phone) : false;
+    const noPhone = !phone;
+    const slotLabel = ARRIVAL_SLOTS[slot]?.label || slot;
+    const cls = `arrival-btn${sent ? ' sent' : ''}${noPhone ? ' no-phone' : ''}`;
+    const handler = (!noPhone && !sent) ? `onclick="sendArrivalText('${phone}','${esc(firstName)}','${slot}','${date}','${rig}',this)"` : '';
+    const noPhoneTitle = noPhone ? 'title="No phone on file"' : '';
+    return `<button class="${cls}" ${handler} ${noPhoneTitle}>
+      <span class="arrival-btn-icon">${sent ? '✅' : '📍'}</span>
+      <span class="arrival-btn-text"><span class="arrival-btn-name">${esc(firstName)}</span><span class="arrival-btn-slot"> · ${slotLabel}</span></span>
+      <span style="font-size:10px;opacity:.65;flex-shrink:0">${sent ? '✓ Sent' : 'Tap'}</span>
+    </button>`;
+  }).join('');
+  return `<div class="arrival-section">${btns}</div>`;
+}
+
+function sendArrivalText(phone, name, slot, date, rig, btn) {
+  const tpl = ARRIVAL_SLOTS[slot];
+  if (!tpl || !phone) return;
+  const msg = tpl.msg(name);
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
+  markArrivalSent(date, rig, phone, slot);
+  btn.classList.add('sent');
+  btn.querySelector('.arrival-btn-icon').textContent = '✅';
+  const tapSpan = btn.querySelector('span:last-child');
+  if (tapSpan) tapSpan.textContent = '✓ Sent';
+  btn.onclick = null;
+  pcpcApi.logEvent({ eventType:'arrival_text_sent', phone, name, rig, slot, date, sentAt: new Date().toISOString() });
 }
 
 document.addEventListener('DOMContentLoaded', init);
