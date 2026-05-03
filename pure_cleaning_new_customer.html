@@ -162,6 +162,15 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
     </div>
 
+    <!-- Complaint warning -->
+    <div class="dup-callout" id="complaintCallout" style="border-color:#fca5a5;background:#fff1f2;display:none;">
+      <div class="dup-text" style="color:#991b1b;" id="complaintCalloutText"></div>
+      <div class="dup-row">
+        <button class="dup-yes" style="flex:1;" onclick="document.getElementById('complaintCallout').style.display='none'">Continue anyway</button>
+        <button class="dup-no" style="flex:1;" onclick="document.getElementById('complaintCallout').style.display='none'">Dismiss</button>
+      </div>
+    </div>
+
     <div class="field-row">
       <div class="field">
         <label>First name<span class="field-req">*</span></label>
@@ -665,6 +674,14 @@ function onPhoneInput(input) {
       dupPhone = null;
     } else {
       dupPhone = d;
+      const cmptWarn = document.getElementById('complaintCallout');
+      if (dup.hasComplaints && cmptWarn) {
+        const n = dup.complaintCount || 1;
+        document.getElementById('complaintCalloutText').textContent = `⚠ ${dup.firstName} ${dup.lastName} has ${n} logged complaint${n>1?'s':''}. Review their history in the customer profile before booking.`;
+        cmptWarn.style.display = 'block';
+      } else if (cmptWarn) {
+        cmptWarn.style.display = 'none';
+      }
       document.getElementById('dupText').textContent = `👋 Looks like we already know ${dup.firstName} ${dup.lastName}! Tap below to use their info, or continue.`;
       document.getElementById('dupCallout').classList.add('show');
     }
@@ -673,6 +690,8 @@ function onPhoneInput(input) {
     document.getElementById('dupCallout').classList.remove('show');
     document.getElementById('optOutCallout').style.display = 'none';
     document.getElementById('movedAwayCallout').style.display = 'none';
+    const cmptWarn = document.getElementById('complaintCallout');
+    if (cmptWarn) cmptWarn.style.display = 'none';
   }
 }
 

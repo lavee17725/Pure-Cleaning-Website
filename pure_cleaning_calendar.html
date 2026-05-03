@@ -146,6 +146,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .rig-print-btn{font-size:10px;color:#6b7280;background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .1s;}
 .rig-print-btn:hover{background:#f1f5f9;color:#374151;border-color:#cbd5e1;}
 
+/* ── REVIEW TIMING STATES ── */
+.js-review-btn.timing-wait   {background:#f9fafb;border-color:#e5e7eb;color:#9ca3af;}
+.js-review-btn.timing-optimal{background:#f0fdf4;border-color:#86efac;color:#166534;font-weight:700;}
+.js-review-btn.timing-closing{background:#fffbeb;border-color:#fde68a;color:#92400e;}
+.js-review-btn.timing-passed {background:#f9fafb;border-color:#e5e7eb;color:#9ca3af;}
+.js-review-btn.blocked       {background:#fef2f2 !important;border-color:#fecaca !important;color:#dc2626 !important;cursor:not-allowed;}
+
+/* ── COMPLAINT ── */
+.complaint-badge{display:inline-block;background:#fee2e2;color:#dc2626;border-radius:3px;font-size:9px;font-weight:700;padding:1px 4px;vertical-align:middle;margin-left:3px;letter-spacing:.3px;}
+.js-complaint-link{font-size:10px;color:#d1d5db;cursor:pointer;background:none;border:none;padding:1px 0;display:block;margin-top:2px;text-align:right;font-family:'DM Sans',sans-serif;transition:color .1s;line-height:1;}
+.js-complaint-link:hover{color:#dc2626;}
+
+/* ── REVIEW ALERT BAR ── */
+.review-alert-bar{background:#0a2040;border-bottom:1px solid #1e3a5f;padding:5px 1.25rem;display:flex;align-items:center;gap:8px;font-size:12px;color:#e2e8f0;}
+.review-alert-bar.hidden{display:none;}
+.review-alert-count{background:#f0fdf4;color:#166534;font-weight:700;border-radius:20px;padding:1px 8px;font-size:11px;display:inline-block;}
+.review-alert-cta{color:var(--gold);font-weight:700;cursor:pointer;margin-left:auto;font-size:12px;text-decoration:underline;}
+
 .day-gross{font-size:12px;font-weight:700;color:#1a1f2e;margin-top:2px;letter-spacing:.2px;}
 .day-gross.zero{color:rgba(255,255,255,.35);font-weight:400;}
 .js-alerts{font-size:13px;margin-top:2px;}
@@ -252,6 +270,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
   <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
   <button class="topbar-action" onclick="window.print()">🖨</button>
+</div>
+
+<!-- REVIEW ALERT BAR -->
+<div class="review-alert-bar hidden" id="reviewAlertBar">
+  <span>⭐</span>
+  <span><span class="review-alert-count" id="reviewAlertCount">0</span> customer(s) in optimal review request window (1–2 days after job)</span>
+  <span class="review-alert-cta" onclick="openReviewAlertPanel()">See list →</span>
 </div>
 
 <!-- THREE-COLUMN LAYOUT -->
@@ -380,6 +405,56 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="modal-footer">
       <button class="mbtn-cancel" onclick="skipJobLog()">Skip</button>
       <button class="mbtn-save" onclick="saveJobLog()">Save & Complete ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── COMPLAINT MODAL ── -->
+<div class="overlay hidden" id="complaintModal" onclick="if(event.target===this)closeComplaintModal()">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-title" id="complaintModalTitle">⚠ Log Complaint</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">Logging a complaint will disable the review request button for this customer.</p>
+    <div class="modal-field">
+      <label>Complaint Type</label>
+      <select id="complaintType" class="modal-input">
+        <option value="">— Select type —</option>
+        <option value="quality_issue">Quality issue (stains remaining, missed area, damage)</option>
+        <option value="pricing_dispute">Pricing dispute</option>
+        <option value="scheduling_issue">Scheduling / timing issue</option>
+        <option value="crew_behavior">Crew behavior</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>What happened? (optional)</label>
+      <textarea id="complaintDesc" class="modal-input" rows="3" style="resize:none;" placeholder="Brief description of the issue…"></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Resolution</label>
+      <select id="complaintRes" class="modal-input">
+        <option value="">— Select resolution —</option>
+        <option value="resolved_on_site">Resolved on-site</option>
+        <option value="resolved_refund">Resolved with refund / discount</option>
+        <option value="resolved_reclean">Resolved with re-clean</option>
+        <option value="unresolved">Unresolved</option>
+        <option value="customer_refused">Customer refused resolution</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeComplaintModal()">Cancel</button>
+      <button class="mbtn-danger" onclick="saveComplaint()">Save Complaint</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REVIEW ALERT PANEL ── -->
+<div class="overlay hidden" id="reviewAlertPanel" onclick="if(event.target===this)closeReviewAlertPanel()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title">⭐ Optimal Review Request Window</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;">Customers with jobs completed 1–2 days ago. Best window for review requests — memory is fresh, service experience is still warm.</p>
+    <div id="reviewAlertList" style="max-height:52vh;overflow-y:auto;"></div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeReviewAlertPanel()">Close</button>
     </div>
   </div>
 </div>
@@ -731,6 +806,7 @@ function render() {
   renderSidebar();
   renderCalGrid(dates);
   renderCrewPanel(dates);
+  updateReviewAlertBanner();
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
@@ -938,19 +1014,27 @@ function jobCardScheduled(c) {
   const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
   const jobDate  = ss.scheduledDate || '';
   const jobRig   = ss.rig || '';
+  const hasCmpt  = !c.isTest && isComplaintLogged(phone);
+  const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
 
   let reviewBtnHtml = '';
   let printBtnHtml  = '';
+  const complaintLink = (!c.isTest && phone)
+    ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
+    : '';
 
   if (state === 'completed') {
     const fn = esc((c.firstName||c.fn||'').trim().split(' ')[0] || 'there');
     const reqDate = phone ? getReviewRequestedDate(phone) : null;
-    if (reqDate) {
+    if (hasCmpt) {
+      reviewBtnHtml = `<button class="js-review-btn blocked" disabled onclick="event.stopPropagation()" title="Review request blocked — complaint logged">⚠ Review blocked · complaint logged${reqDate ? ' (sent '+reqDate+')' : ''}</button>`;
+    } else if (reqDate) {
       reviewBtnHtml = `<button class="js-review-btn sent" disabled onclick="event.stopPropagation()">✓ Review Requested ${reqDate}</button>`;
     } else if (!phone) {
       reviewBtnHtml = `<button class="js-review-btn no-phone" disabled onclick="event.stopPropagation()">📝 Request review — no phone</button>`;
     } else {
-      reviewBtnHtml = `<button class="js-review-btn" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)">📝 Request Google review · best 24-48h after</button>`;
+      const timing = getReviewTiming(ss.completedDate);
+      reviewBtnHtml = `<button class="js-review-btn timing-${timing.state}" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)"${timing.state==='wait'?' title="Better response rates 24-48 hours after job"':''}>📝 Request review · ${timing.label}</button>`;
     }
     if (!c.isTest && phone) {
       printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print invoice</button>`;
@@ -960,10 +1044,11 @@ function jobCardScheduled(c) {
   }
 
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>${badge}${name}${testBadge}${alerts}</span>${amtHtml}</div>
+    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
     ${reviewBtnHtml}
     ${printBtnHtml}
+    ${complaintLink}
   </div>`;
 }
 
@@ -1700,6 +1785,172 @@ function formatCity(city) {
     const bare = w.replace(/[.,]$/,'');
     return (_CITY_ABBR[bare] || (bare.charAt(0).toUpperCase() + bare.slice(1)));
   }).join(' ');
+}
+
+// ── REVIEW TIMING & COMPLAINT SYSTEM ─────────────────────────────────────────
+function getReviewTiming(completedDate) {
+  if (!completedDate) return { state:'passed', label:'Optional' };
+  const days = (Date.now() - new Date(completedDate+'T12:00:00').getTime()) / 864e5;
+  if (days < 1)  return { state:'wait',    label:'⏳ Wait 24hrs' };
+  if (days <= 2) return { state:'optimal', label:'⭐ Optimal Time' };
+  if (days <= 7) return { state:'closing', label:'⚠ Window Closing' };
+  return          { state:'passed',  label:'Optional' };
+}
+
+function isComplaintLogged(phone) {
+  if (!phone) return false;
+  const c = findCustomer(phone);
+  if (c?.hasComplaints) return true;
+  try { return !!localStorage.getItem(`pcpc_complaint_${phone}`); } catch { return false; }
+}
+
+function isReviewSkipped(phone) {
+  try { return !!localStorage.getItem(`pcpc_rev_skip_${phone}`); } catch { return false; }
+}
+
+// ── COMPLAINT MODAL ───────────────────────────────────────────────────────────
+let _complaintPhone = null;
+
+function openComplaintModal(phone) {
+  _complaintPhone = phone;
+  const c = findCustomer(phone);
+  const name = c ? ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim() : phone;
+  document.getElementById('complaintModalTitle').textContent = `⚠ Log Complaint · ${name}`;
+  document.getElementById('complaintType').value = '';
+  document.getElementById('complaintDesc').value = '';
+  document.getElementById('complaintRes').value  = '';
+  document.getElementById('complaintModal').classList.remove('hidden');
+}
+
+function closeComplaintModal() {
+  document.getElementById('complaintModal').classList.add('hidden');
+  _complaintPhone = null;
+}
+
+async function saveComplaint() {
+  const phone = _complaintPhone;
+  if (!phone) return;
+  const type = document.getElementById('complaintType').value;
+  const desc = document.getElementById('complaintDesc').value.trim();
+  const res  = document.getElementById('complaintRes').value;
+  if (!type) { showToast('Please select a complaint type'); return; }
+
+  closeComplaintModal();
+
+  const now = new Date().toISOString();
+  const c   = findCustomer(phone);
+  const complaint = {
+    id: `c_${Date.now()}`,
+    loggedAt: now,
+    loggedBy: 'operator',
+    type,
+    description: desc,
+    resolution: res,
+    jobDate: c?.scheduledStatus?.scheduledDate || isoToday(),
+  };
+
+  try { localStorage.setItem(`pcpc_complaint_${phone}`, JSON.stringify({ logged: true, at: now, type })); } catch {}
+
+  try {
+    const db = await pcpcApi.getCustomerDB();
+    const cust = (db.customers||[]).find(x => x.phone === phone);
+    if (cust) {
+      if (!cust.complaints) cust.complaints = [];
+      cust.complaints.push(complaint);
+      cust.hasComplaints = true;
+      cust.complaintCount = cust.complaints.length;
+      cust.lastComplaintDate = now;
+      await pcpcApi.saveCustomerDB(db);
+      if (c) { c.complaints = cust.complaints; c.hasComplaints = true; c.complaintCount = cust.complaints.length; c.lastComplaintDate = now; }
+    }
+  } catch(e) { console.error('Complaint save error', e); }
+
+  pcpcApi.logEvent({ eventType:'complaint_logged', phone, customer:{fn:c?.firstName||'',ln:c?.lastName||''}, complaint, loggedAt:now });
+  render();
+  showToast('⚠ Complaint logged — review request blocked');
+}
+
+// ── REVIEW ALERT BANNER & PANEL ───────────────────────────────────────────────
+function getOptimalReviewCandidates() {
+  return (dbRecord?.customers||[]).filter(c => {
+    if (c.isTest) return false;
+    const ss = c.scheduledStatus || {};
+    if (ss.state !== 'completed') return false;
+    if (!ss.completedDate) return false;
+    if (getReviewTiming(ss.completedDate).state !== 'optimal') return false;
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    if (isComplaintLogged(phone)) return false;
+    if (isReviewSkipped(phone)) return false;
+    if (getReviewRequestedDate(phone)) return false;
+    return true;
+  });
+}
+
+function updateReviewAlertBanner() {
+  const bar = document.getElementById('reviewAlertBar');
+  const cnt = document.getElementById('reviewAlertCount');
+  if (!bar || !cnt) return;
+  const n = getOptimalReviewCandidates().length;
+  cnt.textContent = n;
+  bar.classList.toggle('hidden', n === 0);
+}
+
+function openReviewAlertPanel() {
+  renderReviewAlertList();
+  document.getElementById('reviewAlertPanel').classList.remove('hidden');
+}
+
+function closeReviewAlertPanel() {
+  document.getElementById('reviewAlertPanel').classList.add('hidden');
+}
+
+function renderReviewAlertList() {
+  const el = document.getElementById('reviewAlertList');
+  if (!el) return;
+  const candidates = getOptimalReviewCandidates();
+  if (!candidates.length) {
+    el.innerHTML = '<div style="text-align:center;padding:2rem 1rem;color:var(--muted);font-size:13px;">No customers in the optimal window right now.</div>';
+    return;
+  }
+  el.innerHTML = candidates.map(c => {
+    const name  = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    const fn    = esc((c.firstName||c.fn||'').trim().split(' ')[0]||'there');
+    const ss    = c.scheduledStatus || {};
+    const days  = Math.round((Date.now() - new Date((ss.completedDate||isoToday())+'T12:00:00').getTime()) / 864e5);
+    const svc   = (ss.jobNotes||'').substring(0, 45);
+    return `<div class="rev-alert-row" style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--navy);">${esc(name)}</div>
+          <div style="font-size:11px;color:var(--muted);">${days} day${days===1?'':'s'} after job${svc?' · '+esc(svc):''}</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:8px;padding:2px 7px;white-space:nowrap;flex-shrink:0;">⭐ Optimal</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button onclick="sendReviewRequestFromPanel('${phone}','${fn}',this.parentElement.parentElement)" style="flex:2;padding:7px;background:var(--navy);color:var(--gold);border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">📝 Request Review</button>
+        <button onclick="skipFromPanel('${phone}',this.parentElement.parentElement)" style="flex:1;padding:7px;background:#f9fafb;color:var(--muted);border:1px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;">⏭ Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function sendReviewRequestFromPanel(phone, firstName, rowEl) {
+  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
+  const today = isoToday();
+  localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
+  pcpcApi.logEvent({ eventType:'review_request_sent', phone, customer:{fn:firstName, ph:phone}, sentAt:new Date().toISOString() });
+  rowEl?.remove();
+  updateReviewAlertBanner();
+  showToast(`✓ Review requested · iMessage opened`);
+}
+
+function skipFromPanel(phone, rowEl) {
+  try { localStorage.setItem(`pcpc_rev_skip_${phone}`, JSON.stringify({ skippedAt: new Date().toISOString() })); } catch {}
+  rowEl?.remove();
+  updateReviewAlertBanner();
+  showToast('⏭ Skipped — removed from review window list');
 }
 
 // ── PRINT INFRASTRUCTURE ─────────────────────────────────────────────────────

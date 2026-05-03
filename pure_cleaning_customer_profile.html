@@ -714,6 +714,7 @@ function renderProfile(customer, events){
 
   // ── Callouts ──
   const callouts=[];
+  if(c.hasComplaints) callouts.push({cls:'callout-red', text:`⚠ ${c.complaintCount||1} logged complaint${(c.complaintCount||1)>1?'s':''}. Review history below before booking.`});
   if(c.optOut) callouts.push({cls:'callout-gray',  text:'⚠️ Opted out of campaigns — do not send bulk SMS'});
   if(c.movedAway) callouts.push({cls:'callout-gray',text:'🏠 Marked as moved away'});
   if(mo!==null&&mo>12) callouts.push({cls:'callout-red',   text:`🔴 At-risk — last service was ${Math.round(mo)} months ago`});
@@ -726,6 +727,34 @@ function renderProfile(customer, events){
   document.getElementById('callouts').innerHTML=callouts.map(co=>
     `<div class="callout ${co.cls}">${co.text}</div>`
   ).join('');
+
+  // ── Complaints Section ──
+  const CMPT_TYPES = { quality_issue:'Quality Issue', pricing_dispute:'Pricing Dispute', scheduling_issue:'Scheduling / Timing', crew_behavior:'Crew Behavior', other:'Other' };
+  const CMPT_RES   = { resolved_on_site:'Resolved on-site', resolved_refund:'Resolved with refund/discount', resolved_reclean:'Resolved with re-clean', unresolved:'Unresolved', customer_refused:'Customer refused resolution' };
+  let cmptSection = document.getElementById('complaintsSection');
+  if (!cmptSection) {
+    cmptSection = document.createElement('div');
+    cmptSection.id = 'complaintsSection';
+    cmptSection.style.cssText = 'max-width:1100px;margin:10px auto 0;padding:0 16px;';
+    document.getElementById('callouts').insertAdjacentElement('afterend', cmptSection);
+  }
+  if ((c.complaints||[]).length > 0) {
+    const items = (c.complaints).map(cp => `
+      <div style="background:#fff;border:1px solid #fecaca;border-radius:9px;padding:9px 12px;margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px;">
+          <div style="font-size:13px;font-weight:700;color:#dc2626;">${CMPT_TYPES[cp.type]||cp.type||'Unknown'}</div>
+          <div style="font-size:11px;color:#9ca3af;white-space:nowrap;">${cp.loggedAt ? new Date(cp.loggedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'}</div>
+        </div>
+        ${cp.description ? `<div style="font-size:13px;color:#374151;margin-bottom:3px;">${esc(cp.description)}</div>` : ''}
+        <div style="font-size:11px;color:#9ca3af;">Resolution: ${CMPT_RES[cp.resolution]||cp.resolution||'Not recorded'} · Job date: ${cp.jobDate||'—'}</div>
+      </div>`).join('');
+    cmptSection.innerHTML = `<div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:14px;padding:.875rem 1.125rem;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#dc2626;margin-bottom:10px;">⚠ Complaint History (${c.complaints.length})</div>
+      ${items}
+    </div>`;
+  } else {
+    cmptSection.innerHTML = '';
+  }
 
   // ── Predictions Row (Phase 4) ──
   let predRow = document.getElementById('predictionsRow');
