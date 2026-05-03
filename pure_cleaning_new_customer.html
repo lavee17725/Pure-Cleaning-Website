@@ -94,6 +94,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .svc-row.selected .svc-check{background:var(--red);border-color:var(--red);}
 .svc-name{flex:1;font-size:15px;font-weight:600;color:var(--text);}
 .svc-count{font-size:11px;color:var(--muted);white-space:nowrap;}
+.roof-method-wrap{background:#fff6f2;border-top:1px solid #fecaca;padding:8px 14px 10px 46px;}
+.roof-method-wrap label{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;}
+.roof-method-wrap input[type=radio]{accent-color:var(--red);width:16px;height:16px;flex-shrink:0;cursor:pointer;}
 .path-toggle{background:var(--white);border:2px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:1.25rem;}
 .path-opt{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent;}
 .path-opt:not(:last-child){border-bottom:1px solid var(--border);}
@@ -215,15 +218,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         </div>
         <div id="selectedSummary" style="font-size:13px;color:var(--sky);margin-top:6px;font-weight:600;min-height:18px;"></div>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label>Hours estimated</label>
-          <input id="pHours" class="fi" type="number" placeholder="3" min="0.5" step="0.5">
-        </div>
-        <div class="field">
-          <label>Price agreed<span class="field-req">*</span></label>
-          <input id="pPrice" class="fi" type="number" placeholder="350" oninput="checkReq()">
-        </div>
+      <div class="field">
+        <label>Price agreed<span class="field-req">*</span></label>
+        <input id="pPrice" class="fi" type="number" placeholder="350" oninput="checkReq()">
       </div>
       <div class="field" style="margin-top:.5rem;">
         <label>How did they hear about us?</label>
@@ -436,10 +433,17 @@ const DEFAULT_SERVICES = {
     {id:'balcony',     name:'Balcony',            count:13,  pct:0.7},
   ],
 };
-let _svcData   = DEFAULT_SERVICES;
-let _svcSel    = new Set();
-let _svcSecExp = false;
+let _svcData    = DEFAULT_SERVICES;
+let _svcSel     = new Set();
+let _svcSecExp  = false;
 let _svcCustExp = false;
+let _roofMethod = null; // 'softwash' | 'power_wash_chemical' | 'power_wash_no_chemical'
+
+const ROOF_METHODS = [
+  { id:'softwash',              label:'Softwash' },
+  { id:'power_wash_chemical',   label:'Power wash with chemical' },
+  { id:'power_wash_no_chemical',label:'Power wash, no chemical' },
+];
 
 function renderServicePicker() {
   const pEl = document.getElementById('primaryServices');
@@ -455,23 +459,47 @@ function renderServicePicker() {
 function svcRowHtml(s) {
   const sel = _svcSel.has(s.id);
   const count = s.count >= 1000 ? (s.count/1000).toFixed(1)+'K' : s.count;
+  const isRoof = s.id === 'roof_cleaning';
+  const roofSub = (isRoof && sel) ? `<div class="roof-method-wrap">
+    ${ROOF_METHODS.map(m => `<label>
+      <input type="radio" name="roofMethod" value="${m.id}"${_roofMethod===m.id?' checked':''} onclick="event.stopPropagation();setRoofMethod('${m.id}')">
+      ${m.label}
+    </label>`).join('')}
+  </div>` : '';
   return `<div class="svc-row${sel?' selected':''}" data-id="${s.id}" onclick="toggleService('${s.id}')">
     <div class="svc-check">${sel?'✓':''}</div>
     <div class="svc-name">${s.name}</div>
     <div class="svc-count">${count} jobs (${s.pct}%)</div>
-  </div>`;
+  </div>${roofSub}`;
+}
+
+function setRoofMethod(method) {
+  _roofMethod = method;
+  updateSelectedSummary();
+  checkReq();
 }
 
 function toggleService(id) {
-  if (_svcSel.has(id)) _svcSel.delete(id); else _svcSel.add(id);
-  // Re-render just this row
-  document.querySelectorAll(`[data-id="${id}"]`).forEach(el => {
-    const sel = _svcSel.has(id);
-    el.className = 'svc-row' + (sel ? ' selected' : '');
-    el.style.paddingLeft = sel ? '' : '17px';
-    const chk = el.querySelector('.svc-check');
-    if (chk) chk.textContent = sel ? '✓' : '';
-  });
+  if (_svcSel.has(id)) {
+    _svcSel.delete(id);
+    if (id === 'roof_cleaning') _roofMethod = null;
+  } else {
+    _svcSel.add(id);
+  }
+  // Full re-render to show/hide roof sub-options correctly
+  if (id === 'roof_cleaning') {
+    renderServicePicker();
+    // Restore secondary expanded state
+    const sec = document.getElementById('secondaryServices');
+    if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
+  } else {
+    document.querySelectorAll(`[data-id="${id}"]`).forEach(el => {
+      const sel = _svcSel.has(id);
+      el.className = 'svc-row' + (sel ? ' selected' : '');
+      const chk = el.querySelector('.svc-check');
+      if (chk) chk.textContent = sel ? '✓' : '';
+    });
+  }
   updateSelectedSummary();
   checkReq();
 }
@@ -496,11 +524,20 @@ function toggleCustomService() {
   updateSelectedSummary();
 }
 
+function _roofDisplayName() {
+  if (!_roofMethod) return 'Roof Cleaning';
+  const m = ROOF_METHODS.find(x => x.id === _roofMethod);
+  return m ? `Roof Cleaning (${m.label})` : 'Roof Cleaning';
+}
+
 function updateSelectedSummary() {
   const el = document.getElementById('selectedSummary');
   if (!el) return;
   const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
-  const names = [..._svcSel].map(id => (all.find(s=>s.id===id)||{}).name).filter(Boolean);
+  const names = [..._svcSel].map(id => {
+    if (id === 'roof_cleaning') return _roofDisplayName();
+    return (all.find(s=>s.id===id)||{}).name;
+  }).filter(Boolean);
   const custom = (document.getElementById('customServiceText')?.value||'').trim();
   if (custom) names.push(custom);
   el.textContent = names.length ? 'Selected: ' + names.join(', ') : '';
@@ -509,11 +546,15 @@ function updateSelectedSummary() {
 function getServicesAgreedValue() {
   const all = [...(_svcData.primary||[]), ...(_svcData.secondary||[])];
   const structured = [..._svcSel];
-  const names = structured.map(id => (all.find(s=>s.id===id)||{}).name).filter(Boolean);
+  const names = structured.map(id => {
+    if (id === 'roof_cleaning') return _roofDisplayName();
+    return (all.find(s=>s.id===id)||{}).name;
+  }).filter(Boolean);
   const custom = (document.getElementById('customServiceText')?.value||'').trim();
   if (custom) names.push(custom);
   return {
     structured,
+    roofMethod: _svcSel.has('roof_cleaning') ? (_roofMethod || null) : null,
     structuredDisplay: names.filter(n => !custom || n !== custom),
     custom,
     fullDescription: names.join(', ')
@@ -522,6 +563,7 @@ function getServicesAgreedValue() {
 
 function resetServicePicker() {
   _svcSel.clear();
+  _roofMethod = null;
   _svcSecExp = false;
   _svcCustExp = false;
   const cst = document.getElementById('customServiceText'); if (cst) cst.value = '';
@@ -624,7 +666,7 @@ function startNew() {
 
 function resetForm() {
   resetServicePicker();
-  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pHours','pPrice'].forEach(id => {
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','pPrice'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
   const ls = document.getElementById('nLeadSource'); if (ls) ls.value = 'unknown';
@@ -774,7 +816,6 @@ async function submitPhonePath() {
   const notes   = document.getElementById('nNotes').value.trim();
   const svcAgreed = getServicesAgreedValue();
   const services  = svcAgreed.fullDescription;
-  const hours    = parseFloat(document.getElementById('pHours').value) || null;
   const price    = parseFloat(document.getElementById('pPrice').value);
   try {
     let customer;
@@ -791,7 +832,7 @@ async function submitPhonePath() {
           mainAmount: price,
           mainServices: services,
           servicesAgreed: svcAgreed,
-          estimatedHours: hours,
+
           quotedDate: new Date().toISOString(),
           miniQuoteCustomData: null
         };
@@ -809,7 +850,7 @@ async function submitPhonePath() {
           mainAmount: price,
           mainServices: services,
           servicesAgreed: svcAgreed,
-          estimatedHours: hours,
+
           quotedDate: new Date().toISOString(),
           miniQuoteCustomData: null
         },
