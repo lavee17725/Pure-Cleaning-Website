@@ -1098,11 +1098,29 @@ function renderSidebar(c){
   const mapAddr=c.address&&c.city?`https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`:'';
   const sourceLabel={'phone_quoted':'Phone Quoted','reactivation':'Reactivation','legacy':'Legacy Import'}[c.source]||c.source||'Unknown';
 
+  // Lead source — human-readable, handles both old and new schema
+  const _LEAD_DISP = {
+    google:'Google search', referral:'Friend or family referred me',
+    truck:'Saw the truck', angi:'Angi', nextdoor:'Nextdoor',
+    repeat:'Returning customer', other:'Other',
+    google_organic:'Google search', google_ads:'Google Ad',
+    facebook:'Facebook / Instagram', yard_sign:'Saw the truck / yard sign',
+    unknown:'Unknown'
+  };
+  const lsData = c.leadSource || {};
+  const lsPrimary = lsData.primary || '';
+  let lsDisplay = lsData.label || _LEAD_DISP[lsPrimary] || (lsPrimary ? lsPrimary : null);
+  if (lsPrimary === 'referral' && lsData.referredBy) lsDisplay += ` (via ${lsData.referredBy})`;
+  else if (lsPrimary === 'other' && lsData.leadSourceOther) lsDisplay += `: ${lsData.leadSourceOther}`;
+  const leadSourceRow = lsDisplay && lsDisplay !== 'Unknown'
+    ? {icon:'📣', label:'How they found us', val: esc(lsDisplay)} : null;
+
   const contactRows=[
     {icon:'📞',label:'Phone',val:`<a href="tel:+1${c.phone}">${fmtPh(c.phone)}</a>`},
     c.email?{icon:'📧',label:'Email',val:`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`}:null,
     (c.address||c.city)?{icon:'📍',label:'Address',val:mapAddr?`<a href="${mapAddr}" target="_blank">${esc(c.address||'')}${c.address&&c.city?', ':''}${esc(c.city||'')}</a>`:`${esc(c.address||'')} ${esc(c.city||'')}`}:null,
     {icon:'🏷️',label:'Source',val:`<span class="source-badge">${esc(sourceLabel)}</span>`},
+    leadSourceRow,
     c.zip?{icon:'📮',label:'ZIP',val:esc(c.zip)}:null,
   ].filter(Boolean);
 

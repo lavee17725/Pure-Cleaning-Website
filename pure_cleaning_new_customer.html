@@ -308,21 +308,23 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
 
       <div class="field" style="margin-top:.5rem;">
-        <label>How did they hear about us?</label>
-        <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="document.getElementById('nReferrerWrap').style.display=this.value==='referral'?'block':'none'">
-          <option value="unknown">Not sure</option>
-          <option value="google_organic">Google search</option>
-          <option value="google_ads">Google Ad</option>
-          <option value="facebook">Facebook / Instagram</option>
-          <option value="referral">Referral — they know someone</option>
-          <option value="repeat">Returning customer</option>
-          <option value="yard_sign">Saw our van / yard sign</option>
+        <label>How did they hear about us?<span class="field-req">*</span></label>
+        <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="onLeadSourceChange(this)">
+          <option value="">Select one…</option>
+          <option value="google">Google search</option>
+          <option value="referral">Friend or family referred me</option>
+          <option value="truck">Saw the truck</option>
+          <option value="angi">Angi</option>
           <option value="nextdoor">Nextdoor</option>
-          <option value="angi">Angi / HomeAdvisor</option>
+          <option value="repeat">I've used Pure Cleaning before</option>
           <option value="other">Other</option>
         </select>
+        <div id="nLeadSourceError" style="font-size:11px;color:#e53e3e;font-weight:600;margin-top:5px;display:none;">Please select how the customer heard about us.</div>
         <div id="nReferrerWrap" style="display:none;margin-top:6px;">
-          <input id="nReferrerDetail" class="fi" type="text" placeholder="Referred by who? (optional)">
+          <input id="nReferrerDetail" class="fi" type="text" placeholder="Who referred them? (optional)" style="font-size:15px;">
+        </div>
+        <div id="nLeadOtherWrap" style="display:none;margin-top:6px;">
+          <input id="nLeadOtherText" class="fi" type="text" placeholder="How did they find you?" style="font-size:15px;">
         </div>
       </div>
     </div>
@@ -960,9 +962,12 @@ function resetForm() {
   ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
-  const ls = document.getElementById('nLeadSource'); if (ls) ls.value = 'unknown';
+  const ls = document.getElementById('nLeadSource'); if (ls) ls.value = '';
   const nrw = document.getElementById('nReferrerWrap'); if (nrw) nrw.style.display = 'none';
   const nrd = document.getElementById('nReferrerDetail'); if (nrd) nrd.value = '';
+  const now2 = document.getElementById('nLeadOtherWrap'); if (now2) now2.style.display = 'none';
+  const not2 = document.getElementById('nLeadOtherText'); if (not2) not2.value = '';
+  const nle  = document.getElementById('nLeadSourceError'); if (nle) nle.style.display = 'none';
   document.getElementById('dupCallout').classList.remove('show');
   renderNewAlerts();
   checkReq();
@@ -1058,8 +1063,9 @@ function checkReq() {
   const ph   = (document.getElementById('nPhone').value||'').replace(/\D/g,'');
   const addr = (document.getElementById('nAddr').value||'').trim();
   const city = (document.getElementById('nCity').value||'').trim();
+  const ls   = (document.getElementById('nLeadSource')?.value||'');
   const btn  = document.getElementById('submitBtn');
-  let ok = !!(fn && ln && ph.length===10 && addr && city);
+  let ok = !!(fn && ln && ph.length===10 && addr && city && ls);
   if (ok && currentPath === 'phone') {
     const svc = getServicesAgreedValue();
     ok = !!(svc.fullDescription);
@@ -1084,6 +1090,42 @@ function renderNewAlerts() {
       </div>
       <button class="ac-remove" onclick="removeAlert(${i})">×</button>
     </div>`).join('');
+}
+
+const _LEAD_LABELS_NC = {
+  google:   'Google search',
+  referral: 'Friend or family referred me',
+  truck:    'Saw the truck',
+  angi:     'Angi',
+  nextdoor: 'Nextdoor',
+  repeat:   'Returning customer',
+  other:    'Other'
+};
+
+function onLeadSourceChange(sel) {
+  const v = sel.value;
+  sel.classList.toggle('err', !v);
+  const errEl = document.getElementById('nLeadSourceError');
+  if (errEl) errEl.style.display = !v ? 'block' : 'none';
+  const refWrap = document.getElementById('nReferrerWrap');
+  if (refWrap) refWrap.style.display = v === 'referral' ? 'block' : 'none';
+  const othWrap = document.getElementById('nLeadOtherWrap');
+  if (othWrap) othWrap.style.display = v === 'other' ? 'block' : 'none';
+  checkReq();
+}
+
+function buildLeadSource() {
+  const primary      = document.getElementById('nLeadSource')?.value || '';
+  const referredBy   = document.getElementById('nReferrerDetail')?.value?.trim() || null;
+  const otherText    = document.getElementById('nLeadOtherText')?.value?.trim() || null;
+  return {
+    primary,
+    label:           _LEAD_LABELS_NC[primary] || primary || 'Unknown',
+    referredBy:      primary === 'referral' ? (referredBy || null) : null,
+    leadSourceOther: primary === 'other'    ? (otherText  || null) : null,
+    capturedAt:      new Date().toISOString(),
+    capturedVia:     'phone_quote'
+  };
 }
 
 async function submitForm() {
@@ -1117,7 +1159,7 @@ async function submitPhonePath() {
         customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
         if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
-        if (!customer.leadSource) customer.leadSource = { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' };
+        if (!customer.leadSource) customer.leadSource = buildLeadSource();
         customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
           mainAmount: null,
@@ -1139,7 +1181,7 @@ async function submitPhonePath() {
         if (email) customer.email=email; if (zip) customer.zip=zip; customer.notes=notes;
         customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
-        if (!customer.leadSource) customer.leadSource = { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' };
+        if (!customer.leadSource) customer.leadSource = buildLeadSource();
         customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
           mainAmount: null, mainServices: services,
@@ -1152,7 +1194,7 @@ async function submitPhonePath() {
           lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
           linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
           source: 'phone_quoted',
-          leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
+          leadSource: buildLeadSource(),
           quoteStatus: {
             state: 'phone_quoted_pending_mini_quote',
             mainAmount: null, mainServices: services,
@@ -1195,7 +1237,7 @@ async function submitDigitalPath() {
     } else {
       const isTestChecked = document.getElementById('isTestRecord')?.checked;
       customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
-        leadSource: { primary: document.getElementById('nLeadSource')?.value || 'unknown', detail: document.getElementById('nReferrerDetail')?.value?.trim() || '', capturedAt: new Date().toISOString(), capturedBy: 'manual' },
+        leadSource: buildLeadSource(),
         ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {}) };
       if (!dbRecord) dbRecord = {customers:[]};
       if (!dbRecord.customers) dbRecord.customers=[];
