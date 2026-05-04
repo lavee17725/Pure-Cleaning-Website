@@ -669,13 +669,15 @@ function customerToDbRecord(c) {
 function dbRecordToCustomer(r) {
   const lastDateObj = r.lastService ? new Date(r.lastService) : null;
   const ms = monthsSince(lastDateObj);
-  const avgTicket = r.totalJobs ? r.lifetimeSpend / r.totalJobs : 0;
+  const totalJobs = r.totalJobs ?? 0;
+  const lifetimeSpend = r.lifetimeSpend ?? 0;
+  const avgTicket = totalJobs ? lifetimeSpend / totalJobs : 0;
   const hasSeal = r.hasSealHistory || false;
-  const tier = calcTier({ monthsSince: ms, totalJobs: r.totalJobs, avgTicket, lifetimeSpend: r.lifetimeSpend, hasSeal });
+  const tier = calcTier({ monthsSince: ms, totalJobs, avgTicket, lifetimeSpend, hasSeal });
   return {
     fn: r.firstName, ln: r.lastName, phone: r.phone,
     address: r.address || '', city: r.city || '',
-    lastDateObj, totalJobs: r.totalJobs, lifetimeSpend: r.lifetimeSpend,
+    lastDateObj, totalJobs, lifetimeSpend,
     avgTicket, maxTicket: 0, hasSeal, tier, monthsSince: ms,
     addresses: new Set(),
     lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
