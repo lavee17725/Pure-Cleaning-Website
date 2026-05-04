@@ -79,7 +79,7 @@ select option{background:var(--white);}
 .quick-section-lbl{font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600;letter-spacing:.3px;}
 
 /* DATE CARDS */
-.date-alt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.date-alt-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
 .date-card{background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;}
 .date-card.primary-card{border-color:var(--terra);background:rgba(194,65,12,.04);}
 .date-card label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:block;margin-bottom:6px;}
@@ -143,11 +143,6 @@ select option{background:var(--white);}
 .preview-date-pill{border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;}
 
 /* LIVE PEEK (compact preview in Build tab) */
-.live-peek{background:linear-gradient(135deg,#0d1e38 0%,#0f2548 100%);border:1.5px solid rgba(45,125,210,.3);border-radius:12px;padding:.875rem 1rem;margin-bottom:1.25rem;}
-.live-peek-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:rgba(45,125,210,.7);margin-bottom:.5rem;}
-.live-peek-name{font-size:14px;font-weight:600;color:var(--white);}
-.live-peek-price{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--terra);letter-spacing:1px;line-height:1.1;}
-.live-peek-svcs{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;}
 
 /* HISTORY */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.5rem;}
@@ -330,7 +325,6 @@ select option{background:var(--white);}
     <div class="date-alt-grid">
       <div class="date-card"><label>Backup 1</label><input type="date" id="altDate1" oninput="updatePreview();saveDraft()"></div>
       <div class="date-card"><label>Backup 2</label><input type="date" id="altDate2" oninput="updatePreview();saveDraft()"></div>
-      <div class="date-card"><label>Backup 3</label><input type="date" id="altDate3" oninput="updatePreview();saveDraft()"></div>
     </div>
   </div>
 
@@ -349,14 +343,6 @@ select option{background:var(--white);}
       <div class="sec-hdr-sub">Shown on their agreement page. Personal notes go a long way.</div>
     </div>
     <textarea id="customerNotes" placeholder="Hi! Tony noticed your front walkway is looking rough — happy to add it on if you want." rows="3" oninput="updatePreview();saveDraft()"></textarea>
-  </div>
-
-  <!-- LIVE PEEK -->
-  <div class="live-peek" id="livePeek">
-    <div class="live-peek-lbl">👀 Customer preview</div>
-    <div id="peekName" class="live-peek-name">Customer Name</div>
-    <div id="peekPrice" class="live-peek-price">$—</div>
-    <div id="peekSvcs" class="live-peek-svcs">Add services above</div>
   </div>
 
   <button class="send-btn send-btn-pressure" id="generateBtn" onclick="generateQuote()">Send Quote →</button>
@@ -462,7 +448,7 @@ let incomingReqId = null; // set when opened from Incoming Requests inbox
 
 // ─── INIT ────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0];
-['primaryDate','altDate1','altDate2','altDate3'].forEach(id => {
+['primaryDate','altDate1','altDate2'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.min = today;
 });
@@ -577,7 +563,6 @@ function renderChips() {
   ).join('');
   renderAddons();
   saveDraft();
-  updateLivePeek();
 }
 
 // ─── ADDONS ──────────────────────────────────────────────────────
@@ -636,7 +621,7 @@ function updatePreview() {
 
   const addons = getEnabledAddons();
   const primary = document.getElementById('primaryDate').value;
-  const alts = ['altDate1','altDate2','altDate3'].map(id => document.getElementById(id).value).filter(Boolean);
+  const alts = ['altDate1','altDate2'].map(id => document.getElementById(id).value).filter(Boolean);
   const primaryFmt = primary ? new Date(primary+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '';
 
   let textMsg = `Hey ${first||'there'}! It's Tyler from Pure Cleaning 💧\n\nYour quote for:\n${services.join(', ')||'—'}\n\n💰 Total: ${priceDisplay}`;
@@ -665,7 +650,7 @@ function autoFillAltDates() {
   const primary = document.getElementById('primaryDate').value;
   if (!primary) return;
   const base = new Date(primary + 'T12:00:00');
-  [3, 7, 10].forEach((days, i) => {
+  [3, 7].forEach((days, i) => {
     const el = document.getElementById('altDate' + (i + 1));
     if (!el || el.value) return; // don't overwrite already-set
     const d = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
@@ -750,7 +735,7 @@ async function generateQuote() {
     const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     return `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`;
   };
-  const backupDateVals = ['altDate1','altDate2','altDate3'].map(id => document.getElementById(id).value).filter(Boolean);
+  const backupDateVals = ['altDate1','altDate2'].map(id => document.getElementById(id).value).filter(Boolean);
   const dateSuggestions = [
     { date: primaryDate, display: fmtDisplay(primaryDate), label: 'Best fit',    rig: '', rigLabel: '', reason: '' },
     ...backupDateVals.map(val => ({ date: val, display: fmtDisplay(val), label: 'Alternative', rig: '', rigLabel: '', reason: '' }))
@@ -1020,7 +1005,6 @@ function saveDraft() {
         primaryDate: document.getElementById('primaryDate')?.value || '',
         altDate1: document.getElementById('altDate1')?.value || '',
         altDate2: document.getElementById('altDate2')?.value || '',
-        altDate3: document.getElementById('altDate3')?.value || '',
         internalNotes: document.getElementById('internalNotes')?.value || '',
         customerNotes: document.getElementById('customerNotes')?.value || '',
         savedAt: Date.now(),
@@ -1052,26 +1036,11 @@ function restoreDraft() {
     if (d.primaryDate) document.getElementById('primaryDate').value = d.primaryDate;
     if (d.altDate1) document.getElementById('altDate1').value = d.altDate1;
     if (d.altDate2) document.getElementById('altDate2').value = d.altDate2;
-    if (d.altDate3) document.getElementById('altDate3').value = d.altDate3;
     if (d.internalNotes) document.getElementById('internalNotes').value = d.internalNotes;
     if (d.customerNotes) document.getElementById('customerNotes').value = d.customerNotes;
     updatePreview(); updateSendBtn();
     showQbToast('✓ Draft restored');
   } catch(e) { console.warn('[draft] restore failed:', e.message); }
-}
-
-// ─── LIVE PEEK UPDATE ────────────────────────────────────────────
-function updateLivePeek() {
-  const fn    = document.getElementById('custFirst')?.value || '';
-  const ln    = document.getElementById('custLast')?.value || '';
-  const price = document.getElementById('quotePricePressure')?.value;
-  const name  = [fn, ln].filter(Boolean).join(' ') || 'Customer';
-  const el = document.getElementById('peekName');
-  const pp = document.getElementById('peekPrice');
-  const ps = document.getElementById('peekSvcs');
-  if (el) el.textContent = name;
-  if (pp) pp.textContent = price ? '$' + Number(price).toLocaleString() : '$—';
-  if (ps) ps.textContent = services.length ? services.slice(0,3).join(' · ') + (services.length > 3 ? ` +${services.length-3} more` : '') : 'Add services above';
 }
 
 // ─── SEND BUTTON DYNAMIC LABEL ───────────────────────────────────
@@ -1098,13 +1067,6 @@ function showQbToast(msg) {
   t.classList.add('show');
   clearTimeout(t._t);
   t._t = setTimeout(() => t.classList.remove('show'), 2200);
-}
-
-// ─── HOOK updatePreview TO ALSO UPDATE PEEK ──────────────────────
-const _origUpdatePreview = updatePreview;
-function updatePreview() {
-  _origUpdatePreview();
-  updateLivePeek();
 }
 
 // ─── RESTORE DRAFT ON LOAD ───────────────────────────────────────
