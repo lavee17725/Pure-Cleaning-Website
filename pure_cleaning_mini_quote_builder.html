@@ -178,7 +178,7 @@ const STANDARD_ADDONS = [
 ];
 
 // Section 3 always-visible add-ons
-const PROBLEM_FIX_IDS  = ['awnings'];
+const PROBLEM_FIX_IDS  = []; // awnings removed — rarely performed; use Add Custom Service instead
 
 const ROOF_METHOD_LABELS = {
   softwash:'Softwash',
@@ -513,9 +513,11 @@ function populateAddonSections() {
     if (bundleEl) bundleEl.innerHTML = bundleIds.map(id => entryHtml(id)).join('');
   }
 
-  // Section 3 — problem fixes (always shown)
-  const fixEl = document.getElementById('addonsProblems');
+  // Section 3 — problem fixes (hide section when empty)
+  const fixEl      = document.getElementById('addonsProblems');
+  const fixSection = document.getElementById('fixSection');
   if (fixEl) fixEl.innerHTML = PROBLEM_FIX_IDS.map(id => entryHtml(id)).join('');
+  if (fixSection) fixSection.style.display = PROBLEM_FIX_IDS.length ? '' : 'none';
 }
 
 function addonRowHtml(id, name, icon, enabled, bundle, regular, note, extraBodyHtml='') {
