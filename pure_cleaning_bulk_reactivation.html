@@ -478,6 +478,7 @@ td.money{font-family:'DM Mono',monospace;}
   </span>
   <div style="display:flex;gap:8px;align-items:center;">
     <button class="btn-sm" id="bulkExclBtn" style="display:none;background:rgba(229,62,62,.18);border:1.5px solid rgba(229,62,62,.4);color:#fc8181;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptBulkExclude()">🚫 Exclude Selected (<span id="bulkExclCount">0</span>)</button>
+    <button class="btn-sm" id="bulkDelBtn" style="display:none;background:rgba(229,62,62,.25);border:1.5px solid rgba(229,62,62,.55);color:#fca5a5;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptBulkDeleteBR()">🗑️ Delete Selected (<span id="bulkDelCount">0</span>)</button>
     <button class="btn btn-gold" style="font-size:16px;padding:10px 20px;" onclick="generateLinks()" id="genBtn">Generate Links →</button>
   </div>
 </div>
@@ -715,7 +716,9 @@ function dbRecordToCustomer(r) {
     alerts: r.alerts || [],
     optOut: r.optOut || null,
     movedAway: r.movedAway || null,
-    reactivationExcluded: r.reactivationExcluded || null
+    reactivationExcluded: r.reactivationExcluded || null,
+    deleted: r.deleted || false,
+    deletedAt: r.deletedAt || null,
   };
 }
 
@@ -756,7 +759,7 @@ async function saveDatabase() {
 function populateFromDatabase(db) {
   if (!db || !db.customers || !db.customers.length) return false;
   sealPhones = new Set(db.customers.filter(r => r.hasSealHistory).map(r => r.phone));
-  allCustomers = db.customers.map(dbRecordToCustomer);
+  allCustomers = db.customers.filter(r => !r.deleted).map(dbRecordToCustomer);
   excludedRecords = (db.excluded || []).map(e => ({ displayName: e.name, phone: e.phone, reason: e.reason, customerData: null }));
   return true;
 }
@@ -1573,6 +1576,12 @@ function updateSelInfo() {
   if (exclBtn) {
     exclBtn.style.display = n > 0 ? '' : 'none';
     const span = document.getElementById('bulkExclCount');
+    if (span) span.textContent = n;
+  }
+  const delBtn = document.getElementById('bulkDelBtn');
+  if (delBtn) {
+    delBtn.style.display = n > 0 ? '' : 'none';
+    const span = document.getElementById('bulkDelCount');
     if (span) span.textContent = n;
   }
 }
@@ -2415,6 +2424,54 @@ function showExclToast(msg) {
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
 }
 
+// ─── CUSTOMER DELETE (SOFT) ──────────────────────────────────────────────────
+const PROTECTED_PHONE_BR = '9546843614'; // Keith Wolf
+
+function promptDeleteCustomerBR(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  if (phone === PROTECTED_PHONE_BR) { showExclToast('Keith Wolf is protected — cannot be deleted.'); return; }
+  const name = `${c.fn} ${c.ln}`;
+  if (!confirm(`Delete ${name}?\n\nThis soft-deletes the record — recoverable from Recently Deleted within 30 days.`)) return;
+  executeSoftDeleteBR([phone]);
+}
+
+function promptBulkDeleteBR() {
+  const phones = [...selectedPhones];
+  if (!phones.length) return;
+  const blocked = phones.filter(p => p === PROTECTED_PHONE_BR);
+  if (blocked.length) { showExclToast('Cannot delete Keith Wolf — protected record.'); return; }
+  if (!confirm(`Soft-delete ${phones.length} customer${phones.length>1?'s':''}?\n\nRecoverable from Recently Deleted within 30 days.`)) return;
+  executeSoftDeleteBR(phones);
+}
+
+async function executeSoftDeleteBR(phones) {
+  let failed = 0;
+  for (const phone of phones) {
+    try {
+      const res = await fetch(`${PCPC_API_BR}/customer/${phone}/delete`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ reason: 'deleted_from_bulk_reactivation', deletedBy: 'tyler' })
+      });
+      if (!res.ok) { failed++; continue; }
+      // Remove from local allCustomers
+      const idx = allCustomers.findIndex(c => c.phone === phone);
+      if (idx !== -1) allCustomers.splice(idx, 1);
+      selectedPhones.delete(phone);
+    } catch(e) { failed++; }
+  }
+  const n = phones.length - failed;
+  if (n > 0) showExclToast(`🗑️ Deleted ${n} customer${n>1?'s':''} — recover at Recently Deleted`);
+  if (failed > 0) showExclToast(`⚠️ ${failed} record${failed>1?'s':''} failed to delete`);
+  applyFilters();
+  updateContactStats();
+  // Update total count
+  document.getElementById('sTotal').textContent = allCustomers.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+}
+
 // ─── FILE HANDLING ───────────────────────────────────────────────────────────
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
@@ -2727,6 +2784,7 @@ function toggleRowMenu(phone, btn) {
       ? `<button class="row-menu-item" onclick="promptRestore('${phone}')">↩ Restore from exclusion</button>`
       : `<button class="row-menu-item danger" onclick="promptExclude('${phone}')">🚫 Don't Reactivate</button>`
     ) +
+    `<button class="row-menu-item danger" onclick="promptDeleteCustomerBR('${phone}')">🗑️ Delete customer</button>` +
     (isOptedOut && !isExcluded
       ? `<button class="row-menu-item" onclick="restoreOptOut('${phone}')">↩ Restore from opt-out</button>`
       : ''

@@ -206,6 +206,7 @@ function needsCard(c) {
       <button class="nq-btn nq-btn-reminder" onclick="sendReminder('${ph}','${esc(c.firstName||'')}','first')">📱 Send Reminder</button>
       <button class="nq-btn nq-btn-verbal"   onclick="openVerbalModal('${ph}','${name}')">✓ Verbal Confirm</button>
       <button class="nq-btn nq-btn-skip"     onclick="skipReminder('${ph}')">🔕 Skip</button>
+      <button class="nq-btn nq-btn-lost"     onclick="softDeleteFromQueue('${ph}','${name}')" title="Soft-delete customer record">🗑️</button>
     </div>
   </div>`;
 }
@@ -225,6 +226,7 @@ function secondCard(c) {
       <button class="nq-btn nq-btn-reminder" onclick="sendReminder('${ph}','${esc(c.firstName||'')}','second')">📱 Send 2nd Reminder</button>
       <button class="nq-btn nq-btn-verbal"   onclick="openVerbalModal('${ph}','${name}')">✓ Verbal</button>
       <button class="nq-btn nq-btn-lost"     onclick="markLost('${ph}','${name}')">✗ Mark Lost</button>
+      <button class="nq-btn nq-btn-lost"     onclick="softDeleteFromQueue('${ph}','${name}')" title="Soft-delete customer record">🗑️</button>
     </div>
   </div>`;
 }
@@ -255,6 +257,7 @@ function staleCard(c) {
     <div class="nq-btns">
       <button class="nq-btn nq-btn-reminder" onclick="sendReminder('${ph}','${esc(c.firstName||'')}','first')">📱 Last Try</button>
       <button class="nq-btn nq-btn-lost"     onclick="markLost('${ph}','${name}')">✗ Mark Lost</button>
+      <button class="nq-btn nq-btn-lost"     onclick="softDeleteFromQueue('${ph}','${name}')" title="Soft-delete customer record">🗑️</button>
     </div>
   </div>`;
 }
@@ -330,6 +333,21 @@ async function markLost(phone, name) {
     await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
     showToast(`✓ ${name} marked as lost`);
     setTimeout(loadQueue, 400);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function softDeleteFromQueue(phone, name) {
+  if (!confirm(`Delete ${name} from the system?\n\nThis soft-deletes the record — recoverable from Recently Deleted within 30 days.\n\nThe job quote is also cleared.`)) return;
+  try {
+    const res = await fetch(`${PCPC_API}/customer/${phone}/delete`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ reason: 'deleted_from_nudge_queue', deletedBy: 'tyler' })
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.message || data.error || 'Delete failed'); return; }
+    showToast(`🗑️ ${name} deleted`);
+    setTimeout(loadQueue, 600);
   } catch(e) { alert('Error: ' + e.message); }
 }
 

@@ -390,6 +390,32 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="sidebar-stack" id="sidebarStack"></div>
   </div>
 
+  <!-- ADMIN ZONE: Delete -->
+  <div id="adminDeleteZone" style="display:none;max-width:800px;margin:2rem auto;padding:0 1.25rem 4rem;">
+    <div style="border:1.5px solid rgba(229,62,62,.3);border-radius:12px;padding:1rem 1.25rem;background:#fff9f9;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#dc2626;margin-bottom:.75rem;">⚠️ Admin Only</div>
+      <button id="deleteCustomerBtn" onclick="promptDeleteCustomer()" style="background:none;border:1.5px solid rgba(229,62,62,.4);color:#dc2626;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;">🗑️ Delete this customer</button>
+      <div style="font-size:11px;color:#9ca3af;margin-top:6px;">Soft-deletes — recoverable from <a href="/pure_cleaning_recently_deleted.html" style="color:#6b7280;text-decoration:underline;">Recently Deleted</a> within 30 days.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- DELETE CUSTOMER MODAL -->
+<div id="deleteCustomerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:1rem;">
+  <div style="background:#fff;border-radius:18px;padding:1.75rem;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">🗑️</div>
+    <div id="deleteModalTitle" style="font-size:18px;font-weight:700;color:#0a1628;margin-bottom:.5rem;"></div>
+    <div id="deleteModalBody" style="font-size:14px;color:#6b7280;line-height:1.6;margin-bottom:1rem;"></div>
+    <div id="deleteNameConfirmWrap" style="display:none;margin-bottom:1rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Type their full name to confirm</label>
+      <input id="deleteNameInput" type="text" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;" placeholder="First Last">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="closeDeleteModal()" style="flex:1;padding:11px;border:1.5px solid #e8e2d8;border-radius:10px;background:#fff;color:#6b7280;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
+      <button id="deleteConfirmBtn" onclick="confirmDeleteCustomer()" style="flex:1;padding:11px;border:none;border-radius:10px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Delete</button>
+    </div>
+  </div>
 </div>
 
 <!-- LOG REPLY MODAL -->
@@ -1442,6 +1468,7 @@ async function init(){
     document.getElementById('profileContent').style.display='';
     document.title=`${((customer.firstName||'')+' '+(customer.lastName||'')).trim()} — Pure Cleaning`;
     renderProfile(customer, events);
+    showAdminZone();
 
   } catch(err){
     showError('Failed to load data', err.message||'Please check your connection and try again.');
@@ -1563,6 +1590,89 @@ async function saveLogFeedback() {
     renderTimeline(buildTimeline(_customer, _allEvents));
     showToast('Feedback logged ✓');
   } catch(e) { showToast('Error saving: ' + e.message); }
+}
+
+// ── CUSTOMER DELETE ───────────────────────────────────────────────────────────
+const PROTECTED_PHONE_PROFILE = '9546843614'; // Keith Wolf
+
+function showAdminZone() {
+  if (!_customer) return;
+  document.getElementById('adminDeleteZone').style.display = 'block';
+}
+
+function promptDeleteCustomer() {
+  if (!_customer) return;
+  const c = _customer;
+  const name = `${c.firstName||''} ${c.lastName||''}`.trim();
+  const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+
+  if (phone === PROTECTED_PHONE_PROFILE) {
+    alert('Keith Wolf is the first organic customer — protected from deletion.');
+    return;
+  }
+
+  const jobCount = (c.jobHistory||[]).length;
+  const isVip    = (c.lifetimeSpend||0) >= 5000;
+  const needsConfirmName = jobCount > 0 || isVip;
+
+  let bodyHtml = `Delete <strong>${name}</strong>?<br><br>This will hide them from all admin views. You can restore them within 30 days from <a href="/pure_cleaning_recently_deleted.html" style="color:#2d7dd2;">Recently Deleted</a>.`;
+
+  if (isVip)    bodyHtml += `<br><br>⭐ <strong>This is a VIP customer</strong> — $${(c.lifetimeSpend||0).toLocaleString()} lifetime spend. This is a high-value record.`;
+  if (jobCount) bodyHtml += `<br><br>⚠️ <strong>${jobCount} completed job${jobCount>1?'s':''} in history.</strong> Deleting will lose these business records.`;
+
+  document.getElementById('deleteModalTitle').textContent = `Delete ${name}?`;
+  document.getElementById('deleteModalBody').innerHTML = bodyHtml;
+  document.getElementById('deleteNameConfirmWrap').style.display = needsConfirmName ? 'block' : 'none';
+  document.getElementById('deleteNameInput').value = '';
+  document.getElementById('deleteCustomerModal').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteCustomerModal').style.display = 'none';
+}
+
+async function confirmDeleteCustomer() {
+  if (!_customer) return;
+  const c     = _customer;
+  const name  = `${c.firstName||''} ${c.lastName||''}`.trim();
+  const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+  const jobCount = (c.jobHistory||[]).length;
+  const isVip    = (c.lifetimeSpend||0) >= 5000;
+
+  if (jobCount > 0 || isVip) {
+    const typed = (document.getElementById('deleteNameInput').value||'').trim().toLowerCase();
+    if (typed !== name.toLowerCase()) {
+      document.getElementById('deleteNameInput').style.borderColor = '#dc2626';
+      setTimeout(() => { document.getElementById('deleteNameInput').style.borderColor = ''; }, 1500);
+      return;
+    }
+  }
+
+  const btn = document.getElementById('deleteConfirmBtn');
+  btn.textContent = 'Deleting…'; btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/customer/${phone}/delete`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ reason: 'manual_admin_delete', deletedBy: 'tyler' })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.error === 'protected') { alert(data.message); closeDeleteModal(); return; }
+      throw new Error(data.error || 'Delete failed');
+    }
+    closeDeleteModal();
+    showToast(`🗑️ ${name} deleted — restore at Recently Deleted`);
+    setTimeout(() => {
+      const ref = document.referrer;
+      if (ref && ref.includes(window.location.hostname)) history.back();
+      else window.location.href = '/pure_cleaning_admin.html';
+    }, 1800);
+  } catch(e) {
+    btn.textContent = 'Delete'; btn.disabled = false;
+    alert('Error: ' + e.message);
+  }
 }
 </script>
 </body>
