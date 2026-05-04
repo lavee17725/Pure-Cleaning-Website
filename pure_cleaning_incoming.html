@@ -454,7 +454,8 @@ function buildCard(req) {
     const name = esc((d.firstName||'')+' '+(d.lastName||'')).trim();
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
-      <a href="${buildPhoneQuoteUrl(req)}" class="btn-build" style="background:#1d9e75;border-color:#1d9e75;">📞 Phone Quote</a>
+      <button class="btn-build" style="background:#1d9e75;" onclick="initCall('${phone}','${esc(d.firstName||'')}')">📞 Call</button>
+      <button class="btn-build" style="background:#1d9e75;" onclick="initText('${phone}','${esc(d.firstName||'')}')">💬 Text</button>
       <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
       ${delBtn}
       ${viewCxBtn(phone)}`;
@@ -524,23 +525,16 @@ function buildQuoteUrl(req) {
   } catch(e) { return QUOTE_BUILDER_URL; }
 }
 
-function buildPhoneQuoteUrl(req) {
-  const d = req.customerData || {};
-  try {
-    const payload = JSON.stringify({
-      fn:    d.firstName || '',
-      ln:    d.lastName  || '',
-      phone: d.phone     || '',
-      addr:  d.address   || '',
-      city:  d.city      || '',
-      zip:   d.zip       || '',
-      email: d.email     || '',
-      notes: d.notes     || '',
-      ls:    d.leadSource?.primary || '',
-      reqId: req.id
-    });
-    return `/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(btoa(unescape(encodeURIComponent(payload))))}`;
-  } catch(e) { return '/pure_cleaning_new_customer.html'; }
+function initCall(phone, firstName) {
+  const dialPhone = '+1' + phone.replace(/\D/g, '');
+  window.location.href = `tel:${dialPhone}`;
+  auditLog('request_call_initiated', { phone, firstName, calledAt: new Date().toISOString(), calledBy: 'operator' });
+}
+
+function initText(phone, firstName) {
+  const body = `Hi ${firstName || 'there'}! This is Pure Cleaning Pressure Cleaning calling about your quote request. Got a minute to chat about what you're looking for?`;
+  window.location.href = `sms:+1${phone.replace(/\D/g, '')}&body=${encodeURIComponent(body)}`;
+  auditLog('request_text_initiated', { phone, firstName, textedAt: new Date().toISOString(), textedBy: 'operator' });
 }
 
 // ── Status updates ─────────────────────────────────────────────────

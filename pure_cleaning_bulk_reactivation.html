@@ -2811,7 +2811,8 @@ function toggleRowMenu(phone, btn) {
   const menu = document.getElementById('rowMenuDropdown');
   menu.innerHTML =
     `<button class="row-menu-item" onclick="window.open('/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(phone)}','_blank')">👤 View customer →</button>` +
-    `<button class="row-menu-item" onclick="contactCustomerCall('${phone}')">📞 Contact Customer</button>` +
+    `<button class="row-menu-item" onclick="contactCustomerCall('${phone}')">📞 Call</button>` +
+    `<button class="row-menu-item" onclick="contactCustomerText('${phone}')">💬 Text</button>` +
     (isExcluded
       ? `<button class="row-menu-item" onclick="promptRestore('${phone}')">↩ Restore from exclusion</button>`
       : `<button class="row-menu-item danger" onclick="promptExclude('${phone}')">🚫 Don't Reactivate</button>`
@@ -2855,7 +2856,6 @@ function contactCustomerCall(phone) {
   const c = allCustomers.find(x => x.phone === phone);
   const dialPhone = '+1' + phone.replace(/\D/g,'');
   window.location.href = `tel:${dialPhone}`;
-  // Fire-and-forget event log
   fetch(`${PCPC_API}/events`, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -2865,6 +2865,25 @@ function contactCustomerCall(phone) {
       phone,
       calledAt: new Date().toISOString(),
       calledBy: 'operator',
+    })
+  }).catch(() => {});
+}
+
+function contactCustomerText(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  const firstName = c?.fn || '';
+  const body = `Hi ${firstName || 'there'}! This is Pure Cleaning Pressure Cleaning. Reaching out to see if you'd like to schedule service. Reply here or call us at 954-389-2642!`;
+  window.location.href = `sms:+1${phone.replace(/\D/g,'')}&body=${encodeURIComponent(body)}`;
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      eventType: 'customer_texted_from_reactivation',
+      customer: { fn: c?.fn||'', ln: c?.ln||'', ph: phone },
+      phone,
+      textedAt: new Date().toISOString(),
+      textedBy: 'operator',
     })
   }).catch(() => {});
 }
