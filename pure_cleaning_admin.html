@@ -86,21 +86,54 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 /* ── Footer ── */
 .footer{text-align:center;padding:2rem 1rem 3rem;font-size:12px;color:var(--muted);line-height:2;}
 
-/* ── Alert toasts ── */
-#alertContainer{position:fixed;bottom:1.5rem;right:1.25rem;z-index:9998;display:flex;flex-direction:column;gap:10px;max-width:340px;}
-@keyframes alertIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
-.alert-toast{background:#1a2a3f;border:1px solid rgba(212,165,116,.35);border-radius:13px;padding:.875rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,.3);animation:alertIn .3s ease;color:#e8edf5;}
-.alert-toast-type{font-size:10px;font-weight:700;letter-spacing:1px;color:#d4a574;margin-bottom:.3rem;}
-.alert-toast-body{font-size:13px;line-height:1.5;margin-bottom:.625rem;}
-.alert-toast-actions{display:flex;gap:8px;}
-.alert-view-btn{flex:1;padding:6px;background:rgba(212,165,116,.15);color:#d4a574;border:1px solid rgba(212,165,116,.25);border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
-.alert-dismiss-btn{flex:1;padding:6px;background:none;color:#7a8aaa;border:1px solid rgba(255,255,255,.1);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+/* ── Notification bell ── */
+#notifBell{position:fixed;top:.875rem;right:1.25rem;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--white);border:1.5px solid var(--border);border-radius:12px;cursor:pointer;box-shadow:var(--shadow);font-size:20px;transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent;}
+#notifBell:hover{transform:translateY(-1px);box-shadow:var(--shadow-h);}
+#notifBell:active{transform:scale(.96);}
+.notif-dot{position:absolute;top:5px;right:5px;width:10px;height:10px;background:#e53e3e;border-radius:50%;border:2px solid var(--white);display:none;pointer-events:none;}
+.notif-dot.show{display:block;}
+/* ── Notification overlay + panel ── */
+#notifOverlay{display:none;position:fixed;inset:0;background:rgba(26,31,46,.25);z-index:9996;}
+#notifOverlay.show{display:block;}
+#notifPanel{position:fixed;top:0;right:-360px;bottom:0;width:340px;max-width:100vw;background:var(--white);border-left:1.5px solid var(--border);z-index:9997;display:flex;flex-direction:column;box-shadow:-6px 0 28px rgba(26,31,46,.12);transition:right .25s cubic-bezier(.4,0,.2,1);}
+#notifPanel.open{right:0;}
+.np-header{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1.5px solid var(--border);flex-shrink:0;}
+.np-title{font-size:16px;font-weight:700;color:var(--text);}
+.np-close{width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted);border-radius:8px;transition:background .15s;}
+.np-close:hover{background:var(--cream);}
+.np-body{flex:1;overflow-y:auto;padding:.75rem 1rem;}
+.notif-empty{text-align:center;padding:3rem 1rem;color:var(--muted);font-size:14px;line-height:1.6;}
+.notif-empty-icon{font-size:32px;display:block;margin-bottom:.75rem;opacity:.5;}
+.notif-card{background:var(--cream);border:1.5px solid var(--border);border-radius:12px;padding:.875rem 1rem;margin-bottom:10px;}
+.notif-card-type{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--terra);margin-bottom:.3rem;}
+.notif-card-body{font-size:13px;line-height:1.5;color:var(--text);margin-bottom:.625rem;}
+.notif-card-actions{display:flex;gap:8px;}
+.nc-view-btn{flex:1;padding:6px;background:var(--terra);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.nc-view-btn:hover{background:var(--terra-l);}
+.nc-dismiss-btn{flex:1;padding:6px;background:none;color:var(--muted);border:1.5px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.nc-dismiss-btn:hover{border-color:#dc2626;color:#dc2626;}
 
 </style>
 </head>
 <body>
 
-<div id="alertContainer"></div>
+<!-- Notification bell -->
+<button id="notifBell" onclick="openNotifPanel()" aria-label="Notifications" style="position:relative;">
+  🔔
+  <span class="notif-dot" id="notifDot"></span>
+</button>
+
+<!-- Notification panel -->
+<div id="notifOverlay" onclick="closeNotifPanel()"></div>
+<div id="notifPanel">
+  <div class="np-header">
+    <span class="np-title">Notifications</span>
+    <button class="np-close" onclick="closeNotifPanel()">✕</button>
+  </div>
+  <div class="np-body" id="notifList">
+    <div class="notif-empty"><span class="notif-empty-icon">🔔</span>Loading…</div>
+  </div>
+</div>
 
 <div class="header">
   <div class="hdr-greet" id="greeting"></div>
@@ -337,44 +370,95 @@ async function deleteSelectedTestRecords() {
   }
 }
 
-// ── ALERT TOAST SYSTEM ─────────────────────────────────────────────────────────
-const _ALERT_SINCE_KEY = 'pcpc_alert_since';
-const _ALERT_SEEN_KEY  = 'pcpc_alert_seen';
-const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
+// ── NOTIFICATION CENTER ────────────────────────────────────────────────────────
+// Single-user shared state (flagged for future per-user revisit)
+const _NOTIF_READ_KEY  = 'pcpc_notif_read_at';   // ISO timestamp of last panel open
+const _NOTIF_DISMISSED = 'pcpc_notif_dismissed';  // JSON array of dismissed event IDs
+const _NOTIF_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
+
+let _allAlerts = [];
+
+function _getDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(_NOTIF_DISMISSED) || '[]')); } catch { return new Set(); }
+}
+function _saveDismissed(set) {
+  localStorage.setItem(_NOTIF_DISMISSED, JSON.stringify([...set]));
+}
 
 async function checkAlerts() {
-  const since = sessionStorage.getItem(_ALERT_SINCE_KEY)
-    || new Date(Date.now() - 24*60*60*1000).toISOString();
-  const seen  = JSON.parse(sessionStorage.getItem(_ALERT_SEEN_KEY) || '[]');
-  sessionStorage.setItem(_ALERT_SINCE_KEY, new Date().toISOString());
+  const since = new Date(Date.now() - 24*60*60*1000).toISOString();
   try {
     const res = await fetch(`${PCPC_API}/events?since=${encodeURIComponent(since)}`);
     if (!res.ok) return;
     const { events = [] } = await res.json();
-    const newEvts = events.filter(e => _ALERT_TYPES.includes(e.eventType) && !seen.includes(e.id));
-    if (!newEvts.length) return;
-    sessionStorage.setItem(_ALERT_SEEN_KEY, JSON.stringify([...seen, ...newEvts.map(e => e.id)]));
-    newEvts.forEach(showAlertToast);
+    const dismissed = _getDismissed();
+    _allAlerts = events.filter(e => _NOTIF_TYPES.includes(e.eventType) && !dismissed.has(e.id || e.loggedAt));
+    _updateBellDot();
   } catch {}
 }
 
-function showAlertToast(evt) {
-  const isAddon = evt.eventType === 'addon_confirmed';
-  const cust = evt.customer || {};
-  const name = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
-  const ph   = cust.ph || '';
-  const title = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
-  let body;
-  if (isAddon) {
-    body = `<strong>${_ea(name)}</strong><br>Added: ${_ea(evt.addonName||'')} ($${evt.bundlePrice||''})<br>New total: $${evt.newAmount||''}`;
-  } else {
-    body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+function _updateBellDot() {
+  const readAt  = localStorage.getItem(_NOTIF_READ_KEY) || '';
+  const hasNew  = _allAlerts.some(e => (e.loggedAt || '') > readAt);
+  const dot = document.getElementById('notifDot');
+  if (dot) dot.classList.toggle('show', hasNew && _allAlerts.length > 0);
+}
+
+function openNotifPanel() {
+  document.getElementById('notifPanel').classList.add('open');
+  document.getElementById('notifOverlay').classList.add('show');
+  localStorage.setItem(_NOTIF_READ_KEY, new Date().toISOString());
+  _updateBellDot();
+  _renderNotifPanel();
+}
+
+function closeNotifPanel() {
+  document.getElementById('notifPanel').classList.remove('open');
+  document.getElementById('notifOverlay').classList.remove('show');
+}
+
+function dismissAlert(evtId) {
+  const dismissed = _getDismissed();
+  dismissed.add(evtId);
+  _saveDismissed(dismissed);
+  _allAlerts = _allAlerts.filter(e => (e.id || e.loggedAt) !== evtId);
+  _updateBellDot();
+  _renderNotifPanel();
+}
+
+function _renderNotifPanel() {
+  const list = document.getElementById('notifList');
+  if (!list) return;
+  if (!_allAlerts.length) {
+    list.innerHTML = `<div class="notif-empty"><span class="notif-empty-icon">🔔</span>No new alerts</div>`;
+    return;
   }
-  const id = 'at-' + (evt.id || Date.now());
-  const el = document.createElement('div');
-  el.id = id; el.className = 'alert-toast';
-  el.innerHTML = `<div class="alert-toast-type">${title}</div><div class="alert-toast-body">${body}</div><div class="alert-toast-actions">${ph?`<button class="alert-view-btn" onclick="window.open('/pure_cleaning_calendar.html?phone=${ph}','_blank')">View Card</button>`:''}<button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
-  document.getElementById('alertContainer').appendChild(el);
+  list.innerHTML = _allAlerts.map(evt => {
+    const evtId  = evt.id || evt.loggedAt || String(Date.now());
+    const isAddon = evt.eventType === 'addon_confirmed';
+    const cust   = evt.customer || {};
+    const name   = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
+    const ph     = cust.ph || '';
+    const title  = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
+    const ts     = evt.loggedAt ? new Date(evt.loggedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',month:'short',day:'numeric'}) : '';
+    let body;
+    if (isAddon) {
+      const addonAmt = evt.bundlePrice ? `$${evt.bundlePrice}` : '';
+      const newTotal = evt.newAmount   ? `$${evt.newAmount}`  : evt.total ? `$${evt.total}` : '';
+      body = `<strong>${_ea(name)}</strong> added ${_ea(evt.addonName||evt.addonId||'add-on')}${addonAmt ? ` (${addonAmt})` : ''}${newTotal ? `<br>New total: ${newTotal}` : ''}`;
+    } else {
+      body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+    }
+    const profileUrl = ph ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}` : '';
+    return `<div class="notif-card">
+      <div class="notif-card-type">${title}</div>
+      <div class="notif-card-body">${body}${ts ? `<br><span style="font-size:11px;color:var(--muted);">${_ea(ts)}</span>` : ''}</div>
+      <div class="notif-card-actions">
+        ${ph ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View Customer</button>` : ''}
+        <button class="nc-dismiss-btn" onclick="dismissAlert(${JSON.stringify(evtId)})">Dismiss</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -432,7 +516,7 @@ loadIncomingCount();
 loadNudgeCount();
 loadReviewCount();
 checkAlerts();
-setInterval(checkAlerts, 60_000);
+setInterval(checkAlerts, 60_000); // refreshes _allAlerts but never auto-opens panel
 </script>
 </body>
 </html>

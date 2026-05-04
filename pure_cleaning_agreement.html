@@ -409,6 +409,8 @@ let sealingSurfaces  = new Set(); // 'driveway', 'patio'
 let sealingPaverSand = false;
 let _dateStage       = 1; // 1=best-only, 2=alternatives visible, 3=picker visible
 let _blockedDates    = new Set(); // YYYY-MM-DD strings blocked by operator
+const _pageLoadTime  = Date.now(); // for timeOnPage calculations
+let _lastInteraction = 'page_load'; // tracks last notable action for abandoned event
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -490,6 +492,27 @@ async function init() {
 
     renderPage();
     showState('main');
+
+    // agreement_viewed — fires on every successful load
+    const viewSource = document.referrer ? 'link' : 'direct';
+    logEvent('agreement_viewed', {
+      quoteId:    quoteCode || '',
+      viewedAt:   new Date().toISOString(),
+      viewSource,
+      userAgent:  navigator.userAgent,
+    });
+
+    // agreement_abandoned — fires if user leaves without approving
+    window.addEventListener('beforeunload', () => {
+      if (pageState !== 'confirmed') {
+        logEvent('agreement_abandoned', {
+          quoteId:         quoteCode || '',
+          abandonedAt:     new Date().toISOString(),
+          lastInteraction: _lastInteraction,
+          timeOnPage:      Math.round((Date.now() - _pageLoadTime) / 1000),
+        });
+      }
+    });
 
   } catch(e) {
     console.error(e);
@@ -645,10 +668,20 @@ function toggleAddonRow(addonId) {
   }
   refreshTotal();
   renderIncluded();
-  const total = (quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0) + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
-  const addon = _offerableAddons.find(a => a.id === addonId);
+  const base = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const totalBefore = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0) + (isNowAdded ? 0 : (addon?.bundle||0));
+  const total       = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
   showToast(isNowAdded ? `✓ Added! Total is now $${total}` : `Removed. Total is $${total}`);
-  logEvent(isNowAdded ? 'addon_confirmed' : 'addon_removed', {addonId, bundlePrice: addon?.bundle, total});
+  _lastInteraction = isNowAdded ? 'added_addon' : 'removed_addon';
+  logEvent(isNowAdded ? 'addon_confirmed' : 'addon_removed', {
+    quoteId:           quoteCode || '',
+    addonId,
+    addonName:         addon?.name || addonId,
+    bundlePrice:       addon?.bundle,
+    totalBefore,
+    totalAfter:        total,
+    dateSelectedAlready: !!selectedDate,
+  });
 }
 
 function renderSealingSection() {
@@ -735,6 +768,17 @@ function toggleSealingCard() {
   sealingChecked = !sealingChecked;
   if (!sealingChecked) { sealingSurfaces.clear(); sealingPaverSand = false; }
   renderSealingSection();
+  _lastInteraction = sealingChecked ? 'sealing_interest_expressed' : 'sealing_interest_removed';
+  if (sealingChecked) {
+    logEvent('sealing_interest_expressed', {
+      quoteId:       quoteCode || '',
+      surfaces:      [...sealingSurfaces],
+      paverJointSand: sealingPaverSand,
+      expressedAt:   new Date().toISOString(),
+    });
+  } else {
+    logEvent('sealing_interest_removed', { quoteId: quoteCode || '', removedAt: new Date().toISOString() });
+  }
 }
 function toggleSealSurface(val) {
   event.stopPropagation();
@@ -752,6 +796,20 @@ function toggleRustCard() {
   rustChecked = !rustChecked;
   if (!rustChecked) { rustSurface = null; }
   renderRustSection();
+  _lastInteraction = rustChecked ? 'rust_interest_expressed' : 'rust_interest_removed';
+  if (rustChecked) {
+    const photos = document.getElementById('rustPhotoInput')?.files?.length || 0;
+    const notes  = document.getElementById('rustNotesTa')?.value?.trim()   || '';
+    logEvent('rust_interest_expressed', {
+      quoteId:    quoteCode || '',
+      surface:    rustSurface,
+      photoCount: photos,
+      hasNotes:   notes.length > 0,
+      expressedAt: new Date().toISOString(),
+    });
+  } else {
+    logEvent('rust_interest_removed', { quoteId: quoteCode || '', removedAt: new Date().toISOString() });
+  }
 }
 
 function selectRustSurface(val) {
@@ -880,9 +938,9 @@ function renderDateSection() {
 }
 
 function setDateStage(stage) {
+  const prevStage = _dateStage;
   _dateStage = stage;
   if (stage < 3) {
-    // If customer had a custom date selected, clear it and re-select Best Fit
     const suggestions = ((quoteData.dateSuggestions || []).length
       ? quoteData.dateSuggestions
       : quoteData.miniQuoteCustomData?.dateSuggestions || []
@@ -892,6 +950,18 @@ function setDateStage(stage) {
   }
   renderDateSection();
   updateConfirmButton();
+  // Track stage transitions
+  if (stage === 2 && prevStage === 1) {
+    _lastInteraction = 'date_alternative_requested';
+    logEvent('date_alternative_requested', {
+      quoteId:     quoteCode || '',
+      requestedAt: new Date().toISOString(),
+      bestFitDate: (((quoteData.dateSuggestions||[]).length ? quoteData.dateSuggestions : quoteData.miniQuoteCustomData?.dateSuggestions||[]).filter(s=>s.date&&s.enabled!==false)[0]?.date || null),
+    });
+  } else if (stage === 3 && prevStage === 2) {
+    _lastInteraction = 'date_custom_requested';
+    logEvent('date_custom_requested', { quoteId: quoteCode || '', requestedAt: new Date().toISOString() });
+  }
 }
 
 function renderActionSection() {
@@ -938,7 +1008,8 @@ function onDateSelect(index) {
   const opt = document.getElementById(`date-opt-${index}`);
   if (opt) opt.classList.add('selected');
   updateConfirmButton();
-  logEvent('date_option_tapped', {date: s.date, label: s.label});
+  _lastInteraction = 'selected_date';
+  logEvent('date_option_tapped', {quoteId: quoteCode || '', date: s.date, label: s.label});
 }
 
 function onCustomDateChange(val) {
@@ -951,7 +1022,8 @@ function onCustomDateChange(val) {
   // Clear radio selections
   document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
   updateConfirmButton();
-  logEvent('date_custom_picked', {date: val});
+  _lastInteraction = 'date_custom_selected';
+  logEvent('date_custom_selected', { quoteId: quoteCode || '', selectedDate: val, selectedAt: new Date().toISOString() });
 }
 
 function updateConfirmButton() {
@@ -1030,7 +1102,24 @@ async function submitConfirm() {
     showToast('✓ Booking confirmed!');
     window.scrollTo({top: 0, behavior: 'smooth'});
     try { localStorage.setItem('pcpc_db_changed_at', Date.now().toString()); } catch {}
-    logEvent('booking_confirmed', {date: selectedDate.date, total, addOnsCount: addedAddons.length});
+    const suggestions = ((quoteData.dateSuggestions||[]).length ? quoteData.dateSuggestions : quoteData.miniQuoteCustomData?.dateSuggestions||[]).filter(s=>s.date&&s.enabled!==false);
+    const dateChoiceType = suggestions.findIndex(s=>s.date===selectedDate.date) === 0 ? 'best_fit'
+      : suggestions.findIndex(s=>s.date===selectedDate.date) > 0 ? `alternative_${suggestions.findIndex(s=>s.date===selectedDate.date)}`
+      : 'custom';
+    logEvent('quote_approved', {
+      quoteId:          quoteCode || '',
+      approvedDate:     selectedDate.date,
+      dateDisplay:      selectedDate.display,
+      dateChoiceType,
+      approvedAt:       new Date().toISOString(),
+      finalTotal:       total,
+      baseAmount:       base,
+      addonsIncluded:   addedAddons.map(a=>({id:a.id,name:a.name,price:a.bundle})),
+      addOnsCount:      addedAddons.length,
+      sealingExpressed: sealingChecked,
+      rustExpressed:    rustChecked,
+      timeOnPage:       Math.round((Date.now() - _pageLoadTime) / 1000),
+    });
 
   } catch(e) {
     alert('Error: ' + e.message);
