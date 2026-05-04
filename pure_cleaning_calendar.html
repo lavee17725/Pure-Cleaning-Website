@@ -307,6 +307,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
   <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
   <button class="topbar-action" onclick="window.print()">🖨</button>
+  <button class="topbar-action" id="histToggleBtn" onclick="toggleHistoricalJobs()" title="Show/hide completed jobs on calendar" style="opacity:.6;">🗂️ History</button>
 </div>
 
 <!-- REVIEW ALERT BAR -->
@@ -1578,7 +1579,7 @@ function jobCardScheduled(c) {
   })() : '';
 
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')" style="${state === 'completed' && !_showHistorical ? 'display:none;' : state === 'completed' ? 'opacity:.5;' : ''}">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
     ${roofInfoHtml}
@@ -2230,6 +2231,19 @@ function logEvent(type, phone, meta) {
       metadata: meta || {}
     })
   }).catch(() => {});
+}
+
+// ── Historical job toggle ─────────────────────────────────────────────────────
+let _showHistorical = false;
+function toggleHistoricalJobs() {
+  _showHistorical = !_showHistorical;
+  const btn = document.getElementById('histToggleBtn');
+  if (btn) { btn.style.opacity = _showHistorical ? '1' : '.6'; btn.style.color = _showHistorical ? 'var(--sky)' : ''; }
+  // Show/hide completed job cards (scheduledStatus.state === 'completed')
+  document.querySelectorAll('.job-card-completed').forEach(el => {
+    el.style.display = _showHistorical ? '' : 'none';
+  });
+  render();
 }
 
 function unscheduleJob() {

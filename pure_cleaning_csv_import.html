@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · CSV Import</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wpsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+
+.back-nav{background:var(--navy2);border-bottom:1px solid var(--border);padding:6px 1.25rem;}
+.back-nav a{color:var(--muted);text-decoration:none;font-size:12px;}
+.back-nav a:hover{color:var(--text);}
+
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1.25rem 1.25rem 1rem;}
+.header-title{font-size:20px;font-weight:700;color:var(--white);}
+.header-sub{font-size:12px;color:var(--muted);margin-top:3px;}
+
+/* Step progress */
+.steps{display:flex;align-items:center;gap:0;background:var(--navy2);border-bottom:1px solid var(--border);padding:.75rem 1.25rem;overflow-x:auto;}
+.step-item{display:flex;align-items:center;gap:8px;white-space:nowrap;flex-shrink:0;}
+.step-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--border);color:var(--muted);transition:all .2s;}
+.step-num.done{background:var(--green);color:#fff;}
+.step-num.active{background:var(--sky);color:#fff;}
+.step-label{font-size:12px;color:var(--muted);font-weight:600;}
+.step-label.active{color:var(--text);}
+.step-arrow{color:var(--border);margin:0 10px;font-size:16px;}
+
+.wrap{max-width:860px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:1.25rem;}
+.card+.card{margin-top:1rem;}
+.card-title{font-size:14px;font-weight:700;color:var(--white);margin-bottom:.875rem;}
+
+/* Buttons */
+.btn{padding:10px 20px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.btn-primary{background:var(--sky);color:#fff;}
+.btn-primary:hover{background:#2470c0;}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed;}
+.btn-secondary{background:rgba(255,255,255,.07);color:var(--text);border:1px solid var(--border);}
+.btn-secondary:hover{background:rgba(255,255,255,.11);}
+.btn-green{background:var(--green);color:#fff;}
+.btn-green:hover{background:#15855f;}
+.btn-green:disabled{opacity:.45;cursor:not-allowed;}
+.btn-red{background:rgba(229,62,62,.15);color:#fc8181;border:1px solid rgba(229,62,62,.3);}
+.btn-red:hover{background:rgba(229,62,62,.25);}
+.btn-sm{padding:6px 12px;font-size:12px;border-radius:7px;}
+
+/* Form elements */
+.field-label{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;display:block;text-transform:uppercase;letter-spacing:.5px;}
+.field-input{width:100%;background:var(--navy2);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;transition:border-color .15s;}
+.field-input:focus{border-color:var(--sky);}
+.field-input::placeholder{color:var(--muted);}
+
+/* Drop zone */
+.dropzone{border:2px dashed var(--border);border-radius:12px;padding:2rem 1.5rem;text-align:center;cursor:pointer;transition:border-color .15s;}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--sky);}
+.dropzone-icon{font-size:40px;margin-bottom:.75rem;}
+.dropzone p{color:var(--muted);font-size:14px;line-height:1.6;}
+.dropzone strong{color:var(--text);}
+.file-pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:.75rem;}
+.file-pill{background:rgba(45,125,210,.12);border:1px solid rgba(45,125,210,.3);border-radius:8px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--sky);display:flex;align-items:center;gap:6px;}
+.file-pill-rm{cursor:pointer;opacity:.7;transition:opacity .15s;background:none;border:none;color:var(--sky);font-size:14px;padding:0;}
+.file-pill-rm:hover{opacity:1;}
+
+/* Category badges */
+.cat-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700;}
+.cat-new{background:rgba(29,158,117,.12);color:#5de0b3;border:1px solid rgba(29,158,117,.25);}
+.cat-update{background:rgba(45,125,210,.12);color:#7cb9f4;border:1px solid rgba(45,125,210,.25);}
+.cat-dup{background:rgba(122,138,170,.1);color:var(--muted);border:1px solid rgba(122,138,170,.2);}
+.cat-nophone{background:rgba(244,166,32,.12);color:#fcd34d;border:1px solid rgba(244,166,32,.3);}
+.cat-phantom{background:rgba(229,62,62,.1);color:#fc8181;border:1px solid rgba(229,62,62,.25);}
+.cat-large{background:rgba(244,166,32,.15);color:var(--gold);border:1px solid rgba(244,166,32,.35);}
+
+/* Summary grid */
+.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.25rem;}
+.sum-card{background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:center;}
+.sum-val{font-size:22px;font-weight:700;color:var(--white);}
+.sum-label{font-size:11px;color:var(--muted);margin-top:2px;}
+
+/* Table */
+.tbl-wrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border);}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:600px;}
+thead th{background:var(--navy2);padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap;}
+tbody tr{border-top:1px solid var(--border);transition:background .1s;}
+tbody tr:hover{background:rgba(255,255,255,.03);}
+td{padding:7px 10px;vertical-align:middle;white-space:nowrap;color:var(--text);}
+td.wrap{white-space:normal;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
+td.money{font-family:'DM Mono',monospace;font-size:11px;}
+
+/* Review queue */
+.review-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:1rem;}
+.rev-tab{padding:8px 16px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;}
+.rev-tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.review-row{background:var(--navy2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;}
+.review-row-name{font-size:14px;font-weight:700;color:var(--white);}
+.review-row-meta{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.6;}
+.review-row-actions{display:flex;align-items:center;gap:8px;margin-top:.625rem;flex-wrap:wrap;}
+.phone-input{width:140px;background:var(--navy);border:1.5px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;outline:none;}
+.phone-input:focus{border-color:var(--sky);}
+.decision-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:8px;}
+.dec-approve{background:rgba(29,158,117,.15);color:#5de0b3;}
+.dec-skip{background:rgba(122,138,170,.1);color:var(--muted);}
+
+/* Progress */
+.progress-wrap{background:var(--navy2);border-radius:8px;overflow:hidden;height:8px;margin:.75rem 0;}
+.progress-bar{height:100%;background:var(--sky);border-radius:8px;transition:width .3s;}
+
+/* Alert */
+.alert{padding:.875rem 1rem;border-radius:10px;font-size:13px;line-height:1.5;margin-bottom:1rem;}
+.alert-info{background:rgba(45,125,210,.1);border:1px solid rgba(45,125,210,.25);color:#7cb9f4;}
+.alert-warn{background:rgba(244,166,32,.08);border:1px solid rgba(244,166,32,.25);color:#fcd34d;}
+.alert-ok{background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.25);color:#5de0b3;}
+.alert-err{background:rgba(229,62,62,.1);border:1px solid rgba(229,62,62,.3);color:#fc8181;}
+
+/* Empty state */
+.empty-state{text-align:center;padding:2.5rem 1rem;color:var(--muted);font-size:14px;}
+
+.footer-actions{display:flex;gap:10px;margin-top:1.25rem;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+
+<div class="back-nav"><a href="/pure_cleaning_admin.html">← Admin Home</a></div>
+
+<div class="header">
+  <div class="header-title">📥 CSV Import</div>
+  <div class="header-sub">Import FileMaker job history into the customer database — 4-step guided process</div>
+</div>
+
+<div class="steps" id="stepBar">
+  <div class="step-item">
+    <div class="step-num active" id="sn1">1</div>
+    <div class="step-label active" id="sl1">Upload</div>
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step-item">
+    <div class="step-num" id="sn2">2</div>
+    <div class="step-label" id="sl2">Preview</div>
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step-item">
+    <div class="step-num" id="sn3">3</div>
+    <div class="step-label" id="sl3">Review Queue</div>
+  </div>
+  <div class="step-arrow">›</div>
+  <div class="step-item">
+    <div class="step-num" id="sn4">4</div>
+    <div class="step-label" id="sl4">Import</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- ── STEP 1: UPLOAD ─────────────────────────────────────── -->
+<div id="step1">
+  <div class="card">
+    <div class="card-title">Upload CSV Files</div>
+    <div class="alert alert-info">Drop one or more FileMaker export CSVs. All files should have the same column format (Month, Entry#, Date, Customer, Address, City, Phone, Services, Sq Ft, Total, Payment). Each import run is called a "batch" — give it a descriptive label so you can identify it later.</div>
+    <div style="margin-bottom:1rem;">
+      <label class="field-label">Batch Label</label>
+      <input type="text" id="batchLabel" class="field-input" placeholder="e.g. 2024_Master_Full_clean" style="max-width:400px;">
+    </div>
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('csvInput').click()">
+      <div class="dropzone-icon">📂</div>
+      <p><strong>Click to upload</strong> or drag and drop your CSV files here</p>
+      <p style="margin-top:4px;font-size:12px;color:var(--muted);">Multiple files accepted · Accepts FileMaker .csv exports</p>
+    </div>
+    <input type="file" id="csvInput" multiple accept=".csv" style="display:none;">
+    <div class="file-pills" id="filePills"></div>
+    <div class="footer-actions">
+      <button class="btn btn-primary" id="previewBtn" onclick="runPreview()" disabled>Preview →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── STEP 2: PREVIEW ─────────────────────────────────────── -->
+<div id="step2" style="display:none;">
+  <div class="card">
+    <div class="card-title">Import Preview</div>
+    <div id="previewSummary"></div>
+    <div class="summary-grid" id="previewGrid"></div>
+    <div id="previewDetails"></div>
+    <div class="footer-actions">
+      <button class="btn btn-secondary" onclick="goToStep(1)">← Back</button>
+      <button class="btn btn-primary" id="toReviewBtn" onclick="goToStep(3)">Review Queue →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── STEP 3: REVIEW QUEUE ─────────────────────────────────── -->
+<div id="step3" style="display:none;">
+  <div class="card">
+    <div class="card-title">Review Queue</div>
+    <div id="reviewAlert"></div>
+    <div class="review-tabs">
+      <div class="rev-tab active" id="revTab-phone" onclick="switchReviewTab('phone')">❓ Missing Phone <span id="rPhoneCnt" style="font-size:10px;margin-left:4px;"></span></div>
+      <div class="rev-tab" id="revTab-large" onclick="switchReviewTab('large')">⚠️ Large Transactions <span id="rLargeCnt" style="font-size:10px;margin-left:4px;"></span></div>
+    </div>
+    <div id="reviewContent"></div>
+    <div class="footer-actions">
+      <button class="btn btn-secondary" onclick="goToStep(2)">← Back</button>
+      <button class="btn btn-primary" onclick="goToStep(4)">Confirm Import →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── STEP 4: IMPORT ─────────────────────────────────────── -->
+<div id="step4" style="display:none;">
+  <div class="card">
+    <div class="card-title">Confirm & Import</div>
+    <div id="confirmSummary"></div>
+    <div id="importProgress" style="display:none;">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:.5rem;" id="progressMsg">Creating backup…</div>
+      <div class="progress-wrap"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+    </div>
+    <div id="importResult"></div>
+    <div class="footer-actions" id="confirmActions">
+      <button class="btn btn-secondary" onclick="goToStep(3)">← Back</button>
+      <button class="btn btn-green" id="importBtn" onclick="executeImport()">🔒 Create Backup &amp; Import</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- end .wrap -->
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const PROTECTED_PHONE = '9546843614'; // Keith Wolf — never modify
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let _uploadedFiles   = [];
+let _batchLabel      = '';
+let _db              = null;          // loaded customer DB
+let _categorized     = null;          // { newCustomer, newJob, duplicate, missingPhone, phantom, largeTxn }
+let _reviewDecisions = new Map();     // rowKey → {action:'approve'|'skip', phone?}
+let _activeReviewTab = 'phone';
+
+// ── FILE UPLOAD ───────────────────────────────────────────────────────────────
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over');
+  addFiles([...e.dataTransfer.files].filter(f => f.name.endsWith('.csv')));
+});
+document.getElementById('csvInput').addEventListener('change', e => {
+  addFiles([...e.target.files]); e.target.value = '';
+});
+document.getElementById('batchLabel').addEventListener('input', updatePreviewBtn);
+
+function addFiles(files) {
+  files.forEach(f => { if (!_uploadedFiles.find(x => x.name === f.name)) _uploadedFiles.push(f); });
+  renderFilePills();
+  updatePreviewBtn();
+}
+function removeFile(name) {
+  _uploadedFiles = _uploadedFiles.filter(f => f.name !== name);
+  renderFilePills();
+  updatePreviewBtn();
+}
+function renderFilePills() {
+  document.getElementById('filePills').innerHTML = _uploadedFiles.map(f =>
+    `<div class="file-pill">📄 ${esc(f.name)} <button class="file-pill-rm" onclick="removeFile(${JSON.stringify(f.name)})">✕</button></div>`
+  ).join('');
+}
+function updatePreviewBtn() {
+  const label = document.getElementById('batchLabel').value.trim();
+  document.getElementById('previewBtn').disabled = _uploadedFiles.length === 0 || !label;
+}
+
+// ── STEP NAV ──────────────────────────────────────────────────────────────────
+function goToStep(n) {
+  [1,2,3,4].forEach(i => {
+    document.getElementById('step'+i).style.display = i === n ? '' : 'none';
+    const sn = document.getElementById('sn'+i);
+    const sl = document.getElementById('sl'+i);
+    sn.className = 'step-num ' + (i < n ? 'done' : i === n ? 'active' : '');
+    sl.className = 'step-label ' + (i === n ? 'active' : '');
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ── CSV PARSER ────────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = []; let row = [], field = '', inQ = false;
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i <= text.length; i++) {
+    const ch = i < text.length ? text[i] : '\n';
+    if (inQ) {
+      if (ch === '"' && text[i+1] === '"') { field += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else field += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(field.trim()); field = ''; }
+      else if (ch === '\n') {
+        row.push(field.trim()); field = '';
+        if (row.some(f => f)) rows.push(row);
+        row = [];
+      } else field += ch;
+    }
+  }
+  return rows;
+}
+
+function mapCols(headers) {
+  const m = {};
+  headers.forEach((h, i) => {
+    const n = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (n.includes('date'))    m.date     = i;
+    if (n === 'customer')      m.customer = i;
+    if (n === 'address')       m.address  = i;
+    if (n === 'city')          m.city     = i;
+    if (n === 'phone')         m.phone    = i;
+    if (n === 'total')         m.total    = i;
+    if (n === 'services')      m.services = i;
+    if (n === 'sqft' || n === 'squarefootage' || h.toLowerCase().includes('sq ft')) m.sqft = i;
+    if (n === 'payment')       m.payment  = i;
+  });
+  return m;
+}
+
+function parseDate(raw) {
+  if (!raw) return null;
+  raw = String(raw).trim();
+  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    let y = parseInt(m[3]);
+    if (y < 100) y += 2000;
+    const mo = String(parseInt(m[1])).padStart(2,'0');
+    const dy = String(parseInt(m[2])).padStart(2,'0');
+    return `${y}-${mo}-${dy}`;
+  }
+  return null;
+}
+
+function parseMoney(raw) {
+  if (!raw) return 0;
+  const n = parseFloat(String(raw).replace(/[$,\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const d = String(raw).replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('1')) return d.slice(1);
+  if (d.length === 10) return d;
+  return null;
+}
+
+function jobId(phone, date, amount) {
+  return `${phone}_${date}_${Math.round(amount * 100)}`;
+}
+
+// ── PHANTOM / COMMERCIAL DETECTION ───────────────────────────────────────────
+const COMMERCIAL_RE = /\b(llc|inc|corp|ltd|association|assn|assoc|condo|condominium|hoa|property\s+management|management|realty|estates|village|building|bldg|community|communities|resort|hotel|club|plaza|center|group|partners|services|solutions)\b/i;
+
+function isPhantom(customer, amount) {
+  if (!customer || !customer.trim()) return true;  // empty name
+  if (amount > 50000) return true;                  // obvious total row
+  if (/^TOTAL$/i.test(customer.trim())) return true;
+  return false;
+}
+
+// ── PREVIEW ───────────────────────────────────────────────────────────────────
+async function runPreview() {
+  _batchLabel = document.getElementById('batchLabel').value.trim();
+  document.getElementById('previewBtn').disabled = true;
+  document.getElementById('previewBtn').textContent = 'Loading…';
+
+  // Load customer DB
+  try {
+    const res = await fetch(`${PCPC_API}/customers`);
+    _db = await res.json();
+  } catch(e) {
+    alert('Could not load customer DB: ' + e.message);
+    document.getElementById('previewBtn').disabled = false;
+    document.getElementById('previewBtn').textContent = 'Preview →';
+    return;
+  }
+
+  // Build lookup structures
+  const dbByPhone = {};
+  const jobHistory = {}; // phone → Set of jobIds
+  (_db.customers || []).forEach(c => {
+    const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+    if (!ph) return;
+    dbByPhone[ph] = c;
+    jobHistory[ph] = new Set((c.jobHistory||[]).map(j => j.jobId));
+  });
+
+  // Parse all CSVs
+  const rows = [];
+  for (const file of _uploadedFiles) {
+    const text = await file.text();
+    const parsed = parseCSV(text);
+    if (!parsed.length) continue;
+    const cols = mapCols(parsed[0]);
+    for (let i = 1; i < parsed.length; i++) {
+      const r = parsed[i];
+      const customer = r[cols.customer] || '';
+      const amount   = parseMoney(r[cols.total]);
+      rows.push({
+        customer,
+        amount,
+        date:     parseDate(r[cols.date]),
+        rawDate:  r[cols.date] || '',
+        address:  r[cols.address] || '',
+        city:     r[cols.city]    || '',
+        rawPhone: r[cols.phone]   || '',
+        phone:    normalizePhone(r[cols.phone]),
+        services: r[cols.services] || '',
+        sqFt:     r[cols.sqft] !== undefined ? (r[cols.sqft] || '') : '',
+        payment:  r[cols.payment]  || '',
+        file:     file.name,
+      });
+    }
+  }
+
+  // Categorize
+  const cat = { newCustomer: [], newJob: [], duplicate: [], missingPhone: [], phantom: [], largeTxn: [] };
+  rows.forEach((r, idx) => {
+    r._idx = idx;
+    r._key = `${r.file}_${idx}`;
+    if (isPhantom(r.customer, r.amount)) { cat.phantom.push(r); return; }
+    if (!r.phone) { cat.missingPhone.push(r); return; }
+    if (r.amount >= 5000) { cat.largeTxn.push(r); return; }
+    if (!r.date) { cat.missingPhone.push(r); return; } // treat undatable as review
+    const jid = jobId(r.phone, r.date, r.amount);
+    r._jobId = jid;
+    if (jobHistory[r.phone]?.has(jid)) { cat.duplicate.push(r); return; }
+    if (dbByPhone[r.phone]) { cat.newJob.push(r); }
+    else { cat.newCustomer.push(r); }
+  });
+
+  _categorized = cat;
+  renderPreview();
+  goToStep(2);
+  document.getElementById('previewBtn').disabled = false;
+  document.getElementById('previewBtn').textContent = 'Preview →';
+}
+
+function renderPreview() {
+  const cat = _categorized;
+  const total = cat.newCustomer.length + cat.newJob.length + cat.duplicate.length + cat.missingPhone.length + cat.phantom.length + cat.largeTxn.length;
+
+  document.getElementById('previewGrid').innerHTML = `
+    <div class="sum-card"><div class="sum-val" style="color:#5de0b3;">${cat.newCustomer.length}</div><div class="sum-label">New Customers</div></div>
+    <div class="sum-card"><div class="sum-val" style="color:#7cb9f4;">${cat.newJob.length}</div><div class="sum-label">New Jobs</div></div>
+    <div class="sum-card"><div class="sum-val" style="color:var(--muted);">${cat.duplicate.length}</div><div class="sum-label">Duplicates (skip)</div></div>
+    <div class="sum-card"><div class="sum-val" style="color:#fcd34d;">${cat.missingPhone.length}</div><div class="sum-label">Missing Phone (review)</div></div>
+    <div class="sum-card"><div class="sum-val" style="color:#fc8181;">${cat.phantom.length}</div><div class="sum-label">Phantom (auto-skip)</div></div>
+    <div class="sum-card"><div class="sum-val" style="color:var(--gold);">${cat.largeTxn.length}</div><div class="sum-label">Large Txns (review)</div></div>`;
+
+  let html = '';
+  if (cat.phantom.length) {
+    html += `<div style="margin-bottom:1rem;"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.5px;">🚫 Auto-Skipped — Phantom Rows (${cat.phantom.length})</div>`;
+    html += `<div class="tbl-wrap"><table><thead><tr><th>Row</th><th>Customer</th><th>Amount</th><th>File</th></tr></thead><tbody>`;
+    cat.phantom.forEach(r => {
+      html += `<tr><td>${r._idx+1}</td><td class="wrap">${esc(r.customer||'—')}</td><td class="money">$${r.amount.toLocaleString()}</td><td>${esc(r.file)}</td></tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+  if (cat.duplicate.length) {
+    html += `<div style="margin-bottom:1rem;"><div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.5px;">🔁 Duplicates — Already in Job History (${cat.duplicate.length}, will skip)</div>`;
+    html += `<div class="tbl-wrap"><table><thead><tr><th>Customer</th><th>Date</th><th>Amount</th><th>Services</th></tr></thead><tbody>`;
+    cat.duplicate.slice(0,20).forEach(r => {
+      html += `<tr><td>${esc(r.customer)}</td><td>${r.date||r.rawDate}</td><td class="money">$${r.amount.toLocaleString()}</td><td class="wrap">${esc(r.services.slice(0,60))}</td></tr>`;
+    });
+    if (cat.duplicate.length > 20) html += `<tr><td colspan="4" style="color:var(--muted);text-align:center;">+ ${cat.duplicate.length - 20} more…</td></tr>`;
+    html += `</tbody></table></div></div>`;
+  }
+
+  const willImport = cat.newCustomer.length + cat.newJob.length;
+  html = `<div class="alert ${willImport > 0 ? 'alert-info' : 'alert-warn'}" style="margin-bottom:1rem;">
+    Batch: <strong>${esc(_batchLabel)}</strong> · Total rows parsed: ${cat.newCustomer.length + cat.newJob.length + cat.duplicate.length + cat.missingPhone.length + cat.phantom.length + cat.largeTxn.length}<br>
+    Ready to import: <strong>${willImport} jobs</strong> · Pending review: <strong>${cat.missingPhone.length + cat.largeTxn.length}</strong> · Skipping: <strong>${cat.duplicate.length + cat.phantom.length}</strong>
+  </div>` + html;
+
+  document.getElementById('previewDetails').innerHTML = html;
+  document.getElementById('previewSummary').innerHTML = '';
+}
+
+// ── REVIEW QUEUE ──────────────────────────────────────────────────────────────
+function switchReviewTab(tab) {
+  _activeReviewTab = tab;
+  document.querySelectorAll('.rev-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('revTab-' + tab).classList.add('active');
+  renderReviewContent();
+}
+
+function renderReviewQueue() {
+  const cat = _categorized;
+  const phoneCt = cat.missingPhone.length;
+  const largeCt = cat.largeTxn.length;
+  document.getElementById('rPhoneCnt').textContent = phoneCt ? `(${phoneCt})` : '';
+  document.getElementById('rLargeCnt').textContent = largeCt ? `(${largeCt})` : '';
+
+  const alert = (phoneCt + largeCt === 0)
+    ? '<div class="alert alert-ok">No items need review — all rows are either ready to import or auto-handled.</div>'
+    : `<div class="alert alert-warn">${phoneCt} missing-phone row${phoneCt !== 1 ? 's' : ''} and ${largeCt} large transaction${largeCt !== 1 ? 's' : ''} need your decision. You can skip any row or approve it (optionally adding a phone number for missing-phone rows).</div>`;
+  document.getElementById('reviewAlert').innerHTML = alert;
+  renderReviewContent();
+}
+
+function renderReviewContent() {
+  const cat = _categorized;
+  const rows = _activeReviewTab === 'phone' ? cat.missingPhone : cat.largeTxn;
+  const el = document.getElementById('reviewContent');
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty-state">No items in this category.</div>`; return;
+  }
+  el.innerHTML = rows.map(r => {
+    const dec = _reviewDecisions.get(r._key);
+    const decBadge = dec
+      ? `<span class="decision-badge ${dec.action === 'approve' ? 'dec-approve' : 'dec-skip'}">${dec.action === 'approve' ? '✓ Approved' : '— Skipped'}</span>`
+      : '';
+    const phoneInput = (_activeReviewTab === 'phone' && (!dec || dec.action === 'approve'))
+      ? `<input class="phone-input" id="ph-${esc(r._key)}" type="tel" placeholder="10-digit phone" value="${esc(dec?.phone || '')}" onchange="setReviewPhone('${esc(r._key)}', this.value)">`
+      : '';
+    return `<div class="review-row">
+      <div class="review-row-name">${esc(r.customer)}</div>
+      <div class="review-row-meta">
+        ${r.date ? `📅 ${r.date}` : `📅 ${r.rawDate || '—'}`} · 💰 $${r.amount.toLocaleString()} · 📍 ${esc(r.city||'—')}<br>
+        🔧 ${esc(r.services.slice(0,80))}${r.services.length > 80 ? '…' : ''}<br>
+        📁 ${esc(r.file)} ${r.rawPhone ? `· Raw phone: ${esc(r.rawPhone)}` : ''}
+      </div>
+      <div class="review-row-actions">
+        ${phoneInput}
+        <button class="btn btn-sm btn-green" onclick="decideRow('${esc(r._key)}','approve')">✓ Approve</button>
+        <button class="btn btn-sm btn-secondary" onclick="decideRow('${esc(r._key)}','skip')">Skip</button>
+        ${decBadge}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function setReviewPhone(key, val) {
+  const ph = normalizePhone(val);
+  const existing = _reviewDecisions.get(key) || { action: 'approve' };
+  _reviewDecisions.set(key, { ...existing, phone: ph || null });
+}
+
+function decideRow(key, action) {
+  const phoneEl = document.getElementById('ph-' + key);
+  const phone = phoneEl ? normalizePhone(phoneEl.value) : null;
+  _reviewDecisions.set(key, { action, phone: phone || null });
+  renderReviewContent();
+}
+
+// ── CONFIRM SUMMARY ───────────────────────────────────────────────────────────
+function renderConfirmSummary() {
+  const cat = _categorized;
+  let willImport = cat.newCustomer.length + cat.newJob.length;
+  let reviewApproved = 0, reviewSkipped = 0;
+  [...cat.missingPhone, ...cat.largeTxn].forEach(r => {
+    const dec = _reviewDecisions.get(r._key);
+    if (dec?.action === 'approve') { reviewApproved++; willImport++; }
+    else if (dec?.action === 'skip') reviewSkipped++;
+  });
+  const pendingDecision = (cat.missingPhone.length + cat.largeTxn.length) - reviewApproved - reviewSkipped;
+
+  document.getElementById('confirmSummary').innerHTML = `
+    <div class="alert alert-info" style="margin-bottom:1rem;">
+      <strong>Batch: ${esc(_batchLabel)}</strong><br>
+      New records to import: <strong>${cat.newCustomer.length}</strong> new customers + <strong>${cat.newJob.length}</strong> new jobs${reviewApproved ? ` + <strong>${reviewApproved}</strong> review-approved` : ''}<br>
+      Skipping: <strong>${cat.duplicate.length}</strong> duplicates + <strong>${cat.phantom.length}</strong> phantoms${reviewSkipped ? ` + <strong>${reviewSkipped}</strong> review-skipped` : ''}<br>
+      ${pendingDecision > 0 ? `<span style="color:#fcd34d;">⚠ ${pendingDecision} review item${pendingDecision > 1 ? 's' : ''} still pending — they will be auto-skipped.</span>` : ''}
+    </div>
+    <div class="alert alert-warn">
+      A timestamped backup of the current customer database will be created before any changes are made. You can restore from <strong>Admin Hub → CSV Import</strong> at any time.
+    </div>`;
+}
+
+// ── EXECUTE IMPORT ────────────────────────────────────────────────────────────
+async function executeImport() {
+  document.getElementById('confirmActions').style.display = 'none';
+  document.getElementById('importProgress').style.display = 'block';
+  document.getElementById('importResult').innerHTML = '';
+
+  const setProgress = (pct, msg) => {
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressMsg').textContent = msg;
+  };
+
+  try {
+    // Step 1: Create backup
+    setProgress(10, 'Creating database backup…');
+    const snapRes = await fetch(`${PCPC_API}/import/snapshot`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    if (!snapRes.ok) throw new Error('Backup failed: ' + snapRes.status);
+    const snap = await snapRes.json();
+
+    // Step 2: Re-load latest DB (in case it changed since preview)
+    setProgress(25, 'Loading current database…');
+    const dbRes = await fetch(`${PCPC_API}/customers`);
+    const db = await dbRes.json();
+    const byPhone = {};
+    (db.customers||[]).forEach(c => {
+      const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+      if (ph) byPhone[ph] = c;
+    });
+
+    // Step 3: Build import batch from categorized rows + review decisions
+    setProgress(40, 'Processing import batch…');
+    const now = new Date().toISOString();
+    const cat = _categorized;
+    let imported = 0, skipped = 0, newCustomers = 0;
+
+    const processRow = (r, overridePhone) => {
+      const ph = overridePhone || r.phone;
+      if (!ph || !r.date || isNaN(r.amount)) return false;
+      if (ph === PROTECTED_PHONE) return false; // Keith Wolf protection
+
+      const jid = jobId(ph, r.date, r.amount);
+      const jobEntry = {
+        jobId:      jid,
+        date:       r.date,
+        services:   r.services,
+        amount:     r.amount,
+        city:       r.city   || '',
+        address:    r.address|| '',
+        sqFt:       r.sqFt   || '',
+        payment:    r.payment|| '',
+        batchLabel: _batchLabel,
+        importedAt: now,
+      };
+
+      if (byPhone[ph]) {
+        const cust = byPhone[ph];
+        // Check not already in jobHistory
+        const existingIds = new Set((cust.jobHistory||[]).map(j => j.jobId));
+        if (existingIds.has(jid)) { skipped++; return false; }
+        // Snapshot legacyStats if first jobHistory entry
+        if (!cust.legacyStats && (cust.totalJobs > 0 || cust.lifetimeSpend > 0 || cust.lastService)) {
+          cust.legacyStats = {
+            totalJobs:    cust.totalJobs    || 0,
+            lifetimeSpend: cust.lifetimeSpend || 0,
+            lastService:  cust.lastService   || null,
+            preservedAt:  now,
+          };
+        }
+        cust.jobHistory = [...(cust.jobHistory||[]), jobEntry];
+        // Update lastService if this job is more recent
+        if (!cust.lastService || r.date > cust.lastService) cust.lastService = r.date;
+        imported++;
+      } else {
+        // New customer
+        const parts = r.customer.replace(/\(.*?\)/g,'').trim().split(/\s+/).filter(Boolean);
+        const fn = parts[0] || r.customer;
+        const ln = parts.slice(1).join(' ') || '';
+        byPhone[ph] = {
+          phone: ph, firstName: fn, lastName: ln,
+          address: r.address, city: r.city,
+          lastService: r.date, totalJobs: 1,
+          lifetimeSpend: Math.round(r.amount),
+          hasSealHistory: /seal/i.test(r.services),
+          phoneStatus: 'active', source: 'csv_import',
+          jobHistory: [jobEntry],
+          legacyStats: null,
+          alerts: [], optOut: null, movedAway: null,
+          reactivationExcluded: null, linkCode: null, linkBin: null,
+          lastTextedDate: null, quoteStatus: null, scheduledStatus: null,
+        };
+        db.customers.push(byPhone[ph]);
+        imported++; newCustomers++;
+      }
+      return true;
+    };
+
+    // Process clean rows (new customer + new job)
+    cat.newCustomer.forEach(r => processRow(r));
+    cat.newJob.forEach(r => processRow(r));
+
+    // Process review decisions
+    [...cat.missingPhone, ...cat.largeTxn].forEach(r => {
+      const dec = _reviewDecisions.get(r._key);
+      if (!dec || dec.action !== 'approve') { skipped++; return; }
+      const ph = dec.phone || r.phone;
+      if (!ph) { skipped++; return; }
+      processRow({ ...r, phone: ph }, ph);
+    });
+
+    // Phantoms and duplicates are already accounted for
+    skipped += cat.phantom.length + cat.duplicate.length;
+
+    // Step 4: Save
+    setProgress(70, 'Saving to database…');
+    const putRes = await fetch(`${PCPC_API}/customers`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(db),
+    });
+    if (!putRes.ok) throw new Error('Database save failed: ' + putRes.status);
+    sessionStorage.removeItem('pcpc_customer_db_cache');
+
+    // Step 5: Verify Keith Wolf
+    setProgress(90, 'Verifying data integrity…');
+    const verRes = await fetch(`${PCPC_API}/customers`);
+    const verDb  = await verRes.json();
+    const keith  = (verDb.customers||[]).find(c => (c.phone||'').replace(/\D/g,'') === PROTECTED_PHONE);
+    const keithOk = keith && keith.scheduledStatus?.state === 'scheduled' && keith.scheduledStatus?.scheduledDate === '2026-05-06' && (keith.scheduledStatus?.approvedAmount||0) === 375;
+
+    // Step 6: Log event
+    await fetch(`${PCPC_API}/events`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: 'import_' + Date.now(),
+        eventType: 'csv_import_completed',
+        batchLabel: _batchLabel,
+        imported, skipped, newCustomers,
+        backupKey: snap.key,
+        completedAt: now,
+        loggedAt: now,
+      }),
+    }).catch(() => {});
+
+    setProgress(100, 'Complete!');
+
+    document.getElementById('importResult').innerHTML = `
+      <div class="alert alert-ok" style="margin-top:1rem;">
+        <strong>✓ Import complete!</strong><br>
+        ${imported} job${imported !== 1 ? 's' : ''} imported (${newCustomers} new customer${newCustomers !== 1 ? 's' : ''}, ${imported - newCustomers} added to existing records)<br>
+        ${skipped} row${skipped !== 1 ? 's' : ''} skipped (duplicates + phantoms + review-skipped)<br>
+        Backup key: <code style="font-size:11px;color:var(--muted);">${esc(snap.key)}</code>
+      </div>
+      ${keithOk ? `<div class="alert alert-ok">✓ Keith Wolf verified intact — Weston · May 6 · $375 · scheduled</div>` : `<div class="alert alert-err">⚠ Keith Wolf check: status may need manual verification</div>`}
+      <div style="display:flex;gap:10px;margin-top:1rem;flex-wrap:wrap;">
+        <a href="/pure_cleaning_customer_directory.html" class="btn btn-primary">View Customer Directory →</a>
+        <a href="/pure_cleaning_admin.html" class="btn btn-secondary">← Admin Hub</a>
+        <button class="btn btn-secondary" onclick="location.reload()">Import Another Batch</button>
+      </div>`;
+
+  } catch(e) {
+    setProgress(0, '');
+    document.getElementById('importProgress').style.display = 'none';
+    document.getElementById('importResult').innerHTML = `
+      <div class="alert alert-err">
+        <strong>Import failed:</strong> ${esc(e.message)}<br>
+        Your database has NOT been modified. The backup was created before this attempt (if the error occurred after that step).
+      </div>`;
+    document.getElementById('confirmActions').style.display = 'flex';
+  }
+}
+
+// ── STEP TRANSITIONS ─────────────────────────────────────────────────────────
+const _origGoToStep = goToStep;
+window.goToStep = function(n) {
+  if (n === 3) renderReviewQueue();
+  if (n === 4) renderConfirmSummary();
+  _origGoToStep(n);
+};
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
