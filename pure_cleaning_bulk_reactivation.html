@@ -271,6 +271,30 @@ td.money{font-family:'DM Mono',monospace;}
 .tl-chip-sent{background:rgba(29,158,117,.18);color:#5de0b3;}
 .tl-action{flex-shrink:0;}
 .tl-empty{text-align:center;padding:2rem;color:var(--muted);font-size:14px;}
+
+/* exclusion modal */
+.excl-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem;}
+.excl-modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;max-width:440px;width:100%;max-height:90vh;overflow-y:auto;}
+.excl-radio-group{display:flex;flex-direction:column;gap:7px;margin:.875rem 0;}
+.excl-radio-label{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s,background .15s;}
+.excl-radio-label:hover{border-color:var(--sky);background:rgba(45,125,210,.06);}
+.excl-radio-label input{accent-color:var(--sky);flex-shrink:0;cursor:pointer;}
+.excl-radio-label span{font-size:13px;color:var(--text);}
+.excl-notes{width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;resize:none;margin-top:.75rem;}
+.excl-notes:focus{outline:none;border-color:var(--sky);}
+.excl-btn-row{display:flex;gap:10px;margin-top:1.25rem;}
+.excl-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s;}
+.excl-cancel:hover{border-color:var(--sky);color:var(--text);}
+.excl-confirm-red{flex:2;padding:11px;border:none;border-radius:10px;background:#dc2626;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;transition:background .15s;}
+.excl-confirm-red:hover{background:#b91c1c;}
+.excl-confirm-green{flex:2;padding:11px;border:none;border-radius:10px;background:var(--green);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;transition:background .15s;}
+.excl-confirm-green:hover{background:#0d7a5a;}
+/* excluded row in table */
+.excl-reason-badge{display:inline-block;padding:3px 9px;border-radius:8px;font-size:11px;font-weight:700;background:rgba(229,62,62,.15);border:1px solid rgba(229,62,62,.3);color:#fc8181;white-space:nowrap;}
+.excl-restore-btn{background:none;border:1px solid rgba(45,125,210,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--sky);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.excl-restore-btn:hover{background:rgba(45,125,210,.12);}
+/* TCPA warning */
+.tcpa-warn{background:rgba(245,158,11,.1);border-left:3px solid #f59e0b;padding:.75rem 1rem;border-radius:8px;font-size:12px;color:#fbbf24;margin:.875rem 0;line-height:1.6;}
 </style>
 </head>
 <body>
@@ -353,6 +377,7 @@ td.money{font-family:'DM Mono',monospace;}
     <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('opted_out')" style="border-color:rgba(229,62,62,.35);color:#fc8181;">🚫 Opted Out <span class="pool-badge" id="tabOptedOutCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('moved_away')" style="border-color:rgba(20,184,166,.35);color:#2dd4bf;">🏠 Moved Away <span class="pool-badge" id="tabMovedAwayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('excluded')" style="border-color:rgba(229,62,62,.5);color:#fca5a5;">⛔ Excluded <span class="pool-badge" id="tabExcludedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('timeline')">📅 Timeline <span class="pool-badge" id="tabTimelineCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
   </div>
@@ -451,7 +476,8 @@ td.money{font-family:'DM Mono',monospace;}
   <span style="font-size:14px;color:var(--muted);">
     <strong id="genCount" style="color:var(--text);">0</strong> customers selected
   </span>
-  <div style="display:flex;gap:8px;">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn-sm" id="bulkExclBtn" style="display:none;background:rgba(229,62,62,.18);border:1.5px solid rgba(229,62,62,.4);color:#fc8181;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptBulkExclude()">🚫 Exclude Selected (<span id="bulkExclCount">0</span>)</button>
     <button class="btn btn-gold" style="font-size:16px;padding:10px 20px;" onclick="generateLinks()" id="genBtn">Generate Links →</button>
   </div>
 </div>
@@ -662,7 +688,8 @@ function customerToDbRecord(c) {
     scheduledStatus: c.scheduledStatus || null,
     alerts: c.alerts || [],
     optOut: c.optOut || null,
-    movedAway: c.movedAway || null
+    movedAway: c.movedAway || null,
+    reactivationExcluded: c.reactivationExcluded || null
   };
 }
 
@@ -687,7 +714,8 @@ function dbRecordToCustomer(r) {
     scheduledStatus: r.scheduledStatus || null,
     alerts: r.alerts || [],
     optOut: r.optOut || null,
-    movedAway: r.movedAway || null
+    movedAway: r.movedAway || null,
+    reactivationExcluded: r.reactivationExcluded || null
   };
 }
 
@@ -1200,7 +1228,7 @@ function applyFilters() {
 
   if (poolTab === 'timeline') {
     filteredCustomers = allCustomers.filter(c => {
-      if (c.optOut || c.movedAway) return false;
+      if (c.reactivationExcluded?.excluded || c.optOut || c.movedAway) return false;
       if (!activeTiers.has(c.tier)) return false;
       if (city && c.city !== city) return false;
       if (c.lifetimeSpend < minSpend) return false;
@@ -1219,8 +1247,10 @@ function applyFilters() {
   }
 
   filteredCustomers = allCustomers.filter(c => {
+    if (poolTab === 'excluded')   return c.reactivationExcluded?.excluded === true;
     if (poolTab === 'opted_out')   return !!c.optOut;
     if (poolTab === 'moved_away')  return !!c.movedAway;
+    if (c.reactivationExcluded?.excluded) return false;
     if (c.optOut)    return false;
     if (c.movedAway) return false;
     if (!activeTiers.has(c.tier)) return false;
@@ -1312,12 +1342,21 @@ const OPT_OUT_LABELS = {
   do_not_contact: 'Do not contact'
 };
 
+const EXCL_REASON_LABELS = {
+  opted_out:      '🚫 Opted out',
+  moved_away:     '🏠 Moved away',
+  deceased:       '⚰️ Deceased',
+  friend_family:  '👨‍👩‍👧 Friend / family',
+  do_not_contact: '🚷 Do not contact',
+  commercial:     '🏢 Commercial',
+};
+
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
-  const emptyTabs = ['today','week','opted_out','moved_away'];
+  const emptyTabs = ['today','week','opted_out','moved_away','excluded'];
   if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
-    const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.'};
+    const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.',excluded:'No excluded customers — looking good!'};
     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msgs[poolTab]}</td></tr>`;
     updateSelInfo();
     document.getElementById('selectAll').checked = false;
@@ -1336,6 +1375,29 @@ function renderTable() {
       const loc = c.movedAway.location ? ` → ${c.movedAway.location}` : '';
       const textBtn = `<div class="contact-info">🏠 Moved away${atStr ? ' · ' + atStr : ''}${loc}</div><button class="restore-moved-btn" onclick="restoreMovedAway('${c.phone}')">↩ Restore</button>`;
       return `<tr style="opacity:.7;">
+        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td>${textBtn}</td>
+        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${c.city || '—'}</td>
+        <td>${c.lastServiceStr}</td>
+        <td class="money">${c.totalJobs}</td>
+        <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="money">$${Math.round(c.avgTicket)}</td>
+        <td class="money">${mo}</td>
+        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
+        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }
+
+    // Excluded tab: show reason badge + Restore button
+    if (poolTab === 'excluded') {
+      const ex = c.reactivationExcluded || {};
+      const reasonLabel = EXCL_REASON_LABELS[ex.reason] || ex.reason || 'Excluded';
+      const atStr = ex.excludedAt ? new Date(ex.excludedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const notesStr = ex.reasonNotes ? ` · "${ex.reasonNotes}"` : '';
+      const textBtn = `<div class="contact-info"><span class="excl-reason-badge">${reasonLabel}</span><br><span style="font-size:10px;color:var(--muted);">${atStr}${notesStr}</span></div><button class="excl-restore-btn" onclick="promptRestore('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.65;">
         <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
         <td>${textBtn}</td>
         <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
@@ -1507,6 +1569,12 @@ function updateSelInfo() {
   document.getElementById('genCount').textContent = n;
   const bar = document.getElementById('genBar');
   if (n > 0) bar.classList.add('show'); else bar.classList.remove('show');
+  const exclBtn = document.getElementById('bulkExclBtn');
+  if (exclBtn) {
+    exclBtn.style.display = n > 0 ? '' : 'none';
+    const span = document.getElementById('bulkExclCount');
+    if (span) span.textContent = n;
+  }
 }
 
 function renderAlertIcons(alerts) {
@@ -1836,7 +1904,7 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','timeline','all'][i] === tab);
+    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','excluded','timeline','all'][i] === tab);
   });
   const isTimeline = tab === 'timeline';
   const tw = document.getElementById('tableWrap');
@@ -1849,8 +1917,9 @@ function setPoolTab(tab) {
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, timelineUrgent = 0;
+  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0;
   allCustomers.forEach(c => {
+    if (c.reactivationExcluded?.excluded) { excludedCt++; return; }
     if (c.optOut)    { optedOutCt++;   return; }
     if (c.movedAway) { movedAwayCt++;  return; }
     const rec = loadContactRecord(c.phone);
@@ -1873,6 +1942,7 @@ function updateTabCounts() {
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
   document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
   document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
+  document.getElementById('tabExcludedCount').textContent  = excludedCt;
   document.getElementById('tabTimelineCount').textContent  = timelineUrgent;
 }
 function textNow(phone) {
@@ -1889,6 +1959,12 @@ async function executeTextNow(phone) {
   const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
   const c = allCustomers.find(a => a.phone === phone);
   if (!c) return;
+
+  // TCPA enforcement: never send SMS to opted-out customers
+  if (c.optOut) {
+    alert(`Cannot send SMS — ${c.fn} ${c.ln} has opted out of text messages (TCPA compliance). Contact by phone only: ${formatPhone(c.phone)}`);
+    return;
+  }
 
   let code = c.linkCode;
 
@@ -2215,6 +2291,130 @@ function markCommercial(phone) {
   applyFilters();
 }
 
+// ─── EXCLUSION SYSTEM ────────────────────────────────────────────────────────
+let _exclPhones = [];
+
+const EXCL_REASONS = [
+  { value: 'opted_out',      label: 'Customer asked to stop (opted out)' },
+  { value: 'moved_away',     label: 'Moved away' },
+  { value: 'deceased',       label: 'Deceased' },
+  { value: 'friend_family',  label: 'Friend or family' },
+  { value: 'do_not_contact', label: 'Do not contact (my call)' },
+  { value: 'commercial',     label: 'Commercial account (wrong list)' },
+];
+
+function _renderExclReasons() {
+  document.getElementById('exclReasons').innerHTML = EXCL_REASONS.map((r, i) =>
+    `<label class="excl-radio-label">
+      <input type="radio" name="exclReason" value="${r.value}"${i === 0 ? ' checked' : ''}>
+      <span>${r.label}</span>
+    </label>`
+  ).join('');
+}
+
+function promptExclude(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  _exclPhones = [phone];
+  document.getElementById('exclModalTitle').textContent = `Don't Reactivate ${c.fn} ${c.ln}?`;
+  document.getElementById('exclModalSub').textContent = formatPhone(phone);
+  _renderExclReasons();
+  document.getElementById('exclNotes').value = '';
+  document.getElementById('exclModalOverlay').style.display = 'flex';
+}
+
+function promptBulkExclude() {
+  const phones = [...selectedPhones];
+  if (!phones.length) return;
+  _exclPhones = phones;
+  document.getElementById('exclModalTitle').textContent = `Exclude ${phones.length} Customer${phones.length > 1 ? 's' : ''}?`;
+  document.getElementById('exclModalSub').textContent = 'Select a reason to apply to all selected customers.';
+  _renderExclReasons();
+  document.getElementById('exclNotes').value = '';
+  document.getElementById('exclModalOverlay').style.display = 'flex';
+}
+
+function closeExclModal() {
+  document.getElementById('exclModalOverlay').style.display = 'none';
+  _exclPhones = [];
+}
+
+function confirmExclusion() {
+  const selected = document.querySelector('input[name="exclReason"]:checked');
+  if (!selected) return;
+  const reason = selected.value;
+  const notes = document.getElementById('exclNotes').value.trim();
+  const now = new Date().toISOString();
+  let firstName = null;
+
+  for (const phone of _exclPhones) {
+    const c = allCustomers.find(x => x.phone === phone);
+    if (!c) continue;
+    if (!firstName) firstName = c.fn;
+    c.reactivationExcluded = { excluded: true, reason, reasonNotes: notes, excludedAt: now, excludedBy: 'tyler', restoredAt: null, restoredBy: null };
+    if (reason === 'opted_out')  c.optOut    = { reason: 'customer_request', at: now };
+    if (reason === 'moved_away') c.movedAway = { at: now, location: null };
+    selectedPhones.delete(phone);
+  }
+
+  const n = _exclPhones.length;
+  closeExclModal();
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+  updateContactStats();
+  showExclToast(n === 1 ? `Excluded ${firstName} from reactivation` : `Excluded ${n} customers from reactivation`);
+}
+
+let _restorePhone = null;
+function promptRestore(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c || !c.reactivationExcluded?.excluded) return;
+  _restorePhone = phone;
+  const ex = c.reactivationExcluded;
+  const dateStr = ex.excludedAt ? new Date(ex.excludedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+  document.getElementById('restoreExclTitle').textContent = `Restore ${c.fn} ${c.ln}?`;
+  document.getElementById('restoreExclBody').textContent = `Excluded${dateStr ? ' on ' + dateStr : ''} · Reason: ${EXCL_REASON_LABELS[ex.reason] || ex.reason}${ex.reasonNotes ? ' · "' + ex.reasonNotes + '"' : ''}`;
+  const isOptedOut = ex.reason === 'opted_out';
+  document.getElementById('restoreExclTcpaWarn').style.display = isOptedOut ? 'block' : 'none';
+  document.getElementById('restoreExclConfirmBtn').onclick = () => confirmRestore(phone);
+  document.getElementById('restoreExclModal').style.display = 'flex';
+}
+
+function closeRestoreModal() {
+  document.getElementById('restoreExclModal').style.display = 'none';
+  _restorePhone = null;
+}
+
+function confirmRestore(phone) {
+  closeRestoreModal();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c || !c.reactivationExcluded) return;
+  const wasReason = c.reactivationExcluded.reason;
+  c.reactivationExcluded = { ...c.reactivationExcluded, excluded: false, restoredAt: new Date().toISOString(), restoredBy: 'tyler' };
+  // Clear side-effect flags EXCEPT optOut (TCPA: stays set regardless)
+  if (wasReason === 'moved_away') c.movedAway = null;
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+  updateContactStats();
+  showExclToast(`Restored ${c.fn} ${c.ln} to reactivation pool`);
+}
+
+function showExclToast(msg) {
+  let t = document.getElementById('exclToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'exclToast';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--navy2);border:1.5px solid var(--border);color:var(--text);padding:10px 22px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;pointer-events:none;transition:opacity .4s;box-shadow:0 4px 24px rgba(0,0,0,.5);white-space:nowrap;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+}
+
 // ─── FILE HANDLING ───────────────────────────────────────────────────────────
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
@@ -2520,17 +2720,21 @@ function toggleRowMenu(phone, btn) {
   const isDisc = c && c.phoneStatus === 'disconnected';
   const isOptedOut = c && !!c.optOut;
   const isMovedAway = c && !!c.movedAway;
+  const isExcluded = c && c.reactivationExcluded?.excluded === true;
   const menu = document.getElementById('rowMenuDropdown');
   menu.innerHTML =
-    (isOptedOut
+    (isExcluded
+      ? `<button class="row-menu-item" onclick="promptRestore('${phone}')">↩ Restore from exclusion</button>`
+      : `<button class="row-menu-item danger" onclick="promptExclude('${phone}')">🚫 Don't Reactivate</button>`
+    ) +
+    (isOptedOut && !isExcluded
       ? `<button class="row-menu-item" onclick="restoreOptOut('${phone}')">↩ Restore from opt-out</button>`
-      : `<button class="row-menu-item danger" onclick="promptOptOut('${phone}')">🚫 Mark opted out</button>`
+      : ''
     ) +
-    (isMovedAway
+    (isMovedAway && !isExcluded
       ? `<button class="row-menu-item moved-act" onclick="restoreMovedAway('${phone}')">↩ Restore (un-mark moved)</button>`
-      : `<button class="row-menu-item moved-act" onclick="promptMovedAway('${phone}')">🏠 Mark as moved away</button>`
+      : ''
     ) +
-    `<button class="row-menu-item danger" onclick="markCommercial('${phone}')">⊘ Exclude (commercial)</button>` +
     (isDisc
       ? `<button class="row-menu-item phone-act" onclick="markPhoneActive('${phone}')">📞 Mark phone active</button>`
       : `<button class="row-menu-item phone-act" onclick="markPhoneDisconnected('${phone}')">📵 Mark phone disconnected</button>`
@@ -2580,10 +2784,43 @@ document.addEventListener('DOMContentLoaded', () => {
   tryLoadDatabase();
   initTooltips();
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); }
+    if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); closeExclModal(); closeRestoreModal(); }
   });
 });
 </script>
+
+<!-- EXCLUSION MODAL -->
+<div id="exclModalOverlay" class="excl-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeExclModal()">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">🚫</div>
+    <h3 id="exclModalTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:.25rem;"></h3>
+    <p id="exclModalSub" style="font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 .25rem;"></p>
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:.75rem;display:block;">Why?</label>
+    <div class="excl-radio-group" id="exclReasons"></div>
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Notes <span style="font-weight:400;text-transform:none;font-size:10px;">(optional)</span></label>
+    <textarea id="exclNotes" class="excl-notes" rows="2" placeholder="My cousin's house, called and asked to stop, etc."></textarea>
+    <div class="excl-btn-row">
+      <button class="excl-cancel" onclick="closeExclModal()">Cancel</button>
+      <button class="excl-confirm-red" onclick="confirmExclusion()">Confirm Exclusion</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESTORE EXCLUSION MODAL -->
+<div id="restoreExclModal" class="excl-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeRestoreModal()">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">↩️</div>
+    <h3 id="restoreExclTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:.25rem;"></h3>
+    <p id="restoreExclBody" style="font-size:13px;color:var(--muted);line-height:1.5;margin:0;"></p>
+    <div id="restoreExclTcpaWarn" class="tcpa-warn" style="display:none;">
+      <strong>TCPA Notice:</strong> This customer opted out of SMS. Restoring removes them from the Excluded tab, but the Opted Out flag stays set — they won't appear in the active pool and SMS is still blocked unless they explicitly ask to be re-added to your list.
+    </div>
+    <div class="excl-btn-row">
+      <button class="excl-cancel" onclick="closeRestoreModal()">Cancel</button>
+      <button id="restoreExclConfirmBtn" class="excl-confirm-green">Yes, Restore</button>
+    </div>
+  </div>
+</div>
 
 <!-- ADD CUSTOMER MODAL -->
 <div class="modal-overlay hidden" id="addCustomerModal" onclick="if(event.target===this)closeAddCustomerModal()">

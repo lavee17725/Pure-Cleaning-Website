@@ -1004,6 +1004,13 @@ function renderProfile(customer, events){
   if(c.hasComplaints) callouts.push({cls:'callout-red', text:`⚠ ${c.complaintCount||1} logged complaint${(c.complaintCount||1)>1?'s':''}. Review history below before booking.`});
   if(c.optOut) callouts.push({cls:'callout-gray',  text:'⚠️ Opted out of campaigns — do not send bulk SMS'});
   if(c.movedAway) callouts.push({cls:'callout-gray',text:'🏠 Marked as moved away'});
+  if(c.reactivationExcluded?.excluded) {
+    const EXCL_PROFILE_LABELS = {opted_out:'Opted out',moved_away:'Moved away',deceased:'Deceased',friend_family:'Friend / family',do_not_contact:'Do not contact',commercial:'Commercial account'};
+    const ex = c.reactivationExcluded;
+    const excDate = ex.excludedAt ? new Date(ex.excludedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+    const excLabel = EXCL_PROFILE_LABELS[ex.reason] || ex.reason || 'Excluded';
+    callouts.push({cls:'callout-gray', text:`🚫 Excluded from reactivation: ${excLabel}${excDate ? ' · ' + excDate : ''}${ex.reasonNotes ? ' — "' + ex.reasonNotes + '"' : ''}`});
+  }
   if(mo!==null&&mo>12) callouts.push({cls:'callout-red',   text:`🔴 At-risk — last service was ${Math.round(mo)} months ago`});
   if(c.hasSealHistory&&mo!==null&&mo>=18&&mo<=36) callouts.push({cls:'callout-purple',text:'💎 VIP Seal renewal window — Tony should quote'});
   if(c.sealingInterest) callouts.push({cls:'callout-purple',text:'💎 Signaled sealing interest — bring samples to next job'});
