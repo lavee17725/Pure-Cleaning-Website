@@ -870,6 +870,47 @@ async function init() {
     allCustomers = [];
     dbLoaded = true;
   }
+  // Handle ?phone= param — back navigation from mini quote builder
+  const urlPhone = new URLSearchParams(window.location.search).get('phone');
+  if (urlPhone) {
+    const normPhone = urlPhone.replace(/\D/g,'').slice(-10);
+    const c = allCustomers.find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === normPhone);
+    if (c) preloadCustomerForEdit(c);
+  }
+}
+
+function preloadCustomerForEdit(c) {
+  currentCustomer = c;
+  isNew = false;
+  pendingAlerts = [...(c.alerts||[])];
+  const ph = c.phone||'';
+  document.getElementById('nFn').value    = c.firstName||'';
+  document.getElementById('nLn').value    = c.lastName||'';
+  document.getElementById('nPhone').value = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
+  document.getElementById('nPhone').readOnly = true;
+  document.getElementById('nPhone').style.cssText = 'background:#f5f3ef;color:var(--muted);';
+  document.getElementById('nAddr').value  = c.address||'';
+  document.getElementById('nCity').value  = c.city||'';
+  document.getElementById('nEmail').value = c.email||'';
+  document.getElementById('nZip').value   = c.zip||'';
+  document.getElementById('nNotes').value = c.notes||'';
+  setPath('phone');
+  // Restore service picker from servicesAgreed
+  const sa = c.quoteStatus?.servicesAgreed;
+  if (sa?.structured?.length) {
+    sa.structured.forEach(id => {
+      if (!_svcSel.has(id)) toggleService(id);
+    });
+    if (sa.roofMethod) { _roofMethod = sa.roofMethod; _roofSubLocked = true; }
+    if (sa.roofSqFt) { const el = document.getElementById('nRoofSqFt'); if (el) el.value = sa.roofSqFt; }
+    if (sa.roofType) {
+      const opt = document.querySelector(`.roof-type-opt[onclick*="'${sa.roofType}'"]`);
+      if (opt) selectRoofType(sa.roofType, opt);
+    }
+    renderServicePicker();
+  }
+  renderNewAlerts();
+  checkReq();
 }
 
 async function saveDb() {

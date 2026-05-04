@@ -168,9 +168,30 @@ const STANDARD_ADDONS = [
   {id:'awnings',       name:'Awning Cleaning',            icon:'🪟'},
 ];
 
-// Section groupings for organized rendering
-const BUNDLE_SAVE_IDS  = ['rinse_walls','driveway','patio','pool_deck'];
+// Section 3 always-visible add-ons
 const PROBLEM_FIX_IDS  = ['rust','awnings'];
+
+const ROOF_METHOD_LABELS = {
+  softwash:'Softwash',
+  power_wash_chemical:'Power wash + chemical',
+  power_wash_no_chemical:'Power wash, no chemical'
+};
+
+// Returns which add-ons to offer in Section 1 based on what's already in the main job
+function getBundleSaveItems() {
+  const booked = getBookedServiceIds();
+  const hasRoof     = booked.has('roof_cleaning');
+  const hasDriveway = booked.has('driveway');
+  const hasPatio    = booked.has('patio');
+  if (hasRoof && hasDriveway && hasPatio) return []; // all three booked — hide section
+  const items = [];
+  if (!hasRoof)     items.push('roof_cleaning');
+  if (!hasDriveway) items.push('driveway');
+  if (!hasPatio)    items.push('patio');
+  // Walls: only when roof NOT in main job (roof auto-bundles walls)
+  if (!hasRoof && !booked.has('rinse_walls')) items.push('rinse_walls');
+  return items;
+}
 
 // Suggested starting prices Mom can adjust; worker addons-config overrides when fetched
 const ADDON_DEFAULTS = {
@@ -217,12 +238,13 @@ function getRelevantAddons() {
   });
 }
 
-let customer      = null;
-let defaults      = {};
-let sealingOn     = false;
-let paverSandOn   = false;
-let customRows    = [];
-let customIdCounter = 0;
+let customer         = null;
+let defaults         = {};
+let sealingOn        = false;
+let paverSandOn      = false;
+let _addonRoofMethod = null; // roof method when roof offered as add-on
+let customRows       = [];
+let customIdCounter  = 0;
 let _dateSuggestions = []; // [{date,display,dayName,rig,rigLabel,reason,label,enabled,custom}]
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
@@ -245,12 +267,13 @@ async function init() {
             || matches.find(c => c.quoteStatus?.mainServices || c.quoteStatus?.servicesAgreed)
             || matches[matches.length - 1]; // last-inserted as final fallback
 
-    // Set back link to customer profile
+    // Set back link → new_customer pre-loaded for this phone
     const backEl = document.getElementById('backLink');
     if (backEl && customer.phone) {
-      backEl.href = `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(customer.phone)}`;
-      backEl.textContent = '← Customer Info';
+      backEl.href = `/pure_cleaning_new_customer.html?phone=${encodeURIComponent(customer.phone)}&from=builder`;
+      backEl.textContent = '← Back to Customer Info';
     }
+    _addonRoofMethod = customer.quoteStatus?.miniQuoteCustomData?.addonRoofMethod || null;
 
     const addonsData = addonsRes.ok ? await addonsRes.json() : { addons: [] };
     (addonsData.addons || []).forEach(a => { defaults[a.id] = { bundle: a.bundle, standalone: a.standalone }; });
@@ -276,10 +299,12 @@ function renderBuilder(existing) {
   const amount   = qs.mainAmount   || qs.approvedAmount || '';
   const hours    = qs.estimatedHours || null;
 
-  // Pre-fill sealing state and customNote from existing
+  // Pre-fill sealing state (handle both new schema and legacy)
   if (existing) {
-    sealingOn   = !!existing.sealingEnabled;
-    paverSandOn = !!existing.paverSandInterest;
+    const si  = existing.sealingInterest;
+    sealingOn   = si === 'sealing_only' || si === 'sealing_plus_sand' || !!existing.sealingEnabled;
+    paverSandOn = si === 'sealing_plus_sand' || !!existing.paverSandInterest;
+    if (existing.addonRoofMethod) _addonRoofMethod = existing.addonRoofMethod;
   }
 
   const existingAddons = existing ? existing.addOns || [] : [];
@@ -333,25 +358,31 @@ function renderBuilder(existing) {
       <div id="addonsBundleSave"></div>
     </div>
 
-    <!-- PROTECT WHAT WE JUST CLEANED -->
+    <!-- SEALING — BRING IT BACK TO LIFE -->
     <div class="sec-card protect">
       <div class="sec-card-hdr">
-        <div class="sec-card-title">💎 Protect What We Just Cleaned</div>
-        <div class="sec-card-sub">Sealing locks in the clean look for 2–3 years and blocks mildew regrowth. We price it in person after seeing the surface.</div>
+        <div class="sec-card-title">💎 Bring It Back to Life — Sealing</div>
+        <div class="sec-card-sub">
+          Sealing does three things customers love:<br>
+          <span style="color:#7e22ce;">✓ Restores the color</span> — surfaces look richer and brighter<br>
+          <span style="color:#7e22ce;">✓ Suppresses weeds</span> — no more pulling them from joints<br>
+          <span style="color:#7e22ce;">✓ Protects the surface</span> — pavers, marble, or concrete<br>
+          <span style="font-style:italic;">We discuss pricing in person — every property is different.</span>
+        </div>
       </div>
       <div class="sealing-interests">
         <div class="sealing-opt${sealingOn ? ' enabled' : ''}" id="sealingToggle" onclick="toggleSealing()">
           <div class="si-check"><span class="si-check-icon">✓</span></div>
           <div class="si-text">
             <div class="si-label">Customer interested in sealing quote</div>
-            <div class="si-sub">We'll bring it up day-of. No commitment.</div>
+            <div class="si-sub">Flags Tony to bring sample materials. No price commitment.</div>
           </div>
         </div>
         <div class="sealing-opt${paverSandOn ? ' enabled' : ''}" id="paverSandToggle" onclick="togglePaverSand()">
           <div class="si-check"><span class="si-check-icon">✓</span></div>
           <div class="si-text">
-            <div class="si-label">Customer interested in sealing + paver sand</div>
-            <div class="si-sub">Joint sand replacement before sealing — stops weeds, restores the clean look between pavers.</div>
+            <div class="si-label">Customer interested in sealing + paver joint sand</div>
+            <div class="si-sub">Replace damaged joint sand before sealing — gives a cleaner finish and longer seal life.</div>
           </div>
         </div>
       </div>
@@ -397,39 +428,54 @@ function renderBuilder(existing) {
 }
 
 function populateAddonSections() {
-  const booked   = getBookedServiceIds();
-  const relevant = getRelevantAddons();
-  const relevantIds = new Set(relevant.map(a => a.id));
   const existingAddons = (customer.quoteStatus?.miniQuoteCustomData?.addOns) || [];
 
-  function renderGroup(ids) {
-    return ids
-      .filter(id => relevantIds.has(id))
-      .map(id => {
-        const a    = STANDARD_ADDONS.find(x => x.id === id);
-        if (!a) return '';
-        const prev = existingAddons.find(x => x.id === id);
-        const adDef  = defaults[id] || ADDON_DEFAULTS[id] || {};
-        const enabled  = prev ? prev.enabled : false;
-        const bundle   = prev ? prev.bundle     : (adDef.bundle     || '');
-        const regular  = prev ? prev.standalone : (adDef.standalone || '');
-        const note     = prev ? (prev.note || '') : '';
-        let html = addonRowHtml(a.id, a.name, a.icon, enabled, bundle, regular, note);
-        // Extra contextual note for driveway
-        if (id === 'driveway' && enabled) {
-          html += `<div class="addon-bundle-note">Includes Entranceway + Walkway &nbsp;·&nbsp; Tony bundles 90% of driveways</div>`;
-        }
-        return html;
-      }).join('');
+  function entryHtml(id) {
+    const a = STANDARD_ADDONS.find(x => x.id === id);
+    if (!a) return '';
+    const prev    = existingAddons.find(x => x.id === id);
+    const adDef   = defaults[id] || ADDON_DEFAULTS[id] || {};
+    const enabled = prev ? prev.enabled : false;
+    const bundle  = prev ? prev.bundle     : (adDef.bundle  || '');
+    const regular = prev ? prev.standalone : (adDef.standalone || '');
+    const note    = prev ? (prev.note || '') : '';
+
+    let extra = '';
+    if (id === 'roof_cleaning') {
+      extra = `<div style="margin-top:8px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;">Cleaning method</div>
+        <div class="roof-method-wrap" style="background:transparent;border:none;padding:0;">
+          ${Object.entries(ROOF_METHOD_LABELS).map(([val,lbl]) =>
+            `<label onclick="event.stopPropagation()"><input type="radio" name="addonRoofMethod" value="${val}"${_addonRoofMethod===val?' checked':''} onclick="event.stopPropagation();_addonRoofMethod='${val}'">${lbl}</label>`
+          ).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:5px;font-style:italic;">Automatically includes Rinse Walls &amp; Windows</div>
+      </div>`;
+    } else if (id === 'driveway') {
+      extra = `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic;">📦 Includes Entranceway + Walkway/Sidewalk</div>`;
+    } else if (id === 'rinse_walls') {
+      extra = `<div style="font-size:12px;color:var(--muted);margin-top:6px;font-style:italic;">Quick add since we'll already be on-site</div>`;
+    }
+    return addonRowHtml(id, a.name, a.icon, enabled, bundle, regular, note, extra);
   }
 
-  const bundleEl = document.getElementById('addonsBundleSave');
-  const fixEl    = document.getElementById('addonsProblems');
-  if (bundleEl) bundleEl.innerHTML = renderGroup(BUNDLE_SAVE_IDS) || '<div style="padding:12px 15px;font-size:13px;color:var(--muted);">All bundle services already included in main job.</div>';
-  if (fixEl)    fixEl.innerHTML    = renderGroup(PROBLEM_FIX_IDS) || '<div style="padding:12px 15px;font-size:13px;color:var(--muted);">No problem-fix items to add.</div>';
+  // Section 1 — conditional bundle items
+  const bundleIds     = getBundleSaveItems();
+  const bundleSection = document.getElementById('bundleSection');
+  const bundleEl      = document.getElementById('addonsBundleSave');
+  if (!bundleIds.length) {
+    if (bundleSection) bundleSection.style.display = 'none';
+  } else {
+    if (bundleSection) bundleSection.style.display = '';
+    if (bundleEl) bundleEl.innerHTML = bundleIds.map(id => entryHtml(id)).join('');
+  }
+
+  // Section 3 — problem fixes (always shown)
+  const fixEl = document.getElementById('addonsProblems');
+  if (fixEl) fixEl.innerHTML = PROBLEM_FIX_IDS.map(id => entryHtml(id)).join('');
 }
 
-function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
+function addonRowHtml(id, name, icon, enabled, bundle, regular, note, extraBodyHtml='') {
   const bNum = parseFloat(bundle) || 0;
   const rNum = parseFloat(regular) || 0;
   const initSavings = (bNum > 0 && rNum > bNum) ? Math.round(rNum - bNum) : 0;
@@ -459,6 +505,7 @@ function addonRowHtml(id, name, icon, enabled, bundle, regular, note) {
       <div class="addon-savings" id="savings-${id}"${savingsStyle}>↳ Customer saves $${initSavings}</div>
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);display:block;margin-bottom:5px;">Note (optional)</label>
       <textarea class="note-input" id="note-${id}" maxlength="200" placeholder="Any details for this customer…">${esc(note)}</textarea>
+      ${extraBodyHtml}
       ${hasDefault ? `<button class="reset-link" onclick="resetToDefault('${id}')">Reset to defaults</button>` : ''}
     </div>
   </div>`;
@@ -739,11 +786,14 @@ async function saveMiniQuote(sendText) {
     const cust  = (db.customers || []).find(c => _nph(c.phone) === _nph(customer.phone));
     if (!cust) throw new Error('Customer not found in DB');
 
+    const sealingInterest = paverSandOn ? 'sealing_plus_sand' : sealingOn ? 'sealing_only' : 'none';
     const miniQuoteCustomData = {
       addOns,
       customAddOns,
-      sealingEnabled: sealingOn,
-      paverSandInterest: paverSandOn,
+      sealingInterest,
+      sealingEnabled: sealingOn,     // backward compat
+      paverSandInterest: paverSandOn, // backward compat
+      addonRoofMethod: _addonRoofMethod || null,
       customNote,
       dateSuggestions,
       builtAt: now,
@@ -791,6 +841,7 @@ async function saveMiniQuote(sendText) {
         estimatedDuration: qs.estimatedHours || 2,
         jobNotes: mainServices,
       };
+      cust.sealingInterest = sealingInterest;
 
       await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
       try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch {}
