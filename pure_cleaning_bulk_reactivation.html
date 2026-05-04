@@ -379,6 +379,7 @@ td.money{font-family:'DM Mono',monospace;}
   <!-- POOL TABS -->
   <div class="pool-tabs" id="poolTabs">
     <button class="pool-tab active" onclick="setPoolTab('active')">🎯 Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('booked')" style="border-color:rgba(244,166,32,.5);color:#f4a620;">📦 Booked Jobs <span class="pool-badge" id="tabBookedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('today')">📲 Today <span class="pool-badge" id="tabTodayCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('week')">📅 This Week <span class="pool-badge" id="tabWeekCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
@@ -1265,6 +1266,19 @@ function applyFilters() {
     if (poolTab === 'excluded')   return c.reactivationExcluded?.excluded === true;
     if (poolTab === 'opted_out')   return !!c.optOut;
     if (poolTab === 'moved_away')  return !!c.movedAway;
+    if (poolTab === 'booked') {
+      const ss = c.scheduledStatus;
+      const qs = c.quoteStatus;
+      const isBooked = (ss && ss.state === 'scheduled' && c.totalJobs === 0) ||
+                       (qs && (qs.state === 'confirmed' || qs.state === 'approved') && c.totalJobs === 0);
+      if (!isBooked) return false;
+      if (q) {
+        const full = ((c.fn||'') + ' ' + (c.ln||'')).toLowerCase();
+        return full.includes(q) || (c.city||'').toLowerCase().includes(q) ||
+               (qDigits && c.phone && c.phone.includes(qDigits));
+      }
+      return true;
+    }
     if (c.reactivationExcluded?.excluded) return false;
     if (c.optOut)    return false;
     if (c.movedAway) return false;
@@ -1499,9 +1513,15 @@ function renderTable() {
       <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
       <td class="phone">${formatPhone(c.phone)}</td>
       <td>${c.city || '—'}</td>
-      <td>${c.lastServiceStr}</td>
+      <td>${(() => {
+        if (poolTab === 'booked' && c.scheduledStatus?.scheduledDate) {
+          const d = new Date(c.scheduledStatus.scheduledDate + 'T12:00:00');
+          return '📅 ' + d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+        }
+        return c.lastServiceStr;
+      })()}</td>
       <td class="money">${c.totalJobs}</td>
-      <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td class="money">$${poolTab === 'booked' && c.scheduledStatus?.approvedAmount ? c.scheduledStatus.approvedAmount.toLocaleString('en-US') : c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
@@ -1952,7 +1972,7 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','excluded','timeline','all'][i] === tab);
+    el.classList.toggle('active', ['active','booked','today','week','contacted','opted_out','moved_away','excluded','timeline','all'][i] === tab);
   });
   const isTimeline = tab === 'timeline';
   const tw = document.getElementById('tableWrap');
@@ -1965,11 +1985,16 @@ function setPoolTab(tab) {
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0;
+  let active = 0, booked = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0;
   allCustomers.forEach(c => {
     if (c.reactivationExcluded?.excluded) { excludedCt++; return; }
     if (c.optOut)    { optedOutCt++;   return; }
     if (c.movedAway) { movedAwayCt++;  return; }
+    const ss = c.scheduledStatus, qs = c.quoteStatus;
+    if ((ss && ss.state === 'scheduled' && c.totalJobs === 0) ||
+        (qs && (qs.state === 'confirmed' || qs.state === 'approved') && c.totalJobs === 0)) {
+      booked++;
+    }
     const rec = loadContactRecord(c.phone);
     if (isInCooldown(c.phone)) {
       contacted++;
@@ -1984,6 +2009,7 @@ function updateTabCounts() {
     if (rs === 'overdue' || rs === 'due_now') timelineUrgent++;
   });
   document.getElementById('tabActiveCount').textContent    = active;
+  document.getElementById('tabBookedCount').textContent    = booked;
   document.getElementById('tabTodayCount').textContent     = todayCt;
   document.getElementById('tabWeekCount').textContent      = weekCt;
   document.getElementById('tabContactedCount').textContent = contacted;

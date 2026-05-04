@@ -704,6 +704,15 @@ function shortenUrl(longUrl) {
   return shortUrl;
 }
 
+// ─── HELPERS ─────────────────────────────────────────────────────
+function extractCityFromAddr(addr) {
+  if (!addr) return '';
+  const parts = addr.split(',').map(s => s.trim());
+  if (parts.length < 2) return '';
+  // Remove state abbreviation and zip from the city segment
+  return parts[1].replace(/\s*(FL|Florida|\d{5}).*$/i, '').trim();
+}
+
 // ─── GENERATE ────────────────────────────────────────────────────
 async function generateQuote() {
   const first = document.getElementById('custFirst').value;
@@ -758,7 +767,7 @@ async function generateQuote() {
   };
 
   const quotePayload = {
-    fn, ln, ph, address, city: '', services: serviceStr, mainServices: serviceStr,
+    fn, ln, ph, address, city: extractCityFromAddr(address), services: serviceStr, mainServices: serviceStr,
     mainAmount: priceNum, approvedAmount: priceNum, addOns: [],
     dateSuggestions, miniQuoteCustomData: miniData,
     source: 'quote_builder_v2', created: now,
@@ -791,7 +800,7 @@ async function generateQuote() {
           const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
           let cust    = (db.customers||[]).find(c => norm(c.phone) === norm(ph));
           if (!cust) {
-            cust = { phone: ph, firstName: fn, lastName: ln, address, city: '', email, zip: '', totalJobs: 0, lifetimeSpend: 0, hasSealHistory: false, createdAt: now, source: 'digital_quote_v2' };
+            cust = { phone: ph, firstName: fn, lastName: ln, address, city: extractCityFromAddr(address), email, zip: '', totalJobs: 0, lifetimeSpend: 0, hasSealHistory: false, createdAt: now, source: 'digital_quote_v2' };
             (db.customers = db.customers || []).push(cust);
           }
           cust.quoteStatus    = { state: 'phone_quoted_mini_quote_sent', mainAmount: priceNum, mainServices: serviceStr, sentAt: now, miniQuoteCode: mqCode, miniQuoteCustomData: miniData };

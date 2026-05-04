@@ -436,6 +436,35 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </div>
     </div>
     <div class="modal-field">
+      <label>Payment received?</label>
+      <div style="display:flex;gap:8px;margin-top:4px;">
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="paymentStatus" value="not_yet" checked onchange="togglePaymentFields(this.value)"> Not yet
+        </label>
+        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">
+          <input type="radio" name="paymentStatus" value="paid" onchange="togglePaymentFields(this.value)"> ✓ Paid
+        </label>
+      </div>
+    </div>
+    <div id="paymentFields" style="display:none;">
+      <div class="modal-field" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label>Method</label>
+          <select id="paymentMethod" class="modal-input" style="margin-top:4px;">
+            <option value="zelle">Zelle</option>
+            <option value="check">Check</option>
+            <option value="cash">Cash</option>
+            <option value="venmo">Venmo</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label>Amount ($)</label>
+          <input type="number" id="paymentAmount" class="modal-input" style="margin-top:4px;" placeholder="375" min="0">
+        </div>
+      </div>
+    </div>
+    <div class="modal-field">
       <label>Notes (optional)</label>
       <textarea id="jobLogNotes" class="modal-input" rows="2" style="resize:none;" placeholder="Anything notable about this job…"></textarea>
     </div>
@@ -1980,19 +2009,39 @@ function saveJobModal() {
   render();
 }
 
+function togglePaymentFields(val) {
+  document.getElementById('paymentFields').style.display = val === 'paid' ? 'block' : 'none';
+}
+
 function markComplete() {
-  // Show post-job log modal before marking complete
   const now = new Date();
   document.getElementById('jobEndTime').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   document.querySelector('input[name="custSatisfied"][value="yes"]').checked = true;
+  document.querySelector('input[name="paymentStatus"][value="not_yet"]').checked = true;
+  document.getElementById('paymentFields').style.display = 'none';
+  document.getElementById('paymentAmount').value = '';
   ['issueTime','issueEquip','issueScope','issueWeather'].forEach(id => { const el = document.getElementById(id); if(el) el.checked = false; });
   const n = document.getElementById('jobLogNotes'); if (n) n.value = '';
+  // Pre-fill amount from scheduled job total
+  const c = findCustomer(jmPhone);
+  if (c?.scheduledStatus?.approvedAmount) document.getElementById('paymentAmount').value = c.scheduledStatus.approvedAmount;
   document.getElementById('jobLogModal').classList.remove('hidden');
+}
+
+function _collectPaymentLog() {
+  const payStatus = document.querySelector('input[name="paymentStatus"]:checked')?.value || 'not_yet';
+  if (payStatus !== 'paid') return {};
+  return {
+    paymentStatus:  'paid',
+    paymentMethod:  document.getElementById('paymentMethod')?.value || null,
+    paymentAmount:  parseFloat(document.getElementById('paymentAmount')?.value) || null,
+    paidAt:         new Date().toISOString(),
+  };
 }
 
 function skipJobLog() {
   document.getElementById('jobLogModal').classList.add('hidden');
-  _doCompleteJob({});
+  _doCompleteJob({ ..._collectPaymentLog() });
 }
 
 function saveJobLog() {
@@ -2005,23 +2054,51 @@ function saveJobLog() {
   const satisfied = document.querySelector('input[name="custSatisfied"]:checked')?.value || 'yes';
   const endTime   = document.getElementById('jobEndTime')?.value || '';
   const notes     = document.getElementById('jobLogNotes')?.value?.trim() || '';
-  _doCompleteJob({ satisfied, endTime, issues, notes });
+  _doCompleteJob({ satisfied, endTime, issues, notes, ..._collectPaymentLog() });
 }
 
 function _doCompleteJob(log) {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
   const ss = c.scheduledStatus;
+  const completedDate = isoToday();
   ss.state = 'completed';
-  ss.completedDate = isoToday();
-  if (Object.keys(log).length) {
-    ss.jobLog = { ...log, loggedAt: new Date().toISOString(), loggedBy: 'operator' };
+  ss.completedDate = completedDate;
+  const jobLog = { ...log, loggedAt: new Date().toISOString(), loggedBy: 'operator' };
+  if (Object.keys(jobLog).length > 2) ss.jobLog = jobLog; // >2 = beyond loggedAt/loggedBy
+
+  // Payment info on scheduledStatus
+  if (log.paymentStatus === 'paid') {
+    ss.paymentStatus = 'paid';
+    ss.paymentMethod = log.paymentMethod || null;
+    ss.paidAmount    = log.paymentAmount || ss.approvedAmount || 0;
+    ss.paidAt        = log.paidAt || new Date().toISOString();
   }
+
   // Update customer history
   const amt = ss.approvedAmount || 0;
   if (amt > 0) c.lifetimeSpend = (c.lifetimeSpend || 0) + amt;
   c.totalJobs = (c.totalJobs || 0) + 1;
-  c.lastService = isoToday();
+  c.lastService = completedDate;
+
+  // Structured event log (item 6)
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  logEvent('job_completed', jmPhone, {
+    customerName:    name,
+    city:            c.city || '',
+    scheduledDate:   ss.scheduledDate || null,
+    completedDate,
+    services:        ss.jobNotes || '',
+    total:           amt,
+    paymentStatus:   log.paymentStatus || 'not_yet',
+    paymentMethod:   log.paymentMethod || null,
+    paymentAmount:   log.paymentAmount || null,
+    customerSatisfied: log.satisfied || null,
+    issues:          log.issues || [],
+    notes:           log.notes || '',
+    completedBy:     'operator',
+  });
+
   saveDb().catch(()=>{});
   closeJobModal();
   render();
