@@ -195,6 +195,27 @@ function isDueForReactivation(c){
   return isRoofCustomer ? mo>18 : mo>6;
 }
 
+function normCity(city){
+  if(!city||!city.trim())return'Other';
+  let c=city.trim();
+  if(/^(sw\s*ranches?|s\.?\s*w\.?\s*ranches?|southwest\s+ranches?|south\s+west\s+ranches?)$/i.test(c))return'Southwest Ranches';
+  if(/^(ft\.?\s*lauderdale|fort\s+lauderdale)$/i.test(c))return'Fort Lauderdale';
+  return(c.replace(/\s*[-–—]\s*.+$/,'').trim())||'Other';
+}
+
+function isSealingProspect(c){
+  if(c.hasSealHistory||c.movedAway||c.optOut)return false;
+  let s=20;
+  const spend=c.lifetimeSpend||0;
+  if(spend>=1500)s+=20; else if(spend>=800)s+=10;
+  const jobs=c.totalJobs||0;
+  if(jobs>=4)s+=15; else if(jobs>=2)s+=8;
+  const city=normCity(c.city||'').toLowerCase();
+  const premiumCities=['weston','southwest ranches','davie','plantation','parkland','coral springs','pembroke pines'];
+  if(premiumCities.some(pc=>city.includes(pc)))s+=15;
+  return s>=60;
+}
+
 // ── Data Loading ──────────────────────────────────────────────────────────────
 async function init(){
   try{
@@ -209,11 +230,17 @@ async function init(){
         _tier:tier.label,
         _tierColor:tier.color,
         _due:isDueForReactivation(c),
+        _sealProspect:isSealingProspect(c),
         totalJobs:c.totalJobs||0,
         lifetimeSpend:c.lifetimeSpend||0,
       };
     });
     document.getElementById('loadingState').style.display='none';
+    // Pre-activate filter from URL param
+    const urlFilter = new URLSearchParams(location.search).get('filter');
+    if(urlFilter && urlFilter !== 'all'){
+      activeFilters = new Set([urlFilter]);
+    }
     buildFilterPills();
     applyAll();
   }catch(e){
@@ -231,6 +258,7 @@ function buildFilterPills(){
     opted_out: allCustomers.filter(c=>!!c.optOut).length,
     excluded: allCustomers.filter(c=>c.reactivationExcluded?.excluded).length,
     due: allCustomers.filter(c=>c._due).length,
+    sealing_prospects: allCustomers.filter(c=>c._sealProspect).length,
   };
   const pills=[
     {key:'all',     label:`All (${counts.all})`},
@@ -238,6 +266,7 @@ function buildFilterPills(){
     {key:'loyal',   label:`💚 Loyal (${counts.loyal})`},
     {key:'new_no_hist', label:`🆕 No History (${counts.new_no_hist})`},
     {key:'due',     label:`⏰ Due for Reactivation (${counts.due})`},
+    {key:'sealing_prospects', label:`💎 Sealing Prospects (${counts.sealing_prospects})`},
     {key:'opted_out',   label:`🚫 Opted Out (${counts.opted_out})`},
     {key:'excluded',    label:`📵 Excluded (${counts.excluded})`},
   ];
@@ -295,6 +324,7 @@ function applyAll(){
       if(activeFilters.has('opted_out')&&!!c.optOut)return true;
       if(activeFilters.has('excluded')&&c.reactivationExcluded?.excluded)return true;
       if(activeFilters.has('due')&&c._due)return true;
+      if(activeFilters.has('sealing_prospects')&&c._sealProspect)return true;
       return false;
     });
   }
