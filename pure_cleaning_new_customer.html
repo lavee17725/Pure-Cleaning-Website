@@ -256,7 +256,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
               <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
             </div>
             <div style="font-size:11px;color:var(--muted);margin-top:3px;">Skip if unknown — Tony can verify on-site</div>
-            <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/Property/Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+            <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
           </div>
         </div>
 
@@ -306,6 +306,69 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         </div>
         <div id="roofTypeError" style="font-size:11px;color:#e53e3e;font-weight:600;margin-top:5px;display:none;">Please select roof type before saving.</div>
         <div id="roofTypeWarn" class="roof-inline-warn" style="display:none;"></div>
+      </div>
+
+      <!-- Driveway extra fields — shown when Driveway is selected -->
+      <div class="roof-extra" id="drivewayExtraFields">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div>
+            <label class="re-label">Driveway Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="nDrivewaySqFt" class="fi" min="0" step="1" placeholder="e.g. 800" style="padding:9px 11px;font-size:15px;" oninput="checkReq()">
+              <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
+            </div>
+            <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+          </div>
+        </div>
+        <label class="re-label">Driveway Material <span style="color:#e53e3e;font-weight:700;">*</span></label>
+        <div class="roof-type-opts" id="drivewayMaterialOpts">
+          <div class="roof-type-opt" onclick="selectDrivewayMaterial('concrete',this)">
+            <input type="radio" name="drivewayMaterial" value="concrete" class="rto-radio">
+            <div class="rto-body"><div class="rto-name">Concrete</div></div>
+          </div>
+          <div class="roof-type-opt" onclick="selectDrivewayMaterial('marble',this)">
+            <input type="radio" name="drivewayMaterial" value="marble" class="rto-radio">
+            <div class="rto-body">
+              <div class="rto-name">Marble ⚠️</div>
+              <div class="rto-note warn-amber">Porous — avoid harsh chemicals, test pressure first</div>
+            </div>
+          </div>
+          <div class="roof-type-opt" onclick="selectDrivewayMaterial('pavers',this)">
+            <input type="radio" name="drivewayMaterial" value="pavers" class="rto-radio">
+            <div class="rto-body">
+              <div class="rto-name">Pavers</div>
+              <div class="rto-note">Check sealed vs. unsealed — sealed pavers need lower pressure</div>
+            </div>
+          </div>
+          <div class="roof-type-opt" onclick="selectDrivewayMaterial('other',this)">
+            <input type="radio" name="drivewayMaterial" value="other" class="rto-radio">
+            <div class="rto-body">
+              <div class="rto-name">Other</div>
+              <input id="nDrivewayMaterialOther" type="text" class="fi" placeholder="Specify material…" style="margin-top:6px;display:none;font-size:14px;padding:8px 11px;" onclick="event.stopPropagation()" oninput="checkReq()">
+            </div>
+          </div>
+        </div>
+        <div id="drivewayMaterialError" style="font-size:11px;color:#e53e3e;font-weight:600;margin-top:5px;display:none;">Please select driveway material before saving.</div>
+      </div>
+
+      <!-- Patio extra fields — shown when Patio is selected -->
+      <div class="roof-extra" id="patioExtraFields">
+        <label class="re-label">Patio Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+        <div style="display:flex;align-items:center;gap:6px;max-width:200px;">
+          <input type="number" id="nPatioSqFt" class="fi" min="0" step="1" placeholder="e.g. 400" style="padding:9px 11px;font-size:15px;" oninput="checkReq()">
+          <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
+        </div>
+        <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+      </div>
+
+      <!-- Walkway extra fields — shown when Walkway is selected -->
+      <div class="roof-extra" id="walkwayExtraFields">
+        <label class="re-label">Walkway Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+        <div style="display:flex;align-items:center;gap:6px;max-width:200px;">
+          <input type="number" id="nWalkwaySqFt" class="fi" min="0" step="1" placeholder="e.g. 200" style="padding:9px 11px;font-size:15px;" oninput="checkReq()">
+          <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
+        </div>
+        <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
       </div>
 
       <div class="field" style="margin-top:.5rem;">
@@ -543,6 +606,7 @@ let _gutterTypes     = new Set();
 let _roofType        = null;  // 'shingle'|'large_barrel'|'short_barrel'|'flat_tile'|'v_shape'|'venezuelan_tile'|'metal'|'other'
 let _gutterSubLocked = false;
 let _bundleFlags     = {rinseWalls:false, entranceway:false, walkway:false};
+let _drivewayMaterial = null; // 'concrete'|'marble'|'pavers'|'other'
 
 function renderServicePicker() {
   const pEl = document.getElementById('primaryServices');
@@ -732,6 +796,53 @@ function toggleService(id) {
     const warnEl = document.getElementById('roofTypeWarn');
     if (warnEl) warnEl.style.display = 'none';
   }
+  _updateExtraServiceFields();
+  checkReq();
+}
+
+function _updateExtraServiceFields() {
+  const hasDriveway = _svcSel.has('driveway');
+  const hasPatio    = _svcSel.has('patio');
+  const hasWalkway  = _svcSel.has('walkway');
+
+  const dwEl = document.getElementById('drivewayExtraFields');
+  if (dwEl) dwEl.style.display = hasDriveway ? 'block' : 'none';
+  if (!hasDriveway && _drivewayMaterial) {
+    _drivewayMaterial = null;
+    document.querySelectorAll('#drivewayMaterialOpts .roof-type-opt').forEach(el => {
+      el.classList.remove('selected');
+      el.querySelector('input[type=radio]').checked = false;
+    });
+    const otherInput = document.getElementById('nDrivewayMaterialOther');
+    if (otherInput) { otherInput.style.display = 'none'; otherInput.value = ''; }
+    const sqFt = document.getElementById('nDrivewaySqFt');
+    if (sqFt) sqFt.value = '';
+  }
+
+  const ptEl = document.getElementById('patioExtraFields');
+  if (ptEl) ptEl.style.display = hasPatio ? 'block' : 'none';
+  if (!hasPatio) { const el = document.getElementById('nPatioSqFt'); if (el) el.value = ''; }
+
+  const wkEl = document.getElementById('walkwayExtraFields');
+  if (wkEl) wkEl.style.display = hasWalkway ? 'block' : 'none';
+  if (!hasWalkway) { const el = document.getElementById('nWalkwaySqFt'); if (el) el.value = ''; }
+}
+
+function selectDrivewayMaterial(val, clickedEl) {
+  _drivewayMaterial = val;
+  document.querySelectorAll('#drivewayMaterialOpts .roof-type-opt').forEach(el => {
+    el.classList.remove('selected');
+    el.querySelector('input[type=radio]').checked = false;
+  });
+  clickedEl.classList.add('selected');
+  clickedEl.querySelector('input[type=radio]').checked = true;
+  const otherInput = document.getElementById('nDrivewayMaterialOther');
+  if (otherInput) {
+    otherInput.style.display = val === 'other' ? 'block' : 'none';
+    if (val !== 'other') otherInput.value = '';
+  }
+  const errEl = document.getElementById('drivewayMaterialError');
+  if (errEl) errEl.style.display = 'none';
   checkReq();
 }
 
@@ -791,13 +902,24 @@ function getServicesAgreedValue() {
   }).filter(Boolean);
   const custom = (document.getElementById('customServiceText')?.value||'').trim();
   if (custom) names.push(custom);
-  const isRoofSel = _svcSel.has('roof_cleaning');
+  const isRoofSel     = _svcSel.has('roof_cleaning');
+  const isDrivewaySel = _svcSel.has('driveway');
+  const isPatioSel    = _svcSel.has('patio');
+  const isWalkwaySel  = _svcSel.has('walkway');
   return {
     structured,
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
     roofSqFt:         isRoofSel ? (parseInt(document.getElementById('nRoofSqFt')?.value)||null) : null,
+    drivewayMaterial: isDrivewaySel ? (_drivewayMaterial||null) : null,
+    drivewayMaterialOther: isDrivewaySel && _drivewayMaterial==='other' ? (document.getElementById('nDrivewayMaterialOther')?.value?.trim()||'') : null,
+    squareFootage: {
+      roof:     isRoofSel     ? (parseInt(document.getElementById('nRoofSqFt')?.value)||null)     : null,
+      driveway: isDrivewaySel ? (parseInt(document.getElementById('nDrivewaySqFt')?.value)||null) : null,
+      patio:    isPatioSel    ? (parseInt(document.getElementById('nPatioSqFt')?.value)||null)    : null,
+      walkway:  isWalkwaySel  ? (parseInt(document.getElementById('nWalkwaySqFt')?.value)||null)  : null,
+    },
     gutterType:  _svcSel.has('gutters') ? [..._gutterTypes] : [],
     bundleFlags: {rinseWalls:_bundleFlags.rinseWalls, entranceway:_bundleFlags.entranceway, walkway:_bundleFlags.walkway},
     structuredDisplay: names.filter(n => !custom || n!==custom),
@@ -812,6 +934,7 @@ function resetServicePicker() {
   _gutterTypes.clear(); _gutterSubLocked=false;
   _bundleFlags={rinseWalls:false, entranceway:false, walkway:false};
   _roofType=null;
+  _drivewayMaterial=null;
   _svcSecExp=false; _svcCustExp=false;
   const cst=document.getElementById('customServiceText'); if(cst) cst.value='';
   const cw=document.getElementById('customServiceWrap'); if(cw) cw.style.display='none';
@@ -821,6 +944,13 @@ function resetServicePicker() {
   document.querySelectorAll('.roof-type-opt input[type=radio]').forEach(el=>{el.checked=false;});
   const wo=document.getElementById('nRoofTypeOther'); if(wo){wo.style.display='none';wo.value='';}
   const wn=document.getElementById('roofTypeWarn'); if(wn) wn.style.display='none';
+  ['drivewayExtraFields','patioExtraFields','walkwayExtraFields'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.style.display='none';
+  });
+  ['nDrivewaySqFt','nPatioSqFt','nWalkwaySqFt'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  const dmo=document.getElementById('nDrivewayMaterialOther'); if(dmo){dmo.style.display='none';dmo.value='';}
   renderServicePicker();
 }
 
@@ -943,6 +1073,17 @@ function preloadCustomerForEdit(c) {
       const opt = document.querySelector(`.roof-type-opt[onclick*="'${sa.roofType}'"]`);
       if (opt) selectRoofType(sa.roofType, opt);
     }
+    if (sa.drivewayMaterial) {
+      const opt = document.querySelector(`#drivewayMaterialOpts .roof-type-opt[onclick*="'${sa.drivewayMaterial}'"]`);
+      if (opt) selectDrivewayMaterial(sa.drivewayMaterial, opt);
+      if (sa.drivewayMaterial === 'other' && sa.drivewayMaterialOther) {
+        const el = document.getElementById('nDrivewayMaterialOther');
+        if (el) { el.style.display = 'block'; el.value = sa.drivewayMaterialOther; }
+      }
+    }
+    if (sa.squareFootage?.driveway) { const el=document.getElementById('nDrivewaySqFt'); if(el) el.value=sa.squareFootage.driveway; }
+    if (sa.squareFootage?.patio)    { const el=document.getElementById('nPatioSqFt');    if(el) el.value=sa.squareFootage.patio;    }
+    if (sa.squareFootage?.walkway)  { const el=document.getElementById('nWalkwaySqFt');  if(el) el.value=sa.squareFootage.walkway;  }
     renderServicePicker();
   }
   renderNewAlerts();
@@ -1101,6 +1242,8 @@ function checkReq() {
     ok = !!(svc.fullDescription);
     if (ok && _svcSel.has('roof_cleaning') && !_roofType) ok = false;
     if (ok && _roofType === 'other' && !(document.getElementById('nRoofTypeOther')?.value?.trim())) ok = false;
+    if (ok && _svcSel.has('driveway') && !_drivewayMaterial) ok = false;
+    if (ok && _drivewayMaterial === 'other' && !(document.getElementById('nDrivewayMaterialOther')?.value?.trim())) ok = false;
   }
   if (btn) btn.disabled = !ok;
 }

@@ -1313,6 +1313,17 @@ function renderPropertyMeasurements(c) {
   const roofTypeLabels = { shingle:'Shingle', barrel_tile:'Barrel tile', large_barrel:'Large Barrel tile', short_barrel:'Short Barrel tile', flat_tile:'Flat tile', v_shape:'V-shape tile', venezuelan_tile:'Venezuelan tile ⚠️', metal:'Metal ⛔', other:'Other' };
   const roofTypeLabel  = roofType ? (roofTypeLabels[roofType] || roofType) + (roofType==='other' && roofTypeOther ? ` (${roofTypeOther})` : '') : null;
   const roofMethodLabel = { softwash:'Softwash', power_wash_chemical:'Power wash + chemical', power_wash_no_chemical:'Power wash, no chemical' }[roofMethod] || roofMethod;
+  const drivewayMaterial      = svcAgreed.drivewayMaterial || null;
+  const drivewayMaterialOther = svcAgreed.drivewayMaterialOther || null;
+  const sqFt                  = svcAgreed.squareFootage || {};
+  const drivewayMaterialLabels = { concrete:'Concrete', marble:'Marble ⚠️', pavers:'Pavers', other:'Other' };
+  const drivewayMaterialNotes  = {
+    marble:  '⚠️ Porous — avoid harsh chemicals, test pressure first',
+    pavers:  'Check sealed vs. unsealed — sealed pavers need lower pressure',
+  };
+  const drivewayMaterialLabel = drivewayMaterial
+    ? (drivewayMaterialLabels[drivewayMaterial] || drivewayMaterial) + (drivewayMaterial==='other' && drivewayMaterialOther ? ` (${drivewayMaterialOther})` : '')
+    : null;
   const roofSummaryHtml = roofType ? `
     <div style="background:#fff6f2;border:1.5px solid #fecaca;border-radius:10px;padding:10px 13px;margin-bottom:.875rem;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">🏠 Roof Details</div>
@@ -1321,6 +1332,19 @@ function renderPropertyMeasurements(c) {
       ${roofMethod ? `<div style="font-size:13px;color:var(--muted);margin-top:2px;">Method: ${esc(roofMethodLabel)}</div>` : ''}
       ${roofType==='venezuelan_tile' ? `<div style="font-size:12px;font-weight:600;color:#b45309;margin-top:4px;">⚠️ Most fragile roof type — extra care required</div>` : ''}
       ${roofType==='metal' ? `<div style="font-size:12px;font-weight:600;color:#dc2626;margin-top:4px;">⛔ We do not service metal roofs</div>` : ''}
+    </div>` : '';
+  const drivewayMaterialHtml = drivewayMaterialLabel ? `
+    <div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:10px 13px;margin-bottom:.875rem;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">🚗 Driveway Details</div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);">Material: ${esc(drivewayMaterialLabel)}</div>
+      ${sqFt.driveway ? `<div style="font-size:13px;color:var(--muted);margin-top:2px;">Size: ${Number(sqFt.driveway).toLocaleString()} sq ft</div>` : ''}
+      ${drivewayMaterialNotes[drivewayMaterial] ? `<div style="font-size:12px;font-weight:600;color:#b45309;margin-top:4px;">${drivewayMaterialNotes[drivewayMaterial]}</div>` : ''}
+    </div>` : '';
+  const extraSqFtHtml = (sqFt.patio || sqFt.walkway) ? `
+    <div style="background:#f7fef7;border:1.5px solid #bbf7d0;border-radius:10px;padding:10px 13px;margin-bottom:.875rem;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">📐 Area Sizes (from quote)</div>
+      ${sqFt.patio   ? `<div style="font-size:13px;color:var(--text);margin-top:2px;">Patio: <strong>${Number(sqFt.patio).toLocaleString()} sq ft</strong></div>`   : ''}
+      ${sqFt.walkway ? `<div style="font-size:13px;color:var(--text);margin-top:2px;">Walkway: <strong>${Number(sqFt.walkway).toLocaleString()} sq ft</strong></div>` : ''}
     </div>` : '';
   const isMeasured = prop.roofSqFt || prop.drivewaySqFt || prop.patioSqFt || prop.walkwaysSqFt;
   const measuredBy = prop.measuredBy || 'estimate';
@@ -1351,6 +1375,8 @@ function renderPropertyMeasurements(c) {
       <div id="propBody" style="display:${_propExpanded?'block':'none'};">
         <div class="prop-body">
           ${roofSummaryHtml}
+          ${drivewayMaterialHtml}
+          ${extraSqFtHtml}
           <div class="prop-grid">
             ${fields.map(f=>`
               <div class="prop-field">
