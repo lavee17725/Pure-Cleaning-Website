@@ -4,162 +4,200 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pure Cleaning — Quote Builder</title>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  --navy:#0a1628; --navy2:#111f38; --blue:#1a4a8a; --sky:#2d7dd2;
-  --gold:#f4a620; --gold-dark:#c47f00; --green:#1d9e75; --green2:#0d7a5a;
-  --amber:#e8960a; --purple:#6c5ce7;
-  --white:#ffffff; --text:#e8edf5; --muted:#7a8aaa;
-  --border:#1e2e4a; --card:#0f1e35; --input-bg:#0a1628;
+  --terra:#c2410c; --terra-d:#9a3412; --terra-l:rgba(194,65,12,.1);
+  --navy:#0a1628; --sky:#2d7dd2; --sky-l:rgba(45,125,210,.1);
+  --green:#1d9e75; --green-l:rgba(29,158,117,.12);
+  --gold:#f4a620; --blue:#1a4a8a;
+  --white:#ffffff; --bg:#fdf8f2; --card:#ffffff;
+  --text:#1a1f2e; --muted:#6b7280; --muted2:#9ca3af;
+  --border:#e8e2d8; --border-focus:#c2410c;
+  --input-bg:#fefcf9; --section-line:rgba(194,65,12,.18);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 /* HEADER */
-.header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
-.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--white);letter-spacing:1px;}
-.logo span{color:var(--gold);}
-.badge{font-size:11px;font-weight:600;background:var(--blue);color:var(--sky);padding:3px 10px;border-radius:20px;letter-spacing:1px;text-transform:uppercase;}
+.back-bar{background:var(--navy);padding:6px 1.25rem;}
+.back-bar a{color:rgba(255,255,255,.5);text-decoration:none;font-size:12px;font-weight:600;transition:color .15s;}
+.back-bar a:hover{color:rgba(255,255,255,.8);}
+.header{background:var(--navy);padding:1.125rem 1.25rem 1.25rem;border-bottom:3px solid var(--terra);}
+.header-inner{max-width:680px;margin:0 auto;}
+.hdr-logo{font-size:13px;font-weight:600;color:rgba(255,255,255,.45);letter-spacing:.5px;margin-bottom:4px;}
+.hdr-logo span{color:var(--gold);}
+.hdr-title{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;color:var(--gold);line-height:1;}
+.hdr-sub{font-size:13px;color:rgba(255,255,255,.5);margin-top:4px;}
 
-/* MAIN TABS */
-.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--card);}
-.tab{flex:1;padding:0.875rem;text-align:center;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;letter-spacing:0.5px;text-transform:uppercase;}
-.tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+/* TABS */
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);}
+.tab{flex:1;padding:.875rem;text-align:center;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .2s;}
+.tab.active{color:var(--terra);border-bottom-color:var(--terra);}
+.tab:hover:not(.active){color:var(--text);}
 
 /* PANELS */
-.panel{display:none;padding:1.25rem;max-width:680px;margin:0 auto;}
+.panel{display:none;padding:1.5rem 1.25rem;max-width:680px;margin:0 auto;}
 .panel.active{display:block;}
 
+/* FORM CARD */
+.form-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1.375rem;margin-bottom:1.5rem;box-shadow:0 1px 4px rgba(26,31,46,.05);}
+
 /* SECTION */
-.section{margin-bottom:1.5rem;}
-.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:0.75rem;display:flex;align-items:center;gap:8px;}
-.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+.section{margin-bottom:2rem;}
+.sec-hdr{margin-bottom:1rem;}
+.sec-hdr-title{font-size:16px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:7px;}
+.sec-hdr-title::after{content:'';flex:1;height:1.5px;background:var(--section-line);margin-left:8px;}
+.sec-hdr-sub{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5;}
 
 /* INPUTS */
-.field{margin-bottom:0.875rem;}
-.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;}
-input,select,textarea{width:100%;padding:11px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color 0.2s;-webkit-appearance:none;}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--sky);}
-input::placeholder,textarea::placeholder{color:var(--muted);}
-select option{background:var(--navy2);}
+.field{margin-bottom:1rem;}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px;letter-spacing:.3px;}
+.field .req{color:var(--terra);margin-left:2px;}
+input,select,textarea{width:100%;padding:11px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:9px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--terra);box-shadow:0 0 0 3px var(--terra-l);}
+input::placeholder,textarea::placeholder{color:var(--muted2);}
+select option{background:var(--white);}
 .row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 
 /* PRICE INPUT */
 .price-wrap{position:relative;}
-.price-wrap .currency{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-weight:700;font-size:16px;}
-.price-pressure .currency{color:var(--sky);}
-.price-wrap input{padding-left:28px;font-family:'DM Mono',monospace;font-size:22px;font-weight:500;height:56px;}
-.price-pressure input{color:var(--sky);border-color:rgba(45,125,210,0.4);}
+.price-wrap .currency{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-weight:700;font-size:18px;color:var(--terra);}
+.price-wrap input{padding-left:30px;font-family:'DM Mono',monospace;font-size:24px;font-weight:600;height:60px;border-color:rgba(194,65,12,.3);color:var(--terra);}
+.price-wrap input:focus{border-color:var(--terra);}
 
 /* CHIPS */
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.5rem;}
-.chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--blue);color:var(--sky);border:1px solid var(--sky);display:flex;align-items:center;gap:6px;cursor:pointer;transition:all 0.15s;}
-.chip:hover{background:var(--sky);color:white;}
-.chip .remove{font-size:14px;line-height:1;}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:.625rem;}
+.chip{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--terra-l);color:var(--terra-d);border:1.5px solid rgba(194,65,12,.25);display:flex;align-items:center;gap:6px;cursor:pointer;transition:all .15s;}
+.chip:hover{background:var(--terra);color:white;border-color:var(--terra);}
+.chip .remove{font-size:14px;line-height:1;opacity:.7;}
 .add-service{display:flex;gap:8px;margin-top:8px;}
 .add-service input{flex:1;}
-.add-btn{padding:8px 14px;background:var(--blue);border:1.5px solid var(--sky);border-radius:8px;color:var(--sky);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s;}
-.add-btn:hover{background:var(--sky);color:white;}
+.add-btn{padding:8px 14px;background:var(--terra-l);border:1.5px solid rgba(194,65,12,.3);border-radius:9px;color:var(--terra-d);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:'DM Sans',sans-serif;}
+.add-btn:hover{background:var(--terra);color:white;border-color:var(--terra);}
 .quick-btn{padding:5px 10px;font-size:11px;}
+.quick-section-lbl{font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600;letter-spacing:.3px;}
 
 /* DATE CARDS */
-.date-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .date-alt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
 .date-card{background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;padding:12px;}
-.date-card.primary-card{border-color:var(--sky);background:#0d2040;}
+.date-card.primary-card{border-color:var(--terra);background:rgba(194,65,12,.04);}
 .date-card label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:block;margin-bottom:6px;}
-.date-card.primary-card label{color:var(--sky);}
-.date-card input{border:none;background:transparent;padding:4px 0;font-size:16px;font-weight:600;color:var(--white);-webkit-appearance:auto;appearance:auto;color-scheme:dark;width:100%;}
-.date-card input:focus{outline:none;}
-.date-alt-note{font-size:11px;color:var(--muted);margin:.5rem 0 .75rem;line-height:1.5;}
+.date-card.primary-card label{color:var(--terra);}
+.date-card input{border:none;background:transparent;padding:4px 0;font-size:15px;font-weight:600;color:var(--text);-webkit-appearance:auto;appearance:auto;width:100%;}
+.date-card input:focus{outline:none;box-shadow:none;}
+.date-alt-note{font-size:12px;color:var(--muted);margin:.5rem 0 .875rem;line-height:1.5;}
 
 /* ADDONS */
-.addon-builder-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;margin-bottom:8px;}
+.addon-builder-item{display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:10px;margin-bottom:8px;}
 .addon-builder-item .icon{font-size:20px;flex-shrink:0;}
 .addon-builder-item .addon-info{flex:1;}
 .addon-builder-item .addon-name{font-size:13px;font-weight:600;color:var(--text);}
 .addon-builder-item .addon-hint{font-size:11px;color:var(--muted);margin-top:2px;}
 .addon-price-input{display:flex;align-items:center;gap:6px;}
-.addon-price-input span{color:var(--gold);font-weight:700;}
-.addon-price-input input{width:70px;padding:6px 8px;background:var(--navy2);border:1.5px solid var(--border);border-radius:6px;color:var(--gold);font-family:'DM Mono',monospace;font-size:14px;font-weight:600;}
+.addon-price-input span{color:var(--terra);font-weight:700;}
+.addon-price-input input{width:70px;padding:6px 8px;background:var(--card);border:1.5px solid var(--border);border-radius:6px;color:var(--terra);font-family:'DM Mono',monospace;font-size:14px;font-weight:600;}
 
 /* TOGGLE */
 .toggle{position:relative;width:42px;height:24px;flex-shrink:0;}
 .toggle input{opacity:0;width:0;height:0;}
-.toggle-slider{position:absolute;inset:0;background:var(--border);border-radius:24px;cursor:pointer;transition:0.2s;}
-.toggle-slider:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:var(--muted);border-radius:50%;transition:0.2s;}
+.toggle-slider{position:absolute;inset:0;background:var(--border);border-radius:24px;cursor:pointer;transition:.2s;}
+.toggle-slider:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:var(--muted2);border-radius:50%;transition:.2s;}
 .toggle input:checked + .toggle-slider{background:var(--green);}
 .toggle input:checked + .toggle-slider:before{transform:translateX(18px);background:white;}
 
 /* POPULATE BANNER */
-.populate-banner{background:rgba(29,158,117,0.1);border:1.5px solid var(--green);border-radius:12px;padding:1rem;margin-bottom:1.25rem;display:none;}
+.populate-banner{background:var(--green-l);border:1.5px solid var(--green);border-radius:12px;padding:1rem;margin-bottom:1.5rem;display:none;}
 .populate-banner.show{display:block;}
-.populate-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--green);margin-bottom:8px;}
-.populate-name{font-size:16px;font-weight:600;color:var(--white);margin-bottom:2px;}
+.populate-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--green);margin-bottom:6px;}
+.populate-name{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:2px;}
 .populate-meta{font-size:13px;color:var(--muted);}
-.populate-btn{margin-top:10px;padding:8px 16px;background:var(--green);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;}
+.populate-btn{margin-top:10px;padding:8px 16px;background:var(--green);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
 
 /* BUTTONS */
-.send-btn{width:100%;padding:16px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;cursor:pointer;transition:all 0.2s;margin-bottom:10px;}
-.send-btn-pressure{background:var(--sky);color:white;}
-.send-btn-pressure:hover{background:#2470c0;transform:translateY(-1px);box-shadow:0 6px 20px rgba(45,125,210,0.3);}
-.secondary-btn{width:100%;padding:12px;background:transparent;color:var(--muted);border:1.5px solid var(--border);border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all 0.2s;margin-bottom:10px;}
-.secondary-btn:hover{border-color:var(--sky);color:var(--sky);}
+.send-btn{width:100%;padding:16px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;cursor:pointer;transition:all .2s;margin-bottom:.75rem;}
+.send-btn-pressure{background:var(--terra);color:white;}
+.send-btn-pressure:hover{background:var(--terra-d);transform:translateY(-1px);box-shadow:0 6px 20px rgba(194,65,12,.3);}
+.send-btn-pressure:disabled{background:var(--border);color:var(--muted);transform:none;box-shadow:none;cursor:not-allowed;}
+.secondary-btn{width:100%;padding:12px;background:transparent;color:var(--muted);border:1.5px solid var(--border);border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;margin-bottom:.75rem;font-family:'DM Sans',sans-serif;}
+.secondary-btn:hover{border-color:var(--terra);color:var(--terra);}
 
 /* QUOTE LINK */
-.quote-link-box{background:var(--input-bg);border:1.5px solid var(--green);border-radius:10px;padding:12px;margin-bottom:10px;display:none;}
+.quote-link-box{background:var(--green-l);border:1.5px solid var(--green);border-radius:12px;padding:14px;margin-bottom:12px;display:none;}
 .quote-link-box.show{display:block;}
-.quote-link-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--green);margin-bottom:6px;}
-.quote-link-url{font-family:'DM Mono',monospace;font-size:11px;color:var(--text);word-break:break-all;margin-bottom:8px;background:var(--navy2);padding:8px;border-radius:6px;}
-.copy-btn{background:var(--green);color:white;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-right:6px;}
-.send-sms-btn{width:100%;padding:13px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;}
-.send-sms-btn:active{opacity:.85;}
+.quote-link-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--green);margin-bottom:8px;}
+.quote-link-url{font-family:'DM Mono',monospace;font-size:11px;color:var(--text);word-break:break-all;margin-bottom:10px;background:rgba(255,255,255,.7);padding:8px 10px;border-radius:7px;border:1px solid var(--border);}
+.copy-btn{background:var(--green);color:white;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-right:6px;font-family:'DM Sans',sans-serif;}
+.send-sms-btn{width:100%;padding:13px;background:var(--terra);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;transition:background .15s;}
+.send-sms-btn:active,.send-sms-btn:hover{background:var(--terra-d);}
 
 /* PREVIEW */
-.preview-card{border:1px solid var(--border);border-radius:16px;padding:1.25rem;margin-bottom:1.25rem;}
+.preview-card{border:1.5px solid var(--border);border-radius:16px;padding:1.375rem;margin-bottom:1.25rem;background:var(--card);}
 .preview-pressure{background:linear-gradient(135deg,#0a1e38 0%,#0d2547 100%);}
 .preview-total{font-family:'Bebas Neue',sans-serif;font-size:48px;letter-spacing:2px;line-height:1;}
 .preview-name{font-size:18px;font-weight:600;color:var(--white);margin-bottom:4px;}
 .preview-addr{font-size:13px;color:var(--muted);}
 .preview-services{margin-top:1rem;display:flex;flex-wrap:wrap;gap:6px;}
-.preview-chip{background:rgba(255,255,255,0.06);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--muted);}
+.preview-chip{background:rgba(255,255,255,.08);border-radius:6px;padding:4px 10px;font-size:12px;color:rgba(255,255,255,.65);}
 .preview-dates{display:flex;gap:8px;margin-top:1rem;flex-wrap:wrap;}
 .preview-date-pill{border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;}
 
+/* LIVE PEEK (compact preview in Build tab) */
+.live-peek{background:linear-gradient(135deg,#0d1e38 0%,#0f2548 100%);border:1.5px solid rgba(45,125,210,.3);border-radius:12px;padding:.875rem 1rem;margin-bottom:1.25rem;}
+.live-peek-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:rgba(45,125,210,.7);margin-bottom:.5rem;}
+.live-peek-name{font-size:14px;font-weight:600;color:var(--white);}
+.live-peek-price{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--terra);letter-spacing:1px;line-height:1.1;}
+.live-peek-svcs{font-size:12px;color:rgba(255,255,255,.5);margin-top:3px;}
+
 /* HISTORY */
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.25rem;}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;}
-.stat-val{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--gold);letter-spacing:1px;}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.5rem;}
+.stat-card{background:var(--card);border:1.5px solid var(--border);border-radius:13px;padding:1rem;box-shadow:0 1px 4px rgba(26,31,46,.04);}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--terra);letter-spacing:1px;}
 .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
-.history-item{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px;cursor:pointer;transition:border-color 0.2s;}
-.history-item:hover{border-color:var(--sky);}
-.history-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
-.history-name{font-weight:600;font-size:15px;}
-.history-amount{font-family:'DM Mono',monospace;font-weight:500;font-size:15px;}
+.history-item{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px;cursor:pointer;transition:border-color .2s;box-shadow:0 1px 3px rgba(26,31,46,.04);}
+.history-item:hover{border-color:var(--terra);}
+.history-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;}
+.history-name{font-weight:700;font-size:15px;color:var(--text);}
+.history-amount{font-family:'DM Mono',monospace;font-weight:600;font-size:15px;color:var(--terra);}
 .history-meta{font-size:12px;color:var(--muted);}
 .status-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:1px;}
-.status-sent{background:rgba(45,125,210,0.15);color:var(--sky);}
-.status-approved{background:rgba(29,158,117,0.15);color:var(--green);}
+.status-sent{background:var(--sky-l);color:var(--sky);}
+.status-approved{background:var(--green-l);color:var(--green);}
 .type-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:1px;}
-.type-pill-pressure{background:rgba(45,125,210,0.15);color:var(--sky);}
-/* property appraiser link */
-.prop-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:3px 9px;text-decoration:none;transition:all .15s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
-.prop-link:hover{color:var(--sky);border-color:rgba(45,125,210,.5);background:rgba(45,125,210,.08);}
+.type-pill-pressure{background:var(--sky-l);color:var(--sky);}
+/* BCPA links */
+.appraiser-links{font-size:11px;margin-top:5px;color:var(--muted);}
+.appraiser-links a{color:var(--sky);font-weight:600;text-decoration:none;}
+.appraiser-links a:hover{text-decoration:underline;}
+/* property appraiser link (smart auto-detect) */
+.prop-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);background:rgba(26,31,46,.04);border:1px solid var(--border);border-radius:6px;padding:3px 9px;text-decoration:none;transition:all .15s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.prop-link:hover{color:var(--terra);border-color:rgba(194,65,12,.4);background:var(--terra-l);}
+/* toast */
+.qb-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--navy);color:var(--white);padding:9px 22px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;pointer-events:none;opacity:0;transition:opacity .35s;box-shadow:0 4px 20px rgba(0,0,0,.2);white-space:nowrap;border:1.5px solid rgba(194,65,12,.4);}
+.qb-toast.show{opacity:1;}
+/* draft indicator */
+.draft-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--terra);margin-left:6px;vertical-align:middle;opacity:0;transition:opacity .3s;}
+.draft-dot.visible{opacity:1;}
+/* text preview box */
+.text-preview-box{background:var(--input-bg);border:1.5px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;}
+.text-preview-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px;}
 </style>
 </head>
 <body>
 
-<div style="background:#111f38;border-bottom:1px solid #1e2e4a;padding:6px 1.25rem;">
-  <a href="/pure_cleaning_admin.html" style="color:#7a8aaa;text-decoration:none;font-size:12px;font-family:'DM Sans',sans-serif;">← Admin Home</a>
+<div class="back-bar">
+  <a href="/pure_cleaning_admin.html">← Admin Home</a>
 </div>
 
 <div class="header">
-  <div class="logo">Pure <span>Cleaning</span></div>
-  <div class="badge">Quote Builder</div>
+  <div class="header-inner">
+    <div class="hdr-logo">🌴 Pure <span>Cleaning</span></div>
+    <div class="hdr-title">Generate New Quote <span class="draft-dot" id="draftDot"></span></div>
+    <div class="hdr-sub">Send a custom quote link to a fresh lead — they tap, pick a date, confirm.</div>
+  </div>
 </div>
 
-<!-- MAIN NAV TABS -->
+<!-- TABS -->
 <div class="tabs">
   <div class="tab active" onclick="switchTab('build')">Build</div>
   <div class="tab" onclick="switchTab('preview')">Preview</div>
@@ -178,35 +216,63 @@ select option{background:var(--navy2);}
   </div>
 
   <!-- CUSTOMER ALERT CALLOUT -->
-  <div id="custAlertBox" style="display:none;background:#fffbeb;border:2px solid #fcd34d;border-radius:12px;padding:12px 14px;margin:0 1.25rem 1rem;font-size:13px;color:#78350f;line-height:1.6;">
+  <div id="custAlertBox" style="display:none;background:#fffbeb;border:2px solid #fcd34d;border-radius:12px;padding:12px 14px;margin-bottom:1rem;font-size:13px;color:#78350f;line-height:1.6;">
     <div style="font-weight:700;margin-bottom:4px;">⚠️ Customer Alerts</div>
     <div id="custAlertList"></div>
   </div>
 
-  <!-- CUSTOMER INFO -->
-  <div class="section">
-    <div class="section-title">Customer info</div>
-    <div class="row-2">
-      <div class="field"><label>First name</label><input type="text" id="custFirst" placeholder="" oninput="updatePreview()"></div>
-      <div class="field"><label>Last name</label><input type="text" id="custLast" placeholder="" oninput="updatePreview()"></div>
+  <!-- WHO IS THIS FOR -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">👤 Who is this for?</div>
+      <div class="sec-hdr-sub">First and last name. We'll address them personally in the quote link.</div>
     </div>
-    <div class="field"><label>Phone</label><input type="tel" id="custPhone" placeholder=""></div>
-    <div class="field"><label>Email</label><input type="email" id="custEmail" placeholder=""></div>
-    <div class="field"><label>Address</label><input type="text" id="custAddr" placeholder="" oninput="updatePreview();updatePropLink()"></div>
-    <div id="propLinkWrap" style="margin-top:-10px;margin-bottom:.875rem;"></div>
-    <div class="field"><label>Roof sq ft <span style="font-weight:400;text-transform:none;font-size:11px;">(optional)</span></label><input type="number" id="roofSqFt" placeholder="e.g. 1800"></div>
+    <div class="row-2">
+      <div class="field"><label>First name <span class="req">*</span></label><input type="text" id="custFirst" placeholder="Lissette" oninput="updatePreview();saveDraft();updateSendBtn()"></div>
+      <div class="field"><label>Last name</label><input type="text" id="custLast" placeholder="Garcia" oninput="updatePreview();saveDraft()"></div>
+    </div>
   </div>
 
-  <!-- SERVICES -->
-  <div class="section">
-    <div class="section-title">Services</div>
+  <!-- HOW TO REACH THEM -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">📱 How do we reach them?</div>
+      <div class="sec-hdr-sub">Phone is used to send the SMS quote link. Email is optional.</div>
+    </div>
+    <div class="row-2">
+      <div class="field"><label>Phone <span class="req">*</span></label><input type="tel" id="custPhone" placeholder="(954) 555-0100" oninput="formatPhone(this);saveDraft()"></div>
+      <div class="field"><label>Email <span style="font-weight:400;font-size:11px;color:var(--muted2);">(optional)</span></label><input type="email" id="custEmail" placeholder="lissette@example.com" oninput="saveDraft()"></div>
+    </div>
+  </div>
+
+  <!-- WHERE'S THE PROPERTY -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">🏠 Where's the property?</div>
+      <div class="sec-hdr-sub">Address helps us suggest nearby dates and look up property records.</div>
+    </div>
+    <div class="field"><label>Street address</label><input type="text" id="custAddr" placeholder="1234 Mango Way, Weston, FL 33326" oninput="updatePreview();updatePropLink();saveDraft()"></div>
+    <div id="propLinkWrap" style="margin-top:-6px;margin-bottom:.875rem;"></div>
+    <div class="field" style="margin-bottom:0;">
+      <label>Roof sq ft <span style="font-weight:400;font-size:11px;color:var(--muted2);">(optional)</span></label>
+      <input type="number" id="roofSqFt" placeholder="e.g. 1800" oninput="saveDraft()">
+      <div class="appraiser-links" style="margin-top:5px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener">Miami-Dade</a> · <a href="https://pbcpao.gov/Property/Search" target="_blank" rel="noopener">Palm Beach</a></div>
+    </div>
+  </div>
+
+  <!-- WHAT ARE WE QUOTING -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">🧹 What are we quoting?</div>
+      <div class="sec-hdr-sub">Pick the services Tony verbally quoted. They'll show on the agreement page.</div>
+    </div>
     <div class="chips" id="serviceChips"></div>
     <div class="add-service">
-      <input type="text" id="newService" placeholder="Add service..." onkeydown="if(event.key==='Enter') addService()">
+      <input type="text" id="newService" placeholder="Add a service…" onkeydown="if(event.key==='Enter') addService()">
       <button class="add-btn" onclick="addService()">+ Add</button>
     </div>
-    <div style="margin-top:10px;">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Quick add</div>
+    <div style="margin-top:14px;">
+      <div class="quick-section-lbl">Quick add</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">
         <button class="add-btn quick-btn" onclick="quickAdd('Roof — Softwash')">Roof Softwash</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Roof — Traditional')">Roof Traditional</button>
@@ -227,100 +293,122 @@ select option{background:var(--navy2);}
     </div>
   </div>
 
-  <!-- PRICE -->
-  <div class="section">
-    <div class="section-title">Quote amount</div>
-    <div class="price-wrap price-pressure">
+  <!-- WHAT'S OUR PRICE -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">💰 What's our price?</div>
+      <div class="sec-hdr-sub">Tony's verbal quote. We can adjust later if needed.</div>
+    </div>
+    <div class="price-wrap">
       <span class="currency">$</span>
-      <input type="number" id="quotePricePressure" placeholder="0" oninput="updatePreview()">
+      <input type="number" id="quotePricePressure" placeholder="0" oninput="updatePreview();saveDraft();updateSendBtn()">
     </div>
   </div>
 
-  <!-- ADD-ONS -->
-  <div class="section">
-    <div class="section-title">Optional add-ons for customer</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Set a price — customer taps to add. Leave $0 to hide.</div>
+  <!-- OPTIONAL EXTRAS -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">➕ Optional extras for the customer</div>
+      <div class="sec-hdr-sub">Set a bundle price — customer sees these as add-ons and can tap to include. Leave at $0 to hide.</div>
+    </div>
     <div id="addonsBuilder"></div>
   </div>
 
-  <!-- DATES -->
-  <div class="section">
-    <div class="section-title">Schedule dates</div>
+  <!-- WHEN ARE WE OFFERING -->
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">📅 When are we offering?</div>
+      <div class="sec-hdr-sub">Customer sees the first date. Backups auto-fill — they only appear if the first doesn't work.</div>
+    </div>
     <div id="timeframeBadge" style="display:none;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:600;margin-bottom:10px;line-height:1;"></div>
-    <div class="date-card primary-card" style="margin-bottom:6px;">
-      <label>Recommended date <span style="color:#fc8181;font-style:normal;font-size:10px;">required</span></label>
-      <input type="date" id="primaryDate" oninput="updatePreview();autoFillAltDates();">
+    <div class="date-card primary-card" style="margin-bottom:8px;">
+      <label>Best date <span style="color:var(--terra);font-style:normal;font-size:10px;">required</span></label>
+      <input type="date" id="primaryDate" oninput="updatePreview();autoFillAltDates();saveDraft();">
     </div>
     <div class="date-alt-note">This is the date the customer sees first — make it your best offer.</div>
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:4px;">Backup dates <span style="text-transform:none;font-weight:400;">(optional)</span></div>
-    <div class="date-alt-note" style="margin-top:0;">Customer only sees these if the primary date doesn't work.</div>
+    <div class="date-alt-note" style="margin-top:0;margin-bottom:.5rem;font-weight:600;color:var(--muted);">Backup options <span style="font-weight:400;">(auto-filled, can adjust)</span></div>
     <div class="date-alt-grid">
-      <div class="date-card"><label>Alt 1</label><input type="date" id="altDate1" oninput="updatePreview()"></div>
-      <div class="date-card"><label>Alt 2</label><input type="date" id="altDate2" oninput="updatePreview()"></div>
-      <div class="date-card"><label>Alt 3</label><input type="date" id="altDate3" oninput="updatePreview()"></div>
+      <div class="date-card"><label>Backup 1</label><input type="date" id="altDate1" oninput="updatePreview();saveDraft()"></div>
+      <div class="date-card"><label>Backup 2</label><input type="date" id="altDate2" oninput="updatePreview();saveDraft()"></div>
+      <div class="date-card"><label>Backup 3</label><input type="date" id="altDate3" oninput="updatePreview();saveDraft()"></div>
     </div>
   </div>
 
   <!-- NOTES -->
-  <div class="section">
-    <div class="section-title">Internal notes</div>
-    <textarea id="internalNotes" placeholder="Gate code, dogs, parking — not shown to customer..."></textarea>
-  </div>
-  <div class="section">
-    <div class="section-title">Note to customer</div>
-    <textarea id="customerNotes" placeholder="Any message shown on their quote..." oninput="updatePreview()"></textarea>
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">📝 Notes Tony should know</div>
+      <div class="sec-hdr-sub">Internal only — gate code, dogs, parking, special situation. Not shown to customer.</div>
+    </div>
+    <textarea id="internalNotes" placeholder="Gate code is 1234, two dogs in backyard, no street parking…" rows="3" oninput="saveDraft()"></textarea>
   </div>
 
-  <button class="send-btn send-btn-pressure" id="generateBtn" onclick="generateQuote()">Generate Quote Link →</button>
-  <button class="secondary-btn" onclick="switchTab('preview')">Preview First</button>
+  <div class="form-card">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">💬 Message for the customer</div>
+      <div class="sec-hdr-sub">Shown on their agreement page. Personal notes go a long way.</div>
+    </div>
+    <textarea id="customerNotes" placeholder="Hi! Tony noticed your front walkway is looking rough — happy to add it on if you want." rows="3" oninput="updatePreview();saveDraft()"></textarea>
+  </div>
+
+  <!-- LIVE PEEK -->
+  <div class="live-peek" id="livePeek">
+    <div class="live-peek-lbl">👀 Customer preview</div>
+    <div id="peekName" class="live-peek-name">Customer Name</div>
+    <div id="peekPrice" class="live-peek-price">$—</div>
+    <div id="peekSvcs" class="live-peek-svcs">Add services above</div>
+  </div>
+
+  <button class="send-btn send-btn-pressure" id="generateBtn" onclick="generateQuote()">Send Quote →</button>
+  <button class="secondary-btn" onclick="switchTab('preview')">Preview first →</button>
 
 </div>
 
 <!-- PREVIEW PANEL -->
 <div class="panel" id="previewPanel">
 
-  <div class="preview-card preview-pressure" id="previewCard" style="margin-top:1rem;">
+  <div class="preview-card preview-pressure" id="previewCard" style="margin-top:.5rem;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1rem;">
       <div>
         <div class="preview-name" id="prevName">Customer Name</div>
         <div class="preview-addr" id="prevAddr">Address</div>
       </div>
       <div style="text-align:right;">
-        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">Pressure Clean</div>
-        <div class="preview-total" id="prevPrice" style="color:var(--sky);">$0</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;">Pure Cleaning Quote</div>
+        <div class="preview-total" id="prevPrice" style="color:#fca5a5;">$0</div>
       </div>
     </div>
     <div class="preview-services" id="prevServices"></div>
-    <div class="preview-dates" id="prevDates"><div style="font-size:12px;color:var(--muted);">No dates selected</div></div>
-    <div id="prevNotes" style="margin-top:1rem;font-size:13px;color:var(--muted);display:none;"></div>
+    <div class="preview-dates" id="prevDates"><div style="font-size:12px;color:rgba(255,255,255,.35);">No dates selected yet</div></div>
+    <div id="prevNotes" style="margin-top:1rem;font-size:13px;color:rgba(255,255,255,.5);display:none;"></div>
   </div>
 
   <div class="quote-link-box" id="quoteLinkBox">
-    <div class="quote-link-label">✅ Quote link ready</div>
+    <div class="quote-link-label">✅ Quote link ready — share via SMS below</div>
     <div class="quote-link-url" id="quoteLinkUrl"></div>
     <button class="send-sms-btn" onclick="sendQuoteText()">📱 Send Quote Text to <span id="smsNameSpan">Customer</span></button>
     <button class="copy-btn" onclick="copyLink()">📋 Copy Link</button>
   </div>
 
-  <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem;">
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Text message preview</div>
-    <div id="textPreview" style="font-size:14px;color:var(--text);line-height:1.8;white-space:pre-wrap;"></div>
+  <div class="text-preview-box">
+    <div class="text-preview-lbl">Text message preview</div>
+    <div id="textPreview" style="font-size:13px;color:var(--text);line-height:1.8;white-space:pre-wrap;"></div>
   </div>
 
-  <button class="send-btn send-btn-pressure" id="previewGenerateBtn" onclick="generateQuote()">Generate Quote Link →</button>
-  <button class="secondary-btn" onclick="switchTab('build')">← Edit</button>
+  <button class="send-btn send-btn-pressure" id="previewGenerateBtn" onclick="generateQuote()">Send Quote →</button>
+  <button class="secondary-btn" onclick="switchTab('build')">← Edit details</button>
 
 </div>
 
 <!-- HISTORY PANEL -->
 <div class="panel" id="historyPanel">
-  <div class="stat-grid" style="margin-top:1rem;">
+  <div class="stat-grid" style="margin-top:.5rem;">
     <div class="stat-card"><div class="stat-val" id="statTotal">$0</div><div class="stat-label">Quoted this month</div></div>
     <div class="stat-card"><div class="stat-val" id="statCount">0</div><div class="stat-label">Quotes sent</div></div>
     <div class="stat-card"><div class="stat-val" id="statApproved">0</div><div class="stat-label">Approved</div></div>
     <div class="stat-card"><div class="stat-val" id="statRate">0%</div><div class="stat-label">Close rate</div></div>
   </div>
-  <div class="section-title" style="margin-bottom:0.75rem;">Recent quotes</div>
+  <div style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:.875rem;margin-top:.5rem;">Recent quotes</div>
   <div id="historyList"><div style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">No quotes yet!</div></div>
 </div>
 
@@ -488,6 +576,8 @@ function renderChips() {
     `<div class="chip">${s}<span class="remove" onclick="removeService(${i})">×</span></div>`
   ).join('');
   renderAddons();
+  saveDraft();
+  updateLivePeek();
 }
 
 // ─── ADDONS ──────────────────────────────────────────────────────
@@ -742,6 +832,8 @@ async function generateQuote() {
   const smsSpan = document.getElementById('smsNameSpan');
   if (smsSpan) smsSpan.textContent = fn || 'Customer';
   document.getElementById('textPreview').textContent = (document.getElementById('textPreview').textContent || '').replace('[quote link]', generatedUrl);
+  showQbToast(`✓ Quote link ready for ${fn || 'customer'}`);
+  try { localStorage.removeItem(DRAFT_KEY); } catch(e) {}
 
   // Auto-mark the incoming request as quoted
   if (incomingReqId) markIncomingQuoted(incomingReqId);
@@ -821,9 +913,9 @@ function updatePropLink() {
   const county = detectCounty(addr);
   let url;
   if (county === 'broward') {
-    url = 'https://bcpa.net/RecAddr.asp';
+    url = 'https://web.bcpa.net/bcpaclient/#/Record-Search';
   } else if (county === 'miami-dade') {
-    url = 'https://www.miamidadepa.gov/pa/property_search.asp';
+    url = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';
   } else if (county === 'palm-beach') {
     url = 'https://pbcpao.gov/Property/Search';
   } else {
@@ -899,6 +991,124 @@ async function markIncomingQuoted(reqId) {
     });
   } catch(e) { console.warn('[markIncomingQuoted]', e.message); }
 }
+
+// ─── PHONE AUTO-FORMAT ───────────────────────────────────────────
+function formatPhone(input) {
+  let v = input.value.replace(/\D/g, '').slice(0, 10);
+  if (v.length <= 3) input.value = v;
+  else if (v.length <= 6) input.value = `(${v.slice(0,3)}) ${v.slice(3)}`;
+  else input.value = `(${v.slice(0,3)}) ${v.slice(3,6)}-${v.slice(6)}`;
+}
+
+// ─── DRAFT SAVE / RESTORE ────────────────────────────────────────
+const DRAFT_KEY = 'pcpc_qb_draft';
+let _draftTimer = null;
+
+function saveDraft() {
+  clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(() => {
+    try {
+      const draft = {
+        fn: document.getElementById('custFirst')?.value || '',
+        ln: document.getElementById('custLast')?.value || '',
+        phone: document.getElementById('custPhone')?.value || '',
+        email: document.getElementById('custEmail')?.value || '',
+        addr: document.getElementById('custAddr')?.value || '',
+        roofSqFt: document.getElementById('roofSqFt')?.value || '',
+        price: document.getElementById('quotePricePressure')?.value || '',
+        services: [...services],
+        primaryDate: document.getElementById('primaryDate')?.value || '',
+        altDate1: document.getElementById('altDate1')?.value || '',
+        altDate2: document.getElementById('altDate2')?.value || '',
+        altDate3: document.getElementById('altDate3')?.value || '',
+        internalNotes: document.getElementById('internalNotes')?.value || '',
+        customerNotes: document.getElementById('customerNotes')?.value || '',
+        savedAt: Date.now(),
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      const dot = document.getElementById('draftDot');
+      if (dot) { dot.classList.add('visible'); clearTimeout(dot._t); dot._t = setTimeout(() => dot.classList.remove('visible'), 1800); }
+    } catch(e) { console.warn('[draft] save failed:', e.message); }
+  }, 600);
+}
+
+function restoreDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    // Only restore if draft is less than 2 hours old
+    if (!d.savedAt || Date.now() - d.savedAt > 2 * 60 * 60 * 1000) return;
+    // Only restore if no URL prefill param present
+    if (new URLSearchParams(window.location.search).get('customer')) return;
+    if (d.fn) document.getElementById('custFirst').value = d.fn;
+    if (d.ln) document.getElementById('custLast').value = d.ln;
+    if (d.phone) document.getElementById('custPhone').value = d.phone;
+    if (d.email) document.getElementById('custEmail').value = d.email;
+    if (d.addr) { document.getElementById('custAddr').value = d.addr; updatePropLink(); }
+    if (d.roofSqFt) document.getElementById('roofSqFt').value = d.roofSqFt;
+    if (d.price) document.getElementById('quotePricePressure').value = d.price;
+    if (d.services && d.services.length) { services = d.services; renderChips(); renderAddons(); }
+    if (d.primaryDate) document.getElementById('primaryDate').value = d.primaryDate;
+    if (d.altDate1) document.getElementById('altDate1').value = d.altDate1;
+    if (d.altDate2) document.getElementById('altDate2').value = d.altDate2;
+    if (d.altDate3) document.getElementById('altDate3').value = d.altDate3;
+    if (d.internalNotes) document.getElementById('internalNotes').value = d.internalNotes;
+    if (d.customerNotes) document.getElementById('customerNotes').value = d.customerNotes;
+    updatePreview(); updateSendBtn();
+    showQbToast('✓ Draft restored');
+  } catch(e) { console.warn('[draft] restore failed:', e.message); }
+}
+
+// ─── LIVE PEEK UPDATE ────────────────────────────────────────────
+function updateLivePeek() {
+  const fn    = document.getElementById('custFirst')?.value || '';
+  const ln    = document.getElementById('custLast')?.value || '';
+  const price = document.getElementById('quotePricePressure')?.value;
+  const name  = [fn, ln].filter(Boolean).join(' ') || 'Customer';
+  const el = document.getElementById('peekName');
+  const pp = document.getElementById('peekPrice');
+  const ps = document.getElementById('peekSvcs');
+  if (el) el.textContent = name;
+  if (pp) pp.textContent = price ? '$' + Number(price).toLocaleString() : '$—';
+  if (ps) ps.textContent = services.length ? services.slice(0,3).join(' · ') + (services.length > 3 ? ` +${services.length-3} more` : '') : 'Add services above';
+}
+
+// ─── SEND BUTTON DYNAMIC LABEL ───────────────────────────────────
+function updateSendBtn() {
+  const fn = (document.getElementById('custFirst')?.value || '').trim();
+  const price = document.getElementById('quotePricePressure')?.value;
+  const label = fn ? `Send Quote to ${fn} →` : 'Send Quote →';
+  ['generateBtn','previewGenerateBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = label;
+  });
+}
+
+// ─── TOAST ───────────────────────────────────────────────────────
+function showQbToast(msg) {
+  let t = document.getElementById('qbToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'qbToast';
+    t.className = 'qb-toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ─── HOOK updatePreview TO ALSO UPDATE PEEK ──────────────────────
+const _origUpdatePreview = updatePreview;
+function updatePreview() {
+  _origUpdatePreview();
+  updateLivePeek();
+}
+
+// ─── RESTORE DRAFT ON LOAD ───────────────────────────────────────
+restoreDraft();
 </script>
 </body>
 </html>
