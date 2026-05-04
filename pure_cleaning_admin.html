@@ -40,6 +40,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 .sec-hdr:first-child{margin-top:0;}
 .sec-title{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;letter-spacing:.2px;}
 .sec-line{flex:1;height:1px;background:var(--border);}
+.misc-section{margin-top:2rem;}
+.misc-summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none;user-select:none;-webkit-tap-highlight-color:transparent;padding:.5rem 0;}
+.misc-summary::-webkit-details-marker{display:none;}
+.misc-summary::after{content:'';flex:1;height:1px;background:var(--border);}
+.misc-arrow{font-size:16px;color:var(--muted);transition:transform .2s;}
+.misc-section[open] .misc-arrow{transform:rotate(90deg);}
 
 /* ── Card grid ── */
 .card-grid{display:flex;flex-direction:column;gap:12px;}
@@ -167,54 +173,71 @@ const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 })();
 
 // ── TOOL NAVIGATION ──────────────────────────────────────────────────────────────
-const TOOLS = [
-  { icon: '📞', name: 'Add New Customer',    description: 'Book a phone quote or send a digital quote link',               url: '/pure_cleaning_new_customer.html',      category: 'primary' },
-  { icon: '🔔', name: 'New Quote Requests',  description: 'Review incoming customer form submissions and build quotes',     url: '/pure_cleaning_incoming.html',          category: 'primary', badgeId: 'incoming-badge' },
-  { icon: '📅', name: 'Calendar & Crew',     description: 'Schedule jobs, assign crews, track weekly payroll',             url: '/pure_cleaning_calendar.html',          category: 'primary' },
-  { icon: '📋', name: 'Open Quotes',         description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html',            category: 'tools' },
-  { icon: '📬', name: 'Nudge Queue',         description: "Follow up with customers who haven't confirmed yet",               url: '/pure_cleaning_nudge_queue.html',       category: 'tools', badgeId: 'nudge-badge' },
-  { icon: '📱', name: 'Bulk Reactivation',   description: 'Tier customers, generate batch links, send reactivation texts', url: '/pure_cleaning_bulk_reactivation.html', category: 'tools' },
-  { icon: '⭐', name: 'Reviews Hub',          description: 'Manage review requests, track progress toward 300 reviews, A/B test templates', url: '/pure_cleaning_review_hub.html', category: 'tools' },
-  { icon: '🗑️', name: 'Recently Deleted',   description: 'Restore soft-deleted records or permanently remove them',        url: '/pure_cleaning_recently_deleted.html', category: 'tools' },
-  { icon: '🧾', name: 'Quote Builder',       description: 'Build and send custom quotes to customers',                     url: '/pure_cleaning_quote_builder_v2.html',  category: 'tools' },
-  { icon: '📨', name: 'Customer Quote Form', description: 'Preview the customer-facing quote request form',                url: '/pure_cleaning_quote.html',             category: 'tools' },
-  { icon: '🧠', name: 'Intelligence Center', description: 'Churn risk, predictions, sealing prospects, insight feed',        url: '/pure_cleaning_intelligence.html',      category: 'tools' },
-  { icon: '📊', name: 'Insights',            description: 'Conversion funnel, behavior trends, customer analysis',         url: '/pure_cleaning_insights.html',          category: 'reference' },
-  { icon: '🌎', name: 'Live Website',        description: 'View the customer-facing website',                              url: '/',                                     category: 'customer_facing' },
+const DAILY_DRIVERS = [
+  { icon: '📅', name: 'Calendar',              description: 'Schedule jobs, assign crews, track payroll',                      url: '/pure_cleaning_calendar.html' },
+  { icon: '📞', name: 'New Customer',           description: 'Book a phone quote or send a digital quote link',                url: '/pure_cleaning_new_customer.html' },
+  { icon: '✨', name: 'Mini Quote Builder',     description: 'Build the upsell offer after a phone quote',                     url: '/pure_cleaning_mini_quote_builder.html' },
+  { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
+  { icon: '👥', name: 'Customer Directory',     description: 'Search and view all 1,200+ customer profiles',                   url: '/pure_cleaning_customer_directory.html', badgeId: 'dir-badge' },
+  { icon: '📊', name: 'Insights',               description: 'Conversion funnel, behavior trends, customer analysis',          url: '/pure_cleaning_insights.html' },
+  { icon: '🚚', name: 'Crew & Scheduling',      description: 'Schedule jobs, assign rigs, view weekly calendar',               url: '/pure_cleaning_calendar.html' },
 ];
 
-const CATEGORIES = [
-  { key: 'primary',         label: "Today's Work" },
-  { key: 'tools',           label: 'Operations & Admin' },
-  { key: 'reference',       label: 'Reports & Insights' },
-  { key: 'customer_facing', label: 'Customer-Facing' },
+const MISC_TOOLS = [
+  { icon: '🔔', name: 'Nudge Queue',            description: "Follow up with customers who haven't confirmed",                 url: '/pure_cleaning_nudge_queue.html',       badgeId: 'nudge-badge' },
+  { icon: '📨', name: 'Customer Quote Form',    description: 'Preview the customer-facing quote request form',                 url: '/pure_cleaning_quote.html' },
+  { icon: '🗑️', name: 'Recently Deleted',      description: 'Restore soft-deleted records within 30 days',                   url: '/pure_cleaning_recently_deleted.html' },
+  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
+  { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to cold leads',                     url: '/pure_cleaning_quote_builder_v2.html' },
+  { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
+  { icon: '📋', name: 'Open Quotes',            description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html' },
+  { icon: '🧠', name: 'Intelligence Center',   description: 'Churn risk, predictions, sealing prospects',                     url: '/pure_cleaning_intelligence.html' },
+  { icon: '🌎', name: 'Live Website',           description: 'View the customer-facing website',                              url: '/',                                     external: true },
 ];
+
+// Legacy TOOLS array — kept for badge loading compat
+const TOOLS = [...DAILY_DRIVERS, ...MISC_TOOLS];
+const CATEGORIES = []; // no longer used by renderTools
 
 function renderTools() {
   const container = document.getElementById('toolSections');
   let html = '';
-  CATEGORIES.forEach(cat => {
-    const tools = TOOLS.filter(t => t.category === cat.key);
-    if (!tools.length) return;
-    const isPrimary = cat.key === 'primary';
-    html += `<div class="sec-hdr"><span class="sec-title">${cat.label}</span><span class="sec-line"></span></div>`;
-    html += `<div class="card-grid${isPrimary ? ' primary' : ''}">`;
-    tools.forEach(t => {
-      const badge = t.badgeId
-        ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>`
-        : '';
-      const isExternal = t.category === 'customer_facing';
-      html += `<a href="${t.url}"${isExternal ? ' target="_blank" rel="noopener"' : ''} class="tool-card cat-${t.category}${isPrimary ? ' primary' : ''}">
-        <div class="card-icon">${t.icon}</div>
-        <div class="card-body">
-          <div class="card-name">${t.name}</div>
-          <div class="card-desc">${t.description}</div>
-        </div>
-        <div class="card-right">${badge}<span class="card-arrow">›</span></div>
-      </a>`;
-    });
-    html += '</div>';
+
+  // Daily Drivers — large prominent cards
+  html += `<div class="sec-hdr"><span class="sec-title">Daily Drivers</span><span class="sec-line"></span></div>`;
+  html += `<div class="card-grid primary">`;
+  DAILY_DRIVERS.forEach(t => {
+    const badge = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
+    html += `<a href="${t.url}" class="tool-card cat-primary primary">
+      <div class="card-icon">${t.icon}</div>
+      <div class="card-body">
+        <div class="card-name">${t.name}</div>
+        <div class="card-desc">${t.description}</div>
+      </div>
+      <div class="card-right">${badge}<span class="card-arrow">›</span></div>
+    </a>`;
   });
+  html += '</div>';
+
+  // Misc / Tools — collapsible, smaller list
+  const miscOpen = localStorage.getItem('pcpc_admin_misc_open') !== 'false';
+  html += `<details class="misc-section" ${miscOpen ? 'open' : ''} ontoggle="localStorage.setItem('pcpc_admin_misc_open',this.open)">
+    <summary class="misc-summary"><span class="sec-title" style="font-size:13px;">Misc / Tools</span><span class="misc-arrow">›</span></summary>
+    <div class="card-grid" style="margin-top:.75rem;">`;
+  MISC_TOOLS.forEach(t => {
+    const badge = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
+    const target = t.external ? ' target="_blank" rel="noopener"' : '';
+    html += `<a href="${t.url}"${target} class="tool-card cat-tools">
+      <div class="card-icon">${t.icon}</div>
+      <div class="card-body">
+        <div class="card-name">${t.name}</div>
+        <div class="card-desc">${t.description}</div>
+      </div>
+      <div class="card-right">${badge}<span class="card-arrow">›</span></div>
+    </a>`;
+  });
+  html += '</div></details>';
+
   container.innerHTML = html;
 }
 

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Customer Directory — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--green:#1d9e75;--gold:#f4a620;--terra:#c2410c;--red:#dc2626;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.site-header{background:var(--navy);padding:0 1.25rem;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.25);}
+.hdr-logo{font-size:16px;font-weight:800;color:#fff;letter-spacing:.3px;}
+.hdr-logo span{color:var(--gold);}
+.hdr-back{color:rgba(255,255,255,.7);text-decoration:none;font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px;}
+.hdr-back:hover{color:#fff;}
+
+.page-wrap{max-width:1200px;margin:0 auto;padding:1.25rem 1rem 4rem;}
+
+.page-title{font-size:24px;font-weight:800;color:var(--navy);margin-bottom:3px;}
+.page-sub{font-size:14px;color:var(--muted);margin-bottom:1.25rem;}
+
+/* Search */
+.search-wrap{position:relative;margin-bottom:.875rem;}
+.search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none;}
+.search-input{width:100%;padding:12px 40px 12px 40px;border:1.5px solid var(--border);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);background:var(--white);outline:none;transition:border-color .15s;}
+.search-input:focus{border-color:var(--sky);}
+.search-clear{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;display:none;padding:2px;}
+.search-clear.vis{display:block;}
+
+/* Filter pills */
+.filter-row{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;margin-bottom:1rem;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.filter-row::-webkit-scrollbar{display:none;}
+.filter-pill{flex-shrink:0;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--white);color:var(--muted);cursor:pointer;transition:all .12s;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
+.filter-pill:hover{border-color:var(--sky);color:var(--sky);}
+.filter-pill.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+
+/* Export + count bar */
+.bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;flex-wrap:wrap;gap:8px;}
+.bar-count{font-size:13px;color:var(--muted);font-weight:600;}
+.export-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--white);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;color:var(--text);cursor:pointer;transition:all .12s;}
+.export-btn:hover{border-color:var(--sky);color:var(--sky);}
+
+/* Table */
+.table-outer{background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;}
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+table{width:100%;border-collapse:collapse;min-width:720px;}
+thead th{background:var(--navy);color:rgba(255,255,255,.7);padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;cursor:pointer;user-select:none;text-align:left;}
+thead th:hover{color:#fff;}
+thead th.sorted{color:var(--gold);}
+thead th .sind{font-size:9px;opacity:.5;margin-left:2px;letter-spacing:-1px;}
+thead th.sorted .sind{opacity:1;color:var(--gold);}
+thead th.no-sort{cursor:default;}
+tbody tr{border-top:1px solid var(--border);cursor:pointer;transition:background .1s;}
+tbody tr:hover{background:#f0f7ff;}
+tbody tr:active{background:#dbeafe;}
+td{padding:10px 12px;font-size:13px;color:var(--text);white-space:nowrap;}
+td.wrap{white-space:normal;max-width:200px;}
+td.money{font-weight:700;color:var(--terra);}
+td.muted{color:var(--muted);}
+.tier-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;}
+.flag-icons{font-size:11px;margin-left:4px;}
+
+/* Empty + loading */
+.empty-state{text-align:center;padding:4rem 2rem;color:var(--muted);}
+.empty-icon{font-size:40px;margin-bottom:.75rem;}
+.empty-title{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:.375rem;}
+.spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .7s linear infinite;margin:3rem auto;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* Load more */
+.load-more-btn{display:block;width:100%;padding:12px;background:none;border:none;border-top:1px solid var(--border);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;color:var(--sky);cursor:pointer;transition:background .12s;}
+.load-more-btn:hover{background:var(--bg);}
+
+/* Mobile card view */
+@media(max-width:640px){
+  .table-outer{display:none;}
+  .card-list{display:flex;flex-direction:column;gap:10px;}
+  .cust-card{background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:13px 15px;cursor:pointer;transition:border-color .12s;display:flex;align-items:flex-start;gap:12px;}
+  .cust-card:hover{border-color:var(--sky);}
+  .cust-card-badge{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;background:var(--bg);border:1.5px solid var(--border);}
+  .cust-card-body{flex:1;min-width:0;}
+  .cust-card-name{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .cust-card-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+  .cust-card-right{text-align:right;flex-shrink:0;}
+  .cust-card-spend{font-size:15px;font-weight:800;color:var(--terra);}
+  .cust-card-jobs{font-size:11px;color:var(--muted);}
+}
+@media(min-width:641px){.card-list{display:none;}}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="/pure_cleaning_admin.html" class="hdr-back">← Admin</a>
+  <div class="hdr-logo">🌴 Pure <span>Cleaning</span></div>
+  <div style="width:60px;"></div>
+</header>
+
+<div class="page-wrap">
+  <div class="page-title">Customer Directory</div>
+  <div class="page-sub" id="pageSub">Loading customers…</div>
+
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input class="search-input" id="searchInput" type="search" placeholder="Search by name, phone, address, or city…" oninput="onSearch(this.value)">
+    <button class="search-clear" id="searchClear" onclick="clearSearch()">×</button>
+  </div>
+
+  <div class="filter-row" id="filterRow"></div>
+
+  <div class="bar">
+    <div class="bar-count" id="barCount"></div>
+    <button class="export-btn" onclick="exportCsv()">📥 Export CSV</button>
+  </div>
+
+  <!-- Desktop table -->
+  <div class="table-outer" id="tableOuter">
+    <div class="table-scroll">
+      <table id="mainTable">
+        <thead>
+          <tr>
+            <th data-sort="name" onclick="clickSort('name')">Name <span class="sind">▲▼</span></th>
+            <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sind">▲▼</span></th>
+            <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
+            <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
+            <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
+            <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
+            <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
+            <th class="no-sort">Status</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+    <button class="load-more-btn" id="loadMoreBtn" onclick="loadMore()" style="display:none;">Load more…</button>
+  </div>
+
+  <!-- Mobile cards -->
+  <div class="card-list" id="cardList"></div>
+  <button class="load-more-btn" id="loadMoreBtnMobile" onclick="loadMore()" style="display:none;background:var(--white);border:1.5px solid var(--border);border-radius:12px;margin-top:10px;">Load more…</button>
+
+  <div id="emptyState" class="empty-state" style="display:none;">
+    <div class="empty-icon">🔍</div>
+    <div class="empty-title">No customers match</div>
+    <div>Try adjusting your search or clearing filters.</div>
+  </div>
+
+  <div id="loadingState" class="empty-state">
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const PAGE_SIZE = 50;
+
+let allCustomers = [];
+let filtered = [];
+let displayed = 0;
+let activeFilters = new Set(['all']);
+let searchVal = '';
+let _sortCol = null;
+let _sortAsc = true;
+const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:true, totalJobs:false, lifetimeSpend:false };
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:d; }
+function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function moAgo(s){ if(!s)return null; const ms=(Date.now()-new Date(s.includes('T')?s:s+'T12:00:00').getTime()); const mo=ms/(1000*60*60*24*30); return mo; }
+
+function getTier(c){
+  if(c.optOut)    return{label:'OPT-OUT',  color:'#dc2626'};
+  if(c.movedAway) return{label:'MOVED',    color:'#64748b'};
+  if(!c.lastService)return{label:'NO HIST',color:'#94a3b8'};
+  const mo=moAgo(c.lastService);
+  if(mo===null)return{label:'UNKNOWN',color:'#94a3b8'};
+  if((c.lifetimeSpend||0)>=5000)return{label:'VIP',color:'#7c3aed'};
+  if(mo<=6&&(c.totalJobs||0)>=3)return{label:'LOYAL',color:'#b45309'};
+  if(mo<=3)return{label:'HOT',color:'#dc2626'};
+  if(mo<=6)return{label:'WARM',color:'#f97316'};
+  if(mo<=12)return{label:'SLEEPING',color:'#eab308'};
+  if(mo<=18)return{label:'COLD',color:'#3b82f6'};
+  if(mo<=24)return{label:'DORMANT',color:'#6366f1'};
+  return{label:'ANCIENT',color:'#94a3b8'};
+}
+
+function isDueForReactivation(c){
+  if(!c.lastService)return false;
+  const mo=moAgo(c.lastService);
+  const qs=c.quoteStatus||{};
+  const isRoofCustomer=/(roof|softwash)/i.test(qs.mainServices||qs.notes||'');
+  return isRoofCustomer ? mo>18 : mo>6;
+}
+
+// ── Data Loading ──────────────────────────────────────────────────────────────
+async function init(){
+  try{
+    const res=await fetch(`${API}/customers`);
+    const data=await res.json();
+    const raw=(data.customers||[]).filter(c=>!c.deleted);
+    allCustomers=raw.map(c=>{
+      const tier=getTier(c);
+      return{
+        ...c,
+        _name:((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase(),
+        _tier:tier.label,
+        _tierColor:tier.color,
+        _due:isDueForReactivation(c),
+        totalJobs:c.totalJobs||0,
+        lifetimeSpend:c.lifetimeSpend||0,
+      };
+    });
+    document.getElementById('loadingState').style.display='none';
+    buildFilterPills();
+    applyAll();
+  }catch(e){
+    document.getElementById('loadingState').innerHTML=`<div class="empty-icon">⚠️</div><div class="empty-title">Failed to load</div><div>${esc(e.message)}</div>`;
+  }
+}
+
+// ── Filter pills ──────────────────────────────────────────────────────────────
+function buildFilterPills(){
+  const counts={
+    all: allCustomers.length,
+    vip: allCustomers.filter(c=>c._tier==='VIP').length,
+    loyal: allCustomers.filter(c=>c._tier==='LOYAL').length,
+    new_no_hist: allCustomers.filter(c=>c._tier==='NO HIST').length,
+    opted_out: allCustomers.filter(c=>!!c.optOut).length,
+    excluded: allCustomers.filter(c=>c.reactivationExcluded?.excluded).length,
+    due: allCustomers.filter(c=>c._due).length,
+  };
+  const pills=[
+    {key:'all',     label:`All (${counts.all})`},
+    {key:'vip',     label:`⭐ VIP (${counts.vip})`},
+    {key:'loyal',   label:`💚 Loyal (${counts.loyal})`},
+    {key:'new_no_hist', label:`🆕 No History (${counts.new_no_hist})`},
+    {key:'due',     label:`⏰ Due for Reactivation (${counts.due})`},
+    {key:'opted_out',   label:`🚫 Opted Out (${counts.opted_out})`},
+    {key:'excluded',    label:`📵 Excluded (${counts.excluded})`},
+  ];
+  document.getElementById('filterRow').innerHTML=pills.map(p=>
+    `<div class="filter-pill${activeFilters.has(p.key)?' active':''}" data-key="${p.key}" onclick="togglePill('${p.key}')">${p.label}</div>`
+  ).join('');
+}
+
+function togglePill(key){
+  if(key==='all'){
+    activeFilters=new Set(['all']);
+  }else{
+    activeFilters.delete('all');
+    if(activeFilters.has(key))activeFilters.delete(key);
+    else activeFilters.add(key);
+    if(!activeFilters.size)activeFilters.add('all');
+  }
+  document.querySelectorAll('.filter-pill').forEach(el=>{
+    el.classList.toggle('active',activeFilters.has(el.dataset.key));
+  });
+  applyAll();
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function onSearch(val){
+  searchVal=val.trim().toLowerCase();
+  document.getElementById('searchClear').classList.toggle('vis',!!searchVal);
+  applyAll();
+}
+function clearSearch(){
+  document.getElementById('searchInput').value='';
+  onSearch('');
+}
+
+// ── Filter + Sort + Render ────────────────────────────────────────────────────
+function applyAll(){
+  let data=allCustomers;
+
+  // Search
+  if(searchVal){
+    data=data.filter(c=>
+      c._name.includes(searchVal)||
+      (c.phone||'').includes(searchVal)||
+      (c.address||'').toLowerCase().includes(searchVal)||
+      (c.city||'').toLowerCase().includes(searchVal)
+    );
+  }
+
+  // Filter pills
+  if(!activeFilters.has('all')){
+    data=data.filter(c=>{
+      if(activeFilters.has('vip')&&c._tier==='VIP')return true;
+      if(activeFilters.has('loyal')&&c._tier==='LOYAL')return true;
+      if(activeFilters.has('new_no_hist')&&c._tier==='NO HIST')return true;
+      if(activeFilters.has('opted_out')&&!!c.optOut)return true;
+      if(activeFilters.has('excluded')&&c.reactivationExcluded?.excluded)return true;
+      if(activeFilters.has('due')&&c._due)return true;
+      return false;
+    });
+  }
+
+  // Sort
+  if(_sortCol){
+    const col=_sortCol;
+    data=[...data].sort((a,b)=>{
+      let av=a[col]??'', bv=b[col]??'';
+      if(col==='lastService'){ av=av||''; bv=bv||''; }
+      if(typeof av==='string')av=av.toLowerCase();
+      if(typeof bv==='string')bv=bv.toLowerCase();
+      const cmp=typeof av==='number'?av-bv:(av<bv?-1:av>bv?1:0);
+      return _sortAsc?cmp:-cmp;
+    });
+  }
+
+  filtered=data;
+  displayed=0;
+  updateSortIndicators();
+  renderResults();
+}
+
+function clickSort(col){
+  if(_sortCol===col){_sortAsc=!_sortAsc;}
+  else{_sortCol=col;_sortAsc=_sortPrimaryAsc[col]!==false;}
+  applyAll();
+}
+
+function updateSortIndicators(){
+  document.querySelectorAll('thead th[data-sort]').forEach(th=>{
+    th.classList.remove('sorted');
+    const ind=th.querySelector('.sind');
+    if(ind)ind.textContent='▲▼';
+  });
+  if(!_sortCol)return;
+  const th=document.querySelector(`thead th[data-sort="${_sortCol}"]`);
+  if(th){th.classList.add('sorted');const ind=th.querySelector('.sind');if(ind)ind.textContent=_sortAsc?'▲':'▼';}
+}
+
+function renderResults(){
+  const slice=filtered.slice(0,PAGE_SIZE);
+  displayed=slice.length;
+  const total=filtered.length;
+
+  // Update subtitle
+  document.getElementById('pageSub').textContent=`${allCustomers.length.toLocaleString()} total customers · Search, filter, and tap to view profile`;
+  document.getElementById('barCount').textContent=`Showing ${Math.min(displayed,total).toLocaleString()} of ${total.toLocaleString()} customers`;
+
+  const hasMore=total>PAGE_SIZE;
+  document.getElementById('loadMoreBtn').style.display=hasMore?'block':'none';
+  document.getElementById('loadMoreBtnMobile').style.display=hasMore?'block':'none';
+
+  if(!total){
+    document.getElementById('tableOuter').style.display='none';
+    document.getElementById('cardList').innerHTML='';
+    document.getElementById('emptyState').style.display='block';
+    return;
+  }
+  document.getElementById('tableOuter').style.display='block';
+  document.getElementById('emptyState').style.display='none';
+
+  renderRows(slice);
+  renderCards(slice);
+}
+
+function loadMore(){
+  const next=filtered.slice(displayed,displayed+PAGE_SIZE);
+  displayed+=next.length;
+  const hasMore=displayed<filtered.length;
+  document.getElementById('loadMoreBtn').style.display=hasMore?'block':'none';
+  document.getElementById('loadMoreBtnMobile').style.display=hasMore?'block':'none';
+  document.getElementById('barCount').textContent=`Showing ${displayed.toLocaleString()} of ${filtered.length.toLocaleString()} customers`;
+  appendRows(next);
+  appendCards(next);
+}
+
+function statusBadge(c){
+  if(c.optOut)return'<span style="font-size:11px;font-weight:700;color:#dc2626;">🚫 Opted out</span>';
+  if(c.reactivationExcluded?.excluded)return'<span style="font-size:11px;font-weight:700;color:#64748b;">📵 Excluded</span>';
+  if(c._due)return'<span style="font-size:11px;font-weight:700;color:#d97706;">⏰ Due</span>';
+  return'<span style="font-size:11px;color:var(--muted);">Active</span>';
+}
+
+function flagIcons(c){
+  let f='';
+  if(c.hasComplaints)f+='🚨';
+  if(c.isTipper)f+='💚';
+  if(c.troubleFlag)f+='⚠️';
+  return f?`<span class="flag-icons">${f}</span>`:'';
+}
+
+function buildRow(c){
+  const ph=String(c.phone||'').replace(/\D/g,'');
+  return `<tr onclick="window.open('/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}','_blank')">
+    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}</td>
+    <td><span class="tier-chip" style="background:${c._tierColor};">${c._tier}</span></td>
+    <td class="muted">${fmtPh(c.phone)}</td>
+    <td class="muted">${esc(c.city||'—')}</td>
+    <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
+    <td>${c.totalJobs||'—'}</td>
+    <td class="money">${c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—'}</td>
+    <td>${statusBadge(c)}</td>
+  </tr>`;
+}
+
+function buildCard(c){
+  const ph=String(c.phone||'').replace(/\D/g,'');
+  const name=((c.firstName||'')+' '+(c.lastName||'')).trim()||'Unknown';
+  const spend=c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—';
+  return `<div class="cust-card" onclick="window.open('/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}','_blank')">
+    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tier.slice(0,2)}</div>
+    <div class="cust-card-body">
+      <div class="cust-card-name">${esc(name)}${flagIcons(c)}</div>
+      <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
+      <div class="cust-card-meta">${fmtPh(c.phone)}</div>
+    </div>
+    <div class="cust-card-right">
+      <div class="cust-card-spend">${spend}</div>
+      <div class="cust-card-jobs">${c.totalJobs||0} jobs</div>
+    </div>
+  </div>`;
+}
+
+function renderRows(data){
+  document.getElementById('tableBody').innerHTML=data.map(buildRow).join('');
+}
+function appendRows(data){
+  document.getElementById('tableBody').insertAdjacentHTML('beforeend',data.map(buildRow).join(''));
+}
+function renderCards(data){
+  document.getElementById('cardList').innerHTML=data.map(buildCard).join('');
+}
+function appendCards(data){
+  document.getElementById('cardList').insertAdjacentHTML('beforeend',data.map(buildCard).join(''));
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCsv(){
+  const headers=['First Name','Last Name','Phone','City','ZIP','Address','Last Service','Total Jobs','Lifetime Spend','Tier','Status'];
+  const rows=filtered.map(c=>[
+    c.firstName||'',c.lastName||'',c.phone||'',c.city||'',c.zip||'',c.address||'',
+    c.lastService||'',c.totalJobs||0,c.lifetimeSpend||0,c._tier,
+    c.optOut?'Opted Out':c.reactivationExcluded?.excluded?'Excluded':'Active'
+  ]);
+  const csv=[headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`pure_cleaning_customers_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+init();
+</script>
+</body>
+</html>

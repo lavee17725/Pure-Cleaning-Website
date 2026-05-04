@@ -159,6 +159,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
 const REVIEW_LINK = 'https://share.google/ChFC1uAe9Xdveb8XN';
 const REVIEW_GOAL = 300;
+const REVIEW_CUTOFF = '2026-05-01'; // Track only from this date forward
 
 let hubData = null;
 let _editCountMode = false;
@@ -304,12 +305,16 @@ async function sendReviewRequest(phone) {
 // ── TAB 2: REQUESTED ─────────────────────────────────────────────────────────
 function renderRequested() {
   const el = document.getElementById('requested-content');
-  const customers = hubData.awaitingConfirmation;
+  const customers = hubData.awaitingConfirmation.filter(c => {
+    const gr = c.googleReview || {};
+    const d = gr.lastRequestSentAt || gr.askedAt;
+    return d && d.slice(0,10) >= REVIEW_CUTOFF;
+  });
   if (!customers.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📬</div><div class="empty-title">No pending requests</div><div style="font-size:13px;color:var(--muted);">After you send a review request, customers appear here.</div></div>`;
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📬</div><div class="empty-title">No pending requests since May 1, 2026</div><div style="font-size:13px;color:var(--muted);">After you send a review request, customers appear here.</div></div>`;
     return;
   }
-  el.innerHTML = `<div class="section-hdr">📬 Awaiting confirmation · ${customers.length}</div>` +
+  el.innerHTML = `<div class="section-hdr">📬 Awaiting confirmation · ${customers.length} <span style="font-size:10px;font-weight:400;opacity:.6;">(since May 1, 2026)</span></div>` +
     customers.map(c => {
       const ph   = customerPhone(c);
       const name = customerName(c);
@@ -334,12 +339,15 @@ function renderRequested() {
 // ── TAB 3: REVIEWED ───────────────────────────────────────────────────────────
 function renderReviewed() {
   const el = document.getElementById('reviewed-content');
-  const customers = hubData.reviewed;
+  const customers = hubData.reviewed.filter(c => {
+    const gr = c.googleReview || {};
+    return gr.leftAt && gr.leftAt.slice(0,10) >= REVIEW_CUTOFF;
+  });
   if (!customers.length) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">⭐</div><div class="empty-title">No reviews confirmed yet</div><div style="font-size:13px;color:var(--muted);">When you mark someone as reviewed, they'll appear here. You've got ${hubData.actualCount.count} on Google — start confirming in the system!</div></div>`;
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">⭐</div><div class="empty-title">No reviews confirmed since May 1, 2026</div><div style="font-size:13px;color:var(--muted);">Review tracking began May 1, 2026. Mark customers as reviewed to track your progress here.</div></div>`;
     return;
   }
-  el.innerHTML = `<div class="section-hdr">⭐ ${customers.length} reviews tracked · Nice work!</div>` +
+  el.innerHTML = `<div class="section-hdr">⭐ ${customers.length} reviews tracked since May 1, 2026 · Nice work!</div>` +
     customers.map(c => {
       const ph   = customerPhone(c);
       const name = customerName(c);
@@ -458,11 +466,15 @@ function renderInsights() {
   const staleBanner = stale
     ? `<div class="banner">📅 Update reminder: Last counted Google reviews on ${fmtDate(ac.lastUpdatedAt.slice(0,10))}. Update for accurate insights. <button class="btn btn-gold" onclick="editCount()">Update now</button></div>`
     : '';
+  const cutoffReviewed = hubData.reviewed.filter(c => { const gr = c.googleReview||{}; return gr.leftAt && gr.leftAt.slice(0,10) >= REVIEW_CUTOFF; });
+  const cutoffAsked    = hubData.awaitingConfirmation.filter(c => { const gr = c.googleReview||{}; const d = gr.lastRequestSentAt||gr.askedAt; return d && d.slice(0,10) >= REVIEW_CUTOFF; });
+  const cutoffBanner   = `<div class="banner" style="background:rgba(29,158,117,.1);border-color:rgba(29,158,117,.4);color:#5de0b3;">📊 Review tracking began May 1, 2026 — showing <strong>${cutoffAsked.length} requests sent</strong> and <strong>${cutoffReviewed.length} reviews confirmed</strong> since then.</div>`;
 
   const rate3mo = ins.lastMonthReviewed > 0 ? Math.round((ins.thisMonthReviewed + ins.lastMonthReviewed) / 2) : ins.thisMonthReviewed;
   const monthsToGoal = rate3mo > 0 ? Math.ceil((REVIEW_GOAL - ac.count) / rate3mo) : '∞';
 
   el.innerHTML = `
+    ${cutoffBanner}
     ${staleBanner}
     <div class="goal-card">
       <div class="goal-title">🎯 Goal Tracker</div>
