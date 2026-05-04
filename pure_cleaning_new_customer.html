@@ -428,6 +428,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </label>
     </div>
     <div style="margin-top:1.5rem;">
+      <div id="reqSummary" style="font-size:12px;font-weight:600;color:#92400e;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:9px 13px;margin-bottom:8px;display:none;line-height:1.5;"></div>
       <button id="submitBtn" class="btn btn-gold" onclick="submitForm()" disabled>✅ Save Customer</button>
     </div>
   </div>
@@ -1236,18 +1237,40 @@ function checkReq() {
   const ph   = (document.getElementById('nPhone').value||'').replace(/\D/g,'');
   const addr = (document.getElementById('nAddr').value||'').trim();
   const city = (document.getElementById('nCity').value||'').trim();
-  const ls   = (document.getElementById('nLeadSource')?.value||'');
-  const btn  = document.getElementById('submitBtn');
-  let ok = !!(fn && ln && ph.length===10 && addr && city && ls);
-  if (ok && currentPath === 'phone') {
+
+  const missing = [];
+  if (!fn || !ln)        missing.push('Full name');
+  if (ph.length !== 10)  missing.push('Phone number');
+  if (!addr)             missing.push('Street address');
+  if (!city)             missing.push('City');
+
+  if (currentPath === 'phone') {
+    const ls = (document.getElementById('nLeadSource')?.value||'');
+    if (!ls) missing.push('How they heard about us');
     const svc = getServicesAgreedValue();
-    ok = !!(svc.fullDescription);
-    if (ok && _svcSel.has('roof_cleaning') && !_roofType) ok = false;
-    if (ok && _roofType === 'other' && !(document.getElementById('nRoofTypeOther')?.value?.trim())) ok = false;
-    if (ok && _svcSel.has('driveway') && !_drivewayMaterial) ok = false;
-    if (ok && _drivewayMaterial === 'other' && !(document.getElementById('nDrivewayMaterialOther')?.value?.trim())) ok = false;
+    if (!svc.fullDescription) {
+      missing.push('At least one service');
+    } else {
+      if (_svcSel.has('roof_cleaning') && !_roofType) missing.push('Roof type');
+      if (_roofType === 'other' && !(document.getElementById('nRoofTypeOther')?.value?.trim())) missing.push('Roof type — specify');
+      if (_svcSel.has('driveway') && !_drivewayMaterial) missing.push('Driveway material');
+      if (_drivewayMaterial === 'other' && !(document.getElementById('nDrivewayMaterialOther')?.value?.trim())) missing.push('Driveway material — specify');
+    }
   }
+
+  const ok = missing.length === 0;
+  const btn = document.getElementById('submitBtn');
   if (btn) btn.disabled = !ok;
+
+  const errEl = document.getElementById('reqSummary');
+  if (errEl) {
+    if (!ok) {
+      errEl.innerHTML = '⚠️ Still needed: ' + missing.map(m => `<strong>${m}</strong>`).join(', ');
+      errEl.style.display = 'block';
+    } else {
+      errEl.style.display = 'none';
+    }
+  }
 }
 
 function renderNewAlerts() {
