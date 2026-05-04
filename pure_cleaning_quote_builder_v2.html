@@ -326,7 +326,7 @@ select option{background:var(--navy2);}
 
 <script>
 const ZAPIER             = 'https://hooks.zapier.com/hooks/catch/27394065/uvhnkqh/';
-const QUOTE_PAGE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_customer_quote.html';
+const QUOTE_PAGE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_agreement.html'; // updated: now uses agreement page
 const PCPC_API           = 'https://purecleaning-api.tylerfumero.workers.dev';
 const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -640,36 +640,99 @@ async function generateQuote() {
   const primaryDate = document.getElementById('primaryDate').value;
   if (!primaryDate) { alert('Please select a recommended date for the customer.'); return; }
 
-  const quoteData = {
-    id: Date.now(),
-    type: 'pressure',
-    name: `${first} ${document.getElementById('custLast').value}`.trim(),
-    phone: document.getElementById('custPhone').value,
-    email: document.getElementById('custEmail').value,
-    address: document.getElementById('custAddr').value,
-    roofSqFt: document.getElementById('roofSqFt').value || '',
-    services,
-    price: Number(price),
-    addons: getEnabledAddons(),
-    primaryDate,
-    backupDates: ['altDate1','altDate2','altDate3'].map(id => document.getElementById(id).value).filter(Boolean),
-    notes: document.getElementById('customerNotes').value,
-    internalNotes: document.getElementById('internalNotes').value,
-    zapierWebhook: ZAPIER,
-    expiry: true,
-    status: 'sent',
-    created: new Date().toISOString()
+  const [btn1, btn2] = [document.getElementById('generateBtn'), document.getElementById('previewGenerateBtn')];
+  [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Saving…'; b.disabled = true; } });
+
+  const fn       = first.trim();
+  const ln       = document.getElementById('custLast').value.trim();
+  const ph       = (document.getElementById('custPhone').value || '').replace(/\D/g, '').slice(-10);
+  const email    = document.getElementById('custEmail').value.trim();
+  const address  = document.getElementById('custAddr').value.trim();
+  const priceNum = Number(price);
+  const now      = new Date().toISOString();
+  const mqCode   = generateShortCode();
+  const serviceStr = Array.isArray(services) ? services.join(', ') : services;
+
+  // Convert primaryDate + backupDates → dateSuggestions array (agreement.html format)
+  const fmtDisplay = val => {
+    const d  = new Date(val + 'T12:00:00');
+    const DN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`;
+  };
+  const backupDateVals = ['altDate1','altDate2','altDate3'].map(id => document.getElementById(id).value).filter(Boolean);
+  const dateSuggestions = [
+    { date: primaryDate, display: fmtDisplay(primaryDate), label: 'Best fit',    rig: '', rigLabel: '', reason: '' },
+    ...backupDateVals.map(val => ({ date: val, display: fmtDisplay(val), label: 'Alternative', rig: '', rigLabel: '', reason: '' }))
+  ];
+
+  const enabledAddons = getEnabledAddons();
+  const miniData = {
+    addOns: enabledAddons.map(a => ({
+      id: a.id || a.label, name: a.label, icon: a.icon || '✨',
+      bundle: a.price, standalone: a.price, savings: 0, note: a.desc || '', enabled: true
+    })),
+    customAddOns: [],
+    sealingOffered: true,
+    rustOffered:    true,
+    customNote: (document.getElementById('customerNotes').value || '').trim(),
+    dateSuggestions,
+    builtAt: now,
+    sentAt:  now,
+    miniQuoteCode: mqCode,
   };
 
-  quotes.unshift(quoteData);
+  const quotePayload = {
+    fn, ln, ph, address, city: '', services: serviceStr, mainServices: serviceStr,
+    mainAmount: priceNum, approvedAmount: priceNum, addOns: [],
+    dateSuggestions, miniQuoteCustomData: miniData,
+    source: 'quote_builder_v2', created: now,
+  };
+
+  // Keep local history entry
+  const localRecord = {
+    id: Date.now(), type: 'pressure', name: `${fn} ${ln}`.trim(),
+    phone: ph, email, address, roofSqFt: document.getElementById('roofSqFt')?.value || '',
+    services, price: priceNum, addons: enabledAddons, primaryDate, backupDates: backupDateVals,
+    notes: (document.getElementById('customerNotes').value || ''), status: 'sent', created: now, mqCode
+  };
+  quotes.unshift(localRecord);
   localStorage.setItem('pureCleaningQuotesV2', JSON.stringify(quotes));
 
-  const encoded = btoa(JSON.stringify(quoteData).replace(/[^\x00-\x7F]/g, c => '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4)));
-  const longUrl = `${QUOTE_PAGE}?q=${encodeURIComponent(encoded)}`;
+  try {
+    // 1. Save quote to KV — agreement.html loads from here
+    await fetch(`${PCPC_API}/quote/${mqCode}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(quotePayload)
+    });
 
-  const [btn1, btn2] = [document.getElementById('generateBtn'), document.getElementById('previewGenerateBtn')];
-  [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generating…'; b.disabled = true; } });
+    // 2. Create/update customer in DB (fire-and-forget — don't block UI on failure)
+    if (ph) {
+      (async () => {
+        try {
+          const dbRes = await fetch(`${PCPC_API}/customers`);
+          const db    = await dbRes.json();
+          const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
+          let cust    = (db.customers||[]).find(c => norm(c.phone) === norm(ph));
+          if (!cust) {
+            cust = { phone: ph, firstName: fn, lastName: ln, address, city: '', email, zip: '', totalJobs: 0, lifetimeSpend: 0, hasSealHistory: false, createdAt: now, source: 'digital_quote_v2' };
+            (db.customers = db.customers || []).push(cust);
+          }
+          cust.quoteStatus    = { state: 'phone_quoted_mini_quote_sent', mainAmount: priceNum, mainServices: serviceStr, sentAt: now, miniQuoteCode: mqCode, miniQuoteCustomData: miniData };
+          cust.scheduledStatus = { state: 'needs_scheduling', approvedAmount: priceNum, jobNotes: serviceStr };
+          await fetch(`${PCPC_API}/customers`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(db) });
+        } catch(e) { console.warn('[quote_builder_v2] customer DB update:', e.message); }
+      })();
+    }
+  } catch(e) {
+    alert('Failed to save quote: ' + e.message);
+    [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generate Quote Link →'; b.disabled = false; } });
+    return;
+  }
 
+  // 3. Generate short link pointing to agreement.html
+  const longUrl = `https://purecleaningpressurecleaning.com/pure_cleaning_agreement.html?id=${mqCode}`;
   generatedUrl = shortenUrl(longUrl);
 
   [btn1, btn2].forEach(b => { if (b) { b.textContent = 'Generate Quote Link →'; b.disabled = false; } });
@@ -677,8 +740,8 @@ async function generateQuote() {
   document.getElementById('quoteLinkUrl').textContent = generatedUrl;
   document.getElementById('quoteLinkBox').classList.add('show');
   const smsSpan = document.getElementById('smsNameSpan');
-  if (smsSpan) smsSpan.textContent = document.getElementById('custFirst').value.trim() || 'Customer';
-  document.getElementById('textPreview').textContent = document.getElementById('textPreview').textContent.replace('[quote link]', generatedUrl);
+  if (smsSpan) smsSpan.textContent = fn || 'Customer';
+  document.getElementById('textPreview').textContent = (document.getElementById('textPreview').textContent || '').replace('[quote link]', generatedUrl);
 
   // Auto-mark the incoming request as quoted
   if (incomingReqId) markIncomingQuoted(incomingReqId);
