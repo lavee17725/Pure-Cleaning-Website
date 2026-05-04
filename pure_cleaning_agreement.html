@@ -177,6 +177,28 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .footer-contact { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
 .footer-contact a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 14px; }
 
+/* ── Orange toggle cards (matching original quote form) ── */
+.sc-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; transition: all .15s; background: var(--white); user-select: none; -webkit-tap-highlight-color: transparent; margin-bottom: 0; }
+.sc-card:hover { border-color: #c2410c; background: #fff5f0; }
+.sc-card.sc-open { border-color: #c2410c; background: #fff5f0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sc-cb { width: 22px; height: 22px; border: 2px solid #cbd5e1; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s; font-size: 12px; font-weight: 700; color: transparent; background: #f8fafc; margin-top: 1px; }
+.sc-card.sc-open .sc-cb { background: #c2410c; border-color: #c2410c; color: #fff; transform: scale(1.1); }
+.sc-body { flex: 1; }
+.sc-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.sc-sub { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.sc-expand { border: 1.5px solid #c2410c; border-top: none; border-radius: 0 0 10px 10px; padding: 14px 16px; background: var(--white); margin-bottom: 1.5rem; }
+.sc-section-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #7a4f00; margin-bottom: 8px; }
+.sc-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.sc-check { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px; cursor: pointer; transition: all .12s; font-size: 13px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
+.sc-check:hover { border-color: #c2410c; background: #fff5f0; }
+.sc-check.sc-checked { border-color: #c2410c; background: #fff5f0; }
+.sc-check .sc-cb-sm { width: 18px; height: 18px; border: 2px solid #cbd5e1; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: transparent; background: #f8fafc; transition: all .12s; }
+.sc-check.sc-checked .sc-cb-sm { background: #c2410c; border-color: #c2410c; color: #fff; }
+.sc-sand-wrap { background: #fdf6ee; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 2px; }
+.sc-confirm { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 8px 10px; background: #f0fdf4; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--green); }
+/* Date stage expand link */
+.date-expand-link { display: block; font-size: 13px; font-weight: 600; color: #1d4ed8; text-decoration: none; cursor: pointer; margin-top: 6px; padding: 2px 0; -webkit-tap-highlight-color: transparent; }
+.date-expand-link:hover { text-decoration: underline; }
 /* ── Terms & Conditions ── */
 .terms-section { background: #f8f9fb; border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; }
 .terms-company { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 2px; }
@@ -382,6 +404,11 @@ let availableAddons  = []; // kept for legacy compat
 let selectedDate     = null;
 let rustChecked      = false;
 let rustSurface      = null;
+let sealingChecked   = false;
+let sealingSurfaces  = new Set(); // 'driveway', 'patio'
+let sealingPaverSand = false;
+let _dateStage       = 1; // 1=best-only, 2=alternatives visible, 3=picker visible
+let _blockedDates    = new Set(); // YYYY-MM-DD strings blocked by operator
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -450,10 +477,16 @@ async function init() {
       availableAddons = [..._offerableAddons];
     }
 
-    // Restore customer-selected addons; remove from availableAddons (legacy)
-    addedAddons = quoteData.addOns || [];
-    const addedIds = new Set(addedAddons.map(a => a.id));
-    availableAddons = availableAddons.filter(a => !addedIds.has(a.id));
+    // Add-ons always start unchecked in pre-confirm state.
+    // (quoteData.addOns may contain previously-confirmed add-ons from a prior session
+    //  but since the add-ons panel is hidden once confirmed, we never need to restore them.)
+    addedAddons = [];
+
+    // Fetch operator-blocked dates (stub — falls back to empty set gracefully)
+    fetch(`${PCPC_API}/calendar/blocked-dates`)
+      .then(r => r.ok ? r.json() : {blockedDates:[]})
+      .then(d => { _blockedDates = new Set(d.blockedDates || []); })
+      .catch(() => {});
 
     renderPage();
     showState('main');
@@ -625,21 +658,41 @@ function renderSealingSection() {
   const offered = cd?.sealingOffered;
   const legacyOffered = cd && ['sealing_only','sealing_plus_sand'].includes(cd.sealingInterest);
   if (!offered && !legacyOffered) { secEl.style.display = 'none'; return; }
-  const alreadyRequested = !!(customer?.sealingInterestRequested);
   secEl.style.display = 'block';
+
+  const dvChecked = sealingSurfaces.has('driveway');
+  const ptChecked = sealingSurfaces.has('patio');
+
   secEl.innerHTML = `
-    <div class="section-title">💎 Bring It Back to Life — Sealing</div>
-    <div class="offering-card">
-      <div class="offering-sub">Sealing does two things customers love:</div>
-      <ul class="offering-list">
-        <li>Restores the color — surfaces look richer and brighter</li>
-        <li>Protects the surface — pavers, marble, or concrete</li>
-      </ul>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:.875rem;font-style:italic;">Interested? Tony will bring samples and quote in person on the day of your service.</div>
-      ${alreadyRequested
-        ? `<div class="offering-done">✓ Great! Tony will bring sealing samples and quote on-site.</div>`
-        : `<button class="offering-request-btn" id="sealingRequestBtn" onclick="requestSealingQuote()">Request sealing quote →</button>`}
-    </div>`;
+    <div class="sc-card${sealingChecked ? ' sc-open' : ''}" onclick="toggleSealingCard()">
+      <div class="sc-cb">✓</div>
+      <div class="sc-body">
+        <div class="sc-title">💎 Bring It Back to Life — Sealing</div>
+        <div class="sc-sub">✓ Restores the color &nbsp;·&nbsp; ✓ Protects the surface<br><em>Optional — we discuss pricing in person</em></div>
+      </div>
+    </div>
+    ${sealingChecked ? `
+    <div class="sc-expand">
+      <div class="sc-section-lbl">Which surface(s)?</div>
+      <div class="sc-check-grid">
+        <div class="sc-check${dvChecked ? ' sc-checked' : ''}" onclick="toggleSealSurface('driveway')">
+          <div class="sc-cb-sm">✓</div><span>Driveway</span>
+        </div>
+        <div class="sc-check${ptChecked ? ' sc-checked' : ''}" onclick="toggleSealSurface('patio')">
+          <div class="sc-cb-sm">✓</div><span>Patio</span>
+        </div>
+      </div>
+      <div class="sc-sand-wrap">
+        <div class="sc-check${sealingPaverSand ? ' sc-checked' : ''}" onclick="toggleSealPaverSand()" style="background:transparent;border:none;padding:0;">
+          <div class="sc-cb-sm">✓</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Add paver joint sand replacement</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Refills gaps between pavers — gives a cleaner finish and longer-lasting seal</div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-confirm">✓ Great! We'll assess your property and give you a quote in person.</div>
+    </div>` : ''}`;
 }
 
 function renderRustSection() {
@@ -647,59 +700,64 @@ function renderRustSection() {
   if (!secEl) return;
   const cd = quoteData.miniQuoteCustomData;
   if (!cd?.rustOffered) { secEl.style.display = 'none'; return; }
-  const alreadyRequested = !!(customer?.rustInterestRequested);
   secEl.style.display = 'block';
-  if (alreadyRequested) {
-    secEl.innerHTML = `
-      <div class="section-title">🔧 Got a Rust Problem?</div>
-      <div class="offering-card">
-        <div class="offering-done">✓ Tony will assess and quote rust removal on-site.</div>
-      </div>`;
-    return;
-  }
+
   secEl.innerHTML = `
-    <div class="section-title">🔧 Got a Rust Problem?</div>
-    <div class="offering-card">
-      <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:.375rem;">Common causes: sprinkler water, metal furniture, fertilizer.</div>
-      <div class="offering-sub">We remove most rust stains from concrete, pavers, and tile. Pricing typically $25–$100 depending on surface area. We'll always confirm the exact price before proceeding.</div>
-      <div class="rust-toggle-lbl" onclick="toggleRustChecked()">
-        <div class="rust-cb-el" id="rustCbEl"></div>
-        <span style="font-size:14px;font-weight:600;color:var(--text);">Rust removal</span>
+    <div class="sc-card${rustChecked ? ' sc-open' : ''}" onclick="toggleRustCard()">
+      <div class="sc-cb">✓</div>
+      <div class="sc-body">
+        <div class="sc-title">🔧 Rust Removal</div>
+        <div class="sc-sub">Sprinkler stains, fertilizer marks, metal furniture rust<br><em>Optional — we assess and quote in person</em></div>
       </div>
-      <div id="rustDetails" style="display:none;border-top:1px solid var(--border);padding-top:.875rem;margin-top:.5rem;">
-        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">What surfaces need rust removal? <span style="color:#e53e3e;">*</span></div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:.5rem;">Pricing ranges $25–$100 depending on surface area. We confirm the exact price with you before proceeding.</div>
-        <div class="rust-surf-row">
-          <div class="rust-surf-opt" id="rso-walls" onclick="selectRustSurface('walls')"><div class="rust-surf-icon">🟫</div><div>Walls</div></div>
-          <div class="rust-surf-opt" id="rso-floors" onclick="selectRustSurface('floors')"><div class="rust-surf-icon">⬛</div><div>Floors</div></div>
-          <div class="rust-surf-opt" id="rso-both" onclick="selectRustSurface('both')"><div class="rust-surf-icon">🔄</div><div>Both</div></div>
-        </div>
-        <div class="rust-upload-zone" onclick="document.getElementById('rustPhotoInput').click()">
-          <div style="font-size:24px;margin-bottom:4px;">📷</div>
-          <div style="font-size:13px;font-weight:600;color:var(--muted);">Upload photos of rust areas</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Helps us assess severity — customers who upload often get more accurate pricing</div>
-          <input type="file" id="rustPhotoInput" accept="image/*" multiple style="display:none;" onchange="onRustPhotoUpload(this)">
-        </div>
-        <div id="rustPhotoPreview" style="display:none;font-size:12px;color:var(--green);margin-top:.5rem;font-weight:600;padding:0 2px;"></div>
-        <textarea id="rustNotesTa" placeholder="Anything else not listed above? e.g. wall, basketball court, walkways, stepping stones, landscaping border…" style="width:100%;margin-top:.75rem;padding:.75rem;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);resize:vertical;min-height:70px;outline:none;background:var(--white);" onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+    </div>
+    ${rustChecked ? `
+    <div class="sc-expand">
+      <div class="sc-section-lbl">What surfaces need rust removal?</div>
+      <div class="rust-surf-row" style="margin:0 0 .875rem;">
+        <div class="rust-surf-opt${rustSurface==='walls'?' selected':''}" onclick="selectRustSurface('walls')"><div class="rust-surf-icon">🧱</div><div>Walls</div></div>
+        <div class="rust-surf-opt${rustSurface==='floors'?' selected':''}" onclick="selectRustSurface('floors')"><div class="rust-surf-icon">⬛</div><div>Floors</div></div>
+        <div class="rust-surf-opt${rustSurface==='both'?' selected':''}" onclick="selectRustSurface('both')"><div class="rust-surf-icon">🔄</div><div>Both</div></div>
       </div>
-    </div>`;
+      <div class="rust-upload-zone" onclick="document.getElementById('rustPhotoInput').click()">
+        <div style="font-size:22px;margin-bottom:4px;">📷</div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);">Upload photos of rust areas</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Helps us assess severity — customers who upload often get more accurate pricing</div>
+        <input type="file" id="rustPhotoInput" accept="image/*" multiple style="display:none;" onchange="onRustPhotoUpload(this)">
+      </div>
+      <div id="rustPhotoPreview" style="display:none;font-size:12px;color:var(--green);margin-top:.5rem;font-weight:600;padding:0 2px;"></div>
+      <textarea id="rustNotesTa" placeholder="Anything else not listed above? e.g. wall, basketball court, walkways, stepping stones, landscaping border…" style="width:100%;margin-top:.75rem;padding:.75rem;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);resize:vertical;min-height:70px;outline:none;background:var(--white);" onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+      <div class="sc-confirm">✓ Great! We'll assess and quote rust removal in person.</div>
+    </div>` : ''}`;
 }
 
-function toggleRustChecked() {
+// ── Sealing card toggles ──────────────────────────────────────────────────────
+function toggleSealingCard() {
+  sealingChecked = !sealingChecked;
+  if (!sealingChecked) { sealingSurfaces.clear(); sealingPaverSand = false; }
+  renderSealingSection();
+}
+function toggleSealSurface(val) {
+  event.stopPropagation();
+  if (sealingSurfaces.has(val)) sealingSurfaces.delete(val); else sealingSurfaces.add(val);
+  renderSealingSection();
+}
+function toggleSealPaverSand() {
+  event.stopPropagation();
+  sealingPaverSand = !sealingPaverSand;
+  renderSealingSection();
+}
+
+// ── Rust card toggles ─────────────────────────────────────────────────────────
+function toggleRustCard() {
   rustChecked = !rustChecked;
-  const cb = document.getElementById('rustCbEl');
-  if (cb) { cb.className = `rust-cb-el${rustChecked ? ' checked' : ''}`; cb.textContent = rustChecked ? '✓' : ''; }
-  const det = document.getElementById('rustDetails');
-  if (det) det.style.display = rustChecked ? 'block' : 'none';
+  if (!rustChecked) { rustSurface = null; }
+  renderRustSection();
 }
 
 function selectRustSurface(val) {
+  event.stopPropagation();
   rustSurface = val;
-  ['walls','floors','both'].forEach(v => {
-    const el = document.getElementById(`rso-${v}`);
-    if (el) el.classList.toggle('selected', v === val);
-  });
+  renderRustSection();
 }
 
 function onRustPhotoUpload(input) {
@@ -738,42 +796,102 @@ function renderDateSection() {
   const suggestions = ((quoteData.dateSuggestions || []).length
     ? quoteData.dateSuggestions
     : quoteData.miniQuoteCustomData?.dateSuggestions || []
-  ).filter(s => s.date);
+  ).filter(s => s.date && s.enabled !== false);
 
   if (!suggestions.length) { secEl.style.display = 'none'; return; }
 
-  // Auto-preselect Best Fit (first option) on initial load
+  const bestFit = suggestions[0];
+  const alts    = suggestions.slice(1, 3);
+
+  // Auto-preselect Best Fit on initial load
   if (!selectedDate) {
-    selectedDate = {...suggestions[0]};
-    // updateConfirmButton called after renderActionSection
+    selectedDate = {...bestFit};
+    // renderActionSection() called after this; button will be enabled
   }
 
   secEl.style.display = 'block';
 
-  // Optional note from Tony (displayed here per spec)
   const note = quoteData.miniQuoteCustomData?.customNote || '';
   const noteHtml = note
     ? `<div class="custom-note" style="margin-bottom:1rem;">📋 <strong>Note from Tony:</strong> ${escHtml(note)}</div>`
     : '';
 
+  const customDateSelected = selectedDate && !suggestions.find(s => s.date === selectedDate.date);
+  const bestSelected = selectedDate && selectedDate.date === bestFit.date;
+
   let html = `<div class="section-title">CHOOSE YOUR DATE</div>`;
-  html += `<div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">We're holding these for you. Pick the one that works best.</div>`;
+
+  // Stage 1 subtitle changes between stages
+  if (_dateStage === 1) {
+    html += `<div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">We're holding this for you. Confirm to lock it in.</div>`;
+  } else {
+    html += `<div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">We're holding all three for you. Pick the one that works best.</div>`;
+  }
+
   html += noteHtml;
 
-  suggestions.forEach((s, i) => {
-    const isSelected = selectedDate && selectedDate.date === s.date;
-    const lc = (s.label === 'Best fit' || i === 0) ? 'best' : 'alt';
-    const lblText = (s.label === 'Best fit' || i === 0) ? 'BEST FIT' : 'ALTERNATIVE';
-    html += `<div class="date-option${isSelected ? ' selected' : ''}" id="date-opt-${i}" onclick="onDateSelect(${i})">
-      <div class="date-radio"><div class="date-radio-dot"></div></div>
-      <div class="date-info-block">
-        <div class="date-option-lbl ${lc}">${lblText}</div>
-        <div class="date-option-display">${escHtml(s.display)}</div>
-      </div>
+  // Best Fit card — always visible
+  html += `<div class="date-option${bestSelected ? ' selected' : ''}" id="date-opt-0" onclick="onDateSelect(0)">
+    <div class="date-radio"><div class="date-radio-dot"></div></div>
+    <div class="date-info-block">
+      <div class="date-option-lbl best">BEST FIT</div>
+      <div class="date-option-display">${escHtml(bestFit.display)}</div>
+    </div>
+  </div>`;
+
+  if (_dateStage >= 2) {
+    // Show alternatives
+    alts.forEach((s, i) => {
+      const isSelected = selectedDate && selectedDate.date === s.date;
+      html += `<div class="date-option${isSelected ? ' selected' : ''}" id="date-opt-${i+1}" onclick="onDateSelect(${i+1})">
+        <div class="date-radio"><div class="date-radio-dot"></div></div>
+        <div class="date-info-block">
+          <div class="date-option-lbl alt">ALTERNATIVE</div>
+          <div class="date-option-display">${escHtml(s.display)}</div>
+        </div>
+      </div>`;
+    });
+  }
+
+  if (_dateStage === 3) {
+    // Custom date picker
+    const minDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    html += `<div style="padding:2px 0 0;">
+      <input type="date" id="custom-date-input"
+        value="${customDateSelected && selectedDate ? selectedDate.date : ''}"
+        min="${minDate}"
+        style="width:100%;padding:.75rem 1rem;border:1.5px solid var(--border);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;background:var(--white);margin-top:4px;"
+        onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border)'"
+        onchange="onCustomDateChange(this.value)">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Past dates and booked-out days are disabled.</div>
     </div>`;
-  });
+    // "Back" link
+    html += `<a class="date-expand-link" onclick="setDateStage(2)" style="color:var(--muted);font-size:12px;margin-top:4px;">← Back to suggested dates</a>`;
+  }
+
+  // Expand links
+  if (_dateStage === 1) {
+    html += `<a class="date-expand-link" onclick="setDateStage(2)">This day doesn't work for me →</a>`;
+  } else if (_dateStage === 2 && alts.length > 0) {
+    html += `<a class="date-expand-link" onclick="setDateStage(3)">None of these work — pick a different date →</a>`;
+  }
 
   secEl.innerHTML = html;
+}
+
+function setDateStage(stage) {
+  _dateStage = stage;
+  if (stage < 3) {
+    // If customer had a custom date selected, clear it and re-select Best Fit
+    const suggestions = ((quoteData.dateSuggestions || []).length
+      ? quoteData.dateSuggestions
+      : quoteData.miniQuoteCustomData?.dateSuggestions || []
+    ).filter(s => s.date && s.enabled !== false);
+    const isCustom = selectedDate && !suggestions.find(s => s.date === selectedDate.date);
+    if (isCustom && suggestions.length) selectedDate = {...suggestions[0]};
+  }
+  renderDateSection();
+  updateConfirmButton();
 }
 
 function renderActionSection() {
@@ -810,15 +928,30 @@ function onDateSelect(index) {
   const suggestions = ((quoteData.dateSuggestions || []).length
     ? quoteData.dateSuggestions
     : quoteData.miniQuoteCustomData?.dateSuggestions || []
-  ).filter(s => s.date);
+  ).filter(s => s.date && s.enabled !== false);
   const s = suggestions[index];
   if (!s) return;
   selectedDate = {...s};
+  // If in stage 3 (picker open), collapse back to stage 2 when they re-pick a card
+  if (_dateStage === 3) { _dateStage = index === 0 ? 1 : 2; renderDateSection(); return; }
   document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
   const opt = document.getElementById(`date-opt-${index}`);
   if (opt) opt.classList.add('selected');
   updateConfirmButton();
   logEvent('date_option_tapped', {date: s.date, label: s.label});
+}
+
+function onCustomDateChange(val) {
+  if (!val) return;
+  if (_blockedDates.has(val)) { showToast('That date is not available — please pick another.'); return; }
+  const d  = new Date(val + 'T12:00:00');
+  const DN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  selectedDate = { date: val, display: `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`, label: 'Customer preferred', rig: null, rigLabel: null };
+  // Clear radio selections
+  document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
+  updateConfirmButton();
+  logEvent('date_custom_picked', {date: val});
 }
 
 function updateConfirmButton() {
@@ -887,8 +1020,8 @@ async function submitConfirm() {
     quoteData.approvedAmount = total;
     quoteData.addOns         = [...addedAddons];
 
-    // Save rust info if customer filled it in
-    if (rustChecked) saveRustInfo().catch(() => {});
+    // Save sealing + rust interest alongside booking
+    if (sealingChecked || rustChecked) saveOfferingInterest().catch(() => {});
 
     renderPage();
     showToast('✓ Booking confirmed!');
@@ -902,47 +1035,27 @@ async function submitConfirm() {
   }
 }
 
-async function saveRustInfo() {
+async function saveOfferingInterest() {
   const phone = quoteData.ph || customer?.phone || '';
   if (!phone) return;
+  const now   = new Date().toISOString();
   const notes = document.getElementById('rustNotesTa')?.value?.trim() || '';
   const dbRes = await fetch(`${PCPC_API}/customers`);
   const db    = await dbRes.json();
   const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
   const cust  = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-  if (cust) {
-    cust.rustInterestRequested = { at: new Date().toISOString(), surface: rustSurface, notes };
-    await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+  if (!cust) return;
+  if (sealingChecked) {
+    cust.sealingInterestRequested = { at: now };
+    cust.sealingInterest = { expressed: true, surfaces: [...sealingSurfaces], paverJointSand: sealingPaverSand, expressedAt: now };
   }
+  if (rustChecked) {
+    cust.rustInterestRequested = { at: now, surface: rustSurface, notes };
+    cust.rustInterest = { expressed: true, surface: rustSurface, notes, expressedAt: now };
+  }
+  await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
 }
 
-// ── Sealing request ───────────────────────────────────────────────────────────
-async function requestSealingQuote() {
-  const btn = document.getElementById('sealingRequestBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-  try {
-    const phone = quoteData.ph || customer?.phone || '';
-    if (phone) {
-      const dbRes = await fetch(`${PCPC_API}/customers`);
-      const db    = await dbRes.json();
-      const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
-      const cust  = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-      if (cust) {
-        cust.sealingInterestRequested = { at: new Date().toISOString() };
-        cust.sealingInterest = 'sealing_only';
-        await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
-        if (customer) customer.sealingInterestRequested = cust.sealingInterestRequested;
-      }
-    }
-    logEvent('sealing_interest_confirmed', { quoteCode });
-  } catch(e) { console.warn('[sealing request]', e.message); }
-  const secEl = document.getElementById('sealing-offering-section');
-  if (secEl) {
-    const old = secEl.querySelector('.offering-request-btn');
-    if (old) old.replaceWith(Object.assign(document.createElement('div'), {className:'offering-done', textContent:'✓ Great! Tony will bring sealing samples and quote on-site.'}));
-  }
-  showToast('Got it! Tony will bring sealing samples on the day.');
-}
 
 // ── PDF / Print / Email ───────────────────────────────────────────────────────
 function getCurrentTotal() {
