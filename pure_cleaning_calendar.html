@@ -693,11 +693,11 @@ async function getCachedCustomerDB() {
 }
 
 const CREW_MEMBERS = [
-  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew',      phone:'',            isDriver:true,  receiveAutoTexts:true},
-  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew',      phone:'',            isDriver:false, receiveAutoTexts:false},
-  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, halfRate:80,  role:'crew',      phone:'',            isDriver:true,  receiveAutoTexts:true},
+  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew',      phone:'9546103843', isDriver:true,  receiveAutoTexts:true},
+  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew',      phone:'9546103843', isDriver:false, receiveAutoTexts:false},
+  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, halfRate:80,  role:'crew',      phone:'9546103843', isDriver:true,  receiveAutoTexts:true},
   {id:'tyler',    name:'Tyler',    color:'#a855f7', dailyRate:150, halfRate:75,  role:'owner_son', phone:'9546103843', isDriver:true,  receiveAutoTexts:false},
-  {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   halfRate:0,   role:'owner',     phone:'',            isDriver:true,  receiveAutoTexts:false}
+  {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   halfRate:0,   role:'owner',     phone:'9546103843', isDriver:true,  receiveAutoTexts:false}
 ];
 // NOTE: Fill in Byron, Jonathan, Danny, and Tony phone numbers via the employee UI.
 // Auto-text night-before: not yet wired (requires SMS API such as Twilio).
@@ -1527,6 +1527,15 @@ function jobCardScheduled(c) {
 // ── RIGHT SIDEBAR ─────────────────────────────────────────────────────────────
 function renderCrewPanel(dates) {
   const today = isoToday();
+  // ── Test-mode banner: shown until any driver has a non-Tyler phone ──
+  const TEST_PHONE = '9546103843';
+  const allOnTestPhone = CREW_MEMBERS.filter(cm => cm.isDriver).every(cm => !cm.phone || cm.phone === TEST_PHONE);
+  const testBannerHtml = allOnTestPhone
+    ? `<div style="background:#fef3c7;border:1.5px solid #f59e0b;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:600;color:#92400e;display:flex;align-items:flex-start;gap:7px;">
+        <span>⚠️</span>
+        <span>TEST MODE — All driver phones set to Tyler's number. Update each driver's real phone in <code style="background:#fde68a;border-radius:3px;padding:1px 4px;font-size:11px;">CREW_MEMBERS</code> before going live.</span>
+      </div>`
+    : '';
   const worked = crewWorkedDays(dates);
   const payBreakdown = crewPayBreakdown(dates);
   const totalPaid = CREW_MEMBERS.filter(cm=>cm.role!=='owner')
@@ -1569,7 +1578,7 @@ function renderCrewPanel(dates) {
     }).filter(Boolean).join('<br>')}</div>
   </div>`;
 
-  document.getElementById('crewPanel').innerHTML = html;
+  document.getElementById('crewPanel').innerHTML = testBannerHtml + html;
 }
 
 // ── PAYROLL CALC ──────────────────────────────────────────────────────────────
