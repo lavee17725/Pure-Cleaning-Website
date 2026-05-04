@@ -1151,22 +1151,26 @@ function setDriverForRig(date, rig, crewMemberId) {
   renderCalGrid(getWeekDates());
 }
 
+const PURE_CLEANING_HQ = '16621 SW 62nd Street, Southwest Ranches, FL';
+
 function buildGoogleMapsRoute(jobs) {
   if (!jobs || !jobs.length) return null;
-  // Cap at 10 stops (Google Maps URL limit: origin + 8 waypoints + destination)
-  const capped = jobs.slice(0, 10);
-  const addrs  = capped.map(j => {
+  // Google Maps URL limit: origin + up to 8 waypoints + destination = 10 total.
+  // Route structure: HQ → jobs (max 8) → HQ.
+  // If 9+ jobs: include first 8, omit return leg and note in SMS.
+  const MAX_JOB_WAYPOINTS = 8;
+  const truncated = jobs.length > MAX_JOB_WAYPOINTS;
+  const capped    = jobs.slice(0, MAX_JOB_WAYPOINTS);
+
+  const hq    = encodeURIComponent(PURE_CLEANING_HQ);
+  const stops = capped.map(j => {
     const parts = [j.address, j.city, 'FL', j.zip].filter(Boolean).join(' ');
     return encodeURIComponent(parts.trim());
   });
-  if (addrs.length === 1) {
-    return `https://www.google.com/maps/search/?api=1&query=${addrs[0]}`;
-  }
-  const origin      = addrs[0];
-  const destination = addrs[addrs.length - 1];
-  const waypoints   = addrs.slice(1, -1).join('|');
-  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
-  if (waypoints) url += `&waypoints=${waypoints}`;
+
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${hq}`;
+  url += `&destination=${truncated ? stops[stops.length - 1] : hq}`;
+  url += `&waypoints=${stops.join('|')}`;
   url += `&travelmode=driving`;
   return url;
 }
@@ -1198,11 +1202,11 @@ function textDriver(date, rig) {
   const citiesList = cities.join(', ') || firstCity;
 
   const routeUrl  = buildGoogleMapsRoute(jobs) || '';
-  const truncNote = jobs.length > 10 ? ` (showing first 10 of ${jobs.length})` : '';
+  const truncNote = jobs.length > 8 ? ` (first 8 of ${jobs.length} — full day is long)` : '';
 
   const body = jobs.length === 1
-    ? `Hey ${fn}! Tomorrow (${dateStr}): 1 job at ${firstTime} — ${custName}${firstCity ? ' in ' + firstCity : ''}.\n\n📍 Google Maps:\n${routeUrl}\n\nDrive safe! — Tyler`
-    : `Hey ${fn}! Tomorrow (${dateStr}): ${jobs.length} jobs in ${citiesList}.\nFirst stop ${firstTime} at ${custName} (${firstCity}).\n\n📍 Route on Google Maps${truncNote}:\n${routeUrl}\n\nDrive safe! — Tyler`;
+    ? `Hey ${fn}! Tomorrow (${dateStr}): 1 job at ${firstTime} — ${custName}${firstCity ? ' in ' + firstCity : ''}.\n\n📍 Full route from HQ:\n${routeUrl}\n\nDrive safe! — Tyler`
+    : `Hey ${fn}! Tomorrow (${dateStr}): ${jobs.length} jobs in ${citiesList}.\nFirst stop ${firstTime} at ${custName} (${firstCity}).\n\n📍 Full route from HQ${truncNote}:\n${routeUrl}\n\nDrive safe! — Tyler`;
 
   window.location.href = `sms:+1${driver.phone}?&body=${encodeURIComponent(body)}`;
 }
