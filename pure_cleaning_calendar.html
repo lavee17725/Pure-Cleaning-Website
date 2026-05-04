@@ -2481,6 +2481,11 @@ function sendReviewRequestFromPanel(phone, firstName, rowEl) {
   const today = isoToday();
   localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
   pcpcApi.logEvent({ eventType:'review_request_sent', phone, customer:{fn:firstName, ph:phone}, sentAt:new Date().toISOString() });
+  // Log to reviews hub schema (fire and forget)
+  fetch('https://purecleaning-api.tylerfumero.workers.dev/customer/' + phone + '/review-request-sent', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ templateUsedId: null })
+  }).catch(() => {});
   rowEl?.remove();
   updateReviewAlertBanner();
   showToast(`✓ Review requested · iMessage opened`);
@@ -2717,9 +2722,30 @@ function getReviewRequestedDate(phone) {
   } catch { return null; }
 }
 
-function sendReviewRequest(phone, firstName, btn) {
+async function sendReviewRequest(phone, firstName, btn) {
   if (!phone) return;
-  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  // Load active template from hub (or use default message)
+  let msg;
+  try {
+    const tplRes = await fetch('https://purecleaning-api.tylerfumero.workers.dev/admin/reviews-hub');
+    const tplData = await tplRes.json();
+    const activeTpl = (tplData.templates || []).find(t => t.isActive) || tplData.templates?.[0];
+    const c = findCustomer(phone);
+    const svc = (c?.scheduledStatus?.jobNotes || c?.quoteStatus?.mainServices || 'Pressure Cleaning').slice(0, 80);
+    const jd  = c?.scheduledStatus?.completedDate || c?.scheduledStatus?.scheduledDate || isoToday();
+    const jdFmt = new Date(jd+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'});
+    if (activeTpl) {
+      msg = activeTpl.body
+        .replace(/\{firstName\}/g, firstName || 'there')
+        .replace(/\{service\}/g, svc)
+        .replace(/\{jobDate\}/g, jdFmt)
+        .replace(/\{reviewLink\}/g, GOOGLE_REVIEW_LINK)
+        .replace(/\{ownerName\}/g, 'Tony');
+    }
+  } catch(e) { console.warn('[review tpl]', e.message); }
+
+  if (!msg) msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   const today = isoToday();
   localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
@@ -2727,6 +2753,11 @@ function sendReviewRequest(phone, firstName, btn) {
   btn.disabled = true;
   btn.textContent = `✓ Review Requested ${today}`;
   pcpcApi.logEvent({ eventType: 'review_request_sent', phone, customer: { fn: firstName, ph: phone }, sentAt: new Date().toISOString() });
+  // Log to reviews hub schema (fire and forget)
+  fetch('https://purecleaning-api.tylerfumero.workers.dev/customer/' + phone + '/review-request-sent', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ templateUsedId: null })
+  }).catch(() => {});
 }
 
 // ── ARRIVAL TEXTS ─────────────────────────────────────────────────────────────

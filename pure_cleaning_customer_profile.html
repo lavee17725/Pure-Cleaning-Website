@@ -1037,6 +1037,22 @@ function renderProfile(customer, events){
     const excLabel = EXCL_PROFILE_LABELS[ex.reason] || ex.reason || 'Excluded';
     callouts.push({cls:'callout-gray', text:`🚫 Excluded from reactivation: ${excLabel}${excDate ? ' · ' + excDate : ''}${ex.reasonNotes ? ' — "' + ex.reasonNotes + '"' : ''}`});
   }
+  // ── Google Review status ──
+  const gr = c.googleReview || {};
+  const grStatus = gr.status || 'never_asked';
+  if (grStatus === 'left') {
+    const leftFmt = gr.leftAt ? new Date(gr.leftAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+    callouts.push({cls:'callout-green', text:`⭐ Left Google review${leftFmt ? ' · ' + leftFmt : ''}${gr.noteAboutReview ? ' — "' + esc(gr.noteAboutReview) + '"' : ''}`});
+  } else if (grStatus === 'asked') {
+    const days = gr.lastRequestSentAt ? Math.floor((Date.now()-new Date(gr.lastRequestSentAt).getTime())/86400000) : null;
+    callouts.push({cls:'callout-amber', text:`📬 Review request sent${days !== null ? ' ' + days + ' days ago' : ''} — awaiting confirmation`});
+  } else if (grStatus === 'declined') {
+    const eligDate = gr.reaskEligibleAt ? new Date(gr.reaskEligibleAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+    callouts.push({cls:'callout-gray', text:`○ Didn't leave review${eligDate ? ' · Re-ask eligible ' + eligDate : ''}`});
+  } else if (grStatus === 'do_not_ask') {
+    callouts.push({cls:'callout-gray', text:'🚫 Do not ask for Google review'});
+  }
+
   if(mo!==null&&mo>12) callouts.push({cls:'callout-red',   text:`🔴 At-risk — last service was ${Math.round(mo)} months ago`});
   if(c.hasSealHistory&&mo!==null&&mo>=18&&mo<=36) callouts.push({cls:'callout-purple',text:'💎 VIP Seal renewal window — Tony should quote'});
   if(c.sealingInterest) callouts.push({cls:'callout-purple',text:'💎 Signaled sealing interest — bring samples to next job'});
