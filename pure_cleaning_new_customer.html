@@ -224,6 +224,17 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <input id="nCity" class="fi" type="text" placeholder="Weston" oninput="checkReq()">
     </div>
 
+    <!-- Roof sq ft — always visible, helps with future quotes even if not booking roof today -->
+    <div class="field" style="margin-top:.5rem;">
+      <label>Roof Square Footage <span style="font-weight:400;font-size:12px;color:var(--muted);">(optional — helps quote future roof work)</span></label>
+      <div style="display:flex;align-items:center;gap:6px;max-width:220px;">
+        <input type="number" id="nRoofSqFt" class="fi" min="0" step="1" placeholder="e.g. 2400" style="padding:9px 11px;font-size:15px;">
+        <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px;">Skip if unknown — Tony can verify on-site</div>
+      <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+    </div>
+
     <!-- Phone-quote fields (hidden for digital path) -->
     <div id="phoneFields">
       <div class="field" style="margin-top:.75rem;">
@@ -248,18 +259,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 
       <!-- Roof extra fields — shown only when Roof Cleaning is selected -->
       <div class="roof-extra" id="roofExtraFields">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-          <div>
-            <label class="re-label">Roof Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <input type="number" id="nRoofSqFt" class="fi" min="0" step="1" placeholder="e.g. 2400" style="padding:9px 11px;font-size:15px;" oninput="checkReq()">
-              <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
-            </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px;">Skip if unknown — Tony can verify on-site</div>
-            <div style="font-size:11px;margin-top:4px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
-          </div>
-        </div>
-
         <label class="re-label">Roof Type <span style="color:#e53e3e;font-weight:700;">*</span></label>
         <div class="roof-type-opts" id="roofTypeOpts">
           <div class="roof-type-opt" onclick="selectRoofType('shingle',this)">
@@ -911,11 +910,11 @@ function getServicesAgreedValue() {
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
-    roofSqFt:         isRoofSel ? (parseInt(document.getElementById('nRoofSqFt')?.value)||null) : null,
+    roofSqFt:         parseInt(document.getElementById('nRoofSqFt')?.value) || null,
     drivewayMaterial: isDrivewaySel ? (_drivewayMaterial||null) : null,
     drivewayMaterialOther: isDrivewaySel && _drivewayMaterial==='other' ? (document.getElementById('nDrivewayMaterialOther')?.value?.trim()||'') : null,
     squareFootage: {
-      roof:     isRoofSel     ? (parseInt(document.getElementById('nRoofSqFt')?.value)||null)     : null,
+      roof:     parseInt(document.getElementById('nRoofSqFt')?.value)      || null,
       driveway: isDrivewaySel ? (parseInt(document.getElementById('nDrivewaySqFt')?.value)||null) : null,
       patio:    isPatioSel    ? (parseInt(document.getElementById('nPatioSqFt')?.value)||null)    : null,
       walkway:  isWalkwaySel  ? (parseInt(document.getElementById('nWalkwaySqFt')?.value)||null)  : null,
@@ -939,7 +938,6 @@ function resetServicePicker() {
   const cst=document.getElementById('customServiceText'); if(cst) cst.value='';
   const cw=document.getElementById('customServiceWrap'); if(cw) cw.style.display='none';
   const ref=document.getElementById('roofExtraFields'); if(ref) ref.style.display='none';
-  const nrsf=document.getElementById('nRoofSqFt'); if(nrsf) nrsf.value='';
   document.querySelectorAll('.roof-type-opt').forEach(el=>{el.classList.remove('selected');});
   document.querySelectorAll('.roof-type-opt input[type=radio]').forEach(el=>{el.checked=false;});
   const wo=document.getElementById('nRoofTypeOther'); if(wo){wo.style.display='none';wo.value='';}
@@ -1063,12 +1061,16 @@ function preloadCustomerForEdit(c) {
   setPath('phone');
   // Restore service picker from servicesAgreed
   const sa = c.quoteStatus?.servicesAgreed;
+  // Roof sq ft is always visible — populate regardless of whether structured services exist
+  if (sa?.roofSqFt || sa?.squareFootage?.roof) {
+    const el = document.getElementById('nRoofSqFt');
+    if (el) el.value = sa.roofSqFt || sa.squareFootage?.roof || '';
+  }
   if (sa?.structured?.length) {
     sa.structured.forEach(id => {
       if (!_svcSel.has(id)) toggleService(id);
     });
     if (sa.roofMethod) { _roofMethod = sa.roofMethod; _roofSubLocked = true; }
-    if (sa.roofSqFt) { const el = document.getElementById('nRoofSqFt'); if (el) el.value = sa.roofSqFt; }
     if (sa.roofType) {
       const opt = document.querySelector(`.roof-type-opt[onclick*="'${sa.roofType}'"]`);
       if (opt) selectRoofType(sa.roofType, opt);
@@ -1130,7 +1132,7 @@ function startNew() {
 
 function resetForm() {
   resetServicePicker();
-  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes'].forEach(id => {
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nRoofSqFt'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
   const ls = document.getElementById('nLeadSource'); if (ls) ls.value = '';

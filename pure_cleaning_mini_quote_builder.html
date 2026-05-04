@@ -379,6 +379,14 @@ function renderBuilder(existing) {
           <input type="number" class="price-input" id="mainJobPrice" value="${amount || ''}" min="0" placeholder="e.g. 300" style="font-size:20px;padding:10px 10px 10px 26px;">
         </div>
       </div>
+      <div style="margin-top:.875rem;padding-top:.75rem;border-top:1px solid var(--border);">
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;">Roof Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional — saves for future quotes)</span></label>
+        <div style="display:flex;align-items:center;gap:6px;max-width:180px;">
+          <input type="number" id="mqRoofSqFt" class="price-input" value="${_roofSqFt || ''}" min="0" step="1" placeholder="e.g. 2400" style="font-size:16px;padding:9px 11px;background:var(--white);">
+          <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Look up: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+      </div>
     </div>
 
     <!-- BUNDLE & SAVE -->
@@ -820,6 +828,7 @@ async function saveMiniQuote(sendText) {
   const qs           = customer.quoteStatus || {};
   // Prefer the price input the user just typed; fall back to whatever was stored
   const mainAmount   = parseFloat(document.getElementById('mainJobPrice')?.value) || qs.mainAmount || qs.approvedAmount || 0;
+  const mqRoofSqFt   = parseInt(document.getElementById('mqRoofSqFt')?.value) || null;
   const mainServices = qs.mainServices || qs.notes || '';
   const dateSuggestions = _dateSuggestions
     .filter(s => s.enabled !== false && s.date)
@@ -881,6 +890,7 @@ async function saveMiniQuote(sendText) {
         state: 'phone_quoted_mini_quote_sent',
         miniQuoteCustomData,
         sentAt: now,
+        ...(mqRoofSqFt ? { servicesAgreed: { ...(cust.quoteStatus?.servicesAgreed||{}), roofSqFt: mqRoofSqFt, squareFootage: { ...(cust.quoteStatus?.servicesAgreed?.squareFootage||{}), roof: mqRoofSqFt } } } : {}),
       };
       // Move to Needs Scheduling
       cust.scheduledStatus = {
@@ -924,6 +934,7 @@ async function saveMiniQuote(sendText) {
       cust.quoteStatus = {
         ...cust.quoteStatus,
         miniQuoteCustomData,
+        ...(mqRoofSqFt ? { servicesAgreed: { ...(cust.quoteStatus?.servicesAgreed||{}), roofSqFt: mqRoofSqFt, squareFootage: { ...(cust.quoteStatus?.servicesAgreed?.squareFootage||{}), roof: mqRoofSqFt } } } : {}),
       };
       await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
       try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch {}
