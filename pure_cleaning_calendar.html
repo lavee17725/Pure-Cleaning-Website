@@ -1151,6 +1151,26 @@ function setDriverForRig(date, rig, crewMemberId) {
   renderCalGrid(getWeekDates());
 }
 
+function buildGoogleMapsRoute(jobs) {
+  if (!jobs || !jobs.length) return null;
+  // Cap at 10 stops (Google Maps URL limit: origin + 8 waypoints + destination)
+  const capped = jobs.slice(0, 10);
+  const addrs  = capped.map(j => {
+    const parts = [j.address, j.city, 'FL', j.zip].filter(Boolean).join(' ');
+    return encodeURIComponent(parts.trim());
+  });
+  if (addrs.length === 1) {
+    return `https://www.google.com/maps/search/?api=1&query=${addrs[0]}`;
+  }
+  const origin      = addrs[0];
+  const destination = addrs[addrs.length - 1];
+  const waypoints   = addrs.slice(1, -1).join('|');
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+  if (waypoints) url += `&waypoints=${waypoints}`;
+  url += `&travelmode=driving`;
+  return url;
+}
+
 function textDriver(date, rig) {
   const driver = getDriverForRig(date, rig);
   if (!driver?.phone) {
@@ -1160,20 +1180,30 @@ function textDriver(date, rig) {
   const jobs = getScheduledForRigOrdered(date, rig);
   if (!jobs.length) { showToast('No jobs on this rig.'); return; }
 
-  const d   = new Date(date + 'T12:00:00');
-  const DN  = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const MN  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const dateStr     = `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`;
-  const fn          = driver.name.split(' ')[0];
-  const firstJob    = jobs[0];
-  const custName    = ((firstJob.firstName||firstJob.fn||'') + ' ' + (firstJob.lastName||firstJob.ln||'')).trim();
-  const firstCity   = firstJob.city || '';
-  const firstTime   = firstJob.scheduledStatus?.startTime || '9:00am';
-  const totalDrive  = calcTotalDriving(jobs);
-  const driveMins   = Math.round((totalDrive / 30) * 60);
-  const driveStr    = driveMins > 0 ? ` · ~${driveMins >= 60 ? Math.floor(driveMins/60)+'h '+driveMins%60+'m' : driveMins+'m'} drive` : '';
+  const d       = new Date(date + 'T12:00:00');
+  const DN      = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MN      = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const dateStr = `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`;
+  const fn      = driver.name.split(' ')[0];
 
-  const body = `Hey ${fn}! Tomorrow (${dateStr}) you've got ${jobs.length} job${jobs.length>1?'s':''}${firstCity?' in '+firstCity:''} starting at ${firstTime}. First stop: ${custName}${driveStr}. Drive safe!\n— Tyler`;
+  const firstJob   = jobs[0];
+  const firstFn    = (firstJob.firstName||firstJob.fn||'').trim();
+  const firstLi    = (firstJob.lastName||firstJob.ln||'').trim().slice(0,1);
+  const custName   = firstFn + (firstLi ? ' ' + firstLi + '.' : '');
+  const firstCity  = firstJob.city || '';
+  const firstTime  = firstJob.scheduledStatus?.startTime || '9 AM';
+
+  // Unique cities, preserving order
+  const cities = [...new Set(jobs.map(j => j.city).filter(Boolean))];
+  const citiesList = cities.join(', ') || firstCity;
+
+  const routeUrl  = buildGoogleMapsRoute(jobs) || '';
+  const truncNote = jobs.length > 10 ? ` (showing first 10 of ${jobs.length})` : '';
+
+  const body = jobs.length === 1
+    ? `Hey ${fn}! Tomorrow (${dateStr}): 1 job at ${firstTime} — ${custName}${firstCity ? ' in ' + firstCity : ''}.\n\n📍 Google Maps:\n${routeUrl}\n\nDrive safe! — Tyler`
+    : `Hey ${fn}! Tomorrow (${dateStr}): ${jobs.length} jobs in ${citiesList}.\nFirst stop ${firstTime} at ${custName} (${firstCity}).\n\n📍 Route on Google Maps${truncNote}:\n${routeUrl}\n\nDrive safe! — Tyler`;
+
   window.location.href = `sms:+1${driver.phone}?&body=${encodeURIComponent(body)}`;
 }
 
