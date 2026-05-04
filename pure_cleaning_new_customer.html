@@ -877,7 +877,36 @@ async function init() {
     dbLoaded = true;
   }
   // Handle ?phone= param — back navigation from mini quote builder
-  const urlPhone = new URLSearchParams(window.location.search).get('phone');
+  const urlPhone   = new URLSearchParams(window.location.search).get('phone');
+  const fromOnline = new URLSearchParams(window.location.search).get('fromOnline');
+
+  // Pre-fill form from online quote submission
+  if (fromOnline && !urlPhone) {
+    try {
+      const data = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(fromOnline)))));
+      if (data.fn)    document.getElementById('nFn').value    = data.fn;
+      if (data.ln)    document.getElementById('nLn').value    = data.ln;
+      if (data.phone) document.getElementById('nPhone').value = data.phone;
+      if (data.addr)  document.getElementById('nAddr').value  = data.addr;
+      if (data.city)  document.getElementById('nCity').value  = data.city;
+      if (data.zip || data.email) {
+        document.getElementById('optFields').classList.add('open');
+        if (data.zip)   document.getElementById('nZip').value   = data.zip;
+        if (data.email) document.getElementById('nEmail').value = data.email;
+      }
+      if (data.notes) document.getElementById('nNotes').value = data.notes;
+      if (data.ls) {
+        const lsEl = document.getElementById('nLeadSource');
+        if (lsEl) { lsEl.value = data.ls; onLeadSourceChange(lsEl); }
+      }
+      checkReq();
+      if (data.phone) {
+        const phoneEl = document.getElementById('nPhone');
+        if (phoneEl) phoneEl.dispatchEvent(new Event('input'));
+      }
+    } catch(e) { console.warn('[fromOnline]', e.message); }
+  }
+
   if (urlPhone) {
     const normPhone = urlPhone.replace(/\D/g,'').slice(-10);
     const c = allCustomers.find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === normPhone);

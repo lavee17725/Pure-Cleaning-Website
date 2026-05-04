@@ -425,6 +425,7 @@ function buildCard(req) {
     const name = esc((d.firstName||'')+' '+(d.lastName||'')).trim();
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
+      <a href="${buildPhoneQuoteUrl(req)}" class="btn-build" style="background:#1d9e75;border-color:#1d9e75;">📞 Phone Quote</a>
       <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
       ${delBtn}
       <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
@@ -492,6 +493,25 @@ function buildQuoteUrl(req) {
     const encoded = btoa(unescape(encodeURIComponent(payload)));
     return `${QUOTE_BUILDER_URL}?customer=${encodeURIComponent(encoded)}`;
   } catch(e) { return QUOTE_BUILDER_URL; }
+}
+
+function buildPhoneQuoteUrl(req) {
+  const d = req.customerData || {};
+  try {
+    const payload = JSON.stringify({
+      fn:    d.firstName || '',
+      ln:    d.lastName  || '',
+      phone: d.phone     || '',
+      addr:  d.address   || '',
+      city:  d.city      || '',
+      zip:   d.zip       || '',
+      email: d.email     || '',
+      notes: d.notes     || '',
+      ls:    d.leadSource?.primary || '',
+      reqId: req.id
+    });
+    return `/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(btoa(unescape(encodeURIComponent(payload))))}`;
+  } catch(e) { return '/pure_cleaning_new_customer.html'; }
 }
 
 // ── Status updates ─────────────────────────────────────────────────

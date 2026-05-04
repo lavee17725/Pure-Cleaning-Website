@@ -274,6 +274,16 @@ details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
 .terms-full-body ol li strong { color: var(--navy); }
 .terms-full-body ul { list-style: disc; padding-left: 1.375rem; margin: .25rem 0; }
 .terms-full-body ul li { font-size: 11px; margin-bottom: .125rem; }
+/* ── Offering sections (sealing / rust) ── */
+.offering-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1.125rem; }
+.offering-sub { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: .75rem; }
+.offering-list { list-style: none; padding: 0; margin-bottom: .75rem; }
+.offering-list li { font-size: 13px; color: var(--text); padding: 4px 0; display: flex; gap: 8px; align-items: flex-start; }
+.offering-list li::before { content: '✓'; color: var(--green); font-weight: 700; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+.offering-request-btn { display: block; width: 100%; padding: .75rem; background: var(--navy); color: #fff; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; text-align: center; border: none; border-radius: 11px; cursor: pointer; transition: background .15s; }
+.offering-request-btn:hover { background: #1a2f58; }
+.offering-request-btn:disabled { background: #e8e2d8; color: #b0a99a; cursor: not-allowed; }
+.offering-done { display: flex; align-items: center; gap: 8px; padding: .75rem; background: #f0fdf4; border-radius: 11px; font-size: 14px; font-weight: 700; color: var(--green); border: 1.5px solid #86efac; }
 </style>
 </head>
 <body>
@@ -333,6 +343,12 @@ details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
       <div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">Bundle today while we're on-site — reduced pricing when added with your current job.</div>
       <div id="addons-list"></div>
     </div>
+
+    <!-- Sealing offering (shown when sealingOffered === true in miniQuoteCustomData) -->
+    <div id="sealing-offering-section" style="display:none;margin-bottom:1.5rem;"></div>
+
+    <!-- Rust removal offering (shown when rustOffered === true in miniQuoteCustomData) -->
+    <div id="rust-offering-section" style="display:none;margin-bottom:1.5rem;"></div>
 
     <!-- Date picker -->
     <div id="date-section" style="display:none;margin-bottom:1.5rem;"></div>
@@ -597,6 +613,8 @@ async function init() {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderPage() {
+  renderSealingSection();
+  renderRustSection();
   // Show update banner if services were edited after creation
   const bannerEl = document.getElementById('update-banner');
   if (bannerEl && quoteData.lastEditedAt) {
@@ -1146,6 +1164,97 @@ function onEmailClick() {
   a.href = `mailto:${email}?subject=${subject}&body=${body}`;
   a.click();
   logEvent('agreement_emailed_self', {date: selectedDate?.date, total});
+}
+
+// ── Sealing / Rust offering sections ─────────────────────────────────────────
+function renderSealingSection() {
+  const secEl = document.getElementById('sealing-offering-section');
+  if (!secEl) return;
+  const cd = quoteData.miniQuoteCustomData;
+  const offered = cd?.sealingOffered;
+  // backward compat: legacy sealingInterest
+  const legacyOffered = cd && ['sealing_only','sealing_plus_sand'].includes(cd.sealingInterest);
+  if (!offered && !legacyOffered) { secEl.style.display = 'none'; return; }
+  const alreadyRequested = !!(customer?.sealingInterestRequested);
+  secEl.style.display = 'block';
+  secEl.innerHTML = `
+    <div class="section-title">💎 Bring It Back to Life — Sealing</div>
+    <div class="offering-card">
+      <div class="offering-sub">Sealing does two things customers love:</div>
+      <ul class="offering-list">
+        <li>Restores the color — surfaces look richer and brighter</li>
+        <li>Protects the surface — pavers, marble, or concrete</li>
+      </ul>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.875rem;font-style:italic;">Interested? Tony will bring samples and quote in person on the day of your service.</div>
+      ${alreadyRequested
+        ? `<div class="offering-done">✓ Great! Tony will bring sealing samples and quote on-site.</div>`
+        : `<button class="offering-request-btn" id="sealingRequestBtn" onclick="requestSealingQuote()">Request sealing quote →</button>`}
+    </div>`;
+}
+
+function renderRustSection() {
+  const secEl = document.getElementById('rust-offering-section');
+  if (!secEl) return;
+  const cd = quoteData.miniQuoteCustomData;
+  if (!cd?.rustOffered) { secEl.style.display = 'none'; return; }
+  const alreadyRequested = !!(customer?.rustInterestRequested);
+  secEl.style.display = 'block';
+  secEl.innerHTML = `
+    <div class="section-title">🔧 Got a Rust Problem?</div>
+    <div class="offering-card">
+      <div class="offering-sub">Common causes: sprinkler water, metal furniture, fertilizer. We can remove most rust stains from concrete, pavers, and tile.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:.875rem;font-style:italic;">Tony will assess and quote on-site.</div>
+      ${alreadyRequested
+        ? `<div class="offering-done">✓ Tony will assess and quote rust removal on-site.</div>`
+        : `<button class="offering-request-btn" id="rustRequestBtn" onclick="requestRustQuote()">Request rust removal quote →</button>`}
+    </div>`;
+}
+
+async function requestSealingQuote() {
+  const btn = document.getElementById('sealingRequestBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  try {
+    const phone = quoteData.ph || customer?.phone || '';
+    if (phone) {
+      const dbRes = await fetch(`${PCPC_API}/customers`);
+      const db    = await dbRes.json();
+      const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
+      const cust  = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
+      if (cust) {
+        cust.sealingInterestRequested = { at: new Date().toISOString() };
+        cust.sealingInterest = 'sealing_only';
+        await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+        if (customer) customer.sealingInterestRequested = cust.sealingInterestRequested;
+      }
+    }
+    logEvent('sealing_interest_confirmed', { quoteCode });
+  } catch(e) { console.warn('[sealing request]', e.message); }
+  const secEl = document.getElementById('sealing-offering-section');
+  if (secEl) secEl.querySelector('.offering-request-btn')?.replaceWith(Object.assign(document.createElement('div'), {className:'offering-done', textContent:'✓ Great! Tony will bring sealing samples and quote on-site.'}));
+  showToast('Got it! Tony will bring sealing samples on the day.');
+}
+
+async function requestRustQuote() {
+  const btn = document.getElementById('rustRequestBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  try {
+    const phone = quoteData.ph || customer?.phone || '';
+    if (phone) {
+      const dbRes = await fetch(`${PCPC_API}/customers`);
+      const db    = await dbRes.json();
+      const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
+      const cust  = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
+      if (cust) {
+        cust.rustInterestRequested = { at: new Date().toISOString() };
+        await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+        if (customer) customer.rustInterestRequested = cust.rustInterestRequested;
+      }
+    }
+    logEvent('rust_interest_confirmed', { quoteCode });
+  } catch(e) { console.warn('[rust request]', e.message); }
+  const secEl = document.getElementById('rust-offering-section');
+  if (secEl) secEl.querySelector('.offering-request-btn')?.replaceWith(Object.assign(document.createElement('div'), {className:'offering-done', textContent:'✓ Tony will assess and quote rust removal on-site.'}));
+  showToast('Got it! Tony will check your rust on-site.');
 }
 
 // ── Event logging ─────────────────────────────────────────────────────────────
