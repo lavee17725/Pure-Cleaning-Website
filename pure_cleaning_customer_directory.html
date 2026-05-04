@@ -44,6 +44,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 /* Table */
 .table-outer{background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;}
+.dir-scroll-wrap{position:relative;}
+.dir-fade{position:absolute;top:0;bottom:0;width:52px;pointer-events:none;z-index:5;transition:opacity .2s;}
+.dir-fade-r{right:0;background:linear-gradient(to right,transparent,var(--white));}
+.dir-fade-l{left:0;background:linear-gradient(to left,transparent,var(--white));opacity:0;}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
 table{width:100%;border-collapse:collapse;min-width:720px;}
 thead th{background:var(--navy);color:rgba(255,255,255,.7);padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;cursor:pointer;user-select:none;text-align:left;}
@@ -117,22 +121,26 @@ td.muted{color:var(--muted);}
 
   <!-- Desktop table -->
   <div class="table-outer" id="tableOuter">
-    <div class="table-scroll">
-      <table id="mainTable">
-        <thead>
-          <tr>
-            <th data-sort="name" onclick="clickSort('name')">Name <span class="sind">▲▼</span></th>
-            <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sind">▲▼</span></th>
-            <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
-            <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
-            <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
-            <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
-            <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
-            <th class="no-sort">Status</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-      </table>
+    <div class="dir-scroll-wrap">
+      <div class="table-scroll" id="tblScroll">
+        <table id="mainTable">
+          <thead>
+            <tr>
+              <th data-sort="name" onclick="clickSort('name')">Name <span class="sind">▲▼</span></th>
+              <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sind">▲▼</span></th>
+              <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
+              <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
+              <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
+              <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
+              <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
+              <th class="no-sort">Status</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+      <div class="dir-fade dir-fade-r" id="dirFadeR"></div>
+      <div class="dir-fade dir-fade-l" id="dirFadeL"></div>
     </div>
     <button class="load-more-btn" id="loadMoreBtn" onclick="loadMore()" style="display:none;">Load more…</button>
   </div>
@@ -386,6 +394,7 @@ function renderResults(){
   }
   document.getElementById('tableOuter').style.display='block';
   document.getElementById('emptyState').style.display='none';
+  initDirFades();
 
   renderRows(slice);
   renderCards(slice);
@@ -419,7 +428,7 @@ function flagIcons(c){
 
 function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
-  return `<tr onclick="window.location.href='/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}'">
+  return `<tr onclick="navProfile('${ph}')">
     <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}</td>
     <td><span class="tier-chip" style="background:${c._tierColor};">${c._tier}</span></td>
     <td class="muted">${fmtPh(c.phone)}</td>
@@ -435,7 +444,7 @@ function buildCard(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
   const name=((c.firstName||'')+' '+(c.lastName||'')).trim()||'Unknown';
   const spend=c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—';
-  return `<div class="cust-card" onclick="window.location.href='/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}'">
+  return `<div class="cust-card" onclick="navProfile('${ph}')">
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}</div>
@@ -460,6 +469,34 @@ function renderCards(data){
 }
 function appendCards(data){
   document.getElementById('cardList').insertAdjacentHTML('beforeend',data.map(buildCard).join(''));
+}
+
+// ── Swipe-safe navigation + fade overlays ─────────────────────────────────────
+let _swipeX = 0, _swipeDx = 0;
+document.addEventListener('pointerdown', e => { _swipeX = e.clientX; _swipeDx = 0; }, { passive: true });
+document.addEventListener('pointermove', e => { if (e.buttons) _swipeDx = Math.abs(e.clientX - _swipeX); }, { passive: true });
+
+function navProfile(ph) {
+  if (_swipeDx > 8) { _swipeDx = 0; return; }
+  window.location.href = '/pure_cleaning_customer_profile.html?phone=' + encodeURIComponent(ph);
+}
+
+let _dirFadesInited = false;
+function initDirFades() {
+  if (_dirFadesInited) return;
+  _dirFadesInited = true;
+  const scroll = document.getElementById('tblScroll');
+  const fR = document.getElementById('dirFadeR');
+  const fL = document.getElementById('dirFadeL');
+  if (!scroll || !fR || !fL) return;
+  const upd = () => {
+    const sl = scroll.scrollLeft, max = scroll.scrollWidth - scroll.clientWidth;
+    fR.style.opacity = sl >= max - 2 ? '0' : '1';
+    fL.style.opacity = sl > 2 ? '1' : '0';
+  };
+  scroll.addEventListener('scroll', upd, { passive: true });
+  new ResizeObserver(upd).observe(scroll);
+  upd();
 }
 
 // ── Export CSV ────────────────────────────────────────────────────────────────

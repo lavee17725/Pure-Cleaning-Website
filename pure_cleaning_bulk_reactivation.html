@@ -97,7 +97,11 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .btn-override{background:#dc2626;color:#fff;}
 
 /* table */
-.table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
+.tbl-outer{position:relative;margin-top:1rem;}
+.tbl-fade{position:absolute;top:0;bottom:8px;width:52px;pointer-events:none;z-index:6;transition:opacity .2s;}
+.tbl-fade-r{right:0;background:linear-gradient(to right,transparent,var(--navy));}
+.tbl-fade-l{left:0;background:linear-gradient(to left,transparent,var(--navy));opacity:0;}
+.table-wrap{display:none;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
 .table-wrap::-webkit-scrollbar{height:8px;}
 .table-wrap::-webkit-scrollbar-track{background:var(--navy2);}
 .table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
@@ -447,6 +451,7 @@ td.money{font-family:'DM Mono',monospace;}
   <div id="tabSummaryBar" style="display:none;"></div>
 
   <!-- TABLE -->
+  <div class="tbl-outer" id="tblOuter">
   <div class="table-wrap" id="tableWrap">
     <table id="mainTable">
       <thead>
@@ -468,6 +473,9 @@ td.money{font-family:'DM Mono',monospace;}
       <tbody id="tableBody"></tbody>
     </table>
   </div>
+  <div class="tbl-fade tbl-fade-r" id="fadeTblR"></div>
+  <div class="tbl-fade tbl-fade-l" id="fadeTblL"></div>
+  </div><!-- end .tbl-outer -->
 
   <!-- TIMELINE VIEW -->
   <div id="timelineView" class="timeline-view"></div>
@@ -821,6 +829,7 @@ async function tryLoadDatabase() {
     document.getElementById('poolTabs').classList.add('show');
     document.getElementById('tableWrap').style.display = 'block';
     document.getElementById('tableControls').classList.add('show');
+    initTblFades();
 
     showDbBanner(db);
     applyFilters();
@@ -2847,8 +2856,29 @@ function closeRowMenus() {
   document.querySelectorAll('.row-menu-btn.menu-open').forEach(b => b.classList.remove('menu-open'));
 }
 
+// ─── SWIPE-SAFE NAVIGATION + TABLE FADE ──────────────────────────────────────
+let _swipeX = 0, _swipeDx = 0;
+document.addEventListener('pointerdown', e => { _swipeX = e.clientX; _swipeDx = 0; }, { passive: true });
+document.addEventListener('pointermove', e => { if (e.buttons) _swipeDx = Math.abs(e.clientX - _swipeX); }, { passive: true });
+
 function goToProfile(phone) {
+  if (_swipeDx > 8) { _swipeDx = 0; return; }
   window.location.href = '/pure_cleaning_customer_profile.html?phone=' + encodeURIComponent(phone);
+}
+
+function initTblFades() {
+  const wrap = document.getElementById('tableWrap');
+  const fR   = document.getElementById('fadeTblR');
+  const fL   = document.getElementById('fadeTblL');
+  if (!wrap) return;
+  const upd = () => {
+    const sl = wrap.scrollLeft, max = wrap.scrollWidth - wrap.clientWidth;
+    if (fR) fR.style.opacity = sl >= max - 2 ? '0' : '1';
+    if (fL) fL.style.opacity = sl >  2       ? '1' : '0';
+  };
+  wrap.addEventListener('scroll', upd, { passive: true });
+  new ResizeObserver(upd).observe(wrap);
+  upd();
 }
 
 function contactCustomerCall(phone) {
