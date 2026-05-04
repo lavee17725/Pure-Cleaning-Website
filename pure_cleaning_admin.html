@@ -96,8 +96,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 .alert-view-btn{flex:1;padding:6px;background:rgba(212,165,116,.15);color:#d4a574;border:1px solid rgba(212,165,116,.25);border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
 .alert-dismiss-btn{flex:1;padding:6px;background:none;color:#7a8aaa;border:1px solid rgba(255,255,255,.1);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
 
-/* Add-on editor inputs */
-.addon-input{width:64px;padding:6px 8px;background:var(--cream);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;text-align:right;font-family:'DM Sans',sans-serif;}
 </style>
 </head>
 <body>
@@ -119,14 +117,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
     <div class="util-desc">Records flagged as test when created — auto-expire in 24 hrs. Also detects name/phone matches with no history.</div>
     <button class="util-btn" onclick="loadTestRecords()">Review test records →</button>
     <div id="testRecordsList" style="margin-top:.75rem;"></div>
-  </div>
-
-  <!-- Utility: Default Add-On Suggestions -->
-  <div class="util-panel" id="addonsConfigPanel">
-    <div class="util-title">📋 Default Add-On Suggestions</div>
-    <div class="util-desc">Starting prices when building a mini quote — always customizable per customer.</div>
-    <button class="util-btn" onclick="loadAddonsConfig()">Edit default prices →</button>
-    <div id="addonsEditor" style="margin-top:.75rem;display:none;"></div>
   </div>
 
   <!-- Utility: Google Reviews -->
@@ -174,24 +164,22 @@ const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 // ── TOOL NAVIGATION ──────────────────────────────────────────────────────────────
 const DAILY_DRIVERS = [
-  { icon: '📅', name: 'Calendar',              description: 'Schedule jobs, assign crews, track payroll',                      url: '/pure_cleaning_calendar.html' },
   { icon: '📞', name: 'New Customer',           description: 'Book a phone quote or send a digital quote link',                url: '/pure_cleaning_new_customer.html' },
-  { icon: '✨', name: 'Mini Quote Builder',     description: 'Build the upsell offer after a phone quote',                     url: '/pure_cleaning_mini_quote_builder.html' },
-  { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
+  { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
+  { icon: '📅', name: 'Calendar',               description: 'Schedule jobs, assign crews, track payroll',                     url: '/pure_cleaning_calendar.html' },
   { icon: '👥', name: 'Customer Directory',     description: 'Search and view all 1,200+ customer profiles',                   url: '/pure_cleaning_customer_directory.html', badgeId: 'dir-badge' },
+  { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
+  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
   { icon: '📊', name: 'Insights',               description: 'Conversion funnel, behavior trends, customer analysis',          url: '/pure_cleaning_insights.html' },
-  { icon: '🚚', name: 'Crew & Scheduling',      description: 'Schedule jobs, assign rigs, view weekly calendar',               url: '/pure_cleaning_calendar.html' },
 ];
 
 const MISC_TOOLS = [
+  { icon: '✨', name: 'Mini Quote Builder',     description: 'Build the upsell offer after a phone quote',                     url: '/pure_cleaning_mini_quote_builder.html' },
   { icon: '🔔', name: 'Nudge Queue',            description: "Follow up with customers who haven't confirmed",                 url: '/pure_cleaning_nudge_queue.html',       badgeId: 'nudge-badge' },
   { icon: '📨', name: 'Customer Quote Form',    description: 'Preview the customer-facing quote request form',                 url: '/pure_cleaning_quote.html' },
-  { icon: '🗑️', name: 'Recently Deleted',      description: 'Restore soft-deleted records within 30 days',                   url: '/pure_cleaning_recently_deleted.html' },
-  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
   { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to cold leads',                     url: '/pure_cleaning_quote_builder_v2.html' },
-  { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
   { icon: '📋', name: 'Open Quotes',            description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html' },
-
+  { icon: '🗑️', name: 'Recently Deleted',      description: 'Restore soft-deleted records within 30 days',                   url: '/pure_cleaning_recently_deleted.html' },
   { icon: '🌎', name: 'Live Website',           description: 'View the customer-facing website',                              url: '/',                                     external: true },
 ];
 
@@ -347,66 +335,6 @@ async function deleteSelectedTestRecords() {
   } catch(e) {
     document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
   }
-}
-
-// ── ADD-ONS CONFIG ─────────────────────────────────────────────────────────────
-let _addonsConfig = null;
-
-async function loadAddonsConfig() {
-  const btn = document.querySelector('#addonsConfigPanel .util-btn');
-  if (btn) btn.textContent = 'Loading…';
-  try {
-    const res = await fetch(`${PCPC_API}/addons-config`);
-    _addonsConfig = res.ok ? await res.json() : null;
-    if (!_addonsConfig) { alert('Could not load add-on config'); return; }
-    renderAddonsEditor();
-  } catch(e) { alert('Error: ' + e.message); }
-  if (btn) btn.textContent = 'Edit add-on prices →';
-}
-
-function renderAddonsEditor() {
-  const el = document.getElementById('addonsEditor');
-  el.style.display = 'block';
-  const addons = _addonsConfig.addons || [];
-  let rows = addons.map((a, i) => `
-    <div style="display:grid;grid-template-columns:1fr 72px 72px;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);">
-      <div style="font-size:13px;color:var(--text);">${a.icon} ${_esc(a.name)}</div>
-      <input type="number" value="${a.bundle}" data-i="${i}" data-field="bundle" onchange="onAddonPriceChange(this)" class="addon-input" title="Bundle price">
-      <input type="number" value="${a.standalone}" data-i="${i}" data-field="standalone" onchange="onAddonPriceChange(this)" class="addon-input" title="Standalone price">
-    </div>`).join('');
-  el.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 72px 72px;gap:8px;margin-bottom:4px;">
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Service</span>
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Bundle</span>
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Regular</span>
-    </div>
-    ${rows}
-    <div style="display:flex;align-items:center;gap:12px;margin-top:.875rem;">
-      <button onclick="saveAddonsConfig()" style="padding:8px 20px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Save Defaults</button>
-      <span id="addonsSaveStatus" style="font-size:12px;color:var(--muted);"></span>
-    </div>`;
-}
-
-function onAddonPriceChange(input) {
-  const i = parseInt(input.dataset.i);
-  const field = input.dataset.field;
-  if (_addonsConfig && _addonsConfig.addons[i]) {
-    _addonsConfig.addons[i][field] = parseFloat(input.value) || 0;
-  }
-}
-
-async function saveAddonsConfig() {
-  const statusEl = document.getElementById('addonsSaveStatus');
-  statusEl.textContent = 'Saving…';
-  try {
-    const res = await fetch(`${PCPC_API}/addons-config`, {
-      method: 'PUT',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(_addonsConfig)
-    });
-    statusEl.textContent = res.ok ? '✓ Saved' : '✗ Error';
-    setTimeout(() => { statusEl.textContent = ''; }, 2500);
-  } catch(e) { statusEl.textContent = '✗ ' + e.message; }
 }
 
 // ── ALERT TOAST SYSTEM ─────────────────────────────────────────────────────────
