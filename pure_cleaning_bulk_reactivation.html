@@ -2780,6 +2780,8 @@ function toggleRowMenu(phone, btn) {
   const isExcluded = c && c.reactivationExcluded?.excluded === true;
   const menu = document.getElementById('rowMenuDropdown');
   menu.innerHTML =
+    `<button class="row-menu-item" onclick="window.open('/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(phone)}','_blank')">👤 View customer →</button>` +
+    `<button class="row-menu-item" onclick="contactCustomerCall('${phone}')">📞 Contact Customer</button>` +
     (isExcluded
       ? `<button class="row-menu-item" onclick="promptRestore('${phone}')">↩ Restore from exclusion</button>`
       : `<button class="row-menu-item danger" onclick="promptExclude('${phone}')">🚫 Don't Reactivate</button>`
@@ -2812,6 +2814,25 @@ function closeRowMenus() {
   const menu = document.getElementById('rowMenuDropdown');
   if (menu) menu.style.display = 'none';
   document.querySelectorAll('.row-menu-btn.menu-open').forEach(b => b.classList.remove('menu-open'));
+}
+
+function contactCustomerCall(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  const dialPhone = '+1' + phone.replace(/\D/g,'');
+  window.location.href = `tel:${dialPhone}`;
+  // Fire-and-forget event log
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      eventType: 'customer_called_from_reactivation',
+      customer: { fn: c?.fn||'', ln: c?.ln||'', ph: phone },
+      phone,
+      calledAt: new Date().toISOString(),
+      calledBy: 'operator',
+    })
+  }).catch(() => {});
 }
 
 // ─── UPLOAD SUMMARY MODAL ────────────────────────────────────────────────────

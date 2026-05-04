@@ -286,6 +286,33 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 }
 .btn-add-note:hover{background:#eff6ff;}
 
+/* ── Collapsible extended sections ── */
+.xsec { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; overflow: hidden; }
+.xsec summary { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; cursor: pointer; list-style: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+.xsec summary::-webkit-details-marker { display: none; }
+.xsec summary:hover { background: var(--bg); }
+.xsec[open] summary { border-bottom: 1.5px solid var(--border); }
+.xsec-title { font-size: 15px; font-weight: 800; color: var(--navy); display: flex; align-items: center; gap: 8px; }
+.xsec-badge { font-size: 11px; font-weight: 700; background: var(--bg); color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px; }
+.xsec-arrow { font-size: 14px; color: var(--muted); transition: transform .2s; }
+.xsec[open] .xsec-arrow { transform: rotate(90deg); }
+.xsec-body { padding: 14px 16px; }
+.xsec-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; gap: 10px; }
+.xsec-row:last-child { border-bottom: none; }
+.xsec-row-label { color: var(--muted); font-weight: 500; flex-shrink: 0; }
+.xsec-row-val { font-weight: 600; color: var(--text); text-align: right; }
+.xsec-empty { color: var(--muted); font-size: 13px; padding: 8px 0; font-style: italic; }
+.xsec-stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+@media(max-width:600px) { .xsec-stat-grid { grid-template-columns: repeat(2, 1fr); } }
+.xsec-stat { background: var(--bg); border-radius: 10px; padding: 10px 12px; text-align: center; }
+.xsec-stat-val { font-size: 20px; font-weight: 800; color: var(--navy); }
+.xsec-stat-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-top: 2px; }
+.xsec-action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1.5px solid var(--border); background: var(--white); color: var(--text); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all .12s; text-decoration: none; }
+.xsec-action-btn:hover { border-color: var(--sky); color: var(--sky); }
+.xsec-action-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.quick-actions-strip { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px; background: var(--bg); border-top: 1.5px solid var(--border); }
+.qa-strip-btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 9px; font-size: 13px; font-weight: 700; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: opacity .15s; text-decoration: none; white-space: nowrap; min-height: 44px; }
+.qa-strip-btn:hover { opacity: .85; }
 /* ── Mobile adjustments ── */
 @media(max-width:767px){
   .stats-inner{grid-template-columns:repeat(3,1fr);}
@@ -389,6 +416,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <!-- RIGHT: Sidebar -->
     <div class="sidebar-stack" id="sidebarStack"></div>
   </div>
+
+  <!-- Extended profile sections (collapsible) -->
+  <div id="extendedSections" style="max-width:1100px;margin:20px auto 0;padding:0 16px;display:flex;flex-direction:column;gap:12px;"></div>
 
   <!-- ADMIN ZONE: Delete -->
   <div id="adminDeleteZone" style="display:none;max-width:800px;margin:2rem auto;padding:0 1.25rem 4rem;">
@@ -829,10 +859,11 @@ function renderHeroBanner(c) {
   const actionsHtml = [
     `<a class="action-btn action-btn-call" href="tel:+1${c.phone}">📞 Call</a>`,
     `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
+    `<a class="action-btn" style="background:#0a1628;color:#f4a620;" href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" target="_blank">✨ Build Quote</a>`,
+    `<a class="action-btn" style="background:#1d4ed8;color:#fff;" href="/pure_cleaning_bulk_reactivation.html" target="_blank">📤 Reactivation</a>`,
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Note</button>`,
     `<button class="action-btn" style="background:#7c3aed;color:#fff;" onclick="openLogReplyModal()">📥 Log Reply</button>`,
     `<button class="action-btn" style="background:#16a34a;color:#fff;" onclick="openLogFeedbackModal()">⭐ Feedback</button>`,
-    `<button class="action-btn" style="background:#ea580c;color:#fff;" onclick="markReviewReceived()">⭐ Review</button>`,
     c.email?`<a class="action-btn action-btn-email" href="mailto:${esc(c.email)}">📧 Email</a>`:''
   ].filter(Boolean).join('');
 
@@ -1128,6 +1159,9 @@ function renderProfile(customer, events){
 
   // ── Notes ──
   renderNotes(c);
+
+  // ── Extended collapsible sections ──
+  renderExtendedSections(c, events);
 }
 
 function setTlFilter(key){
@@ -1542,6 +1576,198 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => { el.style.transform = 'translateX(-50%) translateY(80px)'; }, 3500);
 }
 
+// ── Extended Collapsible Sections ─────────────────────────────────────────────
+const XSEC_LS_PREFIX = 'pcpc_profile_xsec_';
+function xsecOpen(id) {
+  try { return localStorage.getItem(XSEC_LS_PREFIX + id) !== 'closed'; } catch { return true; }
+}
+function xsecToggle(id, el) {
+  try { localStorage.setItem(XSEC_LS_PREFIX + id, el.open ? 'open' : 'closed'); } catch {}
+}
+
+function makeXSec(id, icon, title, badge, bodyHtml, defaultOpen = false) {
+  const open = xsecOpen(id) !== false ? (localStorage.getItem(XSEC_LS_PREFIX + id) !== 'closed') : defaultOpen;
+  return `<details class="xsec" ${open ? 'open' : ''} id="xsec-${id}" ontoggle="xsecToggle('${id}',this)">
+    <summary>
+      <div class="xsec-title">${icon} ${title}${badge ? ` <span class="xsec-badge">${badge}</span>` : ''}</div>
+      <span class="xsec-arrow">›</span>
+    </summary>
+    <div class="xsec-body">${bodyHtml}</div>
+  </details>`;
+}
+
+function renderExtendedSections(c, events) {
+  const el = document.getElementById('extendedSections');
+  if (!el) return;
+
+  const sections = [];
+
+  // ── Quote History ──────────────────────────────────────────────────────────
+  const qs = c.quoteStatus || {};
+  const quoteRows = [];
+  if (qs.sentAt || qs.sentDate || qs.state) {
+    const sentDate = qs.sentAt || qs.sentDate;
+    const status = qs.state === 'confirmed' ? 'Approved' :
+                   qs.state === 'phone_quoted_mini_quote_sent' ? 'Pending' :
+                   qs.state ? qs.state.replace(/_/g,' ') : 'Unknown';
+    const statusColor = status === 'Approved' ? '#16a34a' : '#d97706';
+    const amount = qs.approvedAmount || qs.mainAmount || 0;
+    const confirmedAt = qs.confirmedAt ? ` · Confirmed ${fmtDateTime(qs.confirmedAt)}` : '';
+    quoteRows.push(`<div class="xsec-row">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);">${esc(qs.mainServices || qs.services || 'Services on file')}</div>
+        <div style="font-size:11px;color:var(--muted);">${sentDate ? fmtDate(sentDate) : '—'}${confirmedAt}</div>
+      </div>
+      <div style="text-align:right;">
+        ${amount ? `<div style="font-size:14px;font-weight:700;color:var(--terra);">$${Number(amount).toLocaleString()}</div>` : ''}
+        <div style="font-size:11px;font-weight:700;color:${statusColor};">${status}</div>
+      </div>
+    </div>`);
+  }
+  const quoteBody = quoteRows.length
+    ? quoteRows.join('') + (qs.confirmedAt && qs.confirmedDateDisplay ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">Scheduled: ${esc(qs.confirmedDateDisplay)}</div>` : '')
+    : `<div class="xsec-empty">No quotes on record.</div>`;
+  sections.push(makeXSec('quotes', '📋', 'Quote History', quoteRows.length ? String(quoteRows.length) : null, quoteBody, false));
+
+  // ── SMS / Communication History ────────────────────────────────────────────
+  const SMS_TYPES = new Set(['phone_quote_sms_sent','reactivation_sms_sent','customer_reply_logged','review_request_sent','booking_confirmed','date_option_tapped','addon_confirmed','sealing_interest_confirmed']);
+  const smsEvents = events.filter(e => SMS_TYPES.has(e.eventType)).sort((a,b) => new Date(b.loggedAt||b.sentAt||0) - new Date(a.loggedAt||a.sentAt||0));
+  const SMS_LABELS = {
+    phone_quote_sms_sent: '📤 SMS — Quote Confirmation Sent',
+    reactivation_sms_sent: '📤 SMS — Reactivation Text Sent',
+    customer_reply_logged: '📥 Customer Reply Logged',
+    review_request_sent: '⭐ Review Request Sent',
+    booking_confirmed: '✅ Booking Confirmed Online',
+    date_option_tapped: '📅 Date Selected by Customer',
+    addon_confirmed: '✅ Add-On Selected by Customer',
+    sealing_interest_confirmed: '💎 Sealing Interest Expressed',
+  };
+  const smsRows = smsEvents.slice(0, 20).map(e => {
+    const label = SMS_LABELS[e.eventType] || e.eventType.replace(/_/g,' ');
+    const d = e.loggedAt || e.sentAt || e.createdAt;
+    const note = e.replyText || e.addonName || e.services || e.mainServices || '';
+    return `<div class="xsec-row">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);">${label}</div>
+        ${note ? `<div style="font-size:11px;color:var(--muted);">${esc(note.slice(0,80))}</div>` : ''}
+      </div>
+      <div class="xsec-row-val" style="font-size:11px;">${d ? fmtDateTime(d) : '—'}</div>
+    </div>`;
+  });
+  const smsBody = smsRows.length ? smsRows.join('') : `<div class="xsec-empty">No communication events logged yet.</div>`;
+  sections.push(makeXSec('sms', '💬', 'Communication History', smsEvents.length ? String(smsEvents.length) : null, smsBody, false));
+
+  // ── Reactivation Status ────────────────────────────────────────────────────
+  const lastReact = events.filter(e => e.eventType === 'reactivation_sms_sent').sort((a,b) => new Date(b.loggedAt||0) - new Date(a.loggedAt||0))[0];
+  const EXCL_LABELS2 = {opted_out:'Opted out',moved_away:'Moved away',deceased:'Deceased',friend_family:'Friend / family',do_not_contact:'Do not contact',commercial:'Commercial account'};
+  const ex = c.reactivationExcluded || {};
+  const reactRows = [
+    {label:'Last reactivation text', val: lastReact ? fmtDateTime(lastReact.loggedAt||lastReact.sentAt) + (lastReact.variant ? ` (Variant ${lastReact.variant})` : '') : 'Never sent'},
+    {label:'Opt-out status', val: c.optOut ? `Opted out · ${c.optOut.at ? fmtDate(c.optOut.at) : ''}` : 'Active'},
+    {label:'Excluded from campaigns', val: ex.excluded ? `Yes — ${EXCL_LABELS2[ex.reason] || ex.reason || 'Unknown reason'}${ex.excludedAt?' · '+fmtDate(ex.excludedAt):''}` : 'No'},
+  ].map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${esc(r.val)}</span></div>`).join('');
+  const reactActionHtml = !c.optOut && !ex.excluded
+    ? `<div class="xsec-action-row"><a class="xsec-action-btn" href="/pure_cleaning_bulk_reactivation.html" target="_blank">📤 Open Reactivation Queue</a></div>`
+    : '';
+  sections.push(makeXSec('reactivation', '🔄', 'Reactivation Status', null, reactRows + reactActionHtml, false));
+
+  // ── Sealing & Rust Interest ────────────────────────────────────────────────
+  const si = c.sealingInterest || {};
+  const ri = c.rustInterest || c.rustInterestRequested || {};
+  const hasSealData = si.expressed || c.hasSealHistory || c.sealingInterestRequested;
+  const hasRustData = ri.expressed || c.rustInterestRequested;
+  if (hasSealData || hasRustData) {
+    let srBody = '';
+    if (hasSealData) {
+      const surfaces = si.surfaces?.length ? si.surfaces.join(', ') : '—';
+      const sand = si.paverJointSand ? 'Yes' : '—';
+      srBody += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;">💎 Sealing</div>`;
+      srBody += [
+        {label:'Interest expressed', val: si.expressed || c.sealingInterestRequested ? 'Yes' : 'No'},
+        {label:'Date expressed', val: si.expressedAt || c.sealingInterestRequested?.at ? fmtDate(si.expressedAt || c.sealingInterestRequested?.at) : '—'},
+        {label:'Surfaces of interest', val: surfaces},
+        {label:'Paver joint sand', val: sand},
+        {label:'History (sealing done)', val: c.hasSealHistory ? 'Yes' : 'No'},
+      ].map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${esc(r.val)}</span></div>`).join('');
+    }
+    if (hasRustData) {
+      const rustSource = typeof ri === 'object' ? ri : {};
+      srBody += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:12px;margin-bottom:8px;">🔧 Rust Removal</div>`;
+      srBody += [
+        {label:'Interest expressed', val: 'Yes'},
+        {label:'Date expressed', val: rustSource.at || rustSource.expressedAt ? fmtDate(rustSource.at || rustSource.expressedAt) : '—'},
+        {label:'Surface', val: rustSource.surface || '—'},
+        {label:'Notes', val: rustSource.notes || '—'},
+      ].map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${esc(r.val)}</span></div>`).join('');
+    }
+    sections.push(makeXSec('sealrust', '💎', 'Sealing & Rust Interest', null, srBody, false));
+  }
+
+  // ── Payment History ────────────────────────────────────────────────────────
+  const payEvents = events.filter(e => e.eventType === 'payment_recorded').sort((a,b) => new Date(b.loggedAt||0) - new Date(a.loggedAt||0));
+  const ss = c.scheduledStatus || {};
+  const payRows = [];
+  // If scheduled status has payment info
+  if (ss.state === 'completed' && ss.approvedAmount) {
+    payRows.push(`<div class="xsec-row">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);">$${Number(ss.approvedAmount).toLocaleString()}</div>
+        <div style="font-size:11px;color:var(--muted);">${ss.scheduledDate ? fmtDate(ss.scheduledDate) : '—'} · ${esc((c.paymentInfo||{}).method || 'Payment method unknown')}</div>
+      </div>
+      <span style="font-size:11px;font-weight:700;color:#16a34a;">Completed</span>
+    </div>`);
+  }
+  payEvents.forEach(e => {
+    payRows.push(`<div class="xsec-row">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);">${e.amount ? '$'+Number(e.amount).toLocaleString() : '—'}</div>
+        <div style="font-size:11px;color:var(--muted);">${e.loggedAt ? fmtDate(e.loggedAt) : '—'} · ${esc(e.method || '—')}</div>
+      </div>
+      <span style="font-size:11px;font-weight:700;color:#16a34a;">Recorded</span>
+    </div>`);
+  });
+  const lifetime = c.lifetimeSpend || 0;
+  const avgT = c.totalJobs && lifetime ? Math.round(lifetime / c.totalJobs) : 0;
+  const paySummaryHtml = `<div class="xsec-stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px;">
+    <div class="xsec-stat"><div class="xsec-stat-val">$${lifetime.toLocaleString()}</div><div class="xsec-stat-lbl">Lifetime Total</div></div>
+    <div class="xsec-stat"><div class="xsec-stat-val">${c.totalJobs || 0}</div><div class="xsec-stat-lbl">Total Jobs</div></div>
+    <div class="xsec-stat"><div class="xsec-stat-val">${avgT ? '$'+avgT.toLocaleString() : '—'}</div><div class="xsec-stat-lbl">Avg Ticket</div></div>
+  </div>`;
+  const payBody = paySummaryHtml + (payRows.length ? payRows.join('') : `<div class="xsec-empty">No payment events recorded individually — see lifetime stats above.</div>`);
+  sections.push(makeXSec('payment', '💰', 'Payment History', null, payBody, false));
+
+  // ── Contact Info (detailed) ────────────────────────────────────────────────
+  const lsData = c.leadSource || {};
+  const _LEAD_DISP2 = { google:'Google search', referral:'Friend or family referred', truck:'Saw the truck', angi:'Angi', nextdoor:'Nextdoor', repeat:'Returning customer', other:'Other' };
+  const lsPrimary = lsData.primary || '';
+  let lsDisp = _LEAD_DISP2[lsPrimary] || lsPrimary || '—';
+  if (lsPrimary === 'referral' && lsData.referredBy) lsDisp += ` (via ${lsData.referredBy})`;
+  const contactDetailRows = [
+    {label:'Primary phone', val: `<a href="tel:+1${c.phone}" style="color:var(--sky);">${fmtPh(c.phone)}</a>`},
+    c.email ? {label:'Email', val: `<a href="mailto:${esc(c.email)}" style="color:var(--sky);">${esc(c.email)}</a>`} : null,
+    c.zip ? {label:'ZIP code', val: esc(c.zip)} : null,
+    {label:'How they found us', val: esc(lsDisp)},
+    {label:'Record source', val: esc({phone_quoted:'Phone Quote',reactivation:'Reactivation Campaign',legacy:'Legacy Import'}[c.source] || c.source || 'Unknown')},
+    c.createdAt ? {label:'Record created', val: fmtDate(c.createdAt)} : null,
+  ].filter(Boolean).map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${r.val}</span></div>`).join('');
+  sections.push(makeXSec('contact', '📇', 'Contact Details', null, contactDetailRows, false));
+
+  // ── Complaints (only if any) ───────────────────────────────────────────────
+  if (c.hasComplaints || c.complaintLog?.length) {
+    const complaints = c.complaintLog || [];
+    const cmpBody = complaints.length
+      ? complaints.map(comp => `<div class="xsec-row" style="flex-direction:column;align-items:flex-start;">
+          <div style="font-size:13px;font-weight:700;color:#dc2626;">${esc(comp.type||'Complaint')} · ${esc(comp.severity||'')} </div>
+          <div style="font-size:12px;color:var(--muted);">${comp.loggedAt ? fmtDate(comp.loggedAt) : '—'} · Logged by ${esc(comp.loggedBy||'Team')}</div>
+          ${comp.description ? `<div style="font-size:13px;color:var(--text);margin-top:4px;">${esc(comp.description)}</div>` : ''}
+          ${comp.resolution ? `<div style="font-size:12px;color:#16a34a;margin-top:2px;">✓ Resolution: ${esc(comp.resolution)}</div>` : ''}
+        </div>`).join('')
+      : `<div class="xsec-empty">Complaints flagged but no details recorded.</div>`;
+    sections.push(makeXSec('complaints', '⚠️', 'Complaints', String(c.complaintCount || complaints.length || 1), cmpBody, true));
+  }
+
+  el.innerHTML = sections.join('');
+}
 // ── Follow-up SMS ─────────────────────────────────────────────────────────────
 function openFollowUpSms() {
   if (!_customer) return;
