@@ -770,13 +770,15 @@ async function tryLoadDatabase() {
     renderExcludedList();
     document.getElementById('excludedWrap').style.display = 'block';
 
-    const s = db.stats || {};
-    document.getElementById('sTotal').textContent = s.totalRows || allCustomers.length;
+    // Always compute tier counts fresh from allCustomers — db.stats may be stale or absent
+    const freshTierCounts = {};
+    for (const c of allCustomers) freshTierCounts[c.tier] = (freshTierCounts[c.tier] || 0) + 1;
+    document.getElementById('sTotal').textContent    = allCustomers.length;
     document.getElementById('sExcluded').textContent = excludedRecords.length;
-    document.getElementById('sUnique').textContent = allCustomers.length;
-    document.getElementById('sHotWarm').textContent = (s.hot || 0) + (s.warm || 0);
-    document.getElementById('sVipSeal').textContent = s.vipSeal || 0;
-    document.getElementById('sSleeping').textContent = s.sleeping || 0;
+    document.getElementById('sUnique').textContent   = allCustomers.length;
+    document.getElementById('sHotWarm').textContent  = (freshTierCounts['HOT'] || 0) + (freshTierCounts['WARM'] || 0);
+    document.getElementById('sVipSeal').textContent  = freshTierCounts['VIP_SEAL'] || 0;
+    document.getElementById('sSleeping').textContent = freshTierCounts['SLEEPING'] || 0;
     document.getElementById('statsBar').style.display = 'grid';
 
     document.getElementById('filterBar').style.display = 'block';
