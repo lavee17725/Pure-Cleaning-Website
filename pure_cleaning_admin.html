@@ -124,6 +124,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 </button>
 
 <!-- Notification panel -->
+<!-- RIG MAPPING MODAL -->
+<div id="rigMapOverlay" onclick="closeRigMapping()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9990;"></div>
+<div id="rigMapModal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:18px;padding:1.5rem;width:90%;max-width:460px;z-index:9991;box-shadow:0 16px 48px rgba(0,0,0,.25);">
+  <div style="font-size:18px;font-weight:800;color:#0a1628;margin-bottom:.25rem;">🚛 Rig → GPS Mapping</div>
+  <p style="font-size:13px;color:#6b7280;margin-bottom:1.25rem;">Map each rig to its Bouncie device for automatic job duration tracking.</p>
+  <div id="rigMapBody" style="font-size:14px;color:#6b7280;">Loading vehicles…</div>
+  <div style="display:flex;gap:10px;margin-top:1.25rem;">
+    <button onclick="saveRigMapping()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#0a1628;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Mapping</button>
+    <button onclick="closeRigMapping()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
+  </div>
+</div>
+
 <div id="notifOverlay" onclick="closeNotifPanel()"></div>
 <div id="notifPanel">
   <div class="np-header">
@@ -209,6 +221,7 @@ const DAILY_DRIVERS = [
 const MISC_TOOLS = [
   { icon: '📥', name: 'CSV Import',              description: 'Import FileMaker job history — 4-step guided process',           url: '/pure_cleaning_csv_import.html' },
   { icon: '📸', name: 'Marketing Assets',        description: 'Browse job photos — filter, bulk select, ZIP export',             url: '/pure_cleaning_marketing_assets.html' },
+  { icon: '🚛', name: 'Rig → GPS Mapping',       description: 'Map Old/New Tacoma to Bouncie IMEI for job duration matching',      action: 'openRigMapping' },
   { icon: '✨', name: 'Mini Quote Builder',     description: 'Build the upsell offer after a phone quote',                     url: '/pure_cleaning_mini_quote_builder.html' },
   { icon: '🔔', name: 'Nudge Queue',            description: "Follow up with customers who haven't confirmed",                 url: '/pure_cleaning_nudge_queue.html',       badgeId: 'nudge-badge' },
   { icon: '📨', name: 'Customer Quote Form',    description: 'Preview the customer-facing quote request form',                 url: '/pure_cleaning_quote.html' },
@@ -248,16 +261,24 @@ function renderTools() {
     <summary class="misc-summary"><span class="sec-title" style="font-size:13px;">Misc / Tools</span><span class="misc-arrow">›</span></summary>
     <div class="card-grid" style="margin-top:.75rem;">`;
   MISC_TOOLS.forEach(t => {
-    const badge = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
+    const badge  = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
     const target = t.external ? ' target="_blank" rel="noopener"' : '';
-    html += `<a href="${t.url}"${target} class="tool-card cat-tools">
-      <div class="card-icon">${t.icon}</div>
-      <div class="card-body">
-        <div class="card-name">${t.name}</div>
-        <div class="card-desc">${t.description}</div>
-      </div>
-      <div class="card-right">${badge}<span class="card-arrow">›</span></div>
-    </a>`;
+    if (t.action) {
+      html += `<div class="tool-card cat-tools" style="cursor:pointer;" onclick="${t.action}()">
+        <div class="card-icon">${t.icon}</div>
+        <div class="card-body"><div class="card-name">${t.name}</div><div class="card-desc">${t.description}</div></div>
+        <div class="card-right"><span class="card-arrow">›</span></div>
+      </div>`;
+    } else {
+      html += `<a href="${t.url}"${target} class="tool-card cat-tools">
+        <div class="card-icon">${t.icon}</div>
+        <div class="card-body">
+          <div class="card-name">${t.name}</div>
+          <div class="card-desc">${t.description}</div>
+        </div>
+        <div class="card-right">${badge}<span class="card-arrow">›</span></div>
+      </a>`;
+    }
   });
   html += '</div></details>';
 
@@ -378,7 +399,8 @@ const _NOTIF_READ_KEY  = 'pcpc_notif_read_at';   // ISO timestamp of last panel 
 const _NOTIF_DISMISSED = 'pcpc_notif_dismissed';  // JSON array of dismissed event IDs
 const _NOTIF_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
 
-let _allAlerts = [];
+let _allAlerts    = [];
+let _reviewAlerts = []; // review queue items (4+ days after completion)
 
 function _getDismissed() {
   try { return new Set(JSON.parse(localStorage.getItem(_NOTIF_DISMISSED) || '[]')); } catch { return new Set(); }
@@ -397,13 +419,38 @@ async function checkAlerts() {
     _allAlerts = events.filter(e => _NOTIF_TYPES.includes(e.eventType) && !dismissed.has(e.id || e.loggedAt));
     _updateBellDot();
   } catch {}
+  // Also check review queue (separate from event log)
+  checkReviewQueue().catch(() => {});
+}
+
+async function checkReviewQueue() {
+  try {
+    const res = await fetch(`${PCPC_API}/api/review-queue`);
+    if (!res.ok) return;
+    const { queue = [] } = await res.json();
+    const dismissed = _getDismissed();
+    _reviewAlerts = queue
+      .filter(c => c.status === 'ready' && !dismissed.has(`review_${c.phone}_${c.jobDate}`))
+      .map(c => ({
+        _type:     'review_window_open',
+        phone:     c.phone,
+        firstName: c.firstName,
+        lastName:  c.lastName,
+        jobDate:   c.jobDate,
+        ageDays:   c.ageDays,
+        id:        `review_${c.phone}_${c.jobDate}`,
+        loggedAt:  c.queuedAt || new Date().toISOString(),
+      }));
+    _updateBellDot();
+  } catch {}
 }
 
 function _updateBellDot() {
   const readAt  = localStorage.getItem(_NOTIF_READ_KEY) || '';
-  const hasNew  = _allAlerts.some(e => (e.loggedAt || '') > readAt);
+  const allItems = [..._allAlerts, ..._reviewAlerts];
+  const hasNew   = allItems.some(e => (e.loggedAt || '') > readAt);
   const dot = document.getElementById('notifDot');
-  if (dot) dot.classList.toggle('show', hasNew && _allAlerts.length > 0);
+  if (dot) dot.classList.toggle('show', hasNew && allItems.length > 0);
 }
 
 function openNotifPanel() {
@@ -431,11 +478,26 @@ function dismissAlert(evtId) {
 function _renderNotifPanel() {
   const list = document.getElementById('notifList');
   if (!list) return;
-  if (!_allAlerts.length) {
+  const allItems = [..._reviewAlerts, ..._allAlerts];
+  if (!allItems.length) {
     list.innerHTML = `<div class="notif-empty"><span class="notif-empty-icon">🔔</span>No new alerts</div>`;
     return;
   }
-  list.innerHTML = _allAlerts.map(evt => {
+  // Review queue cards first
+  const reviewHtml = _reviewAlerts.map(evt => {
+    const name = `${evt.firstName||''} ${evt.lastName||''}`.trim() || 'Customer';
+    const profileUrl = evt.phone ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(evt.phone)}` : '';
+    return `<div class="notif-card" style="border-left:3px solid var(--green);">
+      <div class="notif-card-type" style="color:var(--green);">📝 REVIEW REQUEST READY</div>
+      <div class="notif-card-body"><strong>${_ea(name)}</strong><br>Completed ${evt.ageDays} days ago · Job date ${_ea(evt.jobDate||'')}</div>
+      <div class="notif-card-actions">
+        <button class="nc-view-btn" onclick="sendReviewFromAdmin('${evt.phone}','${_ea(evt.firstName||'')}')">Send Review Text</button>
+        ${profileUrl ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View</button>` : ''}
+        <button class="nc-dismiss-btn" onclick="dismissAlert('${evt.id}');_reviewAlerts=_reviewAlerts.filter(e=>e.id!=='${evt.id}');_renderNotifPanel()">Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.innerHTML = reviewHtml + _allAlerts.map(evt => {
     const evtId  = evt.id || evt.loggedAt || String(Date.now());
     const isAddon = evt.eventType === 'addon_confirmed';
     const cust   = evt.customer || {};
@@ -465,6 +527,37 @@ function _renderNotifPanel() {
 
 function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function sendReviewFromAdmin(phone, firstName) {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reviews-hub`);
+    const hub = await res.json();
+    const tpls = hub.templates || [];
+    const tpl = tpls.find(t => t.type === 'post_job') || tpls[0];
+    if (!tpl) { alert('No review template found'); return; }
+    const fn   = firstName || 'there';
+    const body = (tpl.body || '')
+      .replace(/\{firstName\}/g, fn)
+      .replace(/\{first_name\}/g, fn)
+      .replace(/\{name\}/g, fn);
+    window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
+    // Mark as asked in review queue
+    fetch(`${PCPC_API}/customers`).then(r => r.json()).then(async data => {
+      const custs = data.customers || [];
+      const idx = custs.findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
+      if (idx !== -1) {
+        if (!custs[idx].googleReview) custs[idx].googleReview = {};
+        custs[idx].googleReview.status = 'asked';
+        custs[idx].googleReview.lastRequestSentAt = new Date().toISOString();
+        if (custs[idx].reviewQueue) custs[idx].reviewQueue.status = 'sent';
+        await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({customers:custs}) });
+        _reviewAlerts = _reviewAlerts.filter(e => e.phone !== phone);
+        _renderNotifPanel();
+        _updateBellDot();
+      }
+    }).catch(() => {});
+  } catch(e) { alert('Error: ' + e.message); }
+}
 
 // ── GOOGLE REVIEWS ─────────────────────────────────────────────────────────────
 async function loadReviewCount() {
@@ -510,6 +603,85 @@ async function saveReviewCount() {
     status.textContent = '✗ ' + e.message;
   }
   btn.textContent = 'Save →';
+}
+
+// ── INIT ────────────────────────────────────────────────────────────────────────
+// ── RIG MAPPING ────────────────────────────────────────────────────────────────
+const RIGS = [
+  { id: 'rig_1', label: 'Rig 1 — Old Tacoma' },
+  { id: 'rig_2', label: 'Rig 2 — New Tacoma' },
+  { id: 'rig_3', label: 'Rig 3 — Chevy' },
+];
+
+let _bouncieVehicles = [];
+let _rigMapping      = {};
+
+async function openRigMapping() {
+  document.getElementById('rigMapOverlay').style.display = '';
+  document.getElementById('rigMapModal').style.display   = '';
+  document.getElementById('rigMapBody').textContent = 'Loading…';
+  try {
+    const [vRes, mRes] = await Promise.all([
+      fetch(`${PCPC_API}/api/bouncie/vehicles`),
+      fetch(`${PCPC_API}/api/bouncie/rig-mapping`),
+    ]);
+    _bouncieVehicles = (await vRes.json()).vehicles || [];
+    _rigMapping      = (await mRes.json()).mapping  || {};
+  } catch(e) {
+    _bouncieVehicles = [];
+    _rigMapping      = {};
+  }
+  renderRigMapBody();
+}
+
+function renderRigMapBody() {
+  const vehicleOpts = [
+    `<option value="">— not mapped —</option>`,
+    ..._bouncieVehicles.map(v => `<option value="${v.imei}">${_ea(v.nickname || v.imei)} · ${_ea(v.year||'')} ${_ea(v.make||'')} ${_ea(v.model||'')}</option>`),
+  ].join('');
+
+  const rows = RIGS.map(rig => {
+    const current = _rigMapping[rig.id]?.imei || '';
+    const sel = vehicleOpts.replace(`value="${current}"`, `value="${current}" selected`);
+    return `<div style="margin-bottom:1rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">${_ea(rig.label)}</label>
+      <select data-rig="${rig.id}" style="width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">${sel}</select>
+    </div>`;
+  }).join('');
+
+  document.getElementById('rigMapBody').innerHTML = rows;
+}
+
+async function saveRigMapping() {
+  const selects = document.querySelectorAll('#rigMapBody select[data-rig]');
+  const mapping = {};
+  selects.forEach(sel => {
+    const rigId = sel.dataset.rig;
+    const imei  = sel.value;
+    if (imei) {
+      const vehicle = _bouncieVehicles.find(v => v.imei === imei);
+      mapping[rigId] = { imei, vin: vehicle?.vin || null, nickname: vehicle?.nickname || imei };
+    }
+  });
+  try {
+    const res = await fetch(`${PCPC_API}/api/bouncie/rig-mapping`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ mapping }),
+    });
+    if (!res.ok) throw new Error(res.status);
+    closeRigMapping();
+    // Inline toast
+    const t = document.createElement('div');
+    t.textContent = '✓ Rig mapping saved';
+    t.style.cssText = 'position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:#0a1628;color:#fff;padding:10px 20px;border-radius:20px;font-size:14px;font-weight:600;z-index:9999;';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2500);
+  } catch(e) { alert('Save failed: ' + e.message); }
+}
+
+function closeRigMapping() {
+  document.getElementById('rigMapOverlay').style.display = 'none';
+  document.getElementById('rigMapModal').style.display   = 'none';
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────────

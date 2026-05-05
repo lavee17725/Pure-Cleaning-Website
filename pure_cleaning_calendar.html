@@ -109,7 +109,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .job-scheduled{background:var(--white);border:1.5px solid #dbeafe;border-left:4px solid var(--sky);border-radius:10px;padding:7px 9px;margin-bottom:5px;cursor:pointer;transition:box-shadow .15s;user-select:none;font-size:12px;}
 .job-scheduled:hover{box-shadow:0 3px 10px rgba(45,125,210,.18);}
 .job-scheduled.in_progress{border-left-color:var(--gold);border-color:#fef3c7;}
-.job-scheduled.completed{border-left-color:var(--green);border-color:#d1fae5;opacity:.75;}
+.job-scheduled.completed{background:#d1fae5;border-left-color:#059669;border-color:#6ee7b7;opacity:.9;}
+.job-scheduled.completed .js-name::before{content:'✓ ';color:#059669;font-weight:800;}
+.job-scheduled.canceled,.job-scheduled.no_show{background:#f3f4f6;border-left-color:#9ca3af;border-color:#e5e7eb;opacity:.7;}
+.job-scheduled.canceled .js-name,.job-scheduled.no_show .js-name{text-decoration:line-through;color:var(--muted);}
+.job-scheduled.canceled::after{content:'⛔ Cancelled';display:block;font-size:10px;color:#9ca3af;font-weight:700;margin-top:3px;}
+.job-scheduled.no_show::after{content:'🚫 No-show';display:block;font-size:10px;color:#9ca3af;font-weight:700;margin-top:3px;}
 .js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{color:var(--muted);margin-top:1px;}
 .js-roof-info{font-size:11px;color:#c2410c;font-weight:600;margin-top:2px;}
@@ -325,8 +330,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
     <div class="needs-list" id="mqList"></div>
     <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
-    <div style="padding:.5rem .75rem .25rem;">
+    <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
       <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
+      <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
     </div>
     <div class="needs-list" id="needsList"></div>
   </div>
@@ -667,6 +673,59 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 <div id="alertContainer"></div>
+
+<!-- ADD UNSCHEDULED JOB MODAL -->
+<div class="overlay hidden" id="addUnscheduledModal" onclick="if(event.target===this)closeAddUnscheduledModal()">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-title">📋 Add to Queue</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;line-height:1.5;">Job will appear in Needs Scheduling. Drag to a calendar slot when ready.</p>
+    <div style="display:flex;flex-direction:column;gap:.75rem;">
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Customer Phone (lookup)</label>
+        <input id="unschPhone" type="tel" placeholder="10-digit phone" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;" oninput="unschPhoneLookup(this.value)">
+        <div id="unschPhoneHint" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Services</label>
+        <input id="unschServices" type="text" placeholder="e.g. Roof + Driveway" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Total ($)</label>
+          <input id="unschAmount" type="number" placeholder="0" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        </div>
+        <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Proposed Date</label>
+          <input id="unschDate" type="date" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="margin-top:1.25rem;">
+      <button class="mbtn-cancel" onclick="closeAddUnscheduledModal()">Cancel</button>
+      <button class="mbtn-save" onclick="saveAddUnscheduled()">Add to Queue</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAP-TO-SCHEDULE MODAL (mobile) -->
+<div class="overlay hidden" id="tapScheduleModal" onclick="if(event.target===this)closeTapScheduleModal()">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-title" id="tapScheduleTitle">📅 Schedule Job</div>
+    <div style="display:flex;flex-direction:column;gap:.75rem;margin-top:.5rem;">
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Date</label>
+        <input id="tapSchedDate" type="date" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+      </div>
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Rig</label>
+        <select id="tapSchedRig" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;background:#fff;">
+          <option value="">— pick a rig —</option>
+          <option value="rig_1">Rig 1 — Old Tacoma</option>
+          <option value="rig_2">Rig 2 — New Tacoma</option>
+          <option value="rig_3">Rig 3 — Chevy</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer" style="margin-top:1.25rem;">
+      <button class="mbtn-cancel" onclick="closeTapScheduleModal()">Cancel</button>
+      <button class="mbtn-save" onclick="confirmTapSchedule()">Schedule ✓</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
@@ -1409,7 +1468,12 @@ function jobCardSidebar(c) {
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${addOnsLine}
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
-    <div class="drag-hint">⠿ Drag to schedule</div>
+    <div class="drag-hint" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>⠿ Drag to schedule</span>
+      <button onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')" style="font-size:10px;padding:2px 7px;background:var(--sky);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:700;" title="Tap to schedule (mobile)">📅 Schedule</button>
+    </div>
+    ${ss.scheduledDate ? `<div class="jd" style="color:var(--sky);font-weight:600;">Proposed: ${esc(ss.scheduledDate)}</div>` : ''}
+    ${ss.source === 'csv_import' ? `<div class="jd" style="font-size:10px;color:var(--muted);">📥 from CSV import</div>` : ss.source === 'verbal_agreement' ? `<div class="jd" style="font-size:10px;color:var(--muted);">🖊 verbal agreement</div>` : ''}
     ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
   </div>`;
 }
@@ -2235,14 +2299,17 @@ function _doCompleteJob(log) {
     completedBy:     'operator',
   });
 
-  const _capturePhone = jmPhone;
-  const _captureDate  = ss.completedDate;
+  const _capturePhone    = jmPhone;
+  const _captureDate     = ss.completedDate;
   const _captureServices = ss.jobNotes || '';
+
+  // Add to review queue — notification fires after 4 days
+  c.reviewQueue = { queuedAt: new Date().toISOString(), status: 'pending', jobDate: completedDate };
 
   saveDb().catch(()=>{});
   closeJobModal();
   render();
-  showToast('✓ Job completed — customer history updated');
+  showToast('✓ Job completed — added to review queue (4-day alert)');
 
   // Non-blocking photo upload (after UI updates, doesn't block job save)
   if (_pendingPhotos.length) uploadPhotos(_capturePhone, _captureDate, _captureServices);
@@ -3344,6 +3411,107 @@ async function saveEditServices(notifyCustomer) {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ── ADD UNSCHEDULED JOB MODAL ─────────────────────────────────────────────────
+
+function openAddUnscheduledModal() {
+  document.getElementById('unschPhone').value    = '';
+  document.getElementById('unschServices').value = '';
+  document.getElementById('unschAmount').value   = '';
+  document.getElementById('unschDate').value     = '';
+  document.getElementById('unschPhoneHint').textContent = '';
+  document.getElementById('addUnscheduledModal').classList.remove('hidden');
+}
+
+function closeAddUnscheduledModal() {
+  document.getElementById('addUnscheduledModal').classList.add('hidden');
+}
+
+function unschPhoneLookup(val) {
+  const ph = val.replace(/\D/g,'').slice(-10);
+  const hint = document.getElementById('unschPhoneHint');
+  if (ph.length < 10) { hint.textContent = ''; return; }
+  const c = findCustomer(ph);
+  if (c) {
+    const name = ((c.firstName||'') + ' ' + (c.lastName||'')).trim();
+    hint.textContent = `✓ Found: ${name}`;
+    hint.style.color = 'var(--green)';
+    if (!document.getElementById('unschServices').value && c.scheduledStatus?.jobNotes)
+      document.getElementById('unschServices').value = c.scheduledStatus.jobNotes;
+  } else {
+    hint.textContent = 'New customer — will be created';
+    hint.style.color = 'var(--muted)';
+  }
+}
+
+async function saveAddUnscheduled() {
+  const ph  = (document.getElementById('unschPhone').value || '').replace(/\D/g,'').slice(-10);
+  const svc = (document.getElementById('unschServices').value || '').trim();
+  const amt = parseFloat(document.getElementById('unschAmount').value) || 0;
+  const dt  = document.getElementById('unschDate').value || null;
+  if (!ph || ph.length < 10) { showToast('Enter a valid phone number'); return; }
+
+  const existing = findCustomer(ph);
+  if (existing) {
+    existing.scheduledStatus = {
+      state: 'needs_scheduling', scheduledDate: dt, approvedAmount: amt,
+      jobNotes: svc, source: 'manual', scheduledAt: new Date().toISOString(),
+    };
+  } else {
+    const newCust = {
+      phone: ph, firstName: 'Customer', lastName: '', address: '', city: '',
+      totalJobs: 0, lifetimeSpend: 0, lastService: null,
+      quoteStatus: null, scheduledStatus: {
+        state: 'needs_scheduling', scheduledDate: dt, approvedAmount: amt,
+        jobNotes: svc, source: 'manual', scheduledAt: new Date().toISOString(),
+      },
+      alerts: [], source: 'manual_queue',
+    };
+    dbRecord.customers = [...(dbRecord.customers || []), newCust];
+  }
+  await saveDb();
+  closeAddUnscheduledModal();
+  render();
+  showToast('✓ Job added to scheduling queue');
+}
+
+// ── TAP-TO-SCHEDULE MODAL ─────────────────────────────────────────────────────
+
+let _tapSchedPhone = null;
+
+function openTapScheduleModal(phone) {
+  _tapSchedPhone = phone;
+  const c = findCustomer(phone);
+  const name = c ? ((c.firstName||'') + ' ' + (c.lastName||'')).trim() : phone;
+  document.getElementById('tapScheduleTitle').textContent = `📅 Schedule — ${name}`;
+  const proposed = c?.scheduledStatus?.scheduledDate || '';
+  document.getElementById('tapSchedDate').value = proposed || isoToday();
+  document.getElementById('tapSchedRig').value  = c?.scheduledStatus?.rig || '';
+  document.getElementById('tapScheduleModal').classList.remove('hidden');
+}
+
+function closeTapScheduleModal() {
+  document.getElementById('tapScheduleModal').classList.add('hidden');
+  _tapSchedPhone = null;
+}
+
+async function confirmTapSchedule() {
+  if (!_tapSchedPhone) return;
+  const date = document.getElementById('tapSchedDate').value;
+  const rig  = document.getElementById('tapSchedRig').value;
+  if (!date) { showToast('Pick a date'); return; }
+  if (!rig)  { showToast('Pick a rig'); return; }
+  const c = findCustomer(_tapSchedPhone);
+  if (!c) { showToast('Customer not found'); return; }
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  c.scheduledStatus.state         = 'scheduled';
+  c.scheduledStatus.scheduledDate = date;
+  c.scheduledStatus.rig           = rig;
+  await saveDb();
+  closeTapScheduleModal();
+  render();
+  showToast(`✓ Scheduled on ${date} (${rig})`);
+}
 </script>
 </body>
 </html>

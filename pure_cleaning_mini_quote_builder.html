@@ -108,6 +108,13 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .btn-gold:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
 .btn-outline{background:none;border:2px solid var(--border);color:var(--muted);}
 .btn-outline:hover{border-color:var(--sky);color:var(--sky);}
+/* Two-path save buttons */
+.two-path-btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-height:72px;padding:16px 20px;border-radius:16px;gap:0;}
+.two-path-btn .btn-main-label{font-size:17px;font-weight:800;}
+.two-path-btn .btn-sub-label{font-size:12px;font-weight:400;opacity:.75;margin-top:3px;line-height:1.4;}
+.btn-navy-solid{background:var(--navy);color:#fff;}
+.btn-navy-solid:hover{background:#0d1e3a;}
+.btn-navy-solid:disabled{background:#94a3b8;cursor:not-allowed;}
 
 /* Loading / error */
 .center-msg{text-align:center;padding:4rem 1rem;}
@@ -465,9 +472,16 @@ function renderBuilder(existing) {
     </div>
 
     <div class="actions">
-      <button class="btn btn-gold" id="saveSendBtn" onclick="saveMiniQuote(true)">💬 Confirm Payment &amp; Upsell</button>
-      <button class="btn btn-outline" onclick="saveMiniQuote(false)">Save Mini Quote (no text yet)</button>
-      <a href="/pure_cleaning_calendar.html" style="text-align:center;display:block;padding:12px;font-size:14px;color:var(--muted);font-weight:600;text-decoration:none;">← Back to Calendar</a>
+      <button class="btn btn-navy-solid two-path-btn" id="saveCalBtn" onclick="saveMiniQuote('calendar_only')">
+        <span class="btn-main-label">📅 Save to Calendar Only</span>
+        <span class="btn-sub-label">Customer agreed verbally — no text sent · Job added directly to schedule</span>
+      </button>
+      <button class="btn btn-gold two-path-btn" id="saveSendBtn" onclick="saveMiniQuote(true)">
+        <span class="btn-main-label">📱 Save + Send Mini Quote SMS</span>
+        <span class="btn-sub-label">Customer wants to confirm via text · Mini quote with date/price/upsell sent</span>
+      </button>
+      <button class="btn btn-outline" style="font-size:13px;min-height:44px;" onclick="saveMiniQuote(false)">Save draft — no text, no schedule</button>
+      <a href="/pure_cleaning_calendar.html" style="text-align:center;display:block;padding:10px;font-size:14px;color:var(--muted);font-weight:600;text-decoration:none;">← Back to Calendar</a>
     </div>
   `;
 
@@ -818,8 +832,11 @@ function shortenUrl(longUrl) {
 }
 
 async function saveMiniQuote(sendText) {
-  const btn = document.getElementById('saveSendBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  const isCalOnly = sendText === 'calendar_only';
+  const btn = isCalOnly ? document.getElementById('saveCalBtn') : document.getElementById('saveSendBtn');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+  document.getElementById('saveCalBtn').disabled = true;
+  document.getElementById('saveSendBtn').disabled = true;
 
   const addOns       = collectAddons();
   const customAddOns = collectCustomAddons();
@@ -843,6 +860,33 @@ async function saveMiniQuote(sendText) {
     const _nph  = (p) => (p||'').replace(/\D/g,'').slice(-10);
     const cust  = (db.customers || []).find(c => _nph(c.phone) === _nph(customer.phone));
     if (!cust) throw new Error('Customer not found in DB');
+
+    // ── PATH A: Calendar Only (verbal agreement, no SMS) ──────────────────────
+    if (isCalOnly) {
+      const firstDate = dateSuggestions[0]?.date || null;
+      const firstRig  = dateSuggestions[0]?.rig  || null;
+      cust.quoteStatus    = null;
+      cust.scheduledStatus = {
+        state:             firstDate ? 'scheduled' : 'needs_scheduling',
+        scheduledDate:     firstDate,
+        approvedAmount:    mainAmount,
+        jobNotes:          mainServices,
+        estimatedDuration: qs.estimatedHours || 2,
+        rig:               firstRig || null,
+        source:            'verbal_agreement',
+        scheduledAt:       now,
+      };
+      await fetch(`${PCPC_API}/customers`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(db) });
+      try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch {}
+      fetch(`${PCPC_API}/events`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ eventType: 'job_scheduled_verbal', customer: { fn: customer.firstName, ln: customer.lastName, ph: customer.phone }, scheduledDate: firstDate, mainAmount, mainServices, scheduledAt: now }),
+      }).catch(() => {});
+      const dateStr = dateSuggestions[0]?.display || firstDate || 'the agreed date';
+      showToast(`✓ ${customer.firstName || 'Customer'} saved to calendar for ${dateStr}`);
+      setTimeout(() => window.location.href = '/pure_cleaning_calendar.html', 1800);
+      return;
+    }
 
     const miniQuoteCustomData = {
       addOns,
@@ -943,7 +987,10 @@ async function saveMiniQuote(sendText) {
     }
   } catch(e) {
     alert('Error saving: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '💬 Save & Send Confirmation Text'; }
+    document.getElementById('saveCalBtn').disabled = false;
+    document.getElementById('saveCalBtn').style.opacity = '1';
+    document.getElementById('saveSendBtn').disabled = false;
+    document.getElementById('saveSendBtn').style.opacity = '1';
   }
 }
 

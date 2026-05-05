@@ -422,18 +422,22 @@ async function runPreview() {
     }
   }
 
-  // Categorize
+  // Categorize + auto-detect status from date
+  const todayIso = new Date().toISOString().split('T')[0];
   const cat = { newCustomer: [], newJob: [], duplicate: [], missingPhone: [], phantom: [], largeTxn: [] };
   rows.forEach((r, idx) => {
     r._idx = idx;
     r._key = `${r.file}_${idx}`;
+    // Auto-detect: future date → scheduled, past/today → completed
+    r.detectedStatus = r.date && r.date > todayIso ? 'scheduled' : 'completed';
     if (isPhantom(r.customer, r.amount)) { cat.phantom.push(r); return; }
     if (!r.phone) { cat.missingPhone.push(r); return; }
     if (r.amount >= 5000) { cat.largeTxn.push(r); return; }
-    if (!r.date) { cat.missingPhone.push(r); return; } // treat undatable as review
+    if (!r.date) { cat.missingPhone.push(r); return; }
     const jid = jobId(r.phone, r.date, r.amount);
     r._jobId = jid;
-    if (jobHistory[r.phone]?.has(jid)) { cat.duplicate.push(r); return; }
+    // For scheduled rows: skip dedup check (future job, not in history)
+    if (r.detectedStatus === 'completed' && jobHistory[r.phone]?.has(jid)) { cat.duplicate.push(r); return; }
     if (dbByPhone[r.phone]) { cat.newJob.push(r); }
     else { cat.newCustomer.push(r); }
   });
@@ -610,47 +614,85 @@ async function executeImport() {
     const now = new Date().toISOString();
     const cat = _categorized;
     let imported = 0, skipped = 0, newCustomers = 0;
+    let scheduledImported = 0, completedImported = 0, reviewQueued = 0;
+    const todayIso = new Date().toISOString().split('T')[0];
 
     const processRow = (r, overridePhone) => {
       const ph = overridePhone || r.phone;
       if (!ph || !r.date || isNaN(r.amount)) return false;
-      if (ph === PROTECTED_PHONE) return false; // Keith Wolf protection
+      if (ph === PROTECTED_PHONE) return false;
 
+      const isScheduled = r.detectedStatus === 'scheduled' || r.date > todayIso;
+
+      if (isScheduled) {
+        // ── FUTURE JOB: create scheduledStatus (goes to Needs Scheduling queue) ──
+        const parts = (r.customer||'').replace(/\(.*?\)/g,'').trim().split(/\s+/).filter(Boolean);
+        const fn = parts[0] || r.customer || 'Customer';
+        const ln = parts.slice(1).join(' ') || '';
+        if (byPhone[ph]) {
+          // Update existing customer's scheduledStatus
+          byPhone[ph].scheduledStatus = {
+            state: 'needs_scheduling',
+            scheduledDate: r.date,
+            approvedAmount: r.amount,
+            jobNotes: r.services,
+            source: 'csv_import',
+            scheduledAt: now,
+          };
+        } else {
+          byPhone[ph] = {
+            phone: ph, firstName: fn, lastName: ln,
+            address: r.address, city: r.city,
+            lastService: null, totalJobs: 0, lifetimeSpend: 0,
+            hasSealHistory: /seal/i.test(r.services || ''),
+            phoneStatus: 'active', source: 'csv_import',
+            jobHistory: [], legacyStats: null,
+            alerts: [], optOut: null, movedAway: null,
+            reactivationExcluded: null, linkCode: null, linkBin: null,
+            lastTextedDate: null, quoteStatus: null,
+            scheduledStatus: {
+              state: 'needs_scheduling',
+              scheduledDate: r.date,
+              approvedAmount: r.amount,
+              jobNotes: r.services,
+              source: 'csv_import',
+              scheduledAt: now,
+            },
+          };
+          db.customers.push(byPhone[ph]);
+          newCustomers++;
+        }
+        imported++; scheduledImported++;
+        return true;
+      }
+
+      // ── COMPLETED JOB: add to jobHistory ──────────────────────────────────────
       const jid = jobId(ph, r.date, r.amount);
       const jobEntry = {
         jobId:      jid,
         date:       r.date,
         services:   r.services,
         amount:     r.amount,
-        city:       r.city   || '',
-        address:    r.address|| '',
+        city:       r.city    || '',
+        address:    r.address || '',
         sqFt:       r.sqFt   || '',
-        payment:    r.payment|| '',
+        payment:    r.payment || '',
         batchLabel: _batchLabel,
         importedAt: now,
+        status:     'completed',
       };
 
       if (byPhone[ph]) {
         const cust = byPhone[ph];
-        // Check not already in jobHistory
         const existingIds = new Set((cust.jobHistory||[]).map(j => j.jobId));
         if (existingIds.has(jid)) { skipped++; return false; }
-        // Snapshot legacyStats if first jobHistory entry
         if (!cust.legacyStats && (cust.totalJobs > 0 || cust.lifetimeSpend > 0 || cust.lastService)) {
-          cust.legacyStats = {
-            totalJobs:    cust.totalJobs    || 0,
-            lifetimeSpend: cust.lifetimeSpend || 0,
-            lastService:  cust.lastService   || null,
-            preservedAt:  now,
-          };
+          cust.legacyStats = { totalJobs: cust.totalJobs||0, lifetimeSpend: cust.lifetimeSpend||0, lastService: cust.lastService||null, preservedAt: now };
         }
         cust.jobHistory = [...(cust.jobHistory||[]), jobEntry];
-        // Update lastService if this job is more recent
         if (!cust.lastService || r.date > cust.lastService) cust.lastService = r.date;
-        imported++;
       } else {
-        // New customer
-        const parts = r.customer.replace(/\(.*?\)/g,'').trim().split(/\s+/).filter(Boolean);
+        const parts = (r.customer||'').replace(/\(.*?\)/g,'').trim().split(/\s+/).filter(Boolean);
         const fn = parts[0] || r.customer;
         const ln = parts.slice(1).join(' ') || '';
         byPhone[ph] = {
@@ -658,7 +700,7 @@ async function executeImport() {
           address: r.address, city: r.city,
           lastService: r.date, totalJobs: 1,
           lifetimeSpend: Math.round(r.amount),
-          hasSealHistory: /seal/i.test(r.services),
+          hasSealHistory: /seal/i.test(r.services||''),
           phoneStatus: 'active', source: 'csv_import',
           jobHistory: [jobEntry],
           legacyStats: null,
@@ -667,8 +709,25 @@ async function executeImport() {
           lastTextedDate: null, quoteStatus: null, scheduledStatus: null,
         };
         db.customers.push(byPhone[ph]);
-        imported++; newCustomers++;
+        newCustomers++;
       }
+
+      // Review queue logic based on job age
+      const cust = byPhone[ph];
+      const ageMs   = Date.now() - new Date(r.date + 'T12:00:00Z').getTime();
+      const ageDays = ageMs / 86400000;
+      if (ageDays >= 4 && ageDays <= 14) {
+        if (!cust.reviewQueue || cust.reviewQueue.status === 'pending') {
+          cust.reviewQueue = { queuedAt: r.date + 'T12:00:00Z', status: 'pending', jobDate: r.date };
+          reviewQueued++;
+        }
+      } else if (ageDays > 14) {
+        if (!cust.reviewQueue) {
+          cust.reviewQueue = { queuedAt: r.date + 'T12:00:00Z', status: 'window_closed', jobDate: r.date };
+        }
+      }
+
+      imported++; completedImported++;
       return true;
     };
 
@@ -725,7 +784,8 @@ async function executeImport() {
     document.getElementById('importResult').innerHTML = `
       <div class="alert alert-ok" style="margin-top:1rem;">
         <strong>✓ Import complete!</strong><br>
-        ${imported} job${imported !== 1 ? 's' : ''} imported (${newCustomers} new customer${newCustomers !== 1 ? 's' : ''}, ${imported - newCustomers} added to existing records)<br>
+        ${completedImported} completed job${completedImported !== 1 ? 's' : ''} · ${scheduledImported} scheduled (added to queue) · ${newCustomers} new customer${newCustomers !== 1 ? 's' : ''}<br>
+        ${reviewQueued > 0 ? `📝 ${reviewQueued} customer${reviewQueued !== 1 ? 's' : ''} added to review request queue (4-day alert)<br>` : ''}
         ${skipped} row${skipped !== 1 ? 's' : ''} skipped (duplicates + phantoms + review-skipped)<br>
         Backup key: <code style="font-size:11px;color:var(--muted);">${esc(snap.key)}</code>
       </div>
