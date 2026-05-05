@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Marketing Assets — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--bg:#f4f6f9;--card:#fff;--text:#1a1f2e;--muted:#6b7280;--border:#e2e8f0;--shadow:0 2px 8px rgba(0,0,0,.08);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.topbar{background:var(--navy);padding:.75rem 1.25rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:100;}
+.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;letter-spacing:1px;}
+.topbar-logo span{color:var(--gold);}
+.back-link{font-size:12px;color:var(--gold);text-decoration:none;font-weight:600;}
+.topbar-sep{flex:1;}
+.page{max-width:1100px;margin:0 auto;padding:1.25rem;}
+.page-hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1.25rem;}
+.page-title{font-size:22px;font-weight:700;color:var(--navy);}
+.page-sub{font-size:13px;color:var(--muted);margin-top:2px;}
+.filter-bar{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:.875rem 1rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem;box-shadow:var(--shadow);}
+.filter-group{display:flex;align-items:center;gap:.5rem;}
+.filter-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);}
+.filter-bar select,.filter-bar input[type=text]{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;background:var(--bg);color:var(--text);outline:none;}
+.filter-bar select:focus,.filter-bar input:focus{border-color:var(--sky);}
+.filter-bar input[type=text]{width:160px;}
+.btn{padding:7px 14px;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s;}
+.btn:hover{opacity:.85;}
+.btn-sky{background:var(--sky);color:#fff;}
+.btn-outline{background:none;border:1.5px solid var(--border);color:var(--text);}
+.btn-green{background:var(--green);color:#fff;}
+.btn-red{background:var(--red);color:#fff;}
+.toolbar{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.875rem;}
+.photo-count{font-size:13px;color:var(--muted);}
+.sel-count{font-size:13px;font-weight:600;color:var(--sky);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;}
+.photo-card{background:var(--card);border:2px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:border-color .15s,box-shadow .15s;position:relative;}
+.photo-card:hover{border-color:var(--sky);box-shadow:0 4px 14px rgba(45,125,210,.15);}
+.photo-card.selected{border-color:var(--sky);box-shadow:0 0 0 3px rgba(45,125,210,.22);}
+.photo-card.is-public::after{content:'🌐';position:absolute;top:5px;left:5px;font-size:14px;background:rgba(0,0,0,.55);border-radius:4px;padding:1px 4px;}
+.card-thumb{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--border);}
+.card-thumb-loading{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--muted);background:var(--border);}
+.card-body{padding:7px 8px 8px;}
+.card-date{font-size:11px;font-weight:600;color:var(--navy);}
+.card-meta{font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-select{position:absolute;top:6px;right:6px;width:20px;height:20px;border:2px solid #fff;border-radius:50%;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;}
+.photo-card.selected .card-select{background:var(--sky);border-color:var(--sky);}
+.card-check{color:#fff;font-size:11px;font-weight:700;}
+.empty{text-align:center;padding:3rem 1rem;color:var(--muted);}
+.empty div:first-child{font-size:36px;margin-bottom:.5rem;}
+.loading{text-align:center;padding:3rem;color:var(--muted);font-size:14px;}
+
+/* Lightbox */
+#lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:900;flex-direction:column;align-items:center;justify-content:center;}
+.lb-topbar{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(0,0,0,.4);}
+.lb-topbar-info{flex:1;font-size:13px;color:#94a3b8;}
+.lb-btn{background:rgba(255,255,255,.12);border:none;color:#fff;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.lb-btn:hover{background:rgba(255,255,255,.22);}
+.lb-btn.active{background:var(--green);}
+#lbImg{max-width:92vw;max-height:78vh;object-fit:contain;border-radius:8px;}
+.lb-meta{color:#94a3b8;font-size:12px;margin-top:8px;text-align:center;}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.12);border:none;color:#fff;font-size:24px;padding:10px 16px;border-radius:10px;cursor:pointer;}
+.lb-nav:hover{background:rgba(255,255,255,.22);}
+#lbPrev{left:10px;}
+#lbNext{right:10px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">PURE<span>CLEANING</span></div>
+  <a href="/pure_cleaning_admin.html" class="back-link">← Hub</a>
+  <div class="topbar-sep"></div>
+  <span style="color:#94a3b8;font-size:12px;" id="topbarStatus"></span>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="lightbox" onclick="if(event.target===this)closeLb()">
+  <div class="lb-topbar">
+    <span class="lb-topbar-info" id="lbInfo">—</span>
+    <a id="lbDl" download="photo.jpg" class="lb-btn">⬇ Download</a>
+    <button class="lb-btn" id="lbPublicBtn" onclick="togglePublic()">🌐 Mark Public</button>
+    <button class="lb-btn" onclick="closeLb()">✕ Close</button>
+  </div>
+  <button class="lb-nav" id="lbPrev" onclick="lbNav(-1)">‹</button>
+  <img id="lbImg" src="" alt="">
+  <div class="lb-meta" id="lbMeta"></div>
+  <button class="lb-nav" id="lbNext" onclick="lbNav(1)">›</button>
+</div>
+
+<div class="page">
+  <div class="page-hdr">
+    <div>
+      <div class="page-title">📸 Marketing Assets</div>
+      <div class="page-sub">Browse and export job photos</div>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="filter-group">
+      <span class="filter-label">Date</span>
+      <input type="text" id="fDate" placeholder="e.g. 2026-03" oninput="applyFilters()">
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Service</span>
+      <input type="text" id="fService" placeholder="keyword" oninput="applyFilters()">
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">City</span>
+      <input type="text" id="fCity" placeholder="city name" oninput="applyFilters()">
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Show</span>
+      <select id="fPublic" onchange="applyFilters()">
+        <option value="all">All Photos</option>
+        <option value="public">Public Only</option>
+        <option value="private">Private Only</option>
+      </select>
+    </div>
+    <button class="btn btn-outline" onclick="clearFilters()">Clear</button>
+  </div>
+
+  <div class="toolbar">
+    <span class="photo-count" id="photoCount">Loading…</span>
+    <div style="flex:1;"></div>
+    <span class="sel-count" id="selCount" style="display:none;"></span>
+    <button class="btn btn-outline" id="selAllBtn" onclick="selectAll()" style="display:none;">Select All</button>
+    <button class="btn btn-outline" id="clearSelBtn" onclick="clearSel()" style="display:none;">Clear</button>
+    <button class="btn btn-green" id="exportBtn" onclick="exportSelected()" style="display:none;">⬇ Export ZIP</button>
+  </div>
+
+  <div id="gridState">
+    <div class="loading" id="loadingMsg">Loading photos…</div>
+    <div class="empty" id="emptyMsg" style="display:none;"><div>📷</div><div>No photos yet</div></div>
+    <div class="grid" id="photoGrid"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+let _allPhotos = []; // full photos_index metadata
+let _filtered  = []; // after filter
+let _selected  = new Set(); // photoIds
+let _lbIdx     = 0;
+let _lbCache   = {}; // photoId → data URL
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+
+async function init() {
+  try {
+    const res = await fetch(`${API}/photos`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    _allPhotos = (data.photos || []).sort((a, b) => (b.uploadedAt || '') < (a.uploadedAt || '') ? -1 : 1);
+    document.getElementById('loadingMsg').style.display = 'none';
+    applyFilters();
+    document.getElementById('topbarStatus').textContent = `${_allPhotos.length} photo${_allPhotos.length !== 1 ? 's' : ''} total`;
+  } catch(e) {
+    document.getElementById('loadingMsg').textContent = 'Failed to load photos — ' + e.message;
+  }
+}
+
+// ── FILTERS ───────────────────────────────────────────────────────────────────
+
+function applyFilters() {
+  const fDate    = (document.getElementById('fDate')?.value    || '').trim().toLowerCase();
+  const fService = (document.getElementById('fService')?.value || '').trim().toLowerCase();
+  const fCity    = (document.getElementById('fCity')?.value    || '').trim().toLowerCase();
+  const fPublic  = document.getElementById('fPublic')?.value || 'all';
+
+  _filtered = _allPhotos.filter(p => {
+    if (fDate    && !(p.jobDate || '').toLowerCase().includes(fDate))    return false;
+    if (fService && !(p.services || '').toLowerCase().includes(fService)) return false;
+    if (fCity    && !(p.city || '').toLowerCase().includes(fCity))        return false;
+    if (fPublic === 'public'  && !p.isPublic)  return false;
+    if (fPublic === 'private' &&  p.isPublic)  return false;
+    return true;
+  });
+
+  // Remove stale selections
+  _selected = new Set([..._selected].filter(id => _filtered.some(p => p.photoId === id)));
+  renderGrid();
+  updateSelBar();
+}
+
+function clearFilters() {
+  document.getElementById('fDate').value    = '';
+  document.getElementById('fService').value = '';
+  document.getElementById('fCity').value    = '';
+  document.getElementById('fPublic').value  = 'all';
+  applyFilters();
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+
+function renderGrid() {
+  const grid = document.getElementById('photoGrid');
+  const empty = document.getElementById('emptyMsg');
+  document.getElementById('photoCount').textContent = `${_filtered.length} photo${_filtered.length !== 1 ? 's' : ''}`;
+
+  if (!_filtered.length) {
+    grid.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  grid.innerHTML = _filtered.map((p, i) => {
+    const sel = _selected.has(p.photoId);
+    return `<div class="photo-card${sel ? ' selected' : ''}${p.isPublic ? ' is-public' : ''}" data-idx="${i}" data-id="${esc(p.photoId)}" onclick="handleCardClick(event,${i})">
+      <div class="card-thumb-loading" id="gm-${esc(p.photoId)}">⏳</div>
+      <div class="card-body">
+        <div class="card-date">${esc(p.jobDate || '—')}</div>
+        <div class="card-meta">${esc((p.services || '—').slice(0, 40))}${p.city ? ' · ' + esc(p.city) : ''}</div>
+      </div>
+      <div class="card-select"><span class="card-check">${sel ? '✓' : ''}</span></div>
+    </div>`;
+  }).join('');
+
+  // Lazy-load thumbnails
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      obs.unobserve(e.target);
+      const card = e.target;
+      const id   = card.dataset.id;
+      loadThumb(id);
+    });
+  }, { rootMargin: '120px' });
+  document.querySelectorAll('.photo-card[data-id]').forEach(c => obs.observe(c));
+}
+
+async function loadThumb(id) {
+  const el = document.getElementById(`gm-${id}`);
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/photos/${id}/thumb`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    if (data.jpeg) {
+      const img = document.createElement('img');
+      img.className = 'card-thumb';
+      img.src = `data:image/jpeg;base64,${data.jpeg}`;
+      img.alt = 'Job photo';
+      el.replaceWith(img);
+    }
+  } catch { if (el) el.textContent = '✕'; }
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── SELECTION ─────────────────────────────────────────────────────────────────
+
+let _longPressTimer = null;
+let _selMode = false;
+
+function handleCardClick(e, idx) {
+  const p = _filtered[idx];
+  if (!p) return;
+  if (_selMode || _selected.size > 0) {
+    toggleSel(p.photoId, idx);
+  } else {
+    openLb(idx);
+  }
+}
+
+function toggleSel(id, idx) {
+  if (_selected.has(id)) _selected.delete(id);
+  else _selected.add(id);
+  // Toggle classes directly rather than full re-render
+  const card = document.querySelector(`.photo-card[data-idx="${idx}"]`);
+  if (card) {
+    card.classList.toggle('selected', _selected.has(id));
+    const chk = card.querySelector('.card-check');
+    if (chk) chk.textContent = _selected.has(id) ? '✓' : '';
+  }
+  updateSelBar();
+}
+
+function selectAll() {
+  _filtered.forEach(p => _selected.add(p.photoId));
+  renderGrid();
+  updateSelBar();
+}
+
+function clearSel() {
+  _selected.clear();
+  _selMode = false;
+  renderGrid();
+  updateSelBar();
+}
+
+function updateSelBar() {
+  const n = _selected.size;
+  const selCount   = document.getElementById('selCount');
+  const selAllBtn  = document.getElementById('selAllBtn');
+  const clearSelBtn= document.getElementById('clearSelBtn');
+  const exportBtn  = document.getElementById('exportBtn');
+  if (n > 0) {
+    selCount.textContent = `${n} selected`;
+    selCount.style.display = '';
+    selAllBtn.style.display  = '';
+    clearSelBtn.style.display = '';
+    exportBtn.style.display  = '';
+  } else {
+    selCount.style.display   = 'none';
+    selAllBtn.style.display  = 'none';
+    clearSelBtn.style.display = 'none';
+    exportBtn.style.display  = 'none';
+  }
+}
+
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+
+async function exportSelected() {
+  if (!_selected.size) return;
+  const btn = document.getElementById('exportBtn');
+  btn.disabled = true;
+  btn.textContent = 'Preparing…';
+
+  try {
+    const zip = new JSZip();
+    let done = 0;
+    const total = _selected.size;
+    for (const id of _selected) {
+      try {
+        btn.textContent = `${done}/${total}…`;
+        let base64;
+        if (_lbCache[id]) {
+          base64 = _lbCache[id].split(',')[1];
+        } else {
+          const res = await fetch(`${API}/photos/${id}`);
+          const data = await res.json();
+          base64 = data.jpeg;
+          if (data.jpeg) _lbCache[id] = `data:image/jpeg;base64,${data.jpeg}`;
+        }
+        if (base64) {
+          const meta = _allPhotos.find(p => p.photoId === id) || {};
+          const fname = `${meta.jobDate || 'photo'}_${id.slice(0,6)}.jpg`;
+          zip.file(fname, base64, { base64: true });
+        }
+        done++;
+      } catch(e) { console.warn('export skip:', id, e); }
+    }
+    btn.textContent = 'Building ZIP…';
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `pure_cleaning_photos_${new Date().toISOString().split('T')[0]}.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e) { alert('Export failed: ' + e.message); }
+
+  btn.disabled = false;
+  btn.textContent = '⬇ Export ZIP';
+}
+
+// ── LIGHTBOX ──────────────────────────────────────────────────────────────────
+
+function openLb(idx) {
+  _lbIdx = idx;
+  document.getElementById('lightbox').style.display = 'flex';
+  _showLbPhoto();
+}
+
+function closeLb() {
+  document.getElementById('lightbox').style.display = 'none';
+  document.getElementById('lbImg').src = '';
+}
+
+function lbNav(dir) {
+  _lbIdx = (_lbIdx + dir + _filtered.length) % _filtered.length;
+  _showLbPhoto();
+}
+
+async function _showLbPhoto() {
+  if (!_filtered.length) return;
+  const p   = _filtered[_lbIdx];
+  const img = document.getElementById('lbImg');
+  const info = document.getElementById('lbInfo');
+  const meta = document.getElementById('lbMeta');
+  const dl   = document.getElementById('lbDl');
+  const pub  = document.getElementById('lbPublicBtn');
+
+  img.style.opacity = '.4';
+  info.textContent  = `${_lbIdx + 1} / ${_filtered.length}`;
+  meta.textContent  = `${p.jobDate || ''}${p.services ? ' · ' + p.services : ''}${p.city ? ' · ' + p.city : ''}`;
+  pub.textContent   = p.isPublic ? '🔒 Make Private' : '🌐 Mark Public';
+  pub.classList.toggle('active', !!p.isPublic);
+
+  if (_lbCache[p.photoId]) {
+    img.src = _lbCache[p.photoId];
+    dl.href = _lbCache[p.photoId];
+    img.style.opacity = '1';
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/photos/${p.photoId}`);
+    const data = await res.json();
+    if (data.jpeg) {
+      const src = `data:image/jpeg;base64,${data.jpeg}`;
+      _lbCache[p.photoId] = src;
+      img.src = src;
+      dl.href = src;
+    }
+  } catch(e) { img.src = ''; meta.textContent = 'Could not load photo'; }
+  img.style.opacity = '1';
+}
+
+async function togglePublic() {
+  const p = _filtered[_lbIdx];
+  if (!p) return;
+  const newVal = !p.isPublic;
+  try {
+    const res = await fetch(`${API}/photos/${p.photoId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ isPublic: newVal })
+    });
+    if (!res.ok) throw new Error(res.status);
+    p.isPublic = newVal;
+    const master = _allPhotos.find(x => x.photoId === p.photoId);
+    if (master) master.isPublic = newVal;
+    // Update card class
+    const card = document.querySelector(`.photo-card[data-id="${p.photoId}"]`);
+    if (card) card.classList.toggle('is-public', newVal);
+    const pub = document.getElementById('lbPublicBtn');
+    pub.textContent = newVal ? '🔒 Make Private' : '🌐 Mark Public';
+    pub.classList.toggle('active', newVal);
+  } catch(e) { alert('Failed to update: ' + e.message); }
+}
+
+document.addEventListener('keydown', e => {
+  if (document.getElementById('lightbox').style.display === 'flex') {
+    if (e.key === 'ArrowLeft')  lbNav(-1);
+    if (e.key === 'ArrowRight') lbNav(1);
+    if (e.key === 'Escape')     closeLb();
+  }
+});
+
+init();
+</script>
+</body>
+</html>

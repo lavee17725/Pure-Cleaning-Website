@@ -469,6 +469,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <label>Notes (optional)</label>
       <textarea id="jobLogNotes" class="modal-input" rows="2" style="resize:none;" placeholder="Anything notable about this job…"></textarea>
     </div>
+    <!-- ── Photos ── -->
+    <div class="modal-field" style="border-top:1px solid var(--border);padding-top:1rem;margin-top:.25rem;">
+      <label style="display:flex;align-items:center;justify-content:space-between;">
+        <span>📷 After Photos <span style="font-weight:400;font-size:11px;color:var(--muted);">(optional)</span></span>
+        <span style="font-size:11px;color:var(--muted);">For records &amp; marketing</span>
+      </label>
+      <div id="photoUploadZone" style="margin-top:8px;border:2px dashed var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer;transition:border-color .15s;" onclick="document.getElementById('photoFileInput').click()" ondragover="event.preventDefault();this.style.borderColor='var(--sky)'" ondragleave="this.style.borderColor=''" ondrop="event.preventDefault();this.style.borderColor='';handlePhotoDrop(event.dataTransfer.files)">
+        <div style="font-size:20px;margin-bottom:4px;">📷</div>
+        <div style="font-size:13px;color:var(--muted);">Tap to select photos or drag here</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">JPEG · PNG · HEIC supported</div>
+      </div>
+      <input type="file" id="photoFileInput" accept="image/*,image/heic,image/heif" multiple capture style="display:none;" onchange="handlePhotoSelect(this.files)">
+      <div id="photoThumbGrid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+      <div id="photoUploadStatus" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
+    </div>
     <div class="modal-footer">
       <button class="mbtn-cancel" onclick="skipJobLog()">Skip</button>
       <button class="mbtn-save" onclick="saveJobLog()">Save & Complete ✓</button>
@@ -744,6 +759,7 @@ let cpRig         = null; // rig currently editing
 let cpSelCrew     = [];   // selected crew in popover
 let cpDayType     = 'full'; // 'full' | 'half' for current popover
 let jmPhone       = null; // phone in job modal
+let _pendingPhotos = []; // [{jpeg, thumb, previewUrl}] staged for upload on complete
 let undoFn        = null;
 let sortables     = [];
 let wasDragging   = false;
@@ -2026,6 +2042,11 @@ function markComplete() {
   // Pre-fill amount from scheduled job total
   const c = findCustomer(jmPhone);
   if (c?.scheduledStatus?.approvedAmount) document.getElementById('paymentAmount').value = c.scheduledStatus.approvedAmount;
+  // Reset photo state
+  _pendingPhotos = [];
+  const grid = document.getElementById('photoThumbGrid'); if (grid) grid.innerHTML = '';
+  const stat = document.getElementById('photoUploadStatus'); if (stat) stat.textContent = '';
+  const fi = document.getElementById('photoFileInput'); if (fi) fi.value = '';
   document.getElementById('jobLogModal').classList.remove('hidden');
 }
 
@@ -2038,6 +2059,120 @@ function _collectPaymentLog() {
     paymentAmount:  parseFloat(document.getElementById('paymentAmount')?.value) || null,
     paidAt:         new Date().toISOString(),
   };
+}
+
+// ── PHOTO CAPTURE ─────────────────────────────────────────────────────────────
+
+function handlePhotoSelect(files) {
+  Array.from(files).forEach(f => _addPendingPhoto(f));
+  const fi = document.getElementById('photoFileInput');
+  if (fi) fi.value = ''; // allow re-selecting same file
+}
+
+function handlePhotoDrop(files) {
+  Array.from(files).filter(f => f.type.startsWith('image/')).forEach(f => _addPendingPhoto(f));
+}
+
+async function _addPendingPhoto(file) {
+  try {
+    const result = await compressPhoto(file);
+    _pendingPhotos.push(result);
+    _renderPhotoThumbs();
+  } catch(e) { console.warn('Photo compress failed:', e); }
+}
+
+function compressPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = ev => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        // Full res: max 1920px long edge, 80% JPEG
+        const maxPx = 1920;
+        let w = img.width, h = img.height;
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else        { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const c1 = document.createElement('canvas');
+        c1.width = w; c1.height = h;
+        c1.getContext('2d').drawImage(img, 0, 0, w, h);
+        const jpeg = c1.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+        // Thumbnail: max 300px, 70%
+        const tMax = 300;
+        let tw = img.width, th = img.height;
+        if (tw > tMax || th > tMax) {
+          if (tw >= th) { th = Math.round(th * tMax / tw); tw = tMax; }
+          else          { tw = Math.round(tw * tMax / th); th = tMax; }
+        }
+        const c2 = document.createElement('canvas');
+        c2.width = tw; c2.height = th;
+        c2.getContext('2d').drawImage(img, 0, 0, tw, th);
+        const thumb = c2.toDataURL('image/jpeg', 0.7).split(',')[1];
+        const previewUrl = c2.toDataURL('image/jpeg', 0.7);
+
+        resolve({ jpeg, thumb, previewUrl });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function _renderPhotoThumbs() {
+  const grid = document.getElementById('photoThumbGrid');
+  if (!grid) return;
+  if (_pendingPhotos.length === 0) { grid.innerHTML = ''; return; }
+  grid.innerHTML = _pendingPhotos.map((p, i) => `
+    <div style="position:relative;width:72px;height:72px;border-radius:8px;overflow:hidden;border:1.5px solid var(--border);flex-shrink:0;">
+      <img src="${p.previewUrl}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">
+      <button onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.65);border:none;color:#fff;width:18px;height:18px;border-radius:50%;font-size:11px;cursor:pointer;line-height:18px;text-align:center;padding:0;">×</button>
+    </div>`).join('');
+}
+
+function removePhoto(idx) {
+  _pendingPhotos.splice(idx, 1);
+  _renderPhotoThumbs();
+}
+
+async function uploadPhotos(phone, jobDate, services) {
+  if (_pendingPhotos.length === 0) return;
+  const status = document.getElementById('photoUploadStatus');
+  const total = _pendingPhotos.length;
+  let done = 0;
+  const uploadedIds = [];
+  for (const p of _pendingPhotos) {
+    try {
+      const photoId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2,7)}`;
+      const res = await fetch(`${API}/photos`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          photoId,
+          jpeg: p.jpeg,
+          thumb: p.thumb,
+          metadata: { phone, jobDate, services, source: 'job_completion', capturedAt: new Date().toISOString() }
+        })
+      });
+      if (!res.ok) throw new Error(res.status);
+      uploadedIds.push(photoId);
+      done++;
+      if (status) status.textContent = `Uploading photos… ${done}/${total}`;
+    } catch(e) { console.warn('Photo upload failed:', e); }
+  }
+  if (uploadedIds.length) {
+    const c = findCustomer(phone);
+    if (c?.scheduledStatus) {
+      if (!c.scheduledStatus.photos) c.scheduledStatus.photos = [];
+      c.scheduledStatus.photos.push(...uploadedIds);
+      saveDb().catch(()=>{});
+    }
+  }
+  _pendingPhotos = [];
+  if (status) status.textContent = done ? `✓ ${done} photo${done > 1 ? 's' : ''} saved` : '';
 }
 
 function skipJobLog() {
@@ -2100,10 +2235,17 @@ function _doCompleteJob(log) {
     completedBy:     'operator',
   });
 
+  const _capturePhone = jmPhone;
+  const _captureDate  = ss.completedDate;
+  const _captureServices = ss.jobNotes || '';
+
   saveDb().catch(()=>{});
   closeJobModal();
   render();
   showToast('✓ Job completed — customer history updated');
+
+  // Non-blocking photo upload (after UI updates, doesn't block job save)
+  if (_pendingPhotos.length) uploadPhotos(_capturePhone, _captureDate, _captureServices);
 }
 
 // ── DELETE / CANCEL FLOWS ──────────────────────────────────────────────────────

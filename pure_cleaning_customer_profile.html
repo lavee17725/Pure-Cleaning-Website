@@ -328,6 +328,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .hero-stat-label{font-size:9px;}
   .ctx-blocks{padding:0 12px;}
 }
+.gal-thumb-wrap{border-radius:10px;overflow:hidden;cursor:pointer;aspect-ratio:1;background:var(--border);position:relative;}
+.gal-thumb-wrap:hover .gal-thumb-inner{filter:brightness(.85);}
+.gal-thumb-inner{width:100%;height:100%;transition:filter .15s;}
+.gal-thumb-inner img{width:100%;height:100%;object-fit:cover;display:block;}
+.gal-thumb-loading{display:flex;align-items:center;justify-content:center;height:100%;font-size:18px;color:var(--muted);}
 </style>
 </head>
 <body>
@@ -508,6 +513,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <button onclick="saveLogFeedback()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#16a34a;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Feedback</button>
     </div>
   </div>
+</div>
+
+<!-- PHOTO LIGHTBOX -->
+<div id="photoLightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1000;flex-direction:column;align-items:center;justify-content:center;" onclick="if(event.target===this)closeLightbox()">
+  <div style="position:absolute;top:12px;right:14px;display:flex;gap:8px;">
+    <a id="lbDownload" download="photo.jpg" style="color:#fff;font-size:12px;font-weight:600;background:rgba(255,255,255,.12);padding:6px 12px;border-radius:8px;text-decoration:none;cursor:pointer;">⬇ Download</a>
+    <button onclick="closeLightbox()" style="background:rgba(255,255,255,.12);border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer;">×</button>
+  </div>
+  <button onclick="lbNav(-1)" style="position:absolute;left:12px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:22px;padding:8px 14px;border-radius:10px;cursor:pointer;">‹</button>
+  <img id="lbImg" src="" style="max-width:90vw;max-height:80vh;border-radius:10px;object-fit:contain;" alt="">
+  <div id="lbMeta" style="color:#94a3b8;font-size:12px;margin-top:10px;text-align:center;"></div>
+  <button onclick="lbNav(1)" style="position:absolute;right:12px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:22px;padding:8px 14px;border-radius:10px;cursor:pointer;">›</button>
 </div>
 
 <script>
@@ -1162,6 +1179,8 @@ function renderProfile(customer, events){
 
   // ── Extended collapsible sections ──
   renderExtendedSections(c, events);
+  // Init lazy-load for photo gallery if present
+  requestAnimationFrame(initPhotoGallery);
 }
 
 function setTlFilter(key){
@@ -1793,6 +1812,35 @@ function renderExtendedSections(c, events) {
     sections.push(makeXSec('jobhistory', '🗂️', 'Job History', badge, jhBody, false));
   }
 
+  // Photo gallery — collect IDs from scheduledStatus.photos + jobHistory[].photos
+  const photoIds = [];
+  (c.scheduledStatus?.photos || []).forEach(id => photoIds.includes(id) || photoIds.push(id));
+  (c.jobHistory || []).forEach(j => (j.photos || []).forEach(id => photoIds.includes(id) || photoIds.push(id)));
+  if (photoIds.length) {
+    const gridItems = photoIds.map((id, i) => `
+      <div class="gal-thumb-wrap" data-photo-id="${esc(id)}" data-idx="${i}" onclick="openLightbox(${i})" title="View photo">
+        <div class="gal-thumb-inner" id="gthumb-${esc(id)}">
+          <div class="gal-thumb-loading">⏳</div>
+        </div>
+      </div>`).join('');
+    const galBody = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;">
+        <span style="font-size:12px;color:var(--muted);">${photoIds.length} photo${photoIds.length > 1 ? 's' : ''}</span>
+        <label style="background:var(--sky);color:#fff;padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
+          + Add Photos
+          <input type="file" accept="image/*,image/heic,image/heif" multiple capture style="display:none;" onchange="handleProfilePhotoAdd(this.files,'${esc(c.phone||'')}')">
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;" id="photoGalGrid">
+        ${gridItems}
+      </div>`;
+    sections.push(makeXSec('photos', '📷', 'Photos', String(photoIds.length), galBody, true));
+    // Store IDs for lightbox navigation
+    window._galPhotoIds = photoIds;
+  } else {
+    window._galPhotoIds = [];
+  }
+
   el.innerHTML = sections.join('');
 }
 // ── Follow-up SMS ─────────────────────────────────────────────────────────────
@@ -1968,6 +2016,178 @@ async function confirmDeleteCustomer() {
     btn.textContent = 'Delete'; btn.disabled = false;
     alert('Error: ' + e.message);
   }
+}
+
+// ── PHOTO GALLERY ─────────────────────────────────────────────────────────────
+
+let _lbIdx = 0;
+let _lbCache = {}; // photoId → full JPEG data URL
+
+function initPhotoGallery() {
+  const thumbs = document.querySelectorAll('.gal-thumb-wrap[data-photo-id]');
+  if (!thumbs.length) return;
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const wrap = entry.target;
+      const id   = wrap.dataset.photoId;
+      obs.unobserve(wrap);
+      loadThumb(id);
+    });
+  }, { rootMargin: '100px' });
+  thumbs.forEach(t => obs.observe(t));
+}
+
+async function loadThumb(id) {
+  const inner = document.getElementById(`gthumb-${id}`);
+  if (!inner) return;
+  try {
+    const res = await fetch(`${API}/photos/${id}/thumb`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    if (data.jpeg) {
+      const src = `data:image/jpeg;base64,${data.jpeg}`;
+      inner.innerHTML = `<img src="${src}" alt="Job photo" loading="lazy">`;
+    }
+  } catch { inner.innerHTML = `<div class="gal-thumb-loading" style="font-size:13px;color:var(--muted);">✕</div>`; }
+}
+
+function openLightbox(idx) {
+  _lbIdx = idx;
+  document.getElementById('photoLightbox').style.display = 'flex';
+  _showLbPhoto();
+}
+
+function closeLightbox() {
+  document.getElementById('photoLightbox').style.display = 'none';
+  document.getElementById('lbImg').src = '';
+}
+
+function lbNav(dir) {
+  const ids = window._galPhotoIds || [];
+  _lbIdx = (_lbIdx + dir + ids.length) % ids.length;
+  _showLbPhoto();
+}
+
+async function _showLbPhoto() {
+  const ids = window._galPhotoIds || [];
+  if (!ids.length) return;
+  const id = ids[_lbIdx];
+  const img = document.getElementById('lbImg');
+  const meta = document.getElementById('lbMeta');
+  const dl = document.getElementById('lbDownload');
+
+  img.style.opacity = '.4';
+  meta.textContent = `Photo ${_lbIdx + 1} of ${ids.length}`;
+
+  if (_lbCache[id]) {
+    img.src = _lbCache[id];
+    img.style.opacity = '1';
+    dl.href = _lbCache[id];
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/photos/${id}`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    if (data.jpeg) {
+      const src = `data:image/jpeg;base64,${data.jpeg}`;
+      _lbCache[id] = src;
+      img.src = src;
+      dl.href = src;
+      if (data.metadata?.jobDate) {
+        meta.textContent = `${_lbIdx + 1} / ${ids.length} · ${data.metadata.jobDate}${data.metadata.services ? ' · '+data.metadata.services : ''}`;
+      }
+    }
+  } catch { img.src = ''; meta.textContent = 'Could not load photo'; }
+  img.style.opacity = '1';
+}
+
+// Keyboard navigation for lightbox
+document.addEventListener('keydown', e => {
+  if (document.getElementById('photoLightbox').style.display === 'flex') {
+    if (e.key === 'ArrowLeft')  lbNav(-1);
+    if (e.key === 'ArrowRight') lbNav(1);
+    if (e.key === 'Escape')     closeLightbox();
+  }
+});
+
+// Profile-page photo add button
+async function handleProfilePhotoAdd(files, phone) {
+  if (!files.length) return;
+  const arr = Array.from(files);
+  let done = 0;
+  const uploadedIds = [];
+  for (const file of arr) {
+    try {
+      const { jpeg, thumb } = await _profileCompressPhoto(file);
+      const photoId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2,7)}`;
+      const c = _customer;
+      const jobDate = (c?.scheduledStatus?.completedDate || c?.scheduledStatus?.scheduledDate || new Date().toISOString().split('T')[0]);
+      const services = c?.scheduledStatus?.jobNotes || '';
+      const res = await fetch(`${API}/photos`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ photoId, jpeg, thumb, metadata: { phone, jobDate, services, source: 'profile_upload', capturedAt: new Date().toISOString() } })
+      });
+      if (!res.ok) throw new Error(res.status);
+      uploadedIds.push(photoId);
+      done++;
+    } catch(e) { console.warn('Upload failed:', e); }
+  }
+  if (!done) return;
+  // Persist photo IDs on customer record (fetch-patch-PUT pattern)
+  try {
+    const resp = await fetch(`${API}/customers`);
+    const data = await resp.json();
+    const customers = data.customers || [];
+    const idx = customers.findIndex(cu => String(cu.phone||'').replace(/\D/g,'').slice(-10) === String(phone||'').replace(/\D/g,'').slice(-10));
+    if (idx !== -1) {
+      const c = customers[idx];
+      if (!c.scheduledStatus) c.scheduledStatus = {};
+      if (!c.scheduledStatus.photos) c.scheduledStatus.photos = [];
+      c.scheduledStatus.photos.push(...uploadedIds);
+      await fetch(`${API}/customers`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ customers }) });
+      _customer = customers[idx];
+    }
+  } catch(e) { console.warn('Failed to persist photo refs:', e); }
+  showToast(`✓ ${done} photo${done > 1 ? 's' : ''} uploaded`);
+  // Re-render profile sections to show new photos
+  if (_customer) renderProfile(_customer, []);
+}
+
+function _profileCompressPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = ev => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const maxPx = 1920;
+        let w = img.width, h = img.height;
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else        { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const c1 = document.createElement('canvas'); c1.width = w; c1.height = h;
+        c1.getContext('2d').drawImage(img, 0, 0, w, h);
+        const jpeg = c1.toDataURL('image/jpeg', 0.8).split(',')[1];
+        const tMax = 300;
+        let tw = img.width, th = img.height;
+        if (tw > tMax || th > tMax) {
+          if (tw >= th) { th = Math.round(th * tMax / tw); tw = tMax; }
+          else          { tw = Math.round(tw * tMax / th); th = tMax; }
+        }
+        const c2 = document.createElement('canvas'); c2.width = tw; c2.height = th;
+        c2.getContext('2d').drawImage(img, 0, 0, tw, th);
+        const thumb = c2.toDataURL('image/jpeg', 0.7).split(',')[1];
+        resolve({ jpeg, thumb });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 </script>
 </body>
