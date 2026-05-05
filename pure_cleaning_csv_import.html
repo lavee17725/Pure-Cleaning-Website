@@ -326,6 +326,7 @@ function mapCols(headers) {
     if (n === 'services')      m.services = i;
     if (n === 'sqft' || n === 'squarefootage' || h.toLowerCase().includes('sq ft')) m.sqft = i;
     if (n === 'payment')       m.payment  = i;
+    if (n === 'entry' || n.startsWith('entry')) m.entry = i;
   });
   return m;
 }
@@ -358,8 +359,14 @@ function normalizePhone(raw) {
   return null;
 }
 
-function jobId(phone, date, amount) {
-  return `${phone}_${date}_${Math.round(amount * 100)}`;
+function jobId(phone, date, amount, address, entryNum) {
+  // Tiebreaker: normalized address street component (first 20 chars).
+  // Falls back to Entry# when address is blank, so same-customer/same-date/
+  // same-amount rows at different addresses get distinct fingerprints.
+  const addrPart = address
+    ? address.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20)
+    : String(entryNum || '').replace(/[^a-z0-9]/g, '').slice(0, 10);
+  return `${phone}_${date}_${Math.round(amount * 100)}_${addrPart}`;
 }
 
 // ── PHANTOM / COMMERCIAL DETECTION ───────────────────────────────────────────
@@ -422,6 +429,7 @@ async function runPreview() {
         services: r[cols.services] || '',
         sqFt:     r[cols.sqft] !== undefined ? (r[cols.sqft] || '') : '',
         payment:  r[cols.payment]  || '',
+        entryNum: cols.entry !== undefined ? (r[cols.entry] || '') : '',
         file:     file.name,
       });
     }
@@ -439,7 +447,7 @@ async function runPreview() {
     if (!r.phone) { cat.missingPhone.push(r); return; }
     if (r.amount >= 5000) { cat.largeTxn.push(r); return; }
     if (!r.date) { cat.missingPhone.push(r); return; }
-    const jid = jobId(r.phone, r.date, r.amount);
+    const jid = jobId(r.phone, r.date, r.amount, r.address, r.entryNum);
     r._jobId = jid;
     // For scheduled rows: skip dedup check (future job, not in history)
     if (r.detectedStatus === 'completed' && jobHistory[r.phone]?.has(jid)) { cat.duplicate.push(r); return; }
@@ -577,7 +585,8 @@ function renderConfirmSummary() {
   document.getElementById('confirmSummary').innerHTML = `
     <div class="alert alert-info" style="margin-bottom:1rem;">
       <strong>Batch: ${esc(_batchLabel)}</strong><br>
-      New records to import: <strong>${cat.newCustomer.length}</strong> new customers + <strong>${cat.newJob.length}</strong> new jobs${reviewApproved ? ` + <strong>${reviewApproved}</strong> review-approved` : ''}<br>
+      <strong>${cat.newCustomer.length}</strong> new customer records (each with their job) + <strong>${cat.newJob.length}</strong> jobs added to existing customers${reviewApproved ? ` + <strong>${reviewApproved}</strong> review-approved` : ''}<br>
+      Total jobs being imported: <strong>${willImport}</strong><br>
       Skipping: <strong>${cat.duplicate.length}</strong> duplicates + <strong>${cat.phantom.length}</strong> phantoms${reviewSkipped ? ` + <strong>${reviewSkipped}</strong> review-skipped` : ''}<br>
       ${pendingDecision > 0 ? `<span style="color:#fcd34d;">⚠ ${pendingDecision} review item${pendingDecision > 1 ? 's' : ''} still pending — they will be auto-skipped.</span>` : ''}
     </div>
@@ -672,7 +681,7 @@ async function executeImport() {
       }
 
       // ── COMPLETED JOB: add to jobHistory ──────────────────────────────────────
-      const jid = jobId(ph, r.date, r.amount);
+      const jid = jobId(ph, r.date, r.amount, r.address, r.entryNum);
       const jobEntry = {
         jobId:      jid,
         date:       r.date,
