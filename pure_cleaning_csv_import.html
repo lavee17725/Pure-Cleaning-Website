@@ -255,6 +255,11 @@ document.getElementById('batchLabel').addEventListener('input', updatePreviewBtn
 
 function addFiles(files) {
   files.forEach(f => { if (!_uploadedFiles.find(x => x.name === f.name)) _uploadedFiles.push(f); });
+  // Auto-populate batch label from first file if field is empty
+  const labelEl = document.getElementById('batchLabel');
+  if (!labelEl.value.trim() && _uploadedFiles.length > 0) {
+    labelEl.value = _uploadedFiles[0].name.replace(/\.[^.]+$/, '');
+  }
   renderFilePills();
   updatePreviewBtn();
 }

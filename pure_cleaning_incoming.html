@@ -211,17 +211,16 @@ function deleteRequest(id) {
   allRequests = allRequests.filter(r => r.id !== id);
   selectedIds.delete(id);
   renderTab();
+  // Persist immediately so a refresh doesn't resurrect the record
+  persistRequests().catch(() => {});
+  auditLog('deleted_request', { id: req.id, name: (req.customerData?.firstName||'') + ' ' + (req.customerData?.lastName||''), phone: req.customerData?.phone || '' });
   const snapshot = req;
-  let committed = false;
-  showUndoToast('Request deleted.', () => {
-    if (committed) return;
+  showUndoToast('Request deleted.', async () => {
+    // Undo: restore record and re-persist
     allRequests = [snapshot, ...allRequests];
     renderTab();
-  }, async () => {
-    committed = true;
     await persistRequests().catch(() => {});
-    auditLog('deleted_request', { id: snapshot.id, name: (snapshot.customerData?.firstName||'') + ' ' + (snapshot.customerData?.lastName||''), phone: snapshot.customerData?.phone || '' });
-  });
+  }, null);
 }
 
 // ── Dismiss ────────────────────────────────────────────────────────
@@ -283,16 +282,15 @@ async function bulkAction(action) {
     allRequests = allRequests.filter(r => !ids.includes(r.id));
     ids.forEach(id => selectedIds.delete(id));
     renderTab();
-    let committed = false;
-    showUndoToast(`${snapshots.length} requests deleted.`, () => {
-      if (committed) return;
+    // Persist immediately — don't wait for undo timeout
+    persistRequests().catch(() => {});
+    snapshots.forEach(s => auditLog('deleted_request', { id: s.id }));
+    showUndoToast(`${snapshots.length} requests deleted.`, async () => {
+      // Undo: restore and re-persist
       allRequests = [...snapshots, ...allRequests];
       renderTab();
-    }, async () => {
-      committed = true;
       await persistRequests().catch(() => {});
-      snapshots.forEach(s => auditLog('deleted_request', { id: s.id }));
-    });
+    }, null);
   } else {
     const newStatus = action === 'dismiss' ? 'dismissed' : 'new';
     ids.forEach(id => {
