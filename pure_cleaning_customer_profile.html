@@ -98,6 +98,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .svc-status{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:700;margin-left:6px;vertical-align:middle;}
 .svc-status-scheduled{background:#eff6ff;color:#1d4ed8;}
 .svc-status-completed{background:#f0fdf4;color:#15803d;}
+.svc-status-canceled{background:#f1f5f9;color:#475569;}
 .svc-history-more{padding:10px 16px;text-align:center;font-size:13px;color:var(--muted);font-style:italic;border-top:1px solid var(--border);}
 .svc-history-empty{padding:24px 16px;text-align:center;font-size:14px;color:var(--muted);}
 
@@ -542,10 +543,32 @@ function normCity(city) {
   return (c.replace(/\s*[-–—]\s*.+$/,'').trim()) || 'Other';
 }
 
+function getEffectiveStats(c) {
+  const jh = c.jobHistory || [];
+  if (jh.length > 0) {
+    const totalJobs     = jh.length;
+    const lifetimeSpend = jh.reduce((sum, j) => sum + (j.amount || 0), 0);
+    const lastService   = jh.map(j => j.date).filter(Boolean).sort().slice(-1)[0] || null;
+    return { totalJobs, lifetimeSpend, lastService };
+  }
+  return { totalJobs: c.totalJobs || 0, lifetimeSpend: c.lifetimeSpend || 0, lastService: c.lastService || null };
+}
+
+const ROOF_RE = /\broof\b/i;
+function getRebookWindow(c) {
+  const jh = c.jobHistory || [];
+  const allSvc = [
+    ...jh.map(j => j.services || ''),
+    (c.scheduledStatus || {}).jobNotes || '',
+    (c.quoteStatus || {}).mainServices || '',
+  ].join(' ');
+  return ROOF_RE.test(allSvc) ? { lo: 18, hi: 36 } : { lo: 6, hi: 18 };
+}
+
 function estimateCycleDays(c) {
-  const spend = c.lifetimeSpend || 0;
-  const jobs  = Math.max(c.totalJobs || 1, 1);
-  const avg   = spend / jobs;
+  const { lifetimeSpend: spend, totalJobs } = getEffectiveStats(c);
+  const jobs = Math.max(totalJobs || 1, 1);
+  const avg  = spend / jobs;
   if (c.hasSealHistory) return 365;
   if (avg > 400) return 480;
   if (avg > 250) return 365;
@@ -555,8 +578,9 @@ function estimateCycleDays(c) {
 function calcChurnRisk(c) {
   if (c.movedAway) return 100;
   if (c.optOut) return 90;
-  if (!c.lastService) return (c.lifetimeSpend || 0) > 0 ? 55 : 50;
-  const daysSince = (Date.now() - new Date(c.lastService + 'T12:00:00').getTime()) / 86400000;
+  const { lastService, lifetimeSpend, totalJobs } = getEffectiveStats(c);
+  if (!lastService) return lifetimeSpend > 0 ? 55 : 50;
+  const daysSince = (Date.now() - new Date(lastService + 'T12:00:00').getTime()) / 86400000;
   const cycleDays = estimateCycleDays(c);
   const ratio     = daysSince / cycleDays;
   let score = 0;
@@ -567,7 +591,7 @@ function calcChurnRisk(c) {
   else if (ratio < 3.0) score = 70;
   else                  score = 85;
   if (c.sealingInterest) score -= 15;
-  if ((c.totalJobs || 0) >= 5) score -= 5;
+  if (totalJobs >= 5) score -= 5;
   const qs = c.quoteStatus || {};
   if (['phone_quoted_pending_mini_quote','phone_quoted_mini_quote_sent'].includes(qs.state)) score -= 10;
   return Math.max(0, Math.min(100, Math.round(score)));
@@ -584,10 +608,9 @@ function calcSealingReceptivity(c) {
   if (c.hasSealHistory)  return 95;
   if (c.sealingInterest) return 85;
   let score = 20;
-  const spend = c.lifetimeSpend || 0;
+  const { lifetimeSpend: spend, totalJobs: jobs } = getEffectiveStats(c);
   if (spend >= 1500) score += 20;
   else if (spend >= 800) score += 10;
-  const jobs = c.totalJobs || 0;
   if (jobs >= 4) score += 15;
   else if (jobs >= 2) score += 8;
   const city = normCity(c.city || '').toLowerCase();
@@ -597,12 +620,13 @@ function calcSealingReceptivity(c) {
 }
 
 function predictNextService(c) {
-  if (!c.lastService) return null;
+  const { lastService, totalJobs } = getEffectiveStats(c);
+  if (!lastService) return null;
   const cycleDays   = estimateCycleDays(c);
-  const lastMs      = new Date(c.lastService + 'T12:00:00').getTime();
+  const lastMs      = new Date(lastService + 'T12:00:00').getTime();
   const predictedMs = lastMs + cycleDays * 86400000;
   const daysUntil   = Math.round((predictedMs - Date.now()) / 86400000);
-  return { predictedMs, daysUntil, cycleDays, confidence: (c.totalJobs || 0) >= 3 ? 'MEDIUM' : 'LOW' };
+  return { predictedMs, daysUntil, cycleDays, confidence: totalJobs >= 3 ? 'MEDIUM' : 'LOW' };
 }
 
 function renderPredictions(c) {
@@ -653,19 +677,36 @@ function goBack(){
 }
 
 // ── Tier ─────────────────────────────────────────────────────────────────────
-function getTier(c){
-  if(c.optOut)    return{label:'OPT-OUT',  color:'#dc2626'};
-  if(c.movedAway) return{label:'MOVED',    color:'#64748b'};
-  if(!c.lastService)return{label:'NO HISTORY',color:'#94a3b8'};
-  const mo=monthsAgo(c.lastService+'T12:00:00');
-  if(c.hasSealHistory&&mo>=6&&mo<=36) return{label:'VIP SEAL', color:'#7c3aed'};
-  if(mo<=3)  return{label:'HOT',       color:'#dc2626'};
-  if(mo<=6)  return{label:'WARM',      color:'#f97316'};
-  if(mo<=12) return{label:'SLEEPING',  color:'#eab308'};
-  if(mo<=18) return{label:'COLD',      color:'#3b82f6'};
-  if(mo<=24) return{label:'DORMANT',   color:'#6366f1'};
-  if(mo<=36) return{label:'VERY COLD', color:'#8b5cf6'};
-  return      {label:'ANCIENT',        color:'#94a3b8'};
+function getTier(c) {
+  if (c.optOut)    return { label: 'OPT-OUT', emoji: '⛔', color: '#dc2626', vip: false };
+  if (c.movedAway) return { label: 'MOVED',   emoji: '🏠', color: '#64748b', vip: false };
+
+  const { totalJobs, lifetimeSpend, lastService } = getEffectiveStats(c);
+  const vip = totalJobs >= 5 || lifetimeSpend >= 2500;
+
+  const ss = c.scheduledStatus || {};
+  if (ss.state === 'scheduled' || ss.state === 'needs_scheduling') {
+    return { label: 'SCHEDULED', emoji: '📋', color: '#2563eb', vip };
+  }
+
+  if (!lastService && totalJobs === 0) {
+    return { label: 'NO HISTORY', emoji: '○', color: '#94a3b8', vip: false };
+  }
+
+  const mo = monthsAgo(lastService);
+  if (mo === null) return { label: 'NO HISTORY', emoji: '○', color: '#94a3b8', vip: false };
+
+  const isRepeat = totalJobs >= 2;
+  const { lo, hi } = getRebookWindow(c);
+  const inWindow   = mo >= lo && mo <= hi;
+  const overdue    = mo > hi;
+
+  if (inWindow && isRepeat)  return { label: 'HOT',      emoji: '🔥', color: '#dc2626', vip };
+  if (inWindow && !isRepeat) return { label: 'WARM',     emoji: '🌡️', color: '#f97316', vip };
+  if (overdue)               return { label: 'OVERDUE',  emoji: '⏰', color: '#eab308', vip };
+  if (isRepeat && mo <= 6)   return { label: 'LOYAL',    emoji: '💚', color: '#16a34a', vip };
+  if (!isRepeat && mo <= 6)  return { label: 'NEW',      emoji: '🌱', color: '#10b981', vip };
+  return                            { label: 'DORMANT',  emoji: '💤', color: '#8b5cf6', vip };
 }
 
 // ── Health Score ──────────────────────────────────────────────────────────────
@@ -698,10 +739,11 @@ function buildTimeline(customer, events){
   if(ss.scheduledDate&&ss.state==='scheduled') entries.push({date:ss.scheduledDate,type:'job',icon:'📅',title:'Job Scheduled',  details:[{label:'Service',val:ss.jobNotes||'—'},{label:'Amount',val:ss.approvedAmount?'$'+ss.approvedAmount:'—'}]});
   if(ss.scheduledDate&&ss.state==='completed') entries.push({date:ss.scheduledDate,type:'job',icon:'🛠️',title:'Job Completed', details:[{label:'Service',val:ss.jobNotes||'—'},{label:'Total',val:ss.approvedAmount?'$'+ss.approvedAmount:'—'}]});
 
-  if(customer.lastService&&!(ss.scheduledDate===customer.lastService&&ss.state==='completed')){
-    entries.push({date:customer.lastService+'T12:00:00',type:'job',icon:'🛠️',title:'Most Recent Job',
-      note:customer.totalJobs>1?`${customer.totalJobs} total jobs, $${(customer.lifetimeSpend||0).toLocaleString()} lifetime`:null,
-      details:[{label:'Lifetime Spend',val:'$'+(customer.lifetimeSpend||0).toLocaleString()},{label:'Total Jobs',val:String(customer.totalJobs||1)}]});
+  const _effStats = getEffectiveStats(customer);
+  if(_effStats.lastService&&!(ss.scheduledDate===_effStats.lastService&&ss.state==='completed')){
+    entries.push({date:_effStats.lastService+'T12:00:00',type:'job',icon:'🛠️',title:'Most Recent Job',
+      note:_effStats.totalJobs>1?`${_effStats.totalJobs} total jobs, $${_effStats.lifetimeSpend.toLocaleString()} lifetime`:null,
+      details:[{label:'Lifetime Spend',val:'$'+_effStats.lifetimeSpend.toLocaleString()},{label:'Total Jobs',val:String(_effStats.totalJobs||1)}]});
   }
 
   events.filter(e=>e.customer?.ph===ph).forEach(e=>{
@@ -798,9 +840,8 @@ function getCustomerSinceYear(c) {
 }
 
 function getRelationshipBadge(c) {
-  const spend  = c.lifetimeSpend || 0;
-  const jobs   = c.totalJobs    || 0;
-  if (jobs === 0 && !c.lastService)
+  const { totalJobs: jobs, lifetimeSpend: spend, lastService } = getEffectiveStats(c);
+  if (jobs === 0 && !lastService)
     return { emoji:'🌟', label:'NEW',   style:'background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;' };
   if (spend >= 5000)
     return { emoji:'💎', label:'VIP',   style:'background:#f5f3ff;color:#6d28d9;border:1.5px solid #c4b5fd;' };
@@ -813,14 +854,15 @@ function getRelationshipBadge(c) {
 
 function renderHeroBanner(c) {
   const badge    = getRelationshipBadge(c);
+  const tier     = getTier(c);
   const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).trim() || 'Unknown Customer';
   const sinceYr  = getCustomerSinceYear(c);
   const curYr    = new Date().getFullYear();
   const yrsCount = sinceYr ? curYr - sinceYr : 0;
   const sinceStr = sinceYr ? `${sinceYr}${yrsCount > 0 ? ` (${yrsCount} yr)` : ' (this year)'}` : '—';
-  const spend    = c.lifetimeSpend || 0;
-  const jobs     = c.totalJobs    || 0;
-  const isNew    = jobs === 0 && !c.lastService;
+
+  const { totalJobs: jobs, lifetimeSpend: spend, lastService: effLastSvc } = getEffectiveStats(c);
+  const isNew = jobs === 0 && !effLastSvc;
 
   // Address line
   let addrHtml = '';
@@ -861,8 +903,8 @@ function renderHeroBanner(c) {
   let svcSummaryHtml = '';
   if (isNew) {
     svcSummaryHtml = `<div class="hero-new-msg">🌱 New customer — welcome to Pure Cleaning!</div>`;
-  } else if (c.lastService) {
-    const moVal   = monthsAgo(c.lastService + 'T12:00:00');
+  } else if (effLastSvc) {
+    const moVal   = monthsAgo(effLastSvc);
     const ss      = c.scheduledStatus || {};
     const qs      = c.quoteStatus    || {};
     const svcDesc = ss.jobNotes || qs.mainServices || '';
@@ -872,10 +914,14 @@ function renderHeroBanner(c) {
     svcSummaryHtml = `<div class="hero-last-svc">🕐 Last service: <strong>${moAgoLabel(Math.round(moVal))}</strong>${descPart}</div>`;
   }
 
+  // Tier chip inline with name
+  const tierChip = `<span class="tier-chip" style="--tier-color:${tier.color};font-size:13px;vertical-align:middle;margin-left:10px;">${tier.emoji} ${tier.label}${tier.vip?' ★':''}</span>`;
+
   // Action buttons
   const actionsHtml = [
     `<a class="action-btn action-btn-call" href="tel:+1${c.phone}">📞 Call</a>`,
     `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
+    `<a class="action-btn" style="background:#1d9e75;color:#fff;" href="/pure_cleaning_calendar.html?phone=${encodeURIComponent(c.phone)}" target="_blank">📋 Schedule Job</a>`,
     `<a class="action-btn" style="background:#0a1628;color:#f4a620;" href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" target="_blank">✨ Build Quote</a>`,
     `<a class="action-btn" style="background:#1d4ed8;color:#fff;" href="/pure_cleaning_bulk_reactivation.html" target="_blank">📤 Reactivation</a>`,
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Note</button>`,
@@ -886,7 +932,7 @@ function renderHeroBanner(c) {
 
   document.getElementById('heroBanner').innerHTML = `
     ${badge?`<div class="hero-badge" style="${badge.style}">${badge.emoji} ${badge.label}</div>`:''}
-    <div class="hero-name">${esc(fullName)}</div>
+    <div class="hero-name">${esc(fullName)}${tierChip}</div>
     ${addrHtml}${contactHtml}
     <div class="hero-divider"></div>
     ${statsHtml}
@@ -898,87 +944,105 @@ function renderHeroBanner(c) {
 function renderServiceHistory(c) {
   const el = document.getElementById('serviceHistorySection');
   if (!el) return;
+
+  const { totalJobs } = getEffectiveStats(c);
+  const jh = (c.jobHistory || []).slice().sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
   const ss = c.scheduledStatus || {};
   const qs = c.quoteStatus    || {};
+
+  const STATUS_LABEL = { scheduled:'Scheduled', completed:'Completed', canceled:'Canceled', no_show:'No Show', needs_scheduling:'Unscheduled' };
+  const STATUS_CSS   = { scheduled:'svc-status-scheduled', completed:'svc-status-completed', canceled:'svc-status-canceled', no_show:'svc-status-canceled', needs_scheduling:'svc-status-scheduled' };
+
   const entries = [];
 
-  // Scheduled upcoming job
-  if (ss.scheduledDate && ss.state === 'scheduled') {
-    const d = new Date(ss.scheduledDate + 'T12:00:00');
+  // Pinned scheduled / unscheduled job at top (from scheduledStatus)
+  if (ss.state === 'scheduled' || ss.state === 'needs_scheduling') {
     entries.push({
-      date: d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
+      displayDate: ss.scheduledDate
+        ? new Date(ss.scheduledDate + 'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+        : 'Date TBD',
       services: ss.jobNotes || qs.mainServices || 'Services TBD',
-      amount: ss.approvedAmount ? '$'+Number(ss.approvedAmount).toLocaleString() : null,
-      status: 'scheduled', icon: '📅', iconBg: '#eff6ff',
-      payment: null
+      amount:   ss.approvedAmount ? '$'+Number(ss.approvedAmount).toLocaleString() : null,
+      address:  c.address || null,
+      payment:  null,
+      sqFt:     null,
+      status:   ss.state,
+      icon:     '📅', iconBg: '#eff6ff',
     });
   }
 
-  // Completed job from scheduledStatus
-  if (ss.scheduledDate && ss.state === 'completed') {
-    const d = new Date(ss.scheduledDate + 'T12:00:00');
+  // jobHistory entries (newest first after sort above)
+  jh.forEach(j => {
+    const isUpcoming = j.status === 'scheduled' || j.status === 'needs_scheduling';
     entries.push({
-      date: d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
-      services: ss.jobNotes || qs.mainServices || '—',
-      amount: ss.approvedAmount ? '$'+Number(ss.approvedAmount).toLocaleString() : null,
-      status: 'completed', icon: '✅', iconBg: '#f0fdf4',
-      payment: (c.paymentInfo||{}).method || null
+      displayDate: j.date
+        ? new Date(j.date + 'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+        : '—',
+      services: j.services || '—',
+      amount:   j.amount ? '$'+Number(j.amount).toLocaleString() : null,
+      address:  j.address || null,
+      payment:  j.payment || null,
+      sqFt:     j.sqFt   || null,
+      status:   j.status || 'completed',
+      icon:     isUpcoming ? '📅' : '✅',
+      iconBg:   isUpcoming ? '#eff6ff' : '#f0fdf4',
     });
-  }
+  });
 
-  // Historical last service (if not duplicated by scheduledStatus)
-  if (c.lastService && ss.scheduledDate !== c.lastService) {
-    const d = new Date(c.lastService + 'T12:00:00');
-    const svcStr = qs.mainServices || ss.jobNotes || '—';
-    const amtVal = qs.mainAmount || ss.approvedAmount || null;
-    entries.push({
-      date: d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}),
-      services: svcStr,
-      amount: amtVal ? '$'+Number(amtVal).toLocaleString() : null,
-      status: 'completed', icon: '🛠️', iconBg: '#f0fdf4',
-      payment: null
-    });
-  }
+  const legacyMore = totalJobs - jh.length;
 
-  const STATUS_LABEL = { scheduled:'Scheduled', completed:'Completed' };
-  const STATUS_CSS   = { scheduled:'svc-status-scheduled', completed:'svc-status-completed' };
-
-  if (!entries.length && (c.totalJobs||0) === 0) {
+  if (!entries.length && totalJobs === 0) {
     el.innerHTML = `<div class="svc-history-panel">
       <div style="padding:14px 16px;border-bottom:1.5px solid var(--border);font-size:15px;font-weight:800;color:var(--navy);">Service History</div>
       <div class="svc-history-empty">No services on record yet.</div>
     </div>`;
     return;
   }
-  if (!entries.length) { el.innerHTML=''; return; }
 
-  const shownCompleted = entries.filter(e=>e.status==='completed').length;
-  const moreCount = Math.max(0, (c.totalJobs||0) - shownCompleted);
-  const moreHtml = moreCount > 0
-    ? `<div class="svc-history-more">… and ${moreCount} more job${moreCount>1?'s':''} in history</div>` : '';
+  const moreHtml = legacyMore > 0
+    ? `<div class="svc-history-more">… and ${legacyMore} more job${legacyMore>1?'s':''} in historical records</div>` : '';
 
   el.innerHTML = `<div class="svc-history-panel">
     <div style="padding:14px 16px;border-bottom:1.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
       <div style="font-size:15px;font-weight:800;color:var(--navy);">Service History</div>
-      ${(c.totalJobs||0)>0?`<div style="font-size:12px;color:var(--muted);">${c.totalJobs} total job${c.totalJobs>1?'s':''}</div>`:''}
+      ${totalJobs>0?`<div style="font-size:12px;color:var(--muted);">${totalJobs} total job${totalJobs>1?'s':''}</div>`:''}
     </div>
-    ${entries.map(e=>`
-      <div class="svc-entry">
+    ${entries.map((e, i) => {
+      const truncated = e.services.length > 60 ? e.services.slice(0,57)+'…' : e.services;
+      const hasMore   = e.services.length > 60 || e.address || e.payment || e.sqFt;
+      return `
+      <div class="svc-entry"${hasMore?` style="cursor:pointer;" onclick="toggleSvcEntry(${i})"`:''}>
         <div class="svc-entry-icon" style="background:${e.iconBg};">${e.icon}</div>
         <div class="svc-entry-body">
           <div class="svc-entry-top">
-            <span class="svc-entry-date">${esc(e.date)}</span>
+            <span class="svc-entry-date">${esc(e.displayDate)}</span>
             ${e.amount?`<span class="svc-entry-amount">${esc(e.amount)}</span>`:''}
           </div>
           <div class="svc-entry-services">
-            ${esc(e.services)}
+            ${esc(truncated)}
             <span class="svc-status ${STATUS_CSS[e.status]||''}">${STATUS_LABEL[e.status]||e.status}</span>
           </div>
-          ${e.payment?`<div class="svc-entry-meta">Paid via ${esc(e.payment)}</div>`:''}
+          <div id="svc-expand-${i}" style="display:none;">
+            ${e.services.length > 60?`<div style="font-size:13px;color:var(--text);margin-top:5px;line-height:1.5;">${esc(e.services)}</div>`:''}
+            ${e.address?`<div class="svc-entry-meta">📍 ${esc(e.address)}</div>`:''}
+            ${e.payment?`<div class="svc-entry-meta">💳 ${esc(e.payment)}</div>`:''}
+            ${e.sqFt?`<div class="svc-entry-meta">📐 ${Number(e.sqFt).toLocaleString()} sq ft</div>`:''}
+          </div>
+          ${hasMore?`<div id="svc-chevron-${i}" style="font-size:11px;color:var(--sky);margin-top:3px;">▼ details</div>`:''}
         </div>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
     ${moreHtml}
   </div>`;
+}
+
+function toggleSvcEntry(i) {
+  const expand  = document.getElementById(`svc-expand-${i}`);
+  const chevron = document.getElementById(`svc-chevron-${i}`);
+  if (!expand) return;
+  const open = expand.style.display !== 'none';
+  expand.style.display  = open ? 'none' : 'block';
+  if (chevron) chevron.textContent = open ? '▼ details' : '▲ hide';
 }
 
 function renderContextBlocks(c) {
@@ -987,13 +1051,14 @@ function renderContextBlocks(c) {
   const blocks = [];
   const now = new Date();
   const fn  = c.firstName || 'This customer';
+  const { totalJobs: effJobs, lifetimeSpend: effSpend, lastService: effLastSvc } = getEffectiveStats(c);
 
   // ── Reactivation ──
-  if (c.lastService && !c.optOut && !c.movedAway) {
+  if (effLastSvc && !c.optOut && !c.movedAway) {
     const qs = c.quoteStatus || {};
     const mainSvc = (qs.mainServices || (c.scheduledStatus||{}).jobNotes || '').toLowerCase();
     const intervalMonths = /roof/.test(mainSvc) ? 18 : 6;
-    const dueMs = new Date(c.lastService+'T12:00:00').getTime() + intervalMonths*30*24*60*60*1000;
+    const dueMs = new Date(effLastSvc+'T12:00:00').getTime() + intervalMonths*30*24*60*60*1000;
     const monthsUntil = Math.round((dueMs - now.getTime())/(30*24*60*60*1000));
     if (monthsUntil <= 2) {
       const dueDateStr = new Date(dueMs).toLocaleDateString('en-US',{month:'long',year:'numeric'});
@@ -1007,17 +1072,17 @@ function renderContextBlocks(c) {
   }
 
   // ── Sealing Opportunity ──
-  if ((c.totalJobs||0) >= 3 && !c.hasSealHistory && !c.sealingInterest && !c.optOut) {
-    const smsBody = `Hi ${fn}! After ${c.totalJobs} cleanings with us, your surfaces are in great shape for sealing — it locks in that clean look and protects against stains. Want Tony to give you a quick quote when he's next out there?\n\n— Pure Cleaning\n954-389-2642`;
+  if (effJobs >= 3 && !c.hasSealHistory && !c.sealingInterest && !c.optOut) {
+    const smsBody = `Hi ${fn}! After ${effJobs} cleanings with us, your surfaces are in great shape for sealing — it locks in that clean look and protects against stains. Want Tony to give you a quick quote when he's next out there?\n\n— Pure Cleaning\n954-389-2642`;
     blocks.push({ cls:'ctx-block-purple', icon:'💡', title:'Sealing Opportunity',
-      text:`${esc(fn)} has had ${c.totalJobs} surface cleanings but never sealing. Likely high-interest.`,
+      text:`${esc(fn)} has had ${effJobs} surface cleanings but never sealing. Likely high-interest.`,
       btnCls:'ctx-btn-purple', btnLabel:'Send sealing pitch text →',
       btnHref:`sms:+1${c.phone}?&body=${encodeURIComponent(smsBody)}` });
   }
 
   // ── Referral Potential ──
-  if (((c.lifetimeSpend||0) >= 5000 || (c.totalJobs||0) >= 5) && !c.optOut) {
-    const spendStr = (c.lifetimeSpend||0) >= 5000 ? `$${(c.lifetimeSpend||0).toLocaleString()} lifetime` : `${c.totalJobs} jobs`;
+  if ((effSpend >= 5000 || effJobs >= 5) && !c.optOut) {
+    const spendStr = effSpend >= 5000 ? `$${effSpend.toLocaleString()} lifetime` : `${effJobs} jobs`;
     const smsBody = `Hi ${fn}, it's Tony at Pure Cleaning! We really value your loyalty. If you know anyone who could use our services, we'd love the referral! And if you haven't left us a Google review, it would mean the world:\nhttps://g.page/r/pure-cleaning-review\n\nThank you!\n— Tony & the Pure Cleaning family\n954-389-2642`;
     blocks.push({ cls:'ctx-block-gold', icon:'🌟', title:'Referral Opportunity',
       text:`${esc(fn)} is a top customer (${spendStr}). Worth asking for a referral or Google review.`,
@@ -1047,6 +1112,31 @@ function renderContextBlocks(c) {
     </div>`).join('');
 }
 
+// ── Customer Insights collapsible ────────────────────────────────────────────
+let _insightsExpanded = false;
+
+function _renderInsightsPanel(el, c) {
+  el.innerHTML = `
+    <div style="background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;margin-top:8px;margin-bottom:4px;">
+      <div style="padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;-webkit-tap-highlight-color:transparent;user-select:none;"
+           onclick="toggleInsights()">
+        <div style="font-size:14px;font-weight:700;color:var(--navy);">🔍 Customer Insights</div>
+        <span style="font-size:14px;color:var(--muted);" id="insightsChevron">${_insightsExpanded ? '▲' : '▼'}</span>
+      </div>
+      <div id="insightsBody" style="display:${_insightsExpanded ? 'block' : 'none'};padding:0 16px 12px;">
+        ${renderPredictions(c)}
+      </div>
+    </div>`;
+}
+
+function toggleInsights() {
+  _insightsExpanded = !_insightsExpanded;
+  const body = document.getElementById('insightsBody');
+  const chev = document.getElementById('insightsChevron');
+  if (body) body.style.display = _insightsExpanded ? 'block' : 'none';
+  if (chev) chev.textContent = _insightsExpanded ? '▲' : '▼';
+}
+
 // ── Render Page ───────────────────────────────────────────────────────────────
 function renderProfile(customer, events){
   const c=customer;
@@ -1054,17 +1144,18 @@ function renderProfile(customer, events){
   _allEvents=events;
 
   // ── Hero ──
-  const mo=monthsAgo(c.lastService?(c.lastService+'T12:00:00'):null);
   renderHeroBanner(c);
   document.title=`${((c.firstName||'')+ ' '+(c.lastName||'')).trim()} — Pure Cleaning`;
 
-  // ── Stats (secondary bar — lifetime/jobs now in hero) ──
-  const tier=getTier(c);
-  const avgTicket=(c.totalJobs&&c.lifetimeSpend)?Math.round(c.lifetimeSpend/c.totalJobs):0;
+  // ── Stats (secondary bar) ──
+  const tier = getTier(c);
+  const { totalJobs: effJobs, lifetimeSpend: effSpend, lastService: effLastSvc } = getEffectiveStats(c);
+  const mo = monthsAgo(effLastSvc);
+  const avgTicket = (effJobs && effSpend) ? Math.round(effSpend / effJobs) : 0;
   const statsData=[
     {label:'Avg Ticket',   val:avgTicket?'$'+avgTicket.toLocaleString():'—',                               color:'#1d9e75'},
-    {label:'Last Service', val:mo!==null?moAgoLabel(mo):(c.lastService?fmtDate(c.lastService):'—'),        color:'#d97706'},
-    {label:'Tier',         val:`<span class="tier-chip" style="--tier-color:${tier.color};">${tier.label}</span>`, color:tier.color},
+    {label:'Last Service', val:mo!==null?moAgoLabel(mo):(effLastSvc?fmtDate(effLastSvc):'—'),              color:'#d97706'},
+    {label:'Tier',         val:`<span class="tier-chip" style="--tier-color:${tier.color};">${tier.emoji} ${tier.label}${tier.vip?' ★':''}</span>`, color:tier.color},
   ];
   document.getElementById('statsBar').innerHTML=statsData.map(s=>
     `<div class="stat-cell" style="--cell-color:${s.color};">
@@ -1104,7 +1195,7 @@ function renderProfile(customer, events){
   if(mo!==null&&mo>12) callouts.push({cls:'callout-red',   text:`🔴 At-risk — last service was ${Math.round(mo)} months ago`});
   if(c.hasSealHistory&&mo!==null&&mo>=18&&mo<=36) callouts.push({cls:'callout-purple',text:'💎 VIP Seal renewal window — Tony should quote'});
   if(c.sealingInterest) callouts.push({cls:'callout-purple',text:'💎 Signaled sealing interest — bring samples to next job'});
-  if((c.lifetimeSpend||0)>=1500) callouts.push({cls:'callout-green', text:'🎯 High-value customer — top tier'});
+  if(effSpend>=1500) callouts.push({cls:'callout-green', text:'🎯 High-value customer — top tier'});
   const qs=c.quoteStatus||{};
   if(qs.state==='phone_quoted_pending_mini_quote') callouts.push({cls:'callout-amber', text:'📋 Mini quote not built yet — build before texting'});
   (c.alerts||[]).forEach(a=>callouts.push({cls:'callout-blue', text:`🔔 ${esc(a.label||a)}`}));
@@ -1140,16 +1231,16 @@ function renderProfile(customer, events){
     cmptSection.innerHTML = '';
   }
 
-  // ── Predictions Row (Phase 4) ──
-  let predRow = document.getElementById('predictionsRow');
-  if (!predRow) {
-    predRow = document.createElement('div');
-    predRow.id = 'predictionsRow';
-    predRow.style.cssText = 'max-width:1100px;margin:0 auto;padding:0 16px;';
+  // ── Customer Insights (collapsible) ──
+  let insightsPanel = document.getElementById('customerInsightsPanel');
+  if (!insightsPanel) {
+    insightsPanel = document.createElement('div');
+    insightsPanel.id = 'customerInsightsPanel';
+    insightsPanel.style.cssText = 'max-width:1100px;margin:0 auto;padding:0 16px;';
     const calloutsEl = document.getElementById('callouts');
-    calloutsEl.parentNode.insertBefore(predRow, calloutsEl.nextSibling);
+    calloutsEl.parentNode.insertBefore(insightsPanel, calloutsEl.nextSibling);
   }
-  predRow.innerHTML = renderPredictions(c);
+  _renderInsightsPanel(insightsPanel, c);
 
   // ── Property Measurements (Phase 1) ──
   renderPropertyMeasurements(c);
