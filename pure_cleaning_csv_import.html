@@ -617,6 +617,7 @@ async function executeImport() {
     setProgress(25, 'Loading current database…');
     const dbRes = await fetch(`${PCPC_API}/customers`);
     const db = await dbRes.json();
+    const preCount = (db.customers||[]).length;
     const byPhone = {};
     (db.customers||[]).forEach(c => {
       const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
@@ -771,10 +772,14 @@ async function executeImport() {
     if (!putRes.ok) throw new Error('Database save failed: ' + putRes.status);
     sessionStorage.removeItem('pcpc_customer_db_cache');
 
-    // Step 5: Verify Keith Wolf
+    // Step 5: Verify by count (primary) + Keith Wolf (secondary)
     setProgress(90, 'Verifying data integrity…');
-    const verRes = await fetch(`${PCPC_API}/customers`);
+    const verRes = await fetch(`${PCPC_API}/customers?_t=${Date.now()}`);
     const verDb  = await verRes.json();
+    const postCount = (verDb.customers||[]).length;
+    if (postCount - preCount !== newCustomers) {
+      throw new Error(`⚠ Import may have failed. Expected ${newCustomers} new customer${newCustomers !== 1 ? 's' : ''}, found ${postCount - preCount} (${preCount} → ${postCount}). Backup key: ${snap.key}. Please retry or contact support.`);
+    }
     const keith  = (verDb.customers||[]).find(c => (c.phone||'').replace(/\D/g,'') === PROTECTED_PHONE);
     const keithOk = keith && keith.scheduledStatus?.state === 'scheduled' && keith.scheduledStatus?.scheduledDate === '2026-05-06' && (keith.scheduledStatus?.approvedAmount||0) === 375;
 
@@ -797,13 +802,14 @@ async function executeImport() {
 
     document.getElementById('importResult').innerHTML = `
       <div class="alert alert-ok" style="margin-top:1rem;">
-        <strong>✓ Import complete!</strong><br>
+        <strong>✓ Import complete — KV verified</strong><br>
         ${completedImported} completed job${completedImported !== 1 ? 's' : ''} · ${scheduledImported} scheduled (added to queue) · ${newCustomers} new customer${newCustomers !== 1 ? 's' : ''}<br>
         ${reviewQueued > 0 ? `📝 ${reviewQueued} customer${reviewQueued !== 1 ? 's' : ''} added to review request queue (4-day alert)<br>` : ''}
         ${skipped} row${skipped !== 1 ? 's' : ''} skipped (duplicates + phantoms + review-skipped)<br>
+        ✓ KV count: ${preCount} → ${postCount} customers (+${postCount - preCount})<br>
         Backup key: <code style="font-size:11px;color:var(--muted);">${esc(snap.key)}</code>
       </div>
-      ${keithOk ? `<div class="alert alert-ok">✓ Keith Wolf verified intact — Weston · May 6 · $375 · scheduled</div>` : `<div class="alert alert-err">⚠ Keith Wolf check: status may need manual verification</div>`}
+      ${keithOk ? `<div class="alert alert-ok">✓ Keith Wolf verified intact — Weston · May 6 · $375 · scheduled</div>` : `<div class="alert alert-warn">⚠ Keith Wolf check: status may need manual verification</div>`}
       <div style="display:flex;gap:10px;margin-top:1rem;flex-wrap:wrap;">
         <a href="/pure_cleaning_customer_directory.html" class="btn btn-primary">View Customer Directory →</a>
         <a href="/pure_cleaning_admin.html" class="btn btn-secondary">← Admin Hub</a>
