@@ -2538,8 +2538,10 @@ function _doCompleteJob(log) {
   const _captureDate     = ss.completedDate;
   const _captureServices = ss.jobNotes || '';
 
-  // Add to review queue — notification fires after 4 days
-  c.reviewQueue = { queuedAt: new Date().toISOString(), status: 'pending', jobDate: completedDate };
+  // Add to review queue only for jobs on or after 2026-05-01 — prevents historical imports from triggering
+  if (completedDate >= '2026-05-01') {
+    c.reviewQueue = { queuedAt: new Date().toISOString(), status: 'pending', jobDate: completedDate };
+  }
 
   saveDb().catch(()=>{});
   closeJobModal();

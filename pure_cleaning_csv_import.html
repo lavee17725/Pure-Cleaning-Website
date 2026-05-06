@@ -7,9 +7,9 @@
 <title>Pure Cleaning · CSV Import</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wpsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;}
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--terra:#c2410c;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;--input-bg:#fff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 .back-nav{background:var(--navy2);border-bottom:1px solid var(--border);padding:6px 1.25rem;}
 .back-nav a{color:var(--muted);text-decoration:none;font-size:12px;}
@@ -727,18 +727,20 @@ async function executeImport() {
         newCustomers++;
       }
 
-      // Review queue logic based on job age
+      // Review queue logic — only for jobs on or after 2026-05-01
       const cust = byPhone[ph];
-      const ageMs   = Date.now() - new Date(r.date + 'T12:00:00Z').getTime();
-      const ageDays = ageMs / 86400000;
-      if (ageDays >= 4 && ageDays <= 14) {
-        if (!cust.reviewQueue || cust.reviewQueue.status === 'pending') {
-          cust.reviewQueue = { queuedAt: r.date + 'T12:00:00Z', status: 'pending', jobDate: r.date };
-          reviewQueued++;
-        }
-      } else if (ageDays > 14) {
-        if (!cust.reviewQueue) {
-          cust.reviewQueue = { queuedAt: r.date + 'T12:00:00Z', status: 'window_closed', jobDate: r.date };
+      if (r.date >= '2026-05-01') {
+        const ageMs   = Date.now() - new Date(r.date + 'T12:00:00Z').getTime();
+        const ageDays = ageMs / 86400000;
+        if (ageDays >= 4 && ageDays <= 14) {
+          if (!cust.reviewQueue || cust.reviewQueue.status === 'pending') {
+            cust.reviewQueue = { queuedAt: r.date + 'T12:00:00Z', status: 'pending', jobDate: r.date };
+            reviewQueued++;
+          }
+        } else if (ageDays > 14) {
+          if (!cust.reviewQueue) {
+            cust.reviewQueue = { queuedAt: r.date + 'T12:00:00Z', status: 'window_closed', jobDate: r.date };
+          }
         }
       }
 
