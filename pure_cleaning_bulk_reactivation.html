@@ -547,18 +547,86 @@ function shortenUrl(longUrl) {
 // Tyler: set to your 10-digit phone number before first test run (digits only)
 const TEST_PHONE = '';
 
+// ═══════════════════════════════════════════════════
+// SEASONAL HOOKS — edit hooks here to update seasonal messaging
+// South Florida seasons:
+//   Pre-rainy  Apr 15 – May 31   → anticipate rainy season
+//   Rainy      Jun  1 – Aug 31   → mildew / damage angle
+//   Post-storm Sep  1 – Oct 15   → refresh / enjoy the weather
+//   Snowbird   Oct 16 – Dec 31   → holiday prep / guests
+//   Dry season Jan  1 – Apr 14   → results last longer
+// ═══════════════════════════════════════════════════
+function getSeasonalHook(date) {
+  const d = date || new Date();
+  const m = d.getMonth() + 1; // 1–12
+  const day = d.getDate();
+
+  if ((m === 4 && day >= 15) || m === 5)
+    return "figured I'd reach out before rainy season hits";
+  if (m >= 6 && m <= 8)
+    return "rainy season's been brutal on driveways and roofs";
+  if (m === 9 || (m === 10 && day <= 15))
+    return "clean off that summer mildew and enjoy the beautiful weather outside again";
+  if ((m === 10 && day >= 16) || m === 11 || m === 12)
+    return "good time to get the property looking sharp before holidays and guests";
+  // Jan 1 – Apr 14
+  return "dry season's perfect — results last longer with no rain";
+}
+
+// ── Template variable helpers ─────────────────────────────────────────────────
+
+function parseFirstName(fn) {
+  if (!fn) return null;
+  const cleaned = fn.replace(/\s*\(.*?\)/g, '').trim();
+  return cleaned.split(/\s*&\s*/)[0].split(/\s+/)[0] || null;
+}
+
+function buildTimeSince(dateObj) {
+  if (!dateObj) return null;
+  const days = Math.floor((Date.now() - dateObj.getTime()) / 86400000);
+  if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+  const months = Math.round(days / 30.4);
+  if (months < 24) return `${months} month${months !== 1 ? 's' : ''}`;
+  const years = Math.round(months / 12);
+  return `${years} year${years !== 1 ? 's' : ''}`;
+}
+
+function buildServiceDescription(jobHistory, quoteStatus, scheduledStatus) {
+  const jh = (jobHistory || []).slice().sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
+  const raw = jh[0]?.services ||
+    (quoteStatus || {}).mainServices ||
+    (scheduledStatus || {}).jobNotes || '';
+  const s = raw.toLowerCase();
+
+  if (!s) return null;
+  if (/seal/i.test(s)) return 'sealing job';
+
+  const hasRoof     = /\broof\b/i.test(s);
+  const hasDriveway = /driveway/i.test(s);
+  const hasPatio    = /patio/i.test(s);
+  const hasWalkway  = /walkway|sidewalk|entranceway/i.test(s);
+  const hasWalls    = /\bwall/i.test(s);
+  const hasSurface  = hasDriveway || hasPatio || hasWalkway;
+
+  if (hasRoof && hasSurface)          return 'exterior';
+  if (hasRoof)                        return 'roof';
+  if (hasSurface && hasWalls)         return 'exterior';
+  if (hasDriveway)                    return 'driveway';
+  if (hasWalls || hasPatio || hasWalkway) return 'exterior surfaces';
+  return null;
+}
+
 const ACTIVE_VARIANT = {
   label: 'B',
-  template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. I've been working on something to make booking easier for our customers and built a new way to send quotes. Many of you know me personally, so I figured I'd reach out and see what you think.
+  template: `Hi {firstName}, Tyler from Pure Cleaning. It's been about {timeSinceLastService} since we cleaned your {lastServiceDescription} — {seasonalHook}.
 
-Take a look — your info's already filled in:
+Try out our new quote system, your info's already filled in:
+{quoteLink}
 
-{link}
+Or call/text me at 954-389-2642 — happy to talk it through.
 
-Would love your honest feedback either way. And if you don't want to use the link but need our services, just give us a call at 954-389-2642 — always happy to hear from you.
-
-— Tyler (Pure Cleaning Family)
-Reply STOP to opt out.`
+— The Pure Cleaning Family
+Reply STOP to opt out`
 };
 
 /* HIDDEN_VARIANTS — stored for future activation, not currently sent
@@ -702,7 +770,9 @@ function customerToDbRecord(c) {
     alerts: c.alerts || [],
     optOut: c.optOut || null,
     movedAway: c.movedAway || null,
-    reactivationExcluded: c.reactivationExcluded || null
+    reactivationExcluded: c.reactivationExcluded || null,
+    jobHistory: c.jobHistory || [],
+    legacyStats: c.legacyStats || null,
   };
 }
 
@@ -731,6 +801,8 @@ function dbRecordToCustomer(r) {
     reactivationExcluded: r.reactivationExcluded || null,
     deleted: r.deleted || false,
     deletedAt: r.deletedAt || null,
+    jobHistory: r.jobHistory || [],
+    legacyStats: r.legacyStats || null,
   };
 }
 
@@ -1849,12 +1921,33 @@ function getNextVariant() {
   return ACTIVE_VARIANT; // always Variant B — to re-enable rotation, restore cycling logic here
 }
 
+function resolveTemplateVars(customer, link) {
+  const firstName      = parseFirstName(customer.fn) || 'there';
+  const timeSince      = buildTimeSince(customer.lastDateObj) || 'a while';
+  const svcDesc        = buildServiceDescription(customer.jobHistory, customer.quoteStatus, customer.scheduledStatus) || 'place';
+  const seasonalHook   = getSeasonalHook();
+  const months         = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  return { firstName, timeSince, svcDesc, seasonalHook, months, link };
+}
+
+function resolveTemplateFallbacks(customer) {
+  const missing = [];
+  if (!customer.lastDateObj) missing.push('last service date');
+  if (!parseFirstName(customer.fn)) missing.push('first name');
+  if (!buildServiceDescription(customer.jobHistory, customer.quoteStatus, customer.scheduledStatus)) missing.push('service description');
+  return missing;
+}
+
 function buildVariantBody(variant, customer, link) {
-  const months = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  const { firstName, timeSince, svcDesc, seasonalHook, months } = resolveTemplateVars(customer, link);
   return variant.template
-    .replace(/{firstName}/g, customer.fn || 'there')
-    .replace(/{months}/g, months)
-    .replace(/{link}/g, link);
+    .replace(/{firstName}/g, firstName)
+    .replace(/{timeSinceLastService}/g, timeSince)
+    .replace(/{lastServiceDescription}/g, svcDesc)
+    .replace(/{seasonalHook}/g, seasonalHook)
+    .replace(/{quoteLink}/g, link)
+    .replace(/{link}/g, link)
+    .replace(/{months}/g, months);
 }
 
 function showVariantToast(label) {
@@ -1901,9 +1994,15 @@ async function testSendToMe(phone) {
   const c = allCustomers.find(a => a.phone === phone);
   if (!c) return;
 
+  // Validation — warn if fallbacks will be used
+  const missing = resolveTemplateFallbacks(c);
+  if (missing.length) {
+    const ok = confirm(`⚠ This customer is missing: ${missing.join(', ')}.\nMessage will use safe fallbacks. Send anyway?`);
+    if (!ok) return;
+  }
+
   let code = c.linkCode;
   if (!code) {
-    // Generate a real link so the URL works, but don't stamp the customer record
     code = generateCode();
     const customerRecord = {
       fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
@@ -1918,7 +2017,7 @@ async function testSendToMe(phone) {
   const longUrl = `${QUOTE_BASE}?c=${code}&v=B_TEST`;
   const shortLink = shortenUrl(longUrl);
   const body = buildVariantBody(ACTIVE_VARIANT, c, shortLink);
-  const testBody = `[TEST — would have gone to ${c.fn}]\n\n${body}`;
+  const testBody = `[TEST — would have gone to ${parseFirstName(c.fn) || c.fn}]\n\n${body}`;
 
   // No customer record update, no event log, no cap counting
   window.location.href = `sms:${TEST_PHONE}&body=${encodeURIComponent(testBody)}`;
