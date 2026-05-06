@@ -179,28 +179,52 @@ function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10
 function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function moAgo(s){ if(!s)return null; const ms=(Date.now()-new Date(s.includes('T')?s:s+'T12:00:00').getTime()); const mo=ms/(1000*60*60*24*30); return mo; }
 
+const ROOF_RE=/\broof\b/i;
+function getEffectiveStats(c){
+  const jh=c.jobHistory||[];
+  if(jh.length>0){
+    const totalJobs=jh.length;
+    const lifetimeSpend=jh.reduce((s,j)=>s+(j.amount||0),0);
+    const lastService=jh.map(j=>j.date).filter(Boolean).sort().slice(-1)[0]||null;
+    return{totalJobs,lifetimeSpend,lastService};
+  }
+  return{totalJobs:c.totalJobs||0,lifetimeSpend:c.lifetimeSpend||0,lastService:c.lastService||null};
+}
+function getRebookWindow(c){
+  const jh=c.jobHistory||[];
+  const allSvc=[...jh.map(j=>j.services||''),(c.scheduledStatus||{}).jobNotes||'',(c.quoteStatus||{}).mainServices||''].join(' ');
+  return ROOF_RE.test(allSvc)?{lo:18,hi:36}:{lo:6,hi:18};
+}
 function getTier(c){
-  if(c.optOut)    return{label:'OPT-OUT',  color:'#dc2626'};
-  if(c.movedAway) return{label:'MOVED',    color:'#64748b'};
-  if(!c.lastService)return{label:'NO HIST',color:'#94a3b8'};
-  const mo=moAgo(c.lastService);
-  if(mo===null)return{label:'UNKNOWN',color:'#94a3b8'};
-  if((c.lifetimeSpend||0)>=5000)return{label:'VIP',color:'#7c3aed'};
-  if(mo<=6&&(c.totalJobs||0)>=3)return{label:'LOYAL',color:'#b45309'};
-  if(mo<=3)return{label:'HOT',color:'#dc2626'};
-  if(mo<=6)return{label:'WARM',color:'#f97316'};
-  if(mo<=12)return{label:'SLEEPING',color:'#eab308'};
-  if(mo<=18)return{label:'COLD',color:'#3b82f6'};
-  if(mo<=24)return{label:'DORMANT',color:'#6366f1'};
-  return{label:'ANCIENT',color:'#94a3b8'};
+  if(c.optOut)    return{label:'OPT-OUT', emoji:'⛔',color:'#dc2626',vip:false};
+  if(c.movedAway) return{label:'MOVED',   emoji:'🏠',color:'#64748b',vip:false};
+  const{totalJobs,lifetimeSpend,lastService}=getEffectiveStats(c);
+  const vip=totalJobs>=5||lifetimeSpend>=2500;
+  const ss=c.scheduledStatus||{};
+  if(ss.state==='scheduled'||ss.state==='needs_scheduling')
+    return{label:'SCHEDULED',emoji:'📋',color:'#2563eb',vip};
+  if(!lastService&&totalJobs===0)
+    return{label:'NO HISTORY',emoji:'○',color:'#94a3b8',vip:false};
+  const mo=moAgo(lastService);
+  if(mo===null)return{label:'NO HISTORY',emoji:'○',color:'#94a3b8',vip:false};
+  const isRepeat=totalJobs>=2;
+  const{lo,hi}=getRebookWindow(c);
+  const inWindow=mo>=lo&&mo<=hi;
+  const overdue=mo>hi;
+  if(inWindow&&isRepeat)  return{label:'HOT',      emoji:'🔥',color:'#dc2626',vip};
+  if(inWindow&&!isRepeat) return{label:'WARM',     emoji:'🌡️',color:'#f97316',vip};
+  if(overdue)             return{label:'OVERDUE',  emoji:'⏰',color:'#eab308',vip};
+  if(isRepeat&&mo<=6)     return{label:'LOYAL',    emoji:'💚',color:'#16a34a',vip};
+  if(!isRepeat&&mo<=6)    return{label:'NEW',      emoji:'🌱',color:'#10b981',vip};
+  return                         {label:'DORMANT',  emoji:'💤',color:'#8b5cf6',vip};
 }
 
 function isDueForReactivation(c){
-  if(!c.lastService)return false;
-  const mo=moAgo(c.lastService);
-  const qs=c.quoteStatus||{};
-  const isRoofCustomer=/(roof|softwash)/i.test(qs.mainServices||qs.notes||'');
-  return isRoofCustomer ? mo>18 : mo>6;
+  const{lastService}=getEffectiveStats(c);
+  if(!lastService)return false;
+  const mo=moAgo(lastService);
+  const{hi}=getRebookWindow(c);
+  return mo>hi;
 }
 
 function normCity(city){
@@ -237,6 +261,8 @@ async function init(){
         _name:((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase(),
         _tier:tier.label,
         _tierColor:tier.color,
+        _tierEmoji:tier.emoji||'',
+        _vip:tier.vip||false,
         _due:isDueForReactivation(c),
         _sealProspect:isSealingProspect(c),
         totalJobs:c.totalJobs||0,
@@ -259,24 +285,30 @@ async function init(){
 // ── Filter pills ──────────────────────────────────────────────────────────────
 function buildFilterPills(){
   const counts={
-    all: allCustomers.length,
-    vip: allCustomers.filter(c=>c._tier==='VIP').length,
-    loyal: allCustomers.filter(c=>c._tier==='LOYAL').length,
-    new_no_hist: allCustomers.filter(c=>c._tier==='NO HIST').length,
-    opted_out: allCustomers.filter(c=>!!c.optOut).length,
-    excluded: allCustomers.filter(c=>c.reactivationExcluded?.excluded).length,
-    due: allCustomers.filter(c=>c._due).length,
-    sealing_prospects: allCustomers.filter(c=>c._sealProspect).length,
+    all:        allCustomers.length,
+    scheduled:  allCustomers.filter(c=>c._tier==='SCHEDULED').length,
+    hot:        allCustomers.filter(c=>c._tier==='HOT').length,
+    warm:       allCustomers.filter(c=>c._tier==='WARM').length,
+    overdue:    allCustomers.filter(c=>c._tier==='OVERDUE').length,
+    vip:        allCustomers.filter(c=>c._vip).length,
+    loyal:      allCustomers.filter(c=>c._tier==='LOYAL').length,
+    new:        allCustomers.filter(c=>c._tier==='NEW').length,
+    no_history: allCustomers.filter(c=>c._tier==='NO HISTORY').length,
+    opted_out:  allCustomers.filter(c=>!!c.optOut).length,
+    excluded:   allCustomers.filter(c=>c.reactivationExcluded?.excluded).length,
   };
   const pills=[
-    {key:'all',     label:`All (${counts.all})`},
-    {key:'vip',     label:`⭐ VIP (${counts.vip})`},
-    {key:'loyal',   label:`💚 Loyal (${counts.loyal})`},
-    {key:'new_no_hist', label:`🆕 No History (${counts.new_no_hist})`},
-    {key:'due',     label:`⏰ Due for Reactivation (${counts.due})`},
-    {key:'sealing_prospects', label:`💎 Sealing Prospects (${counts.sealing_prospects})`},
-    {key:'opted_out',   label:`🚫 Opted Out (${counts.opted_out})`},
-    {key:'excluded',    label:`📵 Excluded (${counts.excluded})`},
+    {key:'all',        label:`All (${counts.all})`},
+    {key:'scheduled',  label:`📋 Scheduled (${counts.scheduled})`},
+    {key:'hot',        label:`🔥 Hot (${counts.hot})`},
+    {key:'warm',       label:`🌶️ Warm (${counts.warm})`},
+    {key:'overdue',    label:`⏰ Overdue (${counts.overdue})`},
+    {key:'vip',        label:`💎 VIP (${counts.vip})`},
+    {key:'loyal',      label:`💚 Loyal (${counts.loyal})`},
+    {key:'new',        label:`🆕 New (${counts.new})`},
+    {key:'no_history', label:`❄️ No History (${counts.no_history})`},
+    {key:'opted_out',  label:`🚫 Opted Out (${counts.opted_out})`},
+    {key:'excluded',   label:`🔴 Excluded (${counts.excluded})`},
   ];
   document.getElementById('filterRow').innerHTML=pills.map(p=>
     `<div class="filter-pill${activeFilters.has(p.key)?' active':''}" data-key="${p.key}" onclick="togglePill('${p.key}')">${p.label}</div>`
@@ -326,13 +358,16 @@ function applyAll(){
   // Filter pills
   if(!activeFilters.has('all')){
     data=data.filter(c=>{
-      if(activeFilters.has('vip')&&c._tier==='VIP')return true;
+      if(activeFilters.has('scheduled')&&c._tier==='SCHEDULED')return true;
+      if(activeFilters.has('hot')&&c._tier==='HOT')return true;
+      if(activeFilters.has('warm')&&c._tier==='WARM')return true;
+      if(activeFilters.has('overdue')&&c._tier==='OVERDUE')return true;
+      if(activeFilters.has('vip')&&c._vip)return true;
       if(activeFilters.has('loyal')&&c._tier==='LOYAL')return true;
-      if(activeFilters.has('new_no_hist')&&c._tier==='NO HIST')return true;
+      if(activeFilters.has('new')&&c._tier==='NEW')return true;
+      if(activeFilters.has('no_history')&&c._tier==='NO HISTORY')return true;
       if(activeFilters.has('opted_out')&&!!c.optOut)return true;
       if(activeFilters.has('excluded')&&c.reactivationExcluded?.excluded)return true;
-      if(activeFilters.has('due')&&c._due)return true;
-      if(activeFilters.has('sealing_prospects')&&c._sealProspect)return true;
       return false;
     });
   }
@@ -414,7 +449,9 @@ function loadMore(){
 function statusBadge(c){
   if(c.optOut)return'<span style="font-size:11px;font-weight:700;color:#dc2626;">🚫 Opted out</span>';
   if(c.reactivationExcluded?.excluded)return'<span style="font-size:11px;font-weight:700;color:#64748b;">📵 Excluded</span>';
-  if(c._due)return'<span style="font-size:11px;font-weight:700;color:#d97706;">⏰ Due</span>';
+  if(c._tier==='SCHEDULED')return'<span style="font-size:11px;font-weight:700;color:#2563eb;">📋 Scheduled</span>';
+  if(c._tier==='OVERDUE')return'<span style="font-size:11px;font-weight:700;color:#d97706;">⏰ Overdue</span>';
+  if(c._tier==='HOT')return'<span style="font-size:11px;font-weight:700;color:#dc2626;">🔥 Hot</span>';
   return'<span style="font-size:11px;color:var(--muted);">Active</span>';
 }
 
@@ -430,7 +467,7 @@ function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
   return `<tr onclick="navProfile('${ph}')">
     <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}</td>
-    <td><span class="tier-chip" style="background:${c._tierColor};">${c._tier}</span></td>
+    <td><span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span></td>
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
@@ -445,7 +482,7 @@ function buildCard(c){
   const name=((c.firstName||'')+' '+(c.lastName||'')).trim()||'Unknown';
   const spend=c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—';
   return `<div class="cust-card" onclick="navProfile('${ph}')">
-    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tier.slice(0,2)}</div>
+    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}</div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
