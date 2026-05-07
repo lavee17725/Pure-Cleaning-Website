@@ -89,6 +89,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .card-sms-btn:hover{text-decoration:underline;}
 .card-del-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:16px;line-height:1;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
 .card-del-btn:hover{color:#dc2626;background:#fee2e2;}
+.card-edit-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:15px;line-height:1;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
+.card-edit-btn:hover{color:var(--sky);background:#dbeafe;}
+.qe-win-btn{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;background:var(--white);color:var(--navy);transition:all .12s;-webkit-tap-highlight-color:transparent;}
+.qe-win-btn.active{background:var(--sky);color:#fff;border-color:var(--sky);}
 .test-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .phone-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .seal-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
@@ -932,6 +936,54 @@ body{background:#f0f2f5;}
       <button class="mbtn-cancel" onclick="closeEditModal()">Cancel</button>
       <button class="mbtn-save"  onclick="saveEditServices(false)">💾 Save</button>
       <button class="mbtn-green" onclick="saveEditServices(true)">💾 Save &amp; Notify</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUEUE EDIT MODAL -->
+<div class="overlay hidden" id="queueEditModal" onclick="if(event.target===this)closeQueueEditModal()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">✏️ Edit Job — <span id="queueEditName" style="color:var(--sky);"></span></div>
+    <div class="modal-field">
+      <label>Services</label>
+      <textarea id="queueEditServices" class="modal-input" rows="2" placeholder="Roof Softwash, Driveway, Walls..." style="resize:vertical;"></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Total Price</label>
+      <div style="position:relative;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
+        <input type="number" id="queueEditPrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Target Date <span style="color:var(--muted);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0;">(optional — only if customer agreed verbally)</span></label>
+      <input type="date" id="queueEditDate" class="modal-input">
+    </div>
+    <div class="modal-field">
+      <label>Time Window</label>
+      <div id="queueEditWinRow" style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" class="qe-win-btn" data-win="morning" onclick="selectQueueEditWin('morning',this)">🌅 Morning</button>
+        <button type="button" class="qe-win-btn" data-win="early_afternoon" onclick="selectQueueEditWin('early_afternoon',this)">☀️ Early Afternoon</button>
+        <button type="button" class="qe-win-btn" data-win="late_afternoon" onclick="selectQueueEditWin('late_afternoon',this)">🌇 Late Afternoon</button>
+        <button type="button" class="qe-win-btn" data-win="" onclick="selectQueueEditWin('',this)">— Unscheduled</button>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Rig</label>
+      <select id="queueEditRig" class="modal-input">
+        <option value="">— Unassigned</option>
+        <option value="rig_1">Old Tacoma</option>
+        <option value="rig_2">New Tacoma</option>
+        <option value="rig_3">Chevy</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Notes</label>
+      <textarea id="queueEditNotes" class="modal-input" rows="2" placeholder="Internal notes..." style="resize:vertical;"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeQueueEditModal()">Cancel</button>
+      <button class="mbtn-save" onclick="saveQueueEdit()">💾 Save</button>
     </div>
   </div>
 </div>
@@ -1871,10 +1923,22 @@ function jobCardSidebar(c) {
     ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
     : '';
 
+  const _hasTargetDate = ss.scheduledDate && ss.state !== 'scheduled';
+  const _targetDateFmt = _hasTargetDate
+    ? esc(new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))
+    : null;
+  const schedBtnHtml = _hasTargetDate
+    ? `<button class="sched-primary-btn" style="background:var(--green);" onclick="event.stopPropagation();quickScheduleFromQueue('${c.phone}')">📅 Schedule for ${_targetDateFmt}</button>
+       <span class="card-sms-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')" style="text-align:center;padding-top:3px;">Change date</span>`
+    : `<button class="sched-primary-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')">📅 Schedule for a Day</button>`;
+
   return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
     <div class="jcard-top">
       <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${name}</a>${alerts}</div>
-      <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
+      <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+        <button class="card-edit-btn" onclick="event.stopPropagation();openQueueEditModal('${c.phone}')" title="Edit job details">✏️</button>
+        <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
+      </div>
     </div>
     ${badgesHtml}
     <div class="jcard-price">${amtHtml}</div>
@@ -1883,7 +1947,7 @@ function jobCardSidebar(c) {
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${addOnsLine}
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
-    <button class="sched-primary-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')">📅 Schedule for a Day</button>
+    ${schedBtnHtml}
     <div class="drag-hint-subtle">or drag to calendar week view</div>
     ${ss.source === 'csv_import' ? `<div class="jd" style="font-size:10px;color:var(--muted);">📥 from CSV import</div>` : ss.source === 'verbal_agreement' ? `<div class="jd" style="font-size:10px;color:var(--muted);">🖊 verbal agreement</div>` : ''}
     ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
@@ -2433,7 +2497,7 @@ function initSortables() {
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
-      filter: '.card-del-btn,.card-sms-btn',
+      filter: '.card-del-btn,.card-sms-btn,.card-edit-btn',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToSidebar(evt.item.dataset.phone, evt)
@@ -4148,6 +4212,8 @@ async function saveAddUnscheduled() {
 let _tapSchedPhone        = null;
 let _tapSchedSelectedDate = null;
 let _tapSchedWindow       = 'morning';
+let _queueEditPhone       = null;
+let _queueEditWin         = 'morning';
 
 function selectTapSchedWindow(win, el) {
   _tapSchedWindow = win;
@@ -4231,6 +4297,92 @@ async function confirmTapSchedule() {
   const name = ((c.firstName||'') + ' ' + (c.lastName||'')).trim();
   const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
   showToast(`✓ ${esc(name)} → ${dayLabel} · Day Pool`, 'Undo', () => { undoAction(_tapSchedPhone, prev); });
+}
+
+// ── QUEUE EDIT MODAL ──────────────────────────────────────────────────────────
+
+function openQueueEditModal(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  _queueEditPhone = phone;
+  const ss = c.scheduledStatus || {};
+  const qs = c.quoteStatus    || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+
+  document.getElementById('queueEditName').textContent = name;
+  document.getElementById('queueEditServices').value = qs.mainServices || ss.jobNotes || qs.notes || '';
+  document.getElementById('queueEditPrice').value    = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || '';
+  document.getElementById('queueEditDate').value     = ss.scheduledDate || ss.customerSelectedDate || '';
+  document.getElementById('queueEditRig').value      = ss.rig || '';
+  document.getElementById('queueEditNotes').value    = ss.scheduleNote || '';
+
+  _queueEditWin = ss.window || 'morning';
+  document.querySelectorAll('#queueEditWinRow .qe-win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === _queueEditWin));
+
+  document.getElementById('queueEditModal').classList.remove('hidden');
+}
+
+function selectQueueEditWin(win, el) {
+  _queueEditWin = win;
+  document.querySelectorAll('#queueEditWinRow .qe-win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === win));
+}
+
+function closeQueueEditModal() {
+  document.getElementById('queueEditModal').classList.add('hidden');
+  _queueEditPhone = null;
+}
+
+async function saveQueueEdit() {
+  if (!_queueEditPhone) return;
+  const c = findCustomer(_queueEditPhone);
+  if (!c) return;
+
+  const services = (document.getElementById('queueEditServices').value || '').trim();
+  const price    = parseFloat(document.getElementById('queueEditPrice').value) || 0;
+  const date     = document.getElementById('queueEditDate').value || null;
+  const rig      = document.getElementById('queueEditRig').value || null;
+  const notes    = (document.getElementById('queueEditNotes').value || '').trim();
+
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  if (!c.quoteStatus)     c.quoteStatus     = {};
+
+  if (services) {
+    c.quoteStatus.mainServices     = services;
+    c.scheduledStatus.jobNotes     = services;
+  }
+  if (price)  c.scheduledStatus.approvedAmount = price;
+  if (date)   c.scheduledStatus.scheduledDate  = date;
+  else        delete c.scheduledStatus.scheduledDate;
+  c.scheduledStatus.window      = _queueEditWin || null;
+  c.scheduledStatus.rig         = rig;
+  if (notes) c.scheduledStatus.scheduleNote = notes;
+
+  const phone = _queueEditPhone;
+  closeQueueEditModal();
+  await saveDb();
+  render();
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`✓ ${esc(name)} updated`);
+}
+
+async function quickScheduleFromQueue(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const date = ss.scheduledDate;
+  if (!date) { openTapScheduleModal(phone); return; }
+  const prev = JSON.parse(JSON.stringify(ss));
+
+  c.scheduledStatus.state  = 'scheduled';
+  // scheduledDate, rig, window already set from queue edit
+  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning';
+
+  await saveDb();
+  render();
+  const name     = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const dayLabel = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  const rigLabel = ss.rig ? ` · ${RIG_LABELS[ss.rig]}` : ' · Day Pool';
+  showToast(`✓ ${esc(name)} → ${dayLabel}${rigLabel}`, 'Undo', () => { undoAction(phone, prev); });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
