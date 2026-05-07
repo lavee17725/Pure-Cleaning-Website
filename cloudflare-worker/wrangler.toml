@@ -2,6 +2,8 @@ name = "purecleaning-api"
 main = "src/index.js"
 compatibility_date = "2026-05-01"
 account_id = "ffe39f1ca6f7d9685b881c704c7ae51a"
+# DEPLOY: run from src/ to avoid wrangler 4 auto-detecting ../build as Workers Assets
+# Command: cd cloudflare-worker/src && npx --prefix ../ wrangler deploy --config ../wrangler.toml
 
 [[kv_namespaces]]
 binding = "DATA"
@@ -10,13 +12,6 @@ id = "76a0da4d65264885b06ed1f1aa25e27d"
 [vars]
 ENVIRONMENT = "production"
 
-# ── Phase 2: Bouncie GPS cron trigger (activate when hardware arrives) ──
-# Uncomment and deploy after Bouncie credentials are added as Worker secrets:
-#
-# [[triggers.crons]]
-# cron = "* * * * *"   # every 60 seconds — fetch truck positions from Bouncie
-#
-# Required secrets to add via `wrangler secret put`:
-#   BOUNCIE_CLIENT_ID
-#   BOUNCIE_CLIENT_SECRET
-#   BOUNCIE_REFRESH_TOKEN
+# ── Bouncie job duration matcher — 11pm ET = 3am UTC ──
+[triggers]
+crons = ["0 3 * * *"]

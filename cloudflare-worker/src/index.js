@@ -1589,9 +1589,11 @@ async function bouncieJobDurationMatcher(date, env) {
 
   // Bouncie returns trip.gps (LineString), NOT trip.startLocation/endLocation.
   // First coord = trip origin, last coord = trip destination ([lon, lat]).
-  // Census geocoder has ±0.9 km error on South FL residential streets.
-  const PROX_KM    = 1.0;  // 3,280 ft search radius; confidence rated by actual distance
-  const MIN_DUR_MIN = 15;
+  //
+  // Strict thresholds — no low-confidence auto-attribution:
+  const HIGH_KM     = 0.0762; // 250 ft → matched_high
+  const MEDIUM_KM   = 0.1524; // 500 ft → matched_medium  (hard reject above this)
+  const MIN_DUR_MIN = 20;
 
   // Pre-fetch trips for ALL rigs in parallel — GPS truth, not intent
   const startsAfter = `${date}T00:00:00.000Z`;
@@ -1605,7 +1607,6 @@ async function bouncieJobDurationMatcher(date, env) {
         { headers: { Authorization: accessToken } }
       );
       const trips = res.ok ? await res.json() : [];
-      // Sort chronological so arrival/departure logic is well-ordered
       rigTripsMap[rig] = Array.isArray(trips)
         ? trips.sort((a, b) => a.startTime < b.startTime ? -1 : 1)
         : [];
@@ -1615,44 +1616,45 @@ async function bouncieJobDurationMatcher(date, env) {
   }));
 
   // Extract first and last GPS coordinate from a trip's gps LineString.
-  // Bouncie format: trip.gps = { type: 'LineString', coordinates: [[lon, lat], ...] }
-  const tripFirstCoord = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[0]         : null; };
-  const tripLastCoord  = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[c.length-1]: null; };
-  const coordNear = (coord, lat, lon) =>
-    coord && haversineKm(coord[1], coord[0], lat, lon) <= PROX_KM;
+  const tripFirstCoord = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[0]          : null; };
+  const tripLastCoord  = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[c.length - 1]: null; };
 
-  // Find the best proximity window in a set of trips for a given job location.
-  // Strategy: arrival = trip whose LAST coordinate is near job (truck drove TO job).
-  //           departure = trip whose FIRST coordinate is near job (truck drove FROM job).
-  //           Dwell time = gap between arrival trip endTime and departure trip startTime.
-  //           Trips with dwell > 30min between them that are BOTH near the job also count.
+  // Find the closest dwell window in a set of trips for a given job location.
+  // Always returns closestDistKm so callers can report distance even on rejection.
+  // Only returns a usable durationMin when distance <= MEDIUM_KM and duration >= MIN_DUR_MIN.
   function proximityMatch(trips, jobLat, jobLon) {
-    // Find arrival: earliest trip that ends near the job
+    // Find the trip whose last coord is closest to the job (ignoring threshold for now)
     let arrivalTrip = null;
+    let closestDistKm = Infinity;
     for (const trip of trips) {
-      if (coordNear(tripLastCoord(trip), jobLat, jobLon)) {
-        if (!arrivalTrip || trip.endTime < arrivalTrip.endTime) arrivalTrip = trip;
-      }
+      const last = tripLastCoord(trip);
+      if (!last) continue;
+      const d = haversineKm(last[1], last[0], jobLat, jobLon);
+      if (d < closestDistKm) { closestDistKm = d; arrivalTrip = trip; }
     }
-    if (!arrivalTrip) return { durationMin: 0 };
+    if (!arrivalTrip) return { durationMin: 0, closestDistKm: Infinity };
 
-    // Find departure: LATEST trip that starts near the job, after arrival
+    // Hard reject: closest approach is farther than MEDIUM_KM
+    if (closestDistKm > MEDIUM_KM) {
+      return { durationMin: 0, closestDistKm, closestArrival: arrivalTrip.endTime };
+    }
+
+    // Within threshold — find the departure trip (latest trip starting near job, after arrival)
     let departureTrip = null;
     for (const trip of trips) {
-      if (trip.startTime <= arrivalTrip.endTime) continue; // must be after arrival
-      if (coordNear(tripFirstCoord(trip), jobLat, jobLon)) {
+      if (trip.startTime <= arrivalTrip.endTime) continue;
+      const first = tripFirstCoord(trip);
+      if (!first) continue;
+      if (haversineKm(first[1], first[0], jobLat, jobLon) <= MEDIUM_KM) {
         if (!departureTrip || trip.startTime > departureTrip.startTime) departureTrip = trip;
       }
     }
 
     if (arrivalTrip && departureTrip) {
       const durationMin = Math.round((new Date(departureTrip.startTime) - new Date(arrivalTrip.endTime)) / 60000);
-      return { arrivalTs: arrivalTrip.endTime, departureTs: departureTrip.startTime, durationMin, arrivalTrip, departureTrip };
+      return { arrivalTs: arrivalTrip.endTime, departureTs: departureTrip.startTime, durationMin, closestDistKm, arrivalTrip, departureTrip };
     }
-
-    // No departure found — might still be at site, or only 1 trip visible.
-    // Return partial with zero duration so it doesn't get credited.
-    return { durationMin: 0 };
+    return { durationMin: 0, closestDistKm };
   }
 
   const results = [];
@@ -1676,80 +1678,113 @@ async function bouncieJobDurationMatcher(date, env) {
       continue;
     }
 
-    // Scan ALL rigs — pick the one with the longest on-site duration
+    // Scan ALL rigs — pick longest qualifying dwell within threshold.
+    // Also track the globally closest approach for reporting on rejection.
     let bestRig = null, bestMatch = { durationMin: 0 };
-    const allRigsPresent = [];
+    let globalClosestDistKm = Infinity, globalClosestRig = null, globalClosestArrival = null;
+    const rigsWithinThreshold = [];
 
     for (const [rig, trips] of Object.entries(rigTripsMap)) {
+      if (!trips.length) continue; // no GPS data for this rig today
       const m = proximityMatch(trips, jobLat, jobLon);
+      // Track globally closest stop regardless of acceptance
+      if (m.closestDistKm < globalClosestDistKm) {
+        globalClosestDistKm = m.closestDistKm;
+        globalClosestRig    = rig;
+        globalClosestArrival = m.closestArrival || m.arrivalTs;
+      }
       if (m.durationMin >= MIN_DUR_MIN) {
-        allRigsPresent.push(rig);
+        rigsWithinThreshold.push(rig);
         if (m.durationMin > bestMatch.durationMin) { bestRig = rig; bestMatch = m; }
       }
     }
 
-    if (!bestRig) {
-      results.push({ phone: customer.phone, name: fullName(customer), status: 'no_proximity_match' });
+    // No mapped rigs had any GPS data at all
+    const mappedRigsWithTrips = allRigEntries.filter(([rig]) => (rigTripsMap[rig] || []).length > 0);
+    if (!bestRig && mappedRigsWithTrips.length === 0) {
+      results.push({ phone: customer.phone, name: fullName(customer), status: 'no_data',
+        note: 'No GPS data for any mapped rig on this date.' });
       continue;
     }
 
-    // Confidence: based on distance between geocode and actual GPS stop
-    const geocodeDist = haversineKm(jobLat, jobLon,
-      tripLastCoord(bestMatch.arrivalTrip)?.[1], tripLastCoord(bestMatch.arrivalTrip)?.[0]) * 3280.84; // to feet
-    let confidence = geocodeDist < 500 ? 'high' : geocodeDist < 1640 ? 'medium' : 'low';
-    if (allRigsPresent.length > 1 && confidence === 'high') confidence = 'medium';
-
-    const intentRig = ss.rig || null; // what was scheduled (may be null for Day Pool)
-
-    const gpsData = {
-      actualArrival:   bestMatch.arrivalTs,
-      actualDeparture: bestMatch.departureTs,
-      actualDuration:  bestMatch.durationMin,
-      actualRig:       bestRig,
-      intentRig:       intentRig !== bestRig ? intentRig : undefined,
-      rigsPresent:     allRigsPresent.length > 1 ? allRigsPresent : undefined,
-      autoAttributed:  true,
-      durationConfidence: confidence,
-      durationSource:  'bouncie_gps',
-    };
-
-    // Write to most-recent jobHistory entry for this date, or fall back to scheduledStatus
-    const jhEntry = (customer.jobHistory || []).slice().reverse().find(j => j.date === date);
-    if (jhEntry) {
-      Object.assign(jhEntry, gpsData);
-    } else {
-      Object.assign(ss, gpsData);
+    // No rig matched within threshold — report closest stop for operator review
+    if (!bestRig) {
+      const closestDistFt = Math.round(globalClosestDistKm * 3280.84);
+      const closestMi     = (globalClosestDistKm * 0.621371).toFixed(2);
+      results.push({
+        phone:    customer.phone,
+        name:     fullName(customer),
+        status:   'no_reliable_match',
+        note:     `No reliable proximity match. Manual rig assignment needed. Best stop was ${closestDistFt} ft (${closestMi} mi) away — exceeds 500 ft threshold.`,
+        closestRig:        globalClosestRig,
+        closestDistFt,
+        closestArrival:    globalClosestArrival,
+      });
+      continue;
     }
 
-    // If GPS-detected rig differs from scheduled rig, update scheduledStatus.rig too
-    // so the calendar card migrates to the correct column
-    if (bestRig && ss.rig !== bestRig) {
+    // Determine confidence tier from actual GPS distance
+    const geocodeDistKm = bestMatch.closestDistKm ?? haversineKm(
+      jobLat, jobLon,
+      tripLastCoord(bestMatch.arrivalTrip)?.[1],
+      tripLastCoord(bestMatch.arrivalTrip)?.[0]);
+    const geocodeDistFt = Math.round(geocodeDistKm * 3280.84);
+    const isHigh   = geocodeDistKm <= HIGH_KM && rigsWithinThreshold.length === 1;
+    const isMedium = geocodeDistKm <= MEDIUM_KM;
+    const matchStatus  = isHigh ? 'matched_high' : 'matched_medium';
+    const intentRig    = ss.rig || null;
+
+    // GPS timing data — written for both high and medium
+    const timingData = {
+      actualArrival:      bestMatch.arrivalTs,
+      actualDeparture:    bestMatch.departureTs,
+      actualDuration:     bestMatch.durationMin,
+      durationSource:     'bouncie_gps',
+      durationConfidence: matchStatus,
+      autoAttributed:     true,
+    };
+
+    // Rig attribution — ONLY for high-confidence matches
+    if (isHigh) {
+      timingData.actualRig  = bestRig;
+      timingData.intentRig  = intentRig !== bestRig ? intentRig : undefined;
+      timingData.rigsPresent = rigsWithinThreshold.length > 1 ? rigsWithinThreshold : undefined;
+    }
+
+    const jhEntry = (customer.jobHistory || []).slice().reverse().find(j => j.date === date);
+    if (jhEntry) {
+      Object.assign(jhEntry, timingData);
+    } else {
+      Object.assign(ss, timingData);
+    }
+
+    // Auto-migrate calendar card rig ONLY for high-confidence matches
+    if (isHigh && bestRig && ss.rig !== bestRig) {
       ss.intentRig = intentRig;
       ss.rig       = bestRig;
     }
 
-    // Update rolling customer stats
+    // Update rolling duration stats
     customer.lastJobDuration = bestMatch.durationMin;
-    const allDurs = (customer.jobHistory || [])
-      .filter(j => j.actualDuration).map(j => j.actualDuration);
+    const allDurs = (customer.jobHistory || []).filter(j => j.actualDuration).map(j => j.actualDuration);
     if (ss.actualDuration && !jhEntry) allDurs.push(ss.actualDuration);
     if (allDurs.length) {
       customer.avgJobDuration = Math.round(allDurs.reduce((a, b) => a + b, 0) / allDurs.length);
     }
 
     results.push({
-      phone:      customer.phone,
-      name:       fullName(customer),
-      status:     'matched',
-      actualRig:  bestRig,
+      phone:        customer.phone,
+      name:         fullName(customer),
+      status:       matchStatus,
+      actualRig:    isHigh ? bestRig : null,
       intentRig,
-      rigChanged: intentRig && intentRig !== bestRig,
-      duration:   bestMatch.durationMin,
-      confidence,
-      geocodeDistFt: Math.round(geocodeDist),
-      arrival:    bestMatch.arrivalTs,
-      departure:  bestMatch.departureTs,
-      rigsPresent: allRigsPresent,
+      rigChanged:   isHigh && intentRig && intentRig !== bestRig,
+      duration:     bestMatch.durationMin,
+      geocodeDistFt,
+      arrival:      bestMatch.arrivalTs,
+      departure:    bestMatch.departureTs,
+      rigsPresent:  rigsWithinThreshold,
+      ...(isMedium && !isHigh ? { note: `Medium confidence — GPS within 500 ft but > 250 ft. Operator confirmation recommended.` } : {}),
     });
     matched++;
   }
