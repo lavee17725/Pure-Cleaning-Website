@@ -401,6 +401,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .win-lane.sortable-drag-over{background:rgba(56,189,248,.06);}
 .win-lane-empty .win-lane-hdr{opacity:.65;}
 .win-lane-drop-hint{text-align:center;padding:6px 0 8px;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.2px;}
+/* ── Sidebar collapse ── */
+.sidebar-collapse-btn{width:100%;background:var(--card);border:none;border-bottom:1px solid var(--border);padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer;text-align:right;font-family:'DM Sans',sans-serif;font-weight:600;letter-spacing:.2px;transition:background .1s;flex-shrink:0;}
+.sidebar-collapse-btn:hover{background:#f0f4f8;}
+.sidebar-tab{display:none;align-items:center;justify-content:center;flex:1;cursor:pointer;padding:16px 0;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.5px;writing-mode:vertical-rl;transform:rotate(180deg);-webkit-tap-highlight-color:transparent;}
+.sidebar-tab:hover{color:var(--sky);}
+.left-col.collapsed .sidebar-content{display:none;}
+.left-col.collapsed .sidebar-tab{display:flex;}
+.left-col.collapsed .sidebar-collapse-btn{display:none;}
+.layout.sidebar-collapsed{grid-template-columns:32px 1fr;}
+.layout.sidebar-collapsed.crew-visible{grid-template-columns:32px 1fr 250px;}
+/* ── Card address + time estimates ── */
+.js-addr{font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.js-est-time{font-size:11px;color:#94a3b8;font-style:italic;margin-top:1px;}
+.js-est-time.confirmed{color:#374151;font-style:normal;font-weight:600;}
 /* Scheduling modal window buttons */
 .win-btn-row{display:flex;gap:6px;margin:6px 0;}
 .win-btn{flex:1;padding:8px 4px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;background:var(--white);color:var(--navy);transition:all .12s;-webkit-tap-highlight-color:transparent;}
@@ -614,15 +628,19 @@ body{background:#f0f2f5;}
 <div class="layout" id="mainLayout">
 
   <!-- LEFT: NEEDS MINI QUOTE + NEEDS SCHEDULING -->
-  <div class="left-col">
-    <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
-    <div class="needs-list" id="mqList"></div>
-    <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
-    <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
-      <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
-      <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
+  <div class="left-col" id="leftSidebar">
+    <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()">◀ collapse</button>
+    <div class="sidebar-content" id="sidebarContent">
+      <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
+      <div class="needs-list" id="mqList"></div>
+      <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
+      <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
+        <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
+        <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
+      </div>
+      <div class="needs-list" id="needsList"></div>
     </div>
-    <div class="needs-list" id="needsList"></div>
+    <div class="sidebar-tab" id="sidebarTab" onclick="toggleSidebar()">📋 Queue</div>
   </div>
 
   <!-- MAIN: CALENDAR -->
@@ -1188,6 +1206,31 @@ const WINDOWS = [
   { id: 'late_afternoon',  emoji: '🌇', label: 'Late Afternoon',  range: '1:30 – 4:00'  },
 ];
 const WIN_ORDER = { morning: 0, early_afternoon: 1, late_afternoon: 2 };
+// Window start times in minutes from midnight
+const WIN_START_MINS = { morning: 9*60+30, early_afternoon: 11*60+30, late_afternoon: 13*60+30 };
+const TRAVEL_BUFFER_MINS = 15; // travel buffer between consecutive jobs
+
+function minsToTime(m) {
+  const h = Math.floor(m / 60), min = m % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${h12}:${String(min).padStart(2,'0')} ${ampm}`;
+}
+
+// Populated by buildWindowLanes before each card render; consumed by jobCardScheduled
+const _estTimeMap = new Map(); // phone → {startMin, endMin, isManual}
+
+function computeWindowTimes(jobs, windowId) {
+  let cursor = WIN_START_MINS[windowId] ?? (9*60+30);
+  return jobs.map(c => {
+    const ss = c.scheduledStatus || {};
+    const durMins = Math.round((ss.estimatedDuration || 2) * 60);
+    const startMin = cursor;
+    const endMin   = startMin + durMins;
+    cursor = endMin + TRAVEL_BUFFER_MINS;
+    return { startMin, endMin, isManual: false };
+  });
+}
 
 function getJobWindow(ss) {
   if (!ss) return 'morning';
@@ -1209,6 +1252,8 @@ function windowLabel(ss) {
 let dbRecord      = {};
 let weekOffset    = 0;
 let calState      = loadCalState();
+let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
+let _sidebarAutoCollapsed   = false;
 let cpDate        = null; // date currently editing in crew pop
 let cpRig         = null; // rig currently editing
 let cpSelCrew     = [];   // selected crew in popover
@@ -1386,6 +1431,8 @@ function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 async function init() {
   dayViewDate = isoToday();
+  // Restore saved manual collapse state immediately before render
+  if (_sidebarManualCollapsed) _applySidebarCollapsed(true, true);
   renderShell();
   loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
   try {
@@ -1492,6 +1539,37 @@ function renderSidebar() {
     el.innerHTML = buildQueueHtml(jobs);
   }
   initSortables();
+
+  // Auto-collapse when both pools empty; auto-expand when items added
+  const totalItems = mqJobs.length + jobs.length;
+  if (totalItems === 0 && !_sidebarManualCollapsed) {
+    _applySidebarCollapsed(true, false);
+  } else if (totalItems > 0 && _sidebarAutoCollapsed && !_sidebarManualCollapsed) {
+    _applySidebarCollapsed(false, false);
+  }
+}
+
+function _applySidebarCollapsed(collapsed, manual) {
+  if (manual) {
+    _sidebarManualCollapsed = collapsed;
+    localStorage.setItem('pcpc_sidebar_manual', collapsed ? '1' : '0');
+    if (!collapsed) _sidebarAutoCollapsed = false;
+  } else {
+    _sidebarAutoCollapsed = collapsed;
+  }
+  const isCollapsed = _sidebarManualCollapsed || _sidebarAutoCollapsed;
+  const layout  = document.getElementById('mainLayout');
+  const sidebar = document.getElementById('leftSidebar');
+  const btn     = document.getElementById('sidebarCollapseBtn');
+  if (layout)  layout.classList.toggle('sidebar-collapsed', isCollapsed);
+  if (sidebar) sidebar.classList.toggle('collapsed', isCollapsed);
+  if (btn)     btn.textContent = isCollapsed ? '▶' : '◀ collapse';
+}
+
+function toggleSidebar() {
+  // Manual toggle: flip current combined state
+  const isCollapsed = _sidebarManualCollapsed || _sidebarAutoCollapsed;
+  _applySidebarCollapsed(!isCollapsed, true);
 }
 
 function getMiniQuoteNeeded() {
@@ -1617,6 +1695,12 @@ function buildWindowLanes(jobs, date, rig) {
     const g = groups[win.id] || [];
     const heavy = g.length >= 3;
     const isEmpty = g.length === 0;
+    // Populate estimated times for jobs in this window before rendering cards
+    const times = computeWindowTimes(g, win.id);
+    g.forEach((c, i) => {
+      const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+      _estTimeMap.set(ph, times[i]);
+    });
     const cardsHtml = buildJobsHtmlWithDist(g);
     const dropHint  = isEmpty ? `<div class="win-lane-drop-hint">Drop here</div>` : '';
     return `<div class="win-lane${isEmpty?' win-lane-empty':''}${heavy?' heavy':''}"
@@ -2238,6 +2322,8 @@ function jobCardScheduled(c) {
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
     <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
+    ${c.address && state !== 'completed' ? `<div class="js-addr">📍 ${esc(c.address)}</div>` : ''}
+    ${(() => { const et = _estTimeMap.get(phone); return et && !gpsHtml && (state === 'scheduled' || state === 'in_progress') ? `<div class="js-est-time">est. ${minsToTime(et.startMin)} – ${minsToTime(et.endMin)}</div>` : ''; })()}
     ${svcLine}
     ${gpsHtml}
     ${crewQeHtml}
@@ -2254,11 +2340,13 @@ function jobCardScheduled(c) {
 }
 
 function jobCardHistoryExtra(c, jhEntry) {
-  const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
-  const city  = c.city ? esc(formatCity(c.city)) : '';
-  const amt   = jhEntry.amount || jhEntry.approvedAmount || 0;
+  const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const city   = c.city ? esc(formatCity(c.city)) : '';
+  const addr   = jhEntry.address ? esc(jhEntry.address) : (c.address ? esc(c.address) : '');
+  const amt    = jhEntry.amount || jhEntry.approvedAmount || 0;
   const amtHtml = amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
-  const notes = esc(jhEntry.jobNotes || jhEntry.notes || '');
+  const svcText = (jhEntry.services || jhEntry.jobNotes || jhEntry.notes || '').trim();
+  const svcLine = svcText ? `<div class="js-svc">📋 ${esc(svcText)}</div>` : '';
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
   let gpsHtml = '';
   if (jhEntry.actualArrival) {
@@ -2267,11 +2355,15 @@ function jobCardHistoryExtra(c, jhEntry) {
     const dur = jhEntry.actualDuration > 0 ? `${Math.floor(jhEntry.actualDuration/60)}h ${jhEntry.actualDuration%60}m` : null;
     gpsHtml = `<div class="js-gps-time">⏱ ${arr}${dep?' – '+dep:''}${dur?' ('+dur+')':''}</div>`;
   }
+  const pmFmt = jhEntry.payment ? esc(jhEntry.payment) : null;
   return `<div class="job-scheduled completed job-card-extra" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>${name}${vipBadge}</span><span>${amtHtml}</span></div>
-    ${city || notes ? `<div class="js-meta">${city}${notes ? (city?' · ':'')+notes : ''}</div>` : ''}
+    <div class="js-name"><span>✓ ${name}${vipBadge}</span><span>${amtHtml}</span></div>
+    <div class="js-meta">${[city].filter(Boolean).join(' · ')}</div>
+    ${addr ? `<div class="js-addr">📍 ${addr}</div>` : ''}
     ${gpsHtml}
-    <div class="js-extra-label">+1 same-day job</div>
+    ${svcLine}
+    ${pmFmt ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">💵 ${pmFmt}</div>` : ''}
+    <div class="js-extra-label" style="font-size:9px;color:var(--muted);margin-top:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">2nd same-day job</div>
   </div>`;
 }
 
