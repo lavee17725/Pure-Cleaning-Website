@@ -2084,7 +2084,12 @@ function jobCardScheduled(c) {
   // Crew quick-edit panel (collapsed by default)
   const _currentCrew = ss.crew || [];
   const _currentDur  = ss.estimatedDuration || 2;
-  const _durLabel    = _currentDur <= 4 ? 'Half Day' : _currentDur >= 7 ? 'Full Day' : `${_currentDur}h`;
+  // ss.duration = 'half' → operator confirmed; 'full' or absent → default ~Full Day
+  const _durLabel = ss.duration === 'half'
+    ? 'Half Day'
+    : ss.duration === 'full'
+      ? '~Full Day'
+      : (_currentDur <= 4 ? '~Half Day' : '~Full Day'); // backwards compat for old jobs
   const _crewNames   = _currentCrew.map(id => CREW_MEMBERS.find(cm => cm.id === id)?.name || id).join(', ');
   const _crewChips   = CREW_MEMBERS.map(cm => {
     const active = _currentCrew.includes(cm.id);
@@ -2126,7 +2131,7 @@ function jobCardScheduled(c) {
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
-    <div class="js-meta">${winLbl} · ~${_durLabel}${city ? ' · '+city : ''}</div>
+    <div class="js-meta">${winLbl} · ${_durLabel}${city ? ' · '+city : ''}</div>
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
@@ -2565,6 +2570,7 @@ function saveQuickEdit(phone, forceDur) {
   c.scheduledStatus.crew = crew;
   if (forceDur !== undefined) {
     c.scheduledStatus.estimatedDuration = forceDur;
+    c.scheduledStatus.duration = forceDur === 4 ? 'half' : forceDur === 8 ? 'full' : c.scheduledStatus.duration;
   } else {
     const hrsEl = document.getElementById('crew-qe-hrs-' + phone);
     const hrs = parseFloat(hrsEl?.value || '');
