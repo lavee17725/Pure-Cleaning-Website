@@ -427,6 +427,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .exp-copy-btn{padding:4px 10px;border:1.5px solid var(--border);border-radius:6px;background:none;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;}
 .exp-copy-btn:hover{border-color:var(--navy);color:var(--navy);}
 .exp-corr{display:flex;flex-direction:column;gap:2px;margin-top:3px;}
+.js-revert-btn{display:block;width:100%;margin-top:4px;padding:5px 10px;background:#ede9fe;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;text-align:center;}
+.js-revert-btn:hover{background:#ddd6fe;}
 .day-rig-hdr{padding:8px 10px;background:var(--navy2);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;}
 .day-cap-bar{height:5px;background:#1e3a5f;margin:.375rem .625rem .25rem;border-radius:3px;overflow:hidden;}
 .day-cap-fill{height:100%;border-radius:3px;background:var(--sky);transition:width .3s;}
@@ -2483,6 +2485,10 @@ function jobCardScheduled(c) {
     ? `<button class="card-del-btn" onclick="event.stopPropagation();promptCancelJob('${phone}')" title="Remove job from calendar" style="margin-left:auto;">🗑️</button>`
     : '';
 
+  const revertBtnHtml = (state === 'completed' && phone)
+    ? `<button class="js-revert-btn" onclick="event.stopPropagation();promptRevertJob('${phone}')" title="Undo completion — return to scheduled">↩ Revert</button>`
+    : '';
+
   const _svcAgreed = (c.quoteStatus || {}).servicesAgreed || {};
   const _roofTypeLabels = {shingle:'Shingle',barrel_tile:'Barrel tile',large_barrel:'Large Barrel tile',short_barrel:'Short Barrel tile',flat_tile:'Flat tile',v_shape:'V-shape',venezuelan_tile:'Venezuelan tile',metal:'Metal'};
   const _rt = _svcAgreed.roofType;
@@ -2595,6 +2601,7 @@ function jobCardScheduled(c) {
     ${receiptBtnHtml}
     ${editBtnHtml}
     ${delBtnHtml}
+    ${revertBtnHtml}
   </div>`;
 }
 
@@ -3176,8 +3183,9 @@ function openJobModal(phone) {
 
   const isCompleted = ss.state === 'completed';
   document.getElementById('jmFooter').innerHTML = `
-    <button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>
+    ${!isCompleted ? `<button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>` : ''}
     ${!isCompleted ? `<button class="mbtn-green" onclick="markComplete()">✓ Complete</button>` : ''}
+    ${isCompleted  ? `<button style="padding:10px 14px;border-radius:10px;background:#ede9fe;color:#7c3aed;border:1.5px solid #c4b5fd;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="closeJobModal();promptRevertJob('${phone}')">↩ Revert to Scheduled</button>` : ''}
     <button style="flex:1;padding:10px;border-radius:10px;background:#fee2e2;color:#dc2626;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptCancelJob('${phone}')">✕ Cancel Job</button>
     <button class="mbtn-save" onclick="saveJobModal()">Save</button>
   `;
@@ -3456,6 +3464,81 @@ function _doCompleteJob(log) {
   if (_pendingPhotos.length) uploadPhotos(_capturePhone, _captureDate, _captureServices);
 }
 
+// ── REVERT JOB TO SCHEDULED ───────────────────────────────────────────────────
+
+function promptRevertJob(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const amt  = ss.approvedAmount ? `$${Number(ss.approvedAmount).toLocaleString()}` : '';
+  const dateStr = ss.scheduledDate
+    ? new Date(ss.scheduledDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+    : '';
+  const hasReviewQ = !!c.reviewQueue;
+
+  document.getElementById('cmTitle').textContent = '↩ Revert to Scheduled';
+  document.getElementById('cmBody').innerHTML =
+    `Revert <strong>${esc(name)}</strong>${dateStr ? `'s ${dateStr} job` : ''}${amt ? ` (${amt})` : ''} back to scheduled?<br><br>` +
+    `<span style="font-size:12px;color:var(--muted);">This will:<br>
+    • Remove the jobHistory entry<br>
+    • Subtract ${amt} from lifetime spend<br>
+    • Reset status to <strong>scheduled</strong><br>
+    • Remove review queue entry</span>` +
+    (hasReviewQ ? `<br><br><span style="font-size:12px;color:#d97706;">⚠️ A review request was queued for this job — it will also be removed.</span>` : '');
+  document.getElementById('cmReasonWrap').style.display = 'none';
+  const btn = document.getElementById('cmConfirmBtn');
+  btn.textContent = '↩ Revert';
+  btn.style.background = '#7c3aed';
+  btn.onclick = () => { closeConfirmModal(); _doRevertJob(phone); };
+  document.getElementById('confirmModal').classList.remove('hidden');
+}
+
+function _doRevertJob(phone) {
+  const c = findCustomer(phone);
+  if (!c || !c.scheduledStatus) return;
+  const ss  = c.scheduledStatus;
+  const amt = ss.approvedAmount || 0;
+
+  // Remove calendar_completion jobHistory entry for this job date
+  const jobDate = ss.scheduledDate || ss.completedDate;
+  if (jobDate) {
+    c.jobHistory = (c.jobHistory || []).filter(j => !(j.date === jobDate && j.source === 'calendar_completion'));
+  }
+
+  // Roll back aggregates
+  if (amt > 0) c.lifetimeSpend = Math.max(0, (c.lifetimeSpend || 0) - amt);
+  c.totalJobs = Math.max(0, (c.totalJobs || 0) - 1);
+
+  // lastService = most recent remaining jobHistory date, or null
+  const remaining = (c.jobHistory || []).filter(j => j.date && j.status === 'completed').map(j => j.date).sort();
+  c.lastService = remaining.length ? remaining[remaining.length - 1] : null;
+
+  // Reset scheduledStatus — preserve scheduling intent, clear completion data
+  const revertedAt = new Date().toISOString();
+  ss.state         = 'scheduled';
+  delete ss.completedDate;
+  delete ss.completedAt;
+  delete ss.jobLog;
+  delete ss.paymentStatus;
+  delete ss.paidAmount;
+  delete ss.paidAt;
+  delete ss._lastJobId;
+  // Keep: scheduledDate, rig, window, approvedAmount, jobNotes, paymentRequestSentAt
+
+  // Audit trail
+  if (!ss.revertLog) ss.revertLog = [];
+  ss.revertLog.push({ revertedAt, jobDate, amount: amt, revertedBy: 'operator' });
+
+  // Remove review queue entry if it was for this job
+  if (c.reviewQueue?.jobDate === jobDate) delete c.reviewQueue;
+
+  saveDb().then(() => {
+    render();
+    showToast('↩ Job reverted — back to scheduled');
+  }).catch(() => showToast('⚠️ Revert failed — check connection'));
+}
+
 // ── DELETE / CANCEL FLOWS ──────────────────────────────────────────────────────
 let _confirmCallback = null;
 let _deletedSnapshot = null; // for undo
@@ -3463,6 +3546,9 @@ let _deletedSnapshot = null; // for undo
 function closeConfirmModal() {
   document.getElementById('confirmModal').classList.add('hidden');
   _confirmCallback = null;
+  // Reset confirm button to default red (revert sets it purple)
+  const btn = document.getElementById('cmConfirmBtn');
+  if (btn) btn.style.background = '';
 }
 
 function promptDeleteFromQueue(phone) {
@@ -4284,9 +4370,14 @@ function requestPayment(phone, el) {
     body = `Hello ${fn},\n\nI hope the job came out satisfactory. When you get the opportunity, please zelle the business at ${ZELLE_NUMBER}, it'll be under ${ZELLE_NAME}.\n\nThe total amount was ${amtFmt}.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
   }
 
+  // Log that request was sent — does NOT change job state
+  ss.paymentRequestSentAt = new Date().toISOString();
+  ss.paymentRequestCount  = (ss.paymentRequestCount || 0) + 1;
+  saveDb().catch(() => {});
+
   if (el) {
     const orig = el.textContent;
-    el.textContent = '✓ Request sent';
+    el.textContent = '✓ Sent';
     el.classList.add('sent');
     setTimeout(() => { el.textContent = orig; el.classList.remove('sent'); }, 3000);
   }
