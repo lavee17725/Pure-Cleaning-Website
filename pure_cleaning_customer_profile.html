@@ -883,13 +883,26 @@ function renderHeroBanner(c) {
   const { totalJobs: jobs, lifetimeSpend: spend, lastService: effLastSvc } = getEffectiveStats(c);
   const isNew = jobs === 0 && !effLastSvc;
 
-  // Address line
+  // Address line + property appraiser quick-link
+  const _paUrl_p = (() => {
+    if (!c.city || !c.address) return null;
+    const ct = c.city.toLowerCase().trim();
+    const BROWARD = new Set(['weston','davie','plantation','coral springs','pembroke pines','miramar','cooper city','southwest ranches','fort lauderdale','hollywood','hallandale beach','dania beach','sunrise','lauderhill','lauderdale lakes','north lauderdale','margate','coconut creek','pompano beach','deerfield beach','oakland park','wilton manors','tamarac','lauderdale-by-the-sea','sea ranch lakes','west park','pembroke park','parkland','lighthouse point','hillsboro beach','lazy lake','west hollywood']);
+    const MDADE  = new Set(['miami','hialeah','homestead','miami gardens','kendall','pinecrest','coral gables','doral','sweetwater','miami lakes','south miami','miami beach','miami shores','north miami','north miami beach','aventura','key biscayne','bal harbour','surfside','bay harbor islands','golden beach','opa-locka','opa locka','florida city','cutler bay','palmetto bay']);
+    const PBCH   = new Set(['boca raton','delray beach','boynton beach','west palm beach','lake worth','wellington','palm beach gardens','royal palm beach','greenacres','lake worth beach','jupiter','tequesta','palm beach','north palm beach']);
+    const encoded = encodeURIComponent(`${c.address}, ${c.city}, FL`);
+    if (BROWARD.has(ct)) return { url:`https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=${encoded}`, label:'BCPA' };
+    if (MDADE.has(ct))   return { url:`https://www.miamidade.gov/Apps/PA/PAOnlineTools/`, label:'MDPA' };
+    if (PBCH.has(ct))    return { url:`https://www.pbcgov.com/papa/Asps/PropertySearch/PropertySearch.aspx`, label:'PBPA' };
+    return null;
+  })();
+  const _paBtn_p = _paUrl_p ? `<a href="${_paUrl_p.url}" target="_blank" style="font-size:11px;font-weight:700;color:var(--sky);background:#eff6ff;border-radius:4px;padding:2px 7px;margin-left:8px;text-decoration:none;white-space:nowrap;" title="Open ${_paUrl_p.label} property search">🏠 ${_paUrl_p.label}</a>` : '';
   let addrHtml = '';
   if (c.address && c.city) {
     const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`;
-    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a></div>`;
+    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a>${_paBtn_p}</div>`;
   } else if (c.city) {
-    addrHtml = `<div class="hero-contact-line">📍 ${esc(c.city)}, FL</div>`;
+    addrHtml = `<div class="hero-contact-line">📍 ${esc(c.city)}, FL${_paBtn_p}</div>`;
   }
 
   // Phone / email line
