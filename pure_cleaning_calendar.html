@@ -1055,10 +1055,23 @@ function openCardSms(phone) {
   const c = findCustomer(phone);
   if (!c || !c.linkCode || !c.linkBin) return;
   const fn = (c.firstName||c.fn||'there');
+  const ss = c.scheduledStatus || {};
   const longUrl  = `${QUOTE_BASE_CAL}?c=${c.linkBin}.${c.linkCode}`;
   const shortUrl = shortenUrlCal(longUrl);
-  const body = `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`;
-  window.location.href = `sms:+1${(c.phone||'').replace(/\D/g,'')}?&body=${encodeURIComponent(body)}`;
+  const svc  = (c.quoteStatus?.mainServices || ss.jobNotes || '').trim();
+  const amt  = ss.approvedAmount ? `$${Number(ss.approvedAmount).toLocaleString('en-US',{maximumFractionDigits:0})}` : null;
+  const date = ss.scheduledDate ? new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : null;
+  const lines = [
+    `Hi ${fn}! Your job with Pure Cleaning is on the books:`,
+    svc  ? `📋 Service: ${svc}` : null,
+    amt  ? `💰 Price: ${amt}`   : null,
+    date ? `📅 Date: ${date}`   : null,
+    `Tap to confirm: ${shortUrl}`,
+    ``,
+    `We'll text or call the night before with a rough arrival time. Questions? Call us at 954-389-2642. — Pure Cleaning Pressure Cleaning`,
+    `Reply STOP to opt out.`,
+  ].filter(l => l !== null).join('\n');
+  window.location.href = `sms:+1${(c.phone||'').replace(/\D/g,'')}?&body=${encodeURIComponent(lines)}`;
 }
 
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
@@ -2124,8 +2137,18 @@ function jobCardScheduled(c) {
     </div>`;
 
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
+  let confirmBadge = '';
+  if (state === 'scheduled' || state === 'in_progress') {
+    if (ss.confirmedByCustomer) {
+      confirmBadge = ' <span title="Confirmed by customer" style="color:#22c55e;font-size:12px;">✅</span>';
+    } else if (c.linkCode) {
+      confirmBadge = ' <span title="Confirmation link sent — awaiting response" style="color:#f59e0b;font-size:12px;">⏳</span>';
+    } else {
+      confirmBadge = ' <span title="No confirmation link sent yet" style="color:#94a3b8;font-size:12px;">❓</span>';
+    }
+  }
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>
+    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
     <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
