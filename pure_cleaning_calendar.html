@@ -50,6 +50,28 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .queue-date-sep::before,.queue-date-sep::after{content:'';flex:1;height:1px;background:var(--border);}
 .queue-date-sep:first-child{margin-top:0;}
 .queue-date-nodate{color:var(--muted);}
+/* Click-to-schedule primary button on queue cards */
+.sched-primary-btn{display:block;width:100%;margin-top:8px;padding:9px 12px;background:var(--sky);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;letter-spacing:.2px;transition:background .15s;text-align:center;}
+.sched-primary-btn:hover{background:#2470c0;}
+.drag-hint-subtle{font-size:10px;color:#c4cad4;text-align:center;margin-top:4px;letter-spacing:.3px;}
+/* Mini calendar in schedule modal */
+.mini-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:8px 0;}
+.mini-cal-day{padding:6px 2px;border:1.5px solid var(--border);border-radius:7px;font-size:11px;font-weight:600;cursor:pointer;background:var(--white);color:var(--text);text-align:center;transition:all .12s;font-family:'DM Sans',sans-serif;line-height:1.2;}
+.mini-cal-day:hover{border-color:var(--sky);color:var(--sky);}
+.mini-cal-day.today{border-color:var(--sky);color:var(--sky);}
+.mini-cal-day.selected{background:var(--sky);color:#fff;border-color:var(--sky);}
+.mini-cal-day.selected.today{background:var(--sky);}
+/* Crew quick-edit inline panel */
+.crew-qe{border-top:1px solid var(--border);margin-top:6px;padding-top:8px;}
+.crew-qe-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;}
+.crew-chip{padding:4px 10px;border:1.5px solid var(--border);border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;background:var(--white);color:var(--muted);transition:all .12s;user-select:none;font-family:'DM Sans',sans-serif;}
+.crew-chip.active{border-color:currentColor;background:currentColor;color:#fff!important;}
+.dur-row{display:flex;gap:6px;margin-bottom:6px;}
+.dur-btn{flex:1;padding:6px 4px;border:1.5px solid var(--border);border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;background:var(--white);color:var(--muted);text-align:center;transition:all .12s;font-family:'DM Sans',sans-serif;}
+.dur-btn.active{border-color:var(--sky);color:var(--sky);background:#eff6ff;}
+.crew-qe-saved{font-size:11px;color:var(--green);font-weight:700;opacity:0;transition:opacity .3s;margin-left:6px;}
+.crew-toggle-btn{font-size:10px;padding:2px 8px;border:1px solid var(--border);background:none;border-radius:5px;cursor:pointer;color:var(--muted);font-family:'DM Sans',sans-serif;font-weight:600;transition:all .12s;}
+.crew-toggle-btn:hover{border-color:var(--sky);color:var(--sky);}
 @keyframes scheduleHighlight {
   0%,100% { box-shadow:0 0 0 2px transparent; border-color:var(--border); }
   50%      { box-shadow:0 0 0 3px var(--gold); border-color:var(--gold); }
@@ -956,24 +978,20 @@ body{background:#f0f2f5;}
 
 <!-- TAP-TO-SCHEDULE MODAL (mobile) -->
 <div class="overlay hidden" id="tapScheduleModal" onclick="if(event.target===this)closeTapScheduleModal()">
-  <div class="modal" style="max-width:360px;">
+  <div class="modal" style="max-width:380px;">
     <div class="modal-title" id="tapScheduleTitle">📅 Schedule Job</div>
-    <div style="display:flex;flex-direction:column;gap:.75rem;margin-top:.5rem;">
-      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Date</label>
-        <input id="tapSchedDate" type="date" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
-      </div>
-      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Rig</label>
-        <select id="tapSchedRig" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;background:#fff;">
-          <option value="">— pick a rig —</option>
-          <option value="rig_1">Rig 1 — Old Tacoma</option>
-          <option value="rig_2">Rig 2 — New Tacoma</option>
-          <option value="rig_3">Rig 3 — Chevy</option>
-        </select>
-      </div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Pick a day</div>
+    <div class="mini-cal-grid" id="tapSchedMiniCal"></div>
+    <input id="tapSchedDate" type="hidden">
+    <div id="tapSchedSelectedLabel" style="font-size:13px;font-weight:700;color:var(--sky);min-height:18px;margin-bottom:10px;"></div>
+    <div>
+      <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Note <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
+      <input id="tapSchedNote" type="text" placeholder="e.g. AM preferred, call ahead…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
     </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;">🛰 Rig will be auto-assigned by GPS when job runs — no need to pick one now.</div>
     <div class="modal-footer" style="margin-top:1.25rem;">
       <button class="mbtn-cancel" onclick="closeTapScheduleModal()">Cancel</button>
-      <button class="mbtn-save" onclick="confirmTapSchedule()">Schedule ✓</button>
+      <button class="mbtn-save" id="tapSchedConfirmBtn" onclick="confirmTapSchedule()">Schedule ✓</button>
     </div>
   </div>
 </div>
@@ -1748,10 +1766,8 @@ function jobCardSidebar(c) {
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${addOnsLine}
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
-    <div class="drag-hint" style="display:flex;align-items:center;justify-content:space-between;">
-      <span>⠿ Drag to schedule</span>
-      <button onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')" style="font-size:10px;padding:2px 7px;background:var(--sky);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:700;" title="Tap to schedule (mobile)">📅 Schedule</button>
-    </div>
+    <button class="sched-primary-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')">📅 Schedule for a Day</button>
+    <div class="drag-hint-subtle">or drag to calendar week view</div>
     ${ss.source === 'csv_import' ? `<div class="jd" style="font-size:10px;color:var(--muted);">📥 from CSV import</div>` : ss.source === 'verbal_agreement' ? `<div class="jd" style="font-size:10px;color:var(--muted);">🖊 verbal agreement</div>` : ''}
     ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
   </div>`;
@@ -1954,11 +1970,54 @@ function jobCardScheduled(c) {
     gpsHtml = `<div class="js-gps-time">⏱ ${_arrFmt}${_depFmt ? ' – ' + _depFmt : ''}${_durFmt ? ' (' + _durFmt + ')' : ''}${_rigShift}</div>`;
   }
 
+  // Crew quick-edit panel (collapsed by default)
+  const _currentCrew = ss.crew || [];
+  const _currentDur  = ss.estimatedDuration || 2;
+  const _durLabel    = _currentDur <= 4 ? 'Half Day' : _currentDur >= 7 ? 'Full Day' : `${_currentDur}h`;
+  const _crewNames   = _currentCrew.map(id => CREW_MEMBERS.find(cm => cm.id === id)?.name || id).join(', ');
+  const _crewChips   = CREW_MEMBERS.map(cm => {
+    const active = _currentCrew.includes(cm.id);
+    return `<span class="crew-chip${active?' active':''}" data-crew-id="${cm.id}" data-phone="${phone}"
+      style="color:${cm.color};${active?'background:'+cm.color+';color:#fff;border-color:'+cm.color+';':''}"
+      onclick="event.stopPropagation();toggleCrewChip('${phone}','${cm.id}',this)">${cm.name}</span>`;
+  }).join('');
+  const _gpsRef = _gpsSrc?.actualDuration
+    ? `<span style="font-size:10px;color:var(--muted);margin-left:6px;">GPS: ${Math.floor(_gpsSrc.actualDuration/60)}h ${_gpsSrc.actualDuration%60}m</span>` : '';
+  const _durBtns = [
+    {v:4, l:'Half Day'}, {v:8, l:'Full Day'}, {v:0, l:'Custom'},
+  ].map(opt => {
+    const isActive = opt.v === 0
+      ? (_currentDur !== 4 && _currentDur !== 8)
+      : Math.round(_currentDur) === opt.v;
+    return `<button class="dur-btn${isActive?' active':''}" onclick="event.stopPropagation();setDurBtn('${phone}',${opt.v},this)">${opt.l}</button>`;
+  }).join('');
+  const _crewSummary = _crewNames ? `· ${_crewNames}` : '';
+  const crewQeHtml = `
+    <div class="crew-qe" id="crew-qe-${phone}" style="display:none;" onclick="event.stopPropagation()">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;">Crew</div>
+      <div class="crew-qe-row">${_crewChips}</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;">Duration${_gpsRef}</div>
+      <div class="dur-row">${_durBtns}</div>
+      <div id="crew-qe-custom-${phone}" style="${(_currentDur !== 4 && _currentDur !== 8) ? '' : 'display:none;'}">
+        <input type="number" id="crew-qe-hrs-${phone}" value="${_currentDur !== 4 && _currentDur !== 8 ? _currentDur : ''}"
+          min="1" max="12" step=".5" placeholder="hours"
+          style="width:90px;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-family:'DM Sans',sans-serif;font-size:13px;outline:none;"
+          onclick="event.stopPropagation()" onchange="event.stopPropagation();saveQuickEdit('${phone}')">
+      </div>
+      <div style="margin-top:6px;display:flex;align-items:center;">
+        <button onclick="event.stopPropagation();saveQuickEdit('${phone}')" style="font-size:11px;padding:4px 10px;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:700;">Save</button>
+        <span class="crew-qe-saved" id="crew-qe-saved-${phone}">✓ Saved</span>
+      </div>
+    </div>`;
+
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>${amtHtml}</div>
-    <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
+    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>
+      <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
+    </div>
+    <div class="js-meta">${time} · ${_durLabel}${city ? ' · '+city : ''}</div>
     ${gpsHtml}
+    ${crewQeHtml}
     ${roofInfoHtml}
     ${reviewBtnHtml}
     ${printBtnHtml}
@@ -2272,6 +2331,55 @@ function undoAction(phone, prevStatus) {
   saveDb().catch(()=>{});
   render();
   showToast('↩ Action undone');
+}
+
+// ── Crew quick-edit (inline on calendar job cards) ───────────────────────────
+
+function toggleCrewQe(phone) {
+  const el = document.getElementById('crew-qe-' + phone);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleCrewChip(phone, crewId, el) {
+  el.classList.toggle('active');
+  const cm = CREW_MEMBERS.find(c => c.id === crewId);
+  if (!cm) return;
+  if (el.classList.contains('active')) {
+    el.style.background = cm.color;
+    el.style.color      = '#fff';
+    el.style.borderColor = cm.color;
+  } else {
+    el.style.background  = '';
+    el.style.color       = cm.color;
+    el.style.borderColor = '';
+  }
+}
+
+function setDurBtn(phone, value, btn) {
+  btn.closest('.dur-row').querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const customWrap = document.getElementById('crew-qe-custom-' + phone);
+  if (customWrap) customWrap.style.display = value === 0 ? '' : 'none';
+  if (value !== 0) saveQuickEdit(phone, value);
+}
+
+function saveQuickEdit(phone, forceDur) {
+  const c = findCustomer(phone);
+  if (!c || !c.scheduledStatus) return;
+  const crew = Array.from(document.querySelectorAll('#crew-qe-' + phone + ' .crew-chip.active'))
+    .map(el => el.dataset.crewId).filter(Boolean);
+  c.scheduledStatus.crew = crew;
+  if (forceDur !== undefined) {
+    c.scheduledStatus.estimatedDuration = forceDur;
+  } else {
+    const hrsEl = document.getElementById('crew-qe-hrs-' + phone);
+    const hrs = parseFloat(hrsEl?.value || '');
+    if (!isNaN(hrs) && hrs > 0) c.scheduledStatus.estimatedDuration = hrs;
+  }
+  saveDb().catch(() => {});
+  const fb = document.getElementById('crew-qe-saved-' + phone);
+  if (fb) { fb.style.opacity = '1'; setTimeout(() => { fb.style.opacity = '0'; }, 1800); }
 }
 
 // ── CREW POPOVER ──────────────────────────────────────────────────────────────
@@ -3800,38 +3908,81 @@ async function saveAddUnscheduled() {
 
 let _tapSchedPhone = null;
 
+let _tapSchedSelectedDate = null;
+
+function _buildMiniCal(selectedDate) {
+  const today = isoToday();
+  const days  = [];
+  for (let i = 0; i < 21; i++) {  // 3 weeks (21 days)
+    const d = new Date(); d.setDate(d.getDate() + i);
+    const iso = d.toISOString().split('T')[0];
+    const dayName = ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()];
+    const dayNum  = d.getDate();
+    days.push({ iso, dayName, dayNum, isToday: iso === today, isSelected: iso === selectedDate });
+  }
+  return days.map(d => `
+    <button class="mini-cal-day${d.isToday?' today':''}${d.isSelected?' selected':''}"
+      onclick="selectMiniCalDay('${d.iso}')">${d.dayName}<br>${d.dayNum}</button>`).join('');
+}
+
+function selectMiniCalDay(iso) {
+  _tapSchedSelectedDate = iso;
+  document.getElementById('tapSchedDate').value = iso;
+  const d = new Date(iso + 'T12:00:00');
+  document.getElementById('tapSchedSelectedLabel').textContent =
+    d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  document.getElementById('tapSchedMiniCal').innerHTML = _buildMiniCal(iso);
+  const btn = document.getElementById('tapSchedConfirmBtn');
+  if (btn) btn.disabled = false;
+}
+
 function openTapScheduleModal(phone) {
   _tapSchedPhone = phone;
-  const c = findCustomer(phone);
+  const c    = findCustomer(phone);
   const name = c ? ((c.firstName||'') + ' ' + (c.lastName||'')).trim() : phone;
-  document.getElementById('tapScheduleTitle').textContent = `📅 Schedule — ${name}`;
+  document.getElementById('tapScheduleTitle').textContent = `📅 Schedule — ${esc(name)}`;
   const proposed = c?.scheduledStatus?.scheduledDate || '';
-  document.getElementById('tapSchedDate').value = proposed || isoToday();
-  document.getElementById('tapSchedRig').value  = c?.scheduledStatus?.rig || '';
+  _tapSchedSelectedDate = proposed || null;
+  document.getElementById('tapSchedDate').value = proposed || '';
+  document.getElementById('tapSchedNote').value  = c?.scheduledStatus?.scheduleNote || '';
+  document.getElementById('tapSchedMiniCal').innerHTML = _buildMiniCal(proposed || null);
+  const lbl = document.getElementById('tapSchedSelectedLabel');
+  if (proposed) {
+    const d = new Date(proposed + 'T12:00:00');
+    lbl.textContent = d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  } else {
+    lbl.textContent = '';
+  }
+  const btn = document.getElementById('tapSchedConfirmBtn');
+  if (btn) btn.disabled = !proposed;
   document.getElementById('tapScheduleModal').classList.remove('hidden');
 }
 
 function closeTapScheduleModal() {
   document.getElementById('tapScheduleModal').classList.add('hidden');
   _tapSchedPhone = null;
+  _tapSchedSelectedDate = null;
 }
 
 async function confirmTapSchedule() {
   if (!_tapSchedPhone) return;
   const date = document.getElementById('tapSchedDate').value;
-  const rig  = document.getElementById('tapSchedRig').value;
-  if (!date) { showToast('Pick a date'); return; }
-  if (!rig)  { showToast('Pick a rig'); return; }
+  if (!date) { showToast('Tap a day first'); return; }
   const c = findCustomer(_tapSchedPhone);
   if (!c) { showToast('Customer not found'); return; }
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
   if (!c.scheduledStatus) c.scheduledStatus = {};
   c.scheduledStatus.state         = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
-  c.scheduledStatus.rig           = rig;
+  c.scheduledStatus.rig           = null;  // Day Pool — GPS will attribute rig
+  const note = (document.getElementById('tapSchedNote').value || '').trim();
+  if (note) c.scheduledStatus.scheduleNote = note;
   await saveDb();
   closeTapScheduleModal();
   render();
-  showToast(`✓ Scheduled on ${date} (${rig})`);
+  const name = ((c.firstName||'') + ' ' + (c.lastName||'')).trim();
+  const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  showToast(`✓ ${esc(name)} → ${dayLabel} · Day Pool`, 'Undo', () => { undoAction(_tapSchedPhone, prev); });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
