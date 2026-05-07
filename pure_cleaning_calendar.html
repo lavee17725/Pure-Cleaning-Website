@@ -405,6 +405,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-rig-summary{padding:4px 10px 5px;background:#0d1e35;border-bottom:1px solid #1e3a5f;font-size:10px;color:rgba(255,255,255,.5);line-height:1.6;}
 .day-rig-summary b{color:rgba(255,255,255,.8);font-weight:600;}
 .day-rig-warn{padding:2px 10px 3px;background:#fef9ec;font-size:10px;font-weight:600;color:#92400e;border-bottom:1px solid #fde68a;}
+.morning-stops-row{padding:3px 10px 4px;background:#0a1e34;border-bottom:1px solid #1e3a5f;display:flex;flex-wrap:wrap;align-items:center;gap:5px;}
+.ms-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;}
+.ms-found{background:rgba(16,185,129,.18);color:#6ee7b7;border:1px solid rgba(16,185,129,.3);}
+.ms-missed{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.3);}
+.ms-extended{background:rgba(245,158,11,.18);color:#fcd34d;border:1px solid rgba(245,158,11,.3);}
+.ms-skip-btn{margin-left:auto;padding:1px 7px;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:transparent;color:rgba(255,255,255,.4);font-size:9px;font-weight:700;cursor:pointer;letter-spacing:.3px;}
+.ms-skip-btn:hover{border-color:rgba(255,255,255,.4);color:rgba(255,255,255,.7);}
 .day-cap-fill.full{background:var(--red);}
 
 /* ── TIME WINDOWS ── */
@@ -1381,6 +1388,12 @@ let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
 let _sidebarAutoCollapsed   = false;
 const OPS_CFG_DEFAULTS = { fuelPerMi: 0.30, laborPerHr: 40, chlorineCost: 25 };
+const MORNING_STOP_POI_KEYS = [
+  { key: 'gas',      emoji: '⛽', label: '7-Eleven' },
+  { key: 'chlorine', emoji: '🧪', label: 'Pro-Line'  },
+];
+let _morningStopsData   = {}; // date → { rig → { gas:{...}, chlorine:{...} } }
+let _morningStopAvgMins = {}; // poiKey → avgMin
 let _opsConfig = null;
 let _opsPanelOpen = true;
 
@@ -4863,6 +4876,13 @@ function renderDayView(date) {
   renderDayPool(date);
   renderDayRigGrid(date);
   renderDayRollup(date);
+  // Fetch stored morning stops if not already in memory cache
+  if (!_morningStopsData[date]) {
+    fetchMorningStops(date).then(() => {
+      // Re-render rig grid to show morning stop badges once data arrives
+      if (_morningStopsData[date]) renderDayRigGrid(date);
+    });
+  }
 }
 
 function renderPriorityStrip(date) {
@@ -4977,6 +4997,7 @@ function renderDayRigGrid(date) {
         ? `<div class="day-rig-warn">${warnings.join(' · ')}</div>` : '';
       return `<div class="day-rig-summary">${timeLine}</div>${warnHtml}`;
     })();
+    const morningStopHtml = renderMorningStopBadges(date, rig);
     return `<div class="day-rig-col">
       <div class="day-rig-hdr" style="border-top:3px solid ${rigColor};">
         <span style="width:9px;height:9px;border-radius:50%;background:${rigColor};flex-shrink:0;display:inline-block;"></span>
@@ -4984,6 +5005,7 @@ function renderDayRigGrid(date) {
         <span style="font-size:11px;color:rgba(255,255,255,.4);font-weight:500;">${totalCount} job${totalCount!==1?'s':''}</span>
       </div>
       ${summaryHtml}
+      ${morningStopHtml}
       <div class="day-cap-bar"><div class="day-cap-fill" style="width:${capPct}%;background:${rigColor};"></div></div>
       ${grossHtml}${driverRowHtml}
       ${winLanesHtml}
@@ -5075,6 +5097,64 @@ async function handleDropToPool(phone, date) {
   renderSidebar();
 }
 
+// ── MORNING STOP VALIDATION ───────────────────────────────────────────────────
+
+async function fetchMorningStops(date) {
+  try {
+    const r = await fetch(`${PCPC_API}/api/bouncie/morning-stops?date=${date}&_t=${Date.now()}`).then(r => r.json());
+    if (r.morningStops) _morningStopsData[date] = r.morningStops;
+    if (r.poiStats) {
+      for (const [k, v] of Object.entries(r.poiStats)) {
+        if (v?.avgMin) _morningStopAvgMins[k] = v.avgMin;
+      }
+    }
+  } catch(e) { /* silent — GPS data optional */ }
+}
+
+function toggleMorningStopSkip(date, rig) {
+  const key = `ms_skip:${date}:${rig}`;
+  localStorage.getItem(key) === '1'
+    ? localStorage.removeItem(key)
+    : localStorage.setItem(key, '1');
+  renderDayRigGrid(date);
+}
+
+function renderMorningStopBadges(date, rig) {
+  const skipKey  = `ms_skip:${date}:${rig}`;
+  const isSkipped = localStorage.getItem(skipKey) === '1';
+  const stops     = _morningStopsData[date]?.[rig];
+  if (!stops && !isSkipped) return '';  // sync hasn't run yet
+
+  const skipBtn = `<button class="ms-skip-btn" onclick="event.stopPropagation();toggleMorningStopSkip('${date}','${rig}')">${isSkipped ? '↩ Unskip' : '⏩ Skip'}</button>`;
+
+  if (isSkipped) {
+    return `<div class="morning-stops-row"><span style="font-size:10px;color:rgba(255,255,255,.35);">⏩ Morning stops skipped</span>${skipBtn}</div>`;
+  }
+
+  const badges = MORNING_STOP_POI_KEYS.map(({ key, emoji, label }) => {
+    const stop = stops[key];
+    if (!stop) return '';
+    if (!stop.found) {
+      return `<span class="ms-badge ms-missed">${emoji} ${label} missed ⚠️</span>`;
+    }
+    const timeStr = stop.arrivedAt
+      ? new Date(stop.arrivedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : '';
+    const dur = stop.durationMin;
+    const avg = _morningStopAvgMins[key] || null;
+    let durStr = dur != null ? `${dur} min` : '';
+    let cls = 'ms-found';
+    let note = avg ? ` (avg ${avg} min)` : '';
+    if (avg && dur != null && dur > avg * 2) {
+      cls = 'ms-extended';
+      note = ` (avg ${avg} min) — extended`;
+    }
+    return `<span class="ms-badge ${cls}">${emoji} ${label}${timeStr ? ' ' + timeStr : ''}${durStr ? ' ' + durStr : ''}${note} ✓</span>`;
+  }).filter(Boolean).join('');
+
+  return `<div class="morning-stops-row">${badges}${skipBtn}</div>`;
+}
+
 // ── GPS SYNC ──────────────────────────────────────────────────────────────────
 
 async function syncGpsNow(date) {
@@ -5083,6 +5163,8 @@ async function syncGpsNow(date) {
   try {
     const result = await fetch(`${PCPC_API}/api/bouncie/match?date=${date}&_t=${Date.now()}`).then(r => r.json());
     if (result.error) throw new Error(result.error);
+    // Cache morning stop results from the match response
+    if (result.morningStops) _morningStopsData[date] = result.morningStops;
     // Re-fetch DB to pick up GPS-updated records
     const fresh = await fetch(`${PCPC_API}/customers?_t=${Date.now()}`).then(r => r.json());
     if (fresh.customers) { dbRecord = fresh; }
@@ -5091,6 +5173,10 @@ async function syncGpsNow(date) {
     const shifted = (result.results || []).filter(r => r.rigChanged).length;
     let msg = `✓ GPS synced — ${m} job${m !== 1 ? 's' : ''} matched`;
     if (shifted) msg += ` · ${shifted} rig${shifted !== 1 ? 's' : ''} auto-corrected`;
+    // Morning stop summary in toast
+    const msAll = result.morningStops || {};
+    const msMissed = Object.values(msAll).flatMap(s => Object.values(s).filter(p => !p.found)).length;
+    if (msMissed) msg += ` · ${msMissed} stop${msMissed > 1 ? 's' : ''} missed ⚠️`;
     showToast(msg);
   } catch(e) {
     showToast(`GPS sync failed — ${e.message || 'check Bouncie auth'}`);
