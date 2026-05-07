@@ -380,6 +380,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-cap-fill.warn{background:var(--gold);}
 .day-cap-fill.full{background:var(--red);}
 
+/* ── TIME WINDOWS ── */
+.win-section-hdr{display:flex;align-items:center;gap:6px;padding:5px 10px 3px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);background:rgba(0,0,0,.02);border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:4px -1px 2px;user-select:none;pointer-events:none;}
+.win-section-hdr:first-child{margin-top:0;border-top:none;}
+.win-section-hdr .win-range{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:10px;}
+.win-section-hdr .win-heavy{font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;border:1px solid #fde68a;}
+.win-section-hdr.heavy{background:#fef9ec;}
+.win-btn-row{display:flex;gap:6px;margin:6px 0;}
+.win-btn{flex:1;padding:8px 4px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;background:var(--white);color:var(--navy);transition:all .12s;-webkit-tap-highlight-color:transparent;}
+.win-btn.active{background:var(--sky);color:#fff;border-color:var(--sky);}
+.wk-win-counts{font-size:9px;font-weight:600;color:var(--muted);margin-top:3px;letter-spacing:.2px;}
+
 /* ── SWIPE HINT ── */
 .swipe-hint{display:flex;justify-content:space-between;padding:.2rem .875rem;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);letter-spacing:.5px;background:#071525;border-bottom:1px solid #1e3a5f;}
 
@@ -986,9 +997,17 @@ body{background:#f0f2f5;}
     <div class="mini-cal-grid" id="tapSchedMiniCal"></div>
     <input id="tapSchedDate" type="hidden">
     <div id="tapSchedSelectedLabel" style="font-size:13px;font-weight:700;color:var(--sky);min-height:18px;margin-bottom:10px;"></div>
+    <div style="margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Time Window</div>
+      <div class="win-btn-row" id="tapSchedWinRow">
+        <button class="win-btn active" data-win="morning"         onclick="selectTapSchedWindow('morning',this)">🌅 Morning</button>
+        <button class="win-btn"        data-win="early_afternoon" onclick="selectTapSchedWindow('early_afternoon',this)">☀️ Early</button>
+        <button class="win-btn"        data-win="late_afternoon"  onclick="selectTapSchedWindow('late_afternoon',this)">🌇 Late</button>
+      </div>
+    </div>
     <div>
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Note <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-      <input id="tapSchedNote" type="text" placeholder="e.g. AM preferred, call ahead…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
+      <input id="tapSchedNote" type="text" placeholder="e.g. call ahead, gate code…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:8px;">🛰 Rig will be auto-assigned by GPS when job runs — no need to pick one now.</div>
     <div class="modal-footer" style="margin-top:1.25rem;">
@@ -1079,6 +1098,28 @@ const CREW_MEMBERS = [
 // Manual click-to-text is fully functional — see textDriver().
 const RIGS = ['rig_1','rig_2','rig_3'];
 const RIG_LABELS = {rig_1:'Old Tacoma', rig_2:'New Tacoma', rig_3:'Chevy'};
+
+const WINDOWS = [
+  { id: 'morning',         emoji: '🌅', label: 'Morning',         range: '9:30 – 12:30' },
+  { id: 'early_afternoon', emoji: '☀️', label: 'Early Afternoon', range: '11:30 – 2:30' },
+  { id: 'late_afternoon',  emoji: '🌇', label: 'Late Afternoon',  range: '1:30 – 4:00'  },
+];
+const WIN_ORDER = { morning: 0, early_afternoon: 1, late_afternoon: 2 };
+
+function getJobWindow(ss) {
+  if (!ss) return 'morning';
+  if (ss.window) return ss.window;
+  const t = ss.startTime || '09:00';
+  const h = parseInt(t.split(':')[0], 10);
+  if (h < 11) return 'morning';
+  if (h < 14) return 'early_afternoon';
+  return 'late_afternoon';
+}
+
+function windowLabel(ss) {
+  const w = WINDOWS.find(x => x.id === getJobWindow(ss));
+  return w ? `${w.emoji} ${w.label}` : '🌅 Morning';
+}
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
 let dbRecord      = {};
@@ -1481,6 +1522,25 @@ function buildJobsHtmlWithDist(jobs) {
   return parts.join('');
 }
 
+function buildJobsByWindow(jobs) {
+  if (!jobs.length) return '';
+  const groups = { morning: [], early_afternoon: [], late_afternoon: [] };
+  jobs.forEach(j => groups[getJobWindow(j.scheduledStatus || {})]?.push(j));
+  let html = '';
+  for (const win of WINDOWS) {
+    const g = groups[win.id];
+    if (!g.length) continue;
+    const heavy = g.length >= 3;
+    html += `<div class="win-section-hdr${heavy?' heavy':''}" data-window="${win.id}">
+      ${win.emoji} <span>${win.label}</span>
+      <span class="win-range">${win.range}</span>
+      ${heavy ? `<span class="win-heavy">Heavy</span>` : ''}
+    </div>`;
+    html += buildJobsHtmlWithDist(g);
+  }
+  return html;
+}
+
 function renderRouteSummary(jobs, date, rig) {
   if (jobs.length < 2) return '';
   let total = 0, anyMissing = false, maxLeg = 0, maxIdx = -1;
@@ -1834,10 +1894,15 @@ function renderCalGrid(dates) {
         ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 ${printableJobs.length} sheets</button></div>`
         : '';
       // Rig label chip — only render when rig has jobs
+      const winCounts = WINDOWS.map(w => {
+        const n = jobs.filter(j => getJobWindow(j.scheduledStatus||{}) === w.id).length;
+        return n > 0 ? `${w.emoji}${n}` : null;
+      }).filter(Boolean).join('  ');
       const rigLabelHtml = (jobs.length || extras.length) > 0
         ? `<div class="wk-rig-label" onclick="openCrewPop('${date}','${rig}',this)" style="border-left:3px solid ${RIG_CAP_COLORS[rig]};">
             <span style="color:${RIG_CAP_COLORS[rig]};font-size:11px;font-weight:700;">${RIG_LABELS[rig]}${halfBadge}</span>
             ${crewLabel ? `<span class="rig-crew-label" style="font-size:10px;">${crewLabel}</span>` : ''}
+            ${winCounts ? `<div class="wk-win-counts">${winCounts}</div>` : ''}
            </div>` : '';
       return `<div class="rig-section">
         ${rigLabelHtml}
@@ -1863,7 +1928,7 @@ function renderCalGrid(dates) {
           <div class="dh-right">${wxHtml}</div>
         </div>
         ${totalJobCount > 0
-          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
+          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${totalJobCount >= 6 ? `<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">Busy</span>` : ''}${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
           : `<div class="dh-rev dh-rev-empty">—</div>`}
         <div class="wk-cap-bars">${capBarsHtml}</div>
         ${optAllHtml}
@@ -1886,7 +1951,7 @@ function _calVipBadge(c) {
 function jobCardScheduled(c) {
   const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
   const ss    = c.scheduledStatus || {};
-  const time  = ss.startTime || '9:00am';
+  const winLbl = windowLabel(ss);
   const dur   = ss.estimatedDuration || 2;
   const state = ss.state || 'scheduled';
   const alerts= alertIcons(c.alerts||[]);
@@ -2026,7 +2091,7 @@ function jobCardScheduled(c) {
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
-    <div class="js-meta">${time} · ${_durLabel}${city ? ' · '+city : ''}</div>
+    <div class="js-meta">${winLbl} · ~${_durLabel}${city ? ' · '+city : ''}</div>
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
@@ -3971,9 +4036,14 @@ async function saveAddUnscheduled() {
 
 // ── TAP-TO-SCHEDULE MODAL ─────────────────────────────────────────────────────
 
-let _tapSchedPhone = null;
-
+let _tapSchedPhone        = null;
 let _tapSchedSelectedDate = null;
+let _tapSchedWindow       = 'morning';
+
+function selectTapSchedWindow(win, el) {
+  _tapSchedWindow = win;
+  document.querySelectorAll('#tapSchedWinRow .win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === win));
+}
 
 function _buildMiniCal(selectedDate) {
   const today = isoToday();
@@ -4010,6 +4080,9 @@ function openTapScheduleModal(phone) {
   _tapSchedSelectedDate = proposed || null;
   document.getElementById('tapSchedDate').value = proposed || '';
   document.getElementById('tapSchedNote').value  = c?.scheduledStatus?.scheduleNote || '';
+  // Reset window picker to existing window or default morning
+  _tapSchedWindow = c?.scheduledStatus?.window || 'morning';
+  document.querySelectorAll('#tapSchedWinRow .win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === _tapSchedWindow));
   document.getElementById('tapSchedMiniCal').innerHTML = _buildMiniCal(proposed || null);
   const lbl = document.getElementById('tapSchedSelectedLabel');
   if (proposed) {
@@ -4040,6 +4113,7 @@ async function confirmTapSchedule() {
   c.scheduledStatus.state         = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
   c.scheduledStatus.rig           = null;  // Day Pool — GPS will attribute rig
+  c.scheduledStatus.window        = _tapSchedWindow || 'morning';
   const note = (document.getElementById('tapSchedNote').value || '').trim();
   if (note) c.scheduledStatus.scheduleNote = note;
   await saveDb();
@@ -4182,7 +4256,7 @@ function renderDayRigGrid(date) {
       </div>` : '';
     const extras = getExtraCompletedJobsForRig(date, rig);
     const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
-    const jobsHtml = buildJobsHtmlWithDist(jobs);
+    const jobsHtml = buildJobsByWindow(jobs);
     const totalCount = jobs.length + extras.length;
     const emptyClass = totalCount ? '' : ' empty-hint';
     const emptyMsg = !totalCount
@@ -4208,7 +4282,7 @@ function renderDayRigGrid(date) {
     sortables.push(Sortable.create(lane, {
       group:{ name:'jobs', pull:true, put:() => true },
       animation:150, ghostClass:'sortable-ghost', chosenClass:'sortable-chosen',
-      filter:'.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra',
+      filter:'.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra,.win-section-hdr',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false,100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
