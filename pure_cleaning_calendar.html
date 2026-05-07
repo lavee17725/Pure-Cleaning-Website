@@ -381,6 +381,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-rollup-rig{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
 .day-rollup-name{font-weight:700;color:var(--navy);flex:1;}
 .day-rollup-stat{color:var(--muted);font-size:12px;}
+/* ── Ops Dashboard ── */
+.ops-panel{margin:16px 0 0;background:var(--card);border:1.5px solid var(--border);border-radius:12px;overflow:hidden;}
+.ops-hdr{padding:9px 14px;background:var(--navy2);font-size:12px;font-weight:700;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+.ops-hdr:hover{background:#172b4d;}
+.ops-rig-section{padding:10px 14px;border-bottom:1px solid var(--border);}
+.ops-rig-section:last-child{border-bottom:none;}
+.ops-rig-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;gap:6px;}
+.ops-grid{display:grid;grid-template-columns:minmax(90px,auto) 1fr;gap:3px 10px;margin-bottom:7px;}
+.ops-metric{font-size:11px;color:var(--muted);align-self:center;}
+.ops-val{font-size:12px;font-weight:700;color:var(--navy);}
+.ops-cost-line{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;padding:2px 0;}
+.ops-cost-line.total{font-size:12px;font-weight:700;color:var(--navy);border-top:1px dashed var(--border);margin-top:5px;padding-top:5px;display:flex;justify-content:space-between;}
+.ops-cost-line.margin-good{color:#16a34a;}
+.ops-cost-line.margin-warn{color:#f97316;}
+.ops-cost-line.margin-bad{color:#dc2626;}
+.ops-config-row{padding:7px 14px;background:#f8fafc;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;}
+.ops-cfg-input{width:46px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px;font-family:'DM Sans',sans-serif;text-align:center;color:var(--text);}
 .day-rig-hdr{padding:8px 10px;background:var(--navy2);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;}
 .day-cap-bar{height:5px;background:#1e3a5f;margin:.375rem .625rem .25rem;border-radius:3px;overflow:hidden;}
 .day-cap-fill{height:100%;border-radius:3px;background:var(--sky);transition:width .3s;}
@@ -1363,6 +1380,32 @@ let weekOffset    = 0;
 let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
 let _sidebarAutoCollapsed   = false;
+const OPS_CFG_DEFAULTS = { fuelPerMi: 0.30, laborPerHr: 40, chlorineCost: 25 };
+let _opsConfig = null;
+let _opsPanelOpen = true;
+
+function loadOpsConfig() {
+  if (_opsConfig) return _opsConfig;
+  try { _opsConfig = { ...OPS_CFG_DEFAULTS, ...JSON.parse(localStorage.getItem('pcpc_ops_config') || '{}') }; }
+  catch { _opsConfig = { ...OPS_CFG_DEFAULTS }; }
+  return _opsConfig;
+}
+
+function saveOpsConfigField(field, val) {
+  const cfg = loadOpsConfig();
+  cfg[field] = parseFloat(val) || OPS_CFG_DEFAULTS[field];
+  _opsConfig = cfg;
+  localStorage.setItem('pcpc_ops_config', JSON.stringify(cfg));
+  renderDayRollup(dayViewDate || isoToday());
+}
+
+function toggleOpsPanel() {
+  _opsPanelOpen = !_opsPanelOpen;
+  const body = document.getElementById('opsPanelBody');
+  const chev = document.getElementById('opsPanelChevron');
+  if (body) body.style.display = _opsPanelOpen ? '' : 'none';
+  if (chev) chev.textContent = _opsPanelOpen ? '▲' : '▼';
+}
 let cpDate        = null; // date currently editing in crew pop
 let cpRig         = null; // rig currently editing
 let cpSelCrew     = [];   // selected crew in popover
@@ -5055,52 +5098,111 @@ async function syncGpsNow(date) {
   }
 }
 
-// ── END-OF-DAY ROLLUP ─────────────────────────────────────────────────────────
+// ── OPS DASHBOARD ─────────────────────────────────────────────────────────────
 
 function renderDayRollup(date) {
   const el = document.getElementById('dayRollup');
   if (!el) return;
+  const cfg = loadOpsConfig();
+  const fmtMin = m => m > 0 ? `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m` : '—';
+  const fmtMi  = m => m != null ? `~${Number(m).toFixed(1)} mi` : null;
+  const fmtDol = d => `$${Math.abs(d).toFixed(2)}`;
+  const fmtPct = p => p != null ? `${Math.round(p)}%` : null;
+  const mCls   = p => p == null ? '' : p >= 75 ? 'margin-good' : p >= 60 ? '' : p >= 50 ? 'margin-warn' : 'margin-bad';
 
-  const rigStats = RIGS.map(rig => {
-    const jobs = getScheduledForRig(date, rig);
-    const done = jobs.filter(c => (c.scheduledStatus || {}).state === 'completed');
-    const revenue = done.reduce((s, c) => s + jobAmount(c).val, 0);
-    // GPS duration from scheduledStatus (written by Bouncie matcher)
-    const gpsMin = done.reduce((s, c) => {
-      const ss = c.scheduledStatus || {};
-      const jhEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === date);
-      return s + ((jhEntry || ss).actualDuration || 0);
+  const rigData = RIGS.map(rig => {
+    const allJobs = getScheduledForRig(date, rig);
+    const active  = allJobs.filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
+    if (!active.length) return null;
+
+    const revenue  = active.reduce((s, c) => s + jobAmount(c).val, 0);
+    const jobCount = active.length;
+
+    // On-site time: GPS actual if available, else per-customer estimate
+    const onSiteMin = active.reduce((s, c) => {
+      const jh = (c.jobHistory || []).slice().reverse().find(j => j.date === date);
+      return s + (jh?.actualDuration || getCustomerJobDuration(c));
     }, 0);
-    return { rig, label: RIG_LABELS[rig], color: RIG_CAP_COLORS[rig], done: done.length, total: jobs.length, revenue, gpsMin };
-  });
 
-  const anyCompleted = rigStats.some(s => s.done > 0);
-  if (!anyCompleted) { el.innerHTML = ''; return; }
+    // Door-to-door summary (reads _estTimeMap populated by buildWindowLanes)
+    const summary = computeRigDaySummary(active);
+    const totalWorkMin = summary?.totalMin || 0;
+    const driveMin     = Math.max(0, totalWorkMin - onSiteMin);
+    const totalMi      = summary?.totalMi ?? null;
 
-  const totalRev = rigStats.reduce((s, r) => s + r.revenue, 0);
-  const totalJobs = rigStats.reduce((s, r) => s + r.done, 0);
-  const totalMin  = rigStats.reduce((s, r) => s + r.gpsMin, 0);
+    // Costs
+    const fuelCost   = totalMi != null ? totalMi * cfg.fuelPerMi : null;
+    const laborCost  = totalWorkMin > 0 ? (totalWorkMin / 60) * cfg.laborPerHr : null;
+    const totalCost  = (fuelCost || 0) + (laborCost || 0);
+    const margin     = revenue - totalCost;
+    const marginPct  = revenue > 0 ? (margin / revenue) * 100 : null;
 
-  const fmtDur = min => min > 0 ? `${Math.floor(min / 60)}h ${min % 60}m` : '—';
+    // Warnings
+    const warns = [];
+    if (summary?.warnings?.length) warns.push(...summary.warnings);
+    if (marginPct !== null && marginPct < 60) warns.push(`⚠️ Low margin — ${fmtPct(marginPct)}`);
+    if (totalMi && totalMi > 50) warns.push(`⚠️ Long drive day`);
 
-  const rows = rigStats.map(s => {
-    if (s.done === 0 && s.total === 0) return '';
-    const gpsTag = s.gpsMin > 0 ? `<span class="day-rollup-stat">· ⏱ ${fmtDur(s.gpsMin)}</span>` : '';
-    const pendingTag = s.total > s.done ? `<span class="day-rollup-stat" style="color:#f97316;">· ${s.total - s.done} pending</span>` : '';
-    return `<div class="day-rollup-row">
-      <div class="day-rollup-rig" style="background:${s.color};"></div>
-      <div class="day-rollup-name">${esc(s.label)}</div>
-      <span class="day-rollup-stat">${s.done} job${s.done !== 1 ? 's' : ''}</span>
-      ${s.revenue > 0 ? `<span class="day-rollup-stat">· $${s.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>` : ''}
-      ${gpsTag}${pendingTag}
-    </div>`;
-  }).filter(Boolean).join('');
+    return { rig, revenue, jobCount, onSiteMin, driveMin, totalWorkMin, totalMi, fuelCost, laborCost, totalCost, margin, marginPct, warns, summary };
+  }).filter(Boolean);
 
-  const totalGpsTag = totalMin > 0 ? ` · ⏱ ${fmtDur(totalMin)} on-site` : '';
-  el.innerHTML = `<div style="padding:0 10px;">
-    <div class="day-rollup">
-      <div class="day-rollup-hdr">📊 Day Summary${totalJobs > 0 ? ` — $${totalRev.toLocaleString('en-US', { maximumFractionDigits: 0 })} / ${totalJobs} job${totalJobs !== 1 ? 's' : ''}${totalGpsTag}` : ''}</div>
-      ${rows}
+  if (!rigData.length) { el.innerHTML = ''; return; }
+
+  const totRev   = rigData.reduce((s, r) => s + r.revenue, 0);
+  const totCost  = rigData.reduce((s, r) => s + r.totalCost, 0);
+  const totMarg  = totRev - totCost;
+  const totPct   = totRev > 0 ? (totMarg / totRev) * 100 : null;
+  const totJobs  = rigData.reduce((s, r) => s + r.jobCount, 0);
+  const hdrLine  = `$${totRev.toLocaleString('en-US',{maximumFractionDigits:0})} · ${totJobs} job${totJobs!==1?'s':''}${totPct != null ? ` · ${fmtPct(totPct)} margin` : ''}`;
+
+  const rigSections = rigData.map(r => `
+    <div class="ops-rig-section">
+      <div class="ops-rig-label">
+        <span style="width:8px;height:8px;border-radius:50%;background:${RIG_CAP_COLORS[r.rig]};flex-shrink:0;"></span>
+        ${RIG_LABELS[r.rig]}
+      </div>
+      <div class="ops-grid">
+        <span class="ops-metric">Revenue</span>
+        <span class="ops-val">$${r.revenue.toLocaleString('en-US',{maximumFractionDigits:0})} · ${r.jobCount} job${r.jobCount!==1?'s':''}</span>
+        ${r.totalWorkMin > 0 ? `<span class="ops-metric">Working hrs</span><span class="ops-val">${fmtMin(r.totalWorkMin)}${r.summary?.departMin != null ? ` <span style="font-weight:400;color:var(--muted)">(${minsToTime(r.summary.departMin)} – ${minsToTime(r.summary.returnMin)})</span>` : ''}</span>` : ''}
+        ${r.onSiteMin > 0 ? `<span class="ops-metric">On-site</span><span class="ops-val">${fmtMin(r.onSiteMin)}</span>` : ''}
+        ${r.driveMin > 0 ? `<span class="ops-metric">In transit</span><span class="ops-val">${fmtMin(r.driveMin)}${r.totalMi ? ` · ${fmtMi(r.totalMi)}` : ''}</span>` : (r.totalMi ? `<span class="ops-metric">Drive distance</span><span class="ops-val">${fmtMi(r.totalMi)}</span>` : '')}
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:2px;">
+        ${r.fuelCost != null ? `<div class="ops-cost-line">⛽ Fuel <span>${fmtMi(r.totalMi)} × $${cfg.fuelPerMi.toFixed(2)}/mi = ${fmtDol(r.fuelCost)}</span></div>` : ''}
+        ${r.laborCost != null ? `<div class="ops-cost-line">👷 Labor <span>${(r.totalWorkMin/60).toFixed(1)} hr × $${cfg.laborPerHr}/hr = ${fmtDol(r.laborCost)}</span></div>` : ''}
+        ${r.totalCost > 0 ? `<div class="ops-cost-line total"><span>Net / margin</span><span class="${mCls(r.marginPct)}">${fmtDol(r.margin)} · ${fmtPct(r.marginPct)}</span></div>` : ''}
+        ${r.warns.length ? `<div style="margin-top:5px;font-size:10px;font-weight:600;color:#92400e;">${r.warns.join(' · ')}</div>` : ''}
+      </div>
+    </div>`).join('');
+
+  const totalSection = rigData.length > 1 && totCost > 0 ? `
+    <div class="ops-rig-section" style="background:#f8fafc;">
+      <div class="ops-rig-label" style="color:var(--navy);">All Rigs — Combined</div>
+      <div class="ops-grid">
+        <span class="ops-metric">Total revenue</span><span class="ops-val">$${totRev.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+        <span class="ops-metric">Total cost</span><span class="ops-val">${fmtDol(totCost)}</span>
+      </div>
+      <div class="ops-cost-line total"><span>Net / margin</span><span class="${mCls(totPct)}">${fmtDol(totMarg)} · ${fmtPct(totPct)}</span></div>
+    </div>` : '';
+
+  const configRow = `<div class="ops-config-row">
+    ⛽ <input class="ops-cfg-input" value="${cfg.fuelPerMi.toFixed(2)}" onchange="saveOpsConfigField('fuelPerMi',this.value)" title="Fuel cost per mile ($/mi)" onclick="event.stopPropagation()">/mi &nbsp;
+    👷 <input class="ops-cfg-input" value="${cfg.laborPerHr}" onchange="saveOpsConfigField('laborPerHr',this.value)" title="Labor cost per hour ($/hr)" onclick="event.stopPropagation()">/hr
+    <span style="color:#9ca3af;font-size:10px;">— edit to recalculate</span>
+  </div>`;
+
+  el.innerHTML = `<div style="padding:0 10px 16px;">
+    <div class="ops-panel">
+      <div class="ops-hdr" onclick="toggleOpsPanel()">
+        📊 Day Summary — ${esc(hdrLine)}
+        <span style="margin-left:auto;" id="opsPanelChevron">${_opsPanelOpen ? '▲' : '▼'}</span>
+      </div>
+      <div id="opsPanelBody" style="${_opsPanelOpen ? '' : 'display:none;'}">
+        ${rigSections}
+        ${totalSection}
+        ${configRow}
+      </div>
     </div>
   </div>`;
 }
