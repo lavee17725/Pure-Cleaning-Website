@@ -188,8 +188,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-review-btn.no-phone{background:#f9fafb !important;border-color:#e5e7eb !important;color:#9ca3af !important;cursor:default;}
 
 /* ── PRINT BUTTONS ── */
-.js-print-btn{display:block;width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;background:#f9fafb;color:#374151;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-print-btn{flex:1;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;background:#f9fafb;color:#374151;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:center;transition:background .1s;}
 .js-print-btn:hover{background:#e5e7eb;}
+.js-email-btn{flex:1;padding:4px 8px;border:1px solid #c4b5fd;border-radius:5px;background:#ede9fe;color:#7c3aed;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:center;transition:background .1s;}
+.js-email-btn:hover{background:#ddd6fe;}
+.js-inv-btns{display:flex;gap:5px;margin-top:4px;}
+/* Week grid drag-to-scroll */
+#weekViewWrap{position:relative;}
+.cal-grid.wv-dragging{cursor:grabbing !important;user-select:none;}
+.wv-fade{position:absolute;top:0;bottom:0;width:48px;pointer-events:none;z-index:10;opacity:0;transition:opacity .2s;}
+.wv-fade-l{left:0;background:linear-gradient(to right,rgba(250,250,247,.9),transparent);}
+.wv-fade-r{right:0;background:linear-gradient(to left,rgba(250,250,247,.9),transparent);}
 .rig-print-row{padding:2px 8px 4px;}
 .rig-print-btn{font-size:10px;color:#6b7280;background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .1s;}
 .rig-print-btn:hover{background:#f1f5f9;color:#374151;border-color:#cbd5e1;}
@@ -712,6 +721,8 @@ body{background:#f0f2f5;}
   <div class="main-col">
     <!-- Week view (default) -->
     <div id="weekViewWrap">
+      <div class="wv-fade wv-fade-l" id="wvFadeL"></div>
+      <div class="wv-fade wv-fade-r" id="wvFadeR"></div>
       <div class="cal-grid" id="calGrid"></div>
     </div>
     <!-- Day view -->
@@ -2444,7 +2455,7 @@ function jobCardScheduled(c) {
       reviewBtnHtml = `<button class="js-review-btn timing-${timing.state}" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)"${timing.state==='wait'?' title="Better response rates 24-48 hours after job"':''}>📝 Request review · ${timing.label}</button>`;
     }
     if (!c.isTest && phone) {
-      printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print invoice</button>`;
+      printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button></div>`;
 
       // Payment logging
       if (c.paymentInfo && c.paymentInfo.paidAt) {
@@ -4112,6 +4123,56 @@ function printInvoice(phone) {
   pcpcApi.logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
 }
 
+function emailInvoice(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const fn   = name.split(' ')[0] || 'there';
+  const yr   = new Date().getFullYear();
+  const invNum   = `PC-${yr}-${(c.phone||'').slice(-4)}-${Date.now().toString().slice(-3)}`;
+  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const compDate = ss.completedDate
+    ? new Date(ss.completedDate+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+    : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services';
+  const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  • ${s}`).join('\n');
+  const addrLine = [c.address, c.city ? c.city+', FL'+(c.zip?' '+c.zip:'') : ''].filter(Boolean).join(', ');
+  const payStatus = ss.paymentCollected ? '✓ PAID — Thank you!' : 'Payment due upon receipt.';
+
+  const subject = `${PRINT_CO} — Invoice ${invNum}`;
+  const body = [
+    `Hello ${fn},`,
+    ``,
+    `Thank you for choosing ${PRINT_CO}! Please find your invoice below.`,
+    ``,
+    `─────────────────────────────`,
+    `INVOICE #${invNum}`,
+    `Date: ${compDate}`,
+    `─────────────────────────────`,
+    ``,
+    `Bill To: ${name}`,
+    addrLine ? `Address: ${addrLine}` : '',
+    ``,
+    `Services Performed:`,
+    svcItems,
+    ``,
+    `─────────────────────────────`,
+    `TOTAL: $${Number(amount).toFixed(2)}`,
+    `─────────────────────────────`,
+    ``,
+    `Payment methods: Zelle · Check · Cash · Venmo`,
+    payStatus,
+    ``,
+    `Questions? Call or text ${PRINT_PHONE}`,
+    `${PRINT_CO}  ·  Family-owned since 1995`,
+  ].filter(l => l !== null).join('\n');
+
+  const toEmail = c.email || '';
+  window.open(`mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+}
+
 // ── JOB SHEET GENERATOR ───────────────────────────────────────────────────────
 function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const ss   = c.scheduledStatus || {};
@@ -5647,6 +5708,7 @@ function dayNav(delta) {
 }
 
 // Swipe left/right in day view
+// ── DAY VIEW — touch swipe + keyboard ─────────────────────────────────────────
 let _dvTouchX = null;
 document.addEventListener('touchstart', e => {
   if (currentView !== 'day') return;
@@ -5660,10 +5722,108 @@ document.addEventListener('touchend', e => {
   dayNav(dx < 0 ? 1 : -1);
 }, { passive: true });
 document.addEventListener('keydown', e => {
-  if (currentView !== 'day' || document.activeElement.tagName === 'INPUT') return;
-  if (e.key === 'ArrowLeft')  dayNav(-1);
-  if (e.key === 'ArrowRight') dayNav(1);
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+  if (currentView === 'day') {
+    if (e.key === 'ArrowLeft')  { dayNav(-1);        e.preventDefault(); }
+    if (e.key === 'ArrowRight') { dayNav(1);         e.preventDefault(); }
+  }
+  if (currentView === 'week') {
+    if (e.key === 'ArrowLeft'  && !e.shiftKey) { changeWeek(-1); e.preventDefault(); }
+    if (e.key === 'ArrowRight' && !e.shiftKey) { changeWeek(1);  e.preventDefault(); }
+    if (e.key === 'ArrowLeft'  &&  e.shiftKey) { changeWeek(-4); e.preventDefault(); }
+    if (e.key === 'ArrowRight' &&  e.shiftKey) { changeWeek(4);  e.preventDefault(); }
+  }
 });
+
+// ── WEEK VIEW — drag-to-scroll + touch swipe + edge fades ─────────────────────
+(function() {
+  let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false;
+  const scroller = () => document.querySelector('.main-col');
+  const grid     = () => document.getElementById('calGrid');
+
+  function updateFades() {
+    const sc = scroller();
+    if (!sc || currentView !== 'week') return;
+    const fL = document.getElementById('wvFadeL');
+    const fR = document.getElementById('wvFadeR');
+    if (fL) fL.style.opacity = sc.scrollLeft > 8 ? '1' : '0';
+    if (fR) fR.style.opacity = sc.scrollLeft < (sc.scrollWidth - sc.clientWidth - 8) ? '1' : '0';
+  }
+
+  // Update fades on scroll
+  document.addEventListener('scroll', updateFades, { passive: true, capture: true });
+
+  // Kick off fade check after every render
+  const _origRender = window.render;
+  // (patched below, after render is defined)
+
+  document.addEventListener('mousedown', e => {
+    if (currentView !== 'week') return;
+    if (wasDragging) return; // SortableJS already active
+    // Skip clicks on interactive targets
+    if (e.target.closest('.job-scheduled,.win-lane-hdr,.rig-hdr,.day-hdr,button,a,input,select,textarea,.modal')) return;
+    const sc = scroller();
+    if (!sc) return;
+    _dragging = true;
+    _isH      = false;
+    _startX   = e.clientX;
+    _startY   = e.clientY;
+    _scrollX0 = sc.scrollLeft;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!_dragging) return;
+    const dx = e.clientX - _startX;
+    const dy = e.clientY - _startY;
+    if (!_isH && Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // haven't moved enough to decide
+    if (!_isH) {
+      if (Math.abs(dx) < Math.abs(dy) * 0.8) { _dragging = false; return; } // vertical intent — cancel
+      _isH = true;
+      const g = grid(); if (g) g.classList.add('wv-dragging');
+    }
+    const sc = scroller();
+    if (sc) sc.scrollLeft = _scrollX0 - dx;
+    updateFades();
+  });
+
+  function stopDrag() {
+    if (!_dragging) return;
+    _dragging = false;
+    const g = grid(); if (g) g.classList.remove('wv-dragging');
+    if (!_isH) return;
+    // Snap to nearest column
+    const sc = scroller();
+    if (!sc) return;
+    const col = document.querySelector('.day-col');
+    const colW = col?.offsetWidth || 175;
+    sc.scrollTo({ left: Math.round(sc.scrollLeft / colW) * colW, behavior: 'smooth' });
+    setTimeout(updateFades, 350);
+  }
+
+  document.addEventListener('mouseup',    stopDrag);
+  document.addEventListener('mouseleave', stopDrag);
+
+  // Touch swipe for week view (changes week, doesn't smooth-scroll)
+  let _wvTouchX = null;
+  document.addEventListener('touchstart', e => {
+    if (currentView !== 'week') return;
+    _wvTouchX = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (currentView !== 'week' || _wvTouchX === null) return;
+    const dx = e.changedTouches[0].clientX - _wvTouchX;
+    _wvTouchX = null;
+    if (Math.abs(dx) < 55) return;
+    changeWeek(dx < 0 ? 1 : -1);
+  }, { passive: true });
+
+  // Update fades after any render by patching changeWeek / render
+  const _tickFades = () => setTimeout(updateFades, 80);
+  const _cw = window.changeWeek;
+  if (_cw) window.changeWeek = function(d) { _cw(d); _tickFades(); };
+  window.addEventListener('load', _tickFades);
+})();
 
 // ── MONTH VIEW ────────────────────────────────────────────────────────────────
 

@@ -908,8 +908,20 @@ function renderHeroBanner(c) {
   // Phone / email line
   const cParts = [];
   if (c.phone) cParts.push(`📞 <a href="tel:+1${esc(c.phone)}">${fmtPh(c.phone)}</a>`);
-  if (c.email) cParts.push(`✉️ <a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`);
-  const contactHtml = cParts.length ? `<div class="hero-contact-line">${cParts.join('<span style="color:var(--border);padding:0 5px;">·</span>')}</div>` : '';
+  if (c.email) {
+    cParts.push(`✉️ <a href="mailto:${esc(c.email)}">${esc(c.email)}</a> <button onclick="openEmailEdit()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0 2px;" title="Edit email">✏️</button>`);
+  } else {
+    cParts.push(`<button onclick="openEmailEdit()" style="background:none;border:1px dashed var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 8px;font-family:'DM Sans',sans-serif;">+ Add email</button>`);
+  }
+  const contactHtml = cParts.length ? `<div class="hero-contact-line" id="heroContactLine">${cParts.join('<span style="color:var(--border);padding:0 5px;">·</span>')}</div>` : `<div class="hero-contact-line" id="heroContactLine"><button onclick="openEmailEdit()" style="background:none;border:1px dashed var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:11px;padding:2px 8px;font-family:'DM Sans',sans-serif;">+ Add email</button></div>`;
+  const emailEditHtml = `<div id="heroEmailEdit" style="display:none;padding:4px 0;">
+    <input type="email" id="heroEmailInput" placeholder="customer@email.com"
+           value="${esc(c.email||'')}"
+           style="padding:5px 10px;border:1.5px solid var(--sky);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;width:220px;outline:none;"
+           onkeydown="if(event.key==='Enter')saveEmailField();if(event.key==='Escape')closeEmailEdit()">
+    <button onclick="saveEmailField()" style="margin-left:6px;padding:5px 12px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Save</button>
+    <button onclick="closeEmailEdit()" style="margin-left:4px;padding:5px 10px;background:none;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
+  </div>`;
 
   // Stat row
   const statsHtml = isNew ? '' : `
@@ -965,12 +977,42 @@ function renderHeroBanner(c) {
   document.getElementById('heroBanner').innerHTML = `
     ${badge?`<div class="hero-badge" style="${badge.style}">${badge.emoji} ${badge.label}</div>`:''}
     <div class="hero-name">${esc(fullName)}${tierChip}</div>
-    ${addrHtml}${contactHtml}
+    ${addrHtml}${contactHtml}${emailEditHtml}
     <div class="hero-divider"></div>
     ${statsHtml}
     ${svcSummaryHtml}
     <div class="hero-actions">${actionsHtml}</div>
   `;
+}
+
+function openEmailEdit() {
+  document.getElementById('heroContactLine').style.display = 'none';
+  const edit = document.getElementById('heroEmailEdit');
+  if (edit) { edit.style.display = 'block'; setTimeout(() => document.getElementById('heroEmailInput')?.focus(), 50); }
+}
+function closeEmailEdit() {
+  document.getElementById('heroContactLine').style.display = '';
+  const edit = document.getElementById('heroEmailEdit');
+  if (edit) edit.style.display = 'none';
+}
+async function saveEmailField() {
+  const input = document.getElementById('heroEmailInput');
+  if (!input) return;
+  const email = input.value.trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { input.style.borderColor = '#dc2626'; return; }
+  input.style.borderColor = '';
+  try {
+    const resp = await fetch(`${API}/customers`);
+    const data = await resp.json();
+    const customers = data.customers || [];
+    const idx = customers.findIndex(cu => String(cu.phone) === String(_customer.phone));
+    if (idx === -1) throw new Error('Customer not found');
+    customers[idx].email = email || null;
+    await fetch(`${API}/customers`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({customers}) });
+    _customer = customers[idx];
+    renderHeroBanner(_customer);
+    closeEmailEdit();
+  } catch(e) { alert('Failed to save: ' + e.message); }
 }
 
 function generateCustomerSummary(c) {
