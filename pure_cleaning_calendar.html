@@ -1268,9 +1268,10 @@ async function saveDb() {
 // ── WEEK HELPERS ──────────────────────────────────────────────────────────────
 function getWeekDates() {
   const today = new Date(); today.setHours(0,0,0,0);
-  const sunday = new Date(today); sunday.setDate(today.getDate() - today.getDay() + weekOffset * 7);
+  // Offset 0 = today through today+6. Prev/Next shift by 7-day blocks.
+  const start = new Date(today); start.setDate(today.getDate() + weekOffset * 7);
   return Array.from({length:7}, (_,i) => {
-    const d = new Date(sunday); d.setDate(sunday.getDate() + i);
+    const d = new Date(start); d.setDate(start.getDate() + i);
     return d.toISOString().split('T')[0];
   });
 }
