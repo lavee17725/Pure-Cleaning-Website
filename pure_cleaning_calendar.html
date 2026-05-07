@@ -2278,9 +2278,12 @@ function getExtraCompletedJobsForRig(date, rig) {
   const result = [];
   for (const c of (dbRecord.customers || [])) {
     const jh = c.jobHistory || [];
-    const matching = jh.filter(j =>
-      j.date === date && j.status === 'completed' && _normalizeRig(j.rig) === rig
-    );
+    const ssRig = _normalizeRig(c.scheduledStatus?.rig);
+    const matching = jh.filter(j => {
+      if (j.date !== date || j.status !== 'completed') return false;
+      const jhRig = _normalizeRig(j.rig) || ssRig || 'rig_1';
+      return jhRig === rig;
+    });
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
     const ss = c.scheduledStatus;
