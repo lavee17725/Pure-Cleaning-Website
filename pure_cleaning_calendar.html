@@ -3416,7 +3416,7 @@ function renderReviewAlertList() {
 }
 
 function sendReviewRequestFromPanel(phone, firstName, rowEl) {
-  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  const msg = buildReviewMsg(firstName);
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   const today = isoToday();
   localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
@@ -3652,7 +3652,12 @@ function printBulkJobSheets(date, rig) {
 }
 
 // ── REVIEW REQUEST TEXTS ──────────────────────────────────────────────────────
-const GOOGLE_REVIEW_LINK = 'https://share.google/ChFC1uAe9Xdveb8XN';
+const GOOGLE_REVIEW_LINK = 'https://g.page/r/CRQZRl3rokhmEAE/review';
+
+// Single-source review message — all send paths use this
+function buildReviewMsg(firstName) {
+  return `Hi ${firstName || 'there'}! It was a pleasure servicing your home. If you have a moment, a quick 5-star Google review would mean the world to our family business 🙏\n\nClick here: ${GOOGLE_REVIEW_LINK}\n\nMentioning the service (like soft wash or driveway) and your city helps us grow.\n\nThanks so much for your support!\n\n— The Fumero Family\nPure Cleaning Pressure Cleaning`;
+}
 
 function getReviewRequestedDate(phone) {
   try {
@@ -3684,7 +3689,7 @@ async function sendReviewRequest(phone, firstName, btn) {
     }
   } catch(e) { console.warn('[review tpl]', e.message); }
 
-  if (!msg) msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  if (!msg) msg = buildReviewMsg(firstName);
 
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   const today = isoToday();
