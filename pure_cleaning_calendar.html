@@ -46,6 +46,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .job-unscheduled{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;cursor:grab;transition:box-shadow .15s,border-color .15s;user-select:none;}
 .job-unscheduled:hover{border-color:var(--sky);box-shadow:0 4px 12px rgba(45,125,210,.15);}
 .job-unscheduled:active{cursor:grabbing;}
+.queue-date-sep{padding:3px 2px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--sky);display:flex;align-items:center;gap:6px;margin:6px 0 4px;}
+.queue-date-sep::before,.queue-date-sep::after{content:'';flex:1;height:1px;background:var(--border);}
+.queue-date-sep:first-child{margin-top:0;}
+.queue-date-nodate{color:var(--muted);}
 @keyframes scheduleHighlight {
   0%,100% { box-shadow:0 0 0 2px transparent; border-color:var(--border); }
   50%      { box-shadow:0 0 0 3px var(--gold); border-color:var(--gold); }
@@ -1340,7 +1344,7 @@ function renderSidebar() {
   if (!jobs.length) {
     el.innerHTML = `<div class="empty-sidebar"><div>🎉</div><p style="font-size:14px;font-weight:600;color:var(--navy);">All caught up!</p><p style="font-size:13px;margin-top:4px;">No jobs waiting to be scheduled.</p></div>`;
   } else {
-    el.innerHTML = jobs.map(c => jobCardSidebar(c)).join('');
+    el.innerHTML = buildQueueHtml(jobs);
   }
   initSortables();
 }
@@ -1715,9 +1719,14 @@ function jobCardSidebar(c) {
     : '';
 
   let wantsLine = '';
-  if (ss.state === 'scheduled' && ss.scheduledDate && !ss.rig) {
+  if (ss.scheduledDate) {
     const d = new Date(ss.scheduledDate + 'T12:00:00');
-    wantsLine = `<div class="jd" style="color:var(--green);font-weight:700;">📅 Scheduled: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))} — assign rig</div>`;
+    const fmtD = esc(d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'}));
+    if (ss.state === 'scheduled' && !ss.rig) {
+      wantsLine = `<div class="jd" style="color:var(--green);font-weight:700;">📅 ${fmtD} — assign rig</div>`;
+    } else {
+      wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Proposed: ${fmtD}</div>`;
+    }
   } else if (ss.customerSelectedDate) {
     const d = new Date(ss.customerSelectedDate + 'T12:00:00');
     wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))}</div>`;
@@ -1743,7 +1752,6 @@ function jobCardSidebar(c) {
       <span>⠿ Drag to schedule</span>
       <button onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')" style="font-size:10px;padding:2px 7px;background:var(--sky);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:700;" title="Tap to schedule (mobile)">📅 Schedule</button>
     </div>
-    ${ss.scheduledDate ? `<div class="jd" style="color:var(--sky);font-weight:600;">Proposed: ${esc(ss.scheduledDate)}</div>` : ''}
     ${ss.source === 'csv_import' ? `<div class="jd" style="font-size:10px;color:var(--muted);">📥 from CSV import</div>` : ss.source === 'verbal_agreement' ? `<div class="jd" style="font-size:10px;color:var(--muted);">🖊 verbal agreement</div>` : ''}
     ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
   </div>`;
@@ -2118,6 +2126,39 @@ function getUnscheduled() {
     if (matches) seen.add(x.phone);
     return matches;
   });
+}
+
+function sortUnscheduledQueue(jobs) {
+  const cname = c => ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim().toLowerCase();
+  return [...jobs].sort((a, b) => {
+    const da = a.scheduledStatus?.scheduledDate || '';
+    const db = b.scheduledStatus?.scheduledDate || '';
+    if (da && db) return da < db ? -1 : da > db ? 1 : cname(a) < cname(b) ? -1 : 1;
+    if (da)  return -1;  // has date → soonest first
+    if (db)  return  1;  // no date → after dated
+    return cname(a) < cname(b) ? -1 : 1; // both undated → alpha
+  });
+}
+
+function buildQueueHtml(jobs) {
+  const sorted = sortUnscheduledQueue(jobs);
+  const parts  = [];
+  let lastKey  = null;
+  for (const c of sorted) {
+    const d = c.scheduledStatus?.scheduledDate || null;
+    const key = d || '__nodate';
+    if (key !== lastKey) {
+      lastKey = key;
+      if (d) {
+        const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+        parts.push(`<div class="queue-date-sep">${esc(label)}</div>`);
+      } else {
+        parts.push(`<div class="queue-date-sep queue-date-nodate">No date set</div>`);
+      }
+    }
+    parts.push(jobCardSidebar(c));
+  }
+  return parts.join('');
 }
 
 function getScheduledForRig(date, rig) {
