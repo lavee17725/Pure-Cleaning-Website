@@ -85,6 +85,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 
 /* ── Footer ── */
 .footer{text-align:center;padding:2rem 1rem 3rem;font-size:12px;color:var(--muted);line-height:2;}
+#tasksCard:hover{box-shadow:var(--shadow-h);border-color:#d0c8be;}
 
 /* ── Notification bell ── */
 #notifBell{position:fixed;top:.875rem;right:1.25rem;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--white);border:1.5px solid var(--border);border-radius:12px;cursor:pointer;box-shadow:var(--shadow);font-size:20px;transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent;}
@@ -155,6 +156,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 
 <div class="wrap">
   <div id="toolSections"></div>
+
+  <!-- Tasks quick-action card -->
+  <a href="/pure_cleaning_tasks.html" id="tasksCard" style="display:flex;align-items:center;gap:16px;background:var(--white);border:2px solid var(--border);border-radius:16px;padding:16px 18px;text-decoration:none;color:inherit;margin-bottom:1rem;transition:box-shadow .18s,border-color .18s;box-shadow:var(--shadow);-webkit-tap-highlight-color:transparent;">
+    <div style="width:52px;height:52px;border-radius:14px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;">✅</div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:16px;font-weight:700;color:var(--text);">Tasks</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px;">Never lose an idea to inaction</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+      <span id="tasksOpenBadge" style="display:none;background:#ef4444;color:#fff;font-size:11px;font-weight:700;border-radius:20px;padding:2px 9px;">—</span>
+      <span style="font-size:20px;color:var(--border);">›</span>
+    </div>
+  </a>
 
   <!-- My Tasks Widget -->
   <div class="util-panel" id="myTasksWidget">
@@ -229,7 +243,6 @@ const DAILY_DRIVERS = [
   { icon: '📞', name: 'New Customer',           description: 'Book a phone quote or send a digital quote link',                url: '/pure_cleaning_new_customer.html' },
   { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
   { icon: '📅', name: 'Calendar',               description: 'Schedule jobs, assign crews, track payroll',                     url: '/pure_cleaning_calendar.html' },
-  { icon: '📋', name: 'Tasks',                  description: 'Track todos, build queue, ideas — never lose a task to inaction', url: '/pure_cleaning_tasks.html',             badgeId: 'tasks-badge' },
   { icon: '👥', name: 'Customer Directory',     description: 'Search and view all 1,200+ customer profiles',                   url: '/pure_cleaning_customer_directory.html', badgeId: 'dir-badge' },
   { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
   { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
@@ -727,8 +740,10 @@ async function loadMyTasks() {
   try {
     const res = await fetch(`${PCPC_API}/api/tasks`);
     const db  = await res.json();
-    const open = (db.tasks || [])
-      .filter(t => t.status === 'open' || t.status === 'in_progress')
+    const allOpen = (db.tasks || []).filter(t => t.status === 'open' || t.status === 'in_progress');
+    const badge = document.getElementById('tasksOpenBadge');
+    if (badge && allOpen.length) { badge.textContent = `${allOpen.length} open`; badge.style.display = ''; }
+    const open = allOpen
       .sort((a, b) => (PRIORITY_ORDER[a.priority]||9) - (PRIORITY_ORDER[b.priority]||9))
       .slice(0, 5);
     const el = document.getElementById('myTasksList');
