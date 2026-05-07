@@ -381,11 +381,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-cap-fill.full{background:var(--red);}
 
 /* ── TIME WINDOWS ── */
+/* Section headers in week-view flat list (non-draggable dividers) */
 .win-section-hdr{display:flex;align-items:center;gap:6px;padding:5px 10px 3px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);background:rgba(0,0,0,.02);border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:4px -1px 2px;user-select:none;pointer-events:none;}
 .win-section-hdr:first-child{margin-top:0;border-top:none;}
-.win-section-hdr .win-range{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:10px;}
-.win-section-hdr .win-heavy{font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;border:1px solid #fde68a;}
-.win-section-hdr.heavy{background:#fef9ec;}
+.win-section-hdr .win-range,.win-lane-hdr .win-range{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:10px;margin-left:2px;}
+.win-section-hdr .win-heavy,.win-lane-hdr .win-heavy{font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;border:1px solid #fde68a;margin-left:auto;}
+.win-section-hdr.heavy,.win-lane.heavy .win-lane-hdr{background:#fef9ec;}
+/* Draggable win-lanes (day view) */
+.win-lane{border-bottom:1px solid var(--border);min-height:48px;transition:background .12s;}
+.win-lane:last-child{border-bottom:none;}
+.win-lane-hdr{display:flex;align-items:center;gap:5px;padding:5px 10px 3px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);background:rgba(0,0,0,.02);border-bottom:1px solid var(--border);user-select:none;pointer-events:none;}
+.win-lane.sortable-drag-over{background:rgba(56,189,248,.06);}
+.win-lane-empty .win-lane-hdr{opacity:.65;}
+.win-lane-drop-hint{text-align:center;padding:6px 0 8px;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.2px;}
+/* Scheduling modal window buttons */
 .win-btn-row{display:flex;gap:6px;margin:6px 0;}
 .win-btn{flex:1;padding:8px 4px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;background:var(--white);color:var(--navy);transition:all .12s;-webkit-tap-highlight-color:transparent;}
 .win-btn.active{background:var(--sky);color:#fff;border-color:var(--sky);}
@@ -1522,6 +1531,32 @@ function buildJobsHtmlWithDist(jobs) {
   return parts.join('');
 }
 
+// buildWindowLanes: day-view per-rig drop zones — each window is a SortableJS lane
+function buildWindowLanes(jobs, date, rig) {
+  const groups = { morning: [], early_afternoon: [], late_afternoon: [] };
+  jobs.forEach(j => {
+    const w = getJobWindow(j.scheduledStatus || {});
+    (groups[w] = groups[w] || []).push(j);
+  });
+  return WINDOWS.map(win => {
+    const g = groups[win.id] || [];
+    const heavy = g.length >= 3;
+    const isEmpty = g.length === 0;
+    const cardsHtml = buildJobsHtmlWithDist(g);
+    const dropHint  = isEmpty ? `<div class="win-lane-drop-hint">Drop here</div>` : '';
+    return `<div class="win-lane${isEmpty?' win-lane-empty':''}${heavy?' heavy':''}"
+              data-date="${date}" data-rig="${rig}" data-window="${win.id}"
+              id="wl-${date}-${rig}-${win.id}">
+      <div class="win-lane-hdr">
+        ${win.emoji} ${win.label}
+        <span class="win-range">${win.range}</span>
+        ${heavy ? `<span class="win-heavy">Heavy</span>` : ''}
+      </div>
+      ${cardsHtml}${dropHint}
+    </div>`;
+  }).join('');
+}
+
 function buildJobsByWindow(jobs) {
   if (!jobs.length) return '';
   const groups = { morning: [], early_afternoon: [], late_afternoon: [] };
@@ -2386,7 +2421,7 @@ function initSortables() {
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
-      filter: '.dist-marker,.route-summary,.route-warn,.route-missing',
+      filter: '.dist-marker,.route-summary,.route-warn,.route-missing,.win-lane-hdr,.win-section-hdr',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
@@ -2422,6 +2457,7 @@ async function handleDropToRig(phone, date, rig) {
   c.scheduledStatus.state = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
   c.scheduledStatus.rig = rig;
+  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning'; // default for week-view drops
 
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   const dateStr = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
@@ -2431,6 +2467,33 @@ async function handleDropToRig(phone, date, rig) {
   renderCalGrid(getWeekDates());
   renderCrewPanel(getWeekDates());
   renderSidebar(); // keep sidebar in sync — "All caught up!" when last card is scheduled
+}
+
+async function handleDropToWindow(phone, date, rig, win) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  const prevRig = prev.rig, prevDate = prev.scheduledDate;
+  // Clear old order slot if changing rig or date
+  if (prevDate && prevRig && (prevDate !== date || prevRig !== rig)) {
+    const p = (phone||'').replace(/\D/g,'').slice(-10);
+    if (calState.jobOrder?.[prevDate]?.[prevRig]) {
+      calState.jobOrder[prevDate][prevRig] = calState.jobOrder[prevDate][prevRig].filter(x => x !== p);
+      saveCalState();
+    }
+  }
+  if (!c.scheduledStatus) c.scheduledStatus = { estimatedDuration:2, jobNotes:'', crew:[] };
+  c.scheduledStatus.state         = 'scheduled';
+  c.scheduledStatus.scheduledDate = date;
+  c.scheduledStatus.rig           = rig;
+  c.scheduledStatus.window        = win;
+  const winMeta = WINDOWS.find(w => w.id === win);
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`${winMeta?.emoji||''} ${esc(name)} → ${RIG_LABELS[rig]} · ${winMeta?.label||win}`, 'Undo', () => { undoAction(phone, prev); });
+  saveDb().catch(()=>{});
+  renderDayRigGrid(date);
+  renderDayPool(date);
+  renderSidebar();
 }
 
 async function handleDropToSidebar(phone, evt) {
@@ -4256,11 +4319,8 @@ function renderDayRigGrid(date) {
       </div>` : '';
     const extras = getExtraCompletedJobsForRig(date, rig);
     const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
-    const jobsHtml = buildJobsByWindow(jobs);
+    const winLanesHtml = buildWindowLanes(jobs, date, rig);
     const totalCount = jobs.length + extras.length;
-    const emptyClass = totalCount ? '' : ' empty-hint';
-    const emptyMsg = !totalCount
-      ? `<div style="text-align:center;padding:2rem 1rem;color:#c4cad4;font-size:13px;font-weight:600;letter-spacing:.2px;">No jobs scheduled</div>` : '';
     const routeSummaryHtml = jobs.length >= 2 ? renderRouteSummary(jobs, date, rig) : '';
     return `<div class="day-rig-col">
       <div class="day-rig-hdr" style="border-top:3px solid ${rigColor};">
@@ -4270,32 +4330,29 @@ function renderDayRigGrid(date) {
       </div>
       <div class="day-cap-bar"><div class="day-cap-fill" style="width:${capPct}%;background:${rigColor};"></div></div>
       ${grossHtml}${driverRowHtml}
-      <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="drj-${date}-${rig}">${jobsHtml}${emptyMsg}</div>
+      ${winLanesHtml}
       ${extrasHtml}
       ${routeSummaryHtml}
       ${renderArrivalButtons(date, rig, jobs)}
     </div>`;
   }).join('');
   el.innerHTML = html;
-  // Wire up sortables on day rig lanes
-  document.querySelectorAll('#dayRigGrid .rig-jobs').forEach(lane => {
+  // Wire up per-window sortable lanes in day view
+  document.querySelectorAll('#dayRigGrid .win-lane').forEach(lane => {
     sortables.push(Sortable.create(lane, {
       group:{ name:'jobs', pull:true, put:() => true },
       animation:150, ghostClass:'sortable-ghost', chosenClass:'sortable-chosen',
-      filter:'.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra,.win-section-hdr',
+      dragoverBubble: false,
+      filter:'.win-lane-hdr,.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false,100); },
-      onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
-      onUpdate: evt => {
-        const d = evt.to.dataset.date, r = evt.to.dataset.rig;
-        const phones = Array.from(evt.to.querySelectorAll('.job-scheduled[data-phone]'))
-          .map(el => (el.dataset.phone||'').replace(/\D/g,'').slice(-10));
-        if (!calState.jobOrder) calState.jobOrder = {};
-        if (!calState.jobOrder[d]) calState.jobOrder[d] = {};
-        calState.jobOrder[d][r] = phones;
-        saveCalState();
-        renderDayRigGrid(date);
-      }
+      onAdd: evt => handleDropToWindow(
+        evt.item.dataset.phone,
+        evt.to.dataset.date,
+        evt.to.dataset.rig,
+        evt.to.dataset.window
+      ),
+      onUpdate: () => { /* within-window reorder — visual only, no persist */ }
     }));
   });
 }
