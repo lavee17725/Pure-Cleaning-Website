@@ -330,6 +330,56 @@ export default {
         }
       }
 
+      // ── Geocode test ─────────────────────────────────────────────────────────
+      if (path === 'api/debug/geocode' && request.method === 'GET') {
+        const addr = url.searchParams.get('addr') || '1255 Fairfax Court, Weston, FL';
+        const geo = await geocodeAddress(addr);
+        const nominatimRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`,
+          { headers: { 'User-Agent': 'PureCleaning/1.0 contact:tyler@purecleaningfl.com' } }
+        ).then(r => r.json()).catch(e => ({ error: e.message }));
+        const nominatim = Array.isArray(nominatimRes) && nominatimRes[0]
+          ? { lat: nominatimRes[0].lat, lon: nominatimRes[0].lon, display: nominatimRes[0].display_name }
+          : { raw: nominatimRes };
+        return jsonResponse({ addr, census: geo, nominatim }, corsHeaders);
+      }
+
+      // ── Bouncie raw trips debug (read-only) ───────────────────────────────────
+      if (path === 'api/bouncie/trips' && request.method === 'GET') {
+        const date = url.searchParams.get('date') || new Date().toISOString().split('T')[0];
+        const imei = url.searchParams.get('imei');
+        try {
+          const token = await getBouncieAccessToken(env);
+          const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
+          const targets = imei
+            ? [{ rig: 'custom', imei }]
+            : Object.entries(rigMapping).filter(([,re]) => re?.imei).map(([rig, re]) => ({ rig, imei: re.imei }));
+          const startsAfter = `${date}T00:00:00.000Z`;
+          const endsBefore  = `${date}T23:59:59.000Z`;
+          const out = {};
+          for (const t of targets) {
+            const res = await fetch(
+              `${BOUNCIE_API_BASE}/trips?imei=${t.imei}&gpsFormat=geojson&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
+              { headers: { Authorization: token } }
+            );
+            const trips = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
+            const raw = url.searchParams.get('raw') === '1';
+            const summary = Array.isArray(trips) ? trips.map(tr => raw ? tr : {
+              startTime: tr.startTime, endTime: tr.endTime,
+              startAddress: tr.startAddress, endAddress: tr.endAddress,
+              startLoc: tr.startLocation, endLoc: tr.endLocation,
+              distance: tr.distance,
+              // Include all top-level keys so we can see what Bouncie actually returns
+              _allKeys: Object.keys(tr),
+            }) : trips;
+            out[t.rig] = { imei: t.imei, tripCount: Array.isArray(trips) ? trips.length : 0, trips: summary };
+          }
+          return jsonResponse({ date, rigs: out }, corsHeaders);
+        } catch(e) {
+          return jsonResponse({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // ── Weather proxy (key stays server-side) ────────────────────────────────
       if (path === 'api/weather' && request.method === 'GET') {
         return await handleWeather(env, corsHeaders);
@@ -1515,14 +1565,17 @@ async function bouncieJobDurationMatcher(date, env) {
   const db = await env.DATA.get(KV_KEYS.customers, 'json');
   const customers = (db?.customers || []).filter(Boolean);
 
-  // Bug fix: previous code used completedDate which was never set.
-  // Match jobs whose scheduledDate = date AND state = completed.
+  // Match any customer with a completed job on this date, via:
+  //   a) scheduledStatus.state=completed + scheduledDate=date (calendar-scheduled jobs)
+  //   b) jobHistory entry with date=date + status=completed (CSV-imported historical jobs)
   const completedToday = customers.filter(c => {
     const ss = c.scheduledStatus;
-    if (!ss || ss.state !== 'completed') return false;
-    if (ss.scheduledDate) return ss.scheduledDate === date;
-    if (ss.completedAt)   return ss.completedAt.startsWith(date);
-    return false;
+    if (ss && ss.state === 'completed') {
+      if (ss.scheduledDate === date) return true;
+      if (ss.completedAt?.startsWith(date)) return true;
+    }
+    // Also include customers whose jobHistory has a completed entry for this date
+    return (c.jobHistory || []).some(j => j.date === date && j.status === 'completed');
   });
   if (!completedToday.length) {
     return { date, total: 0, matched: 0, message: `No completed jobs on ${date}` };
@@ -1534,7 +1587,10 @@ async function bouncieJobDurationMatcher(date, env) {
   try { accessToken = await getBouncieAccessToken(env); }
   catch(e) { return { date, error: 'Bouncie not authorized', message: e.message }; }
 
-  const PROX_KM    = 0.05; // ~150 ft
+  // Bouncie returns trip.gps (LineString), NOT trip.startLocation/endLocation.
+  // First coord = trip origin, last coord = trip destination ([lon, lat]).
+  // Census geocoder has ±0.9 km error on South FL residential streets.
+  const PROX_KM    = 1.0;  // 3,280 ft search radius; confidence rated by actual distance
   const MIN_DUR_MIN = 15;
 
   // Pre-fetch trips for ALL rigs in parallel — GPS truth, not intent
@@ -1549,54 +1605,53 @@ async function bouncieJobDurationMatcher(date, env) {
         { headers: { Authorization: accessToken } }
       );
       const trips = res.ok ? await res.json() : [];
-      rigTripsMap[rig] = Array.isArray(trips) ? trips : [];
+      // Sort chronological so arrival/departure logic is well-ordered
+      rigTripsMap[rig] = Array.isArray(trips)
+        ? trips.sort((a, b) => a.startTime < b.startTime ? -1 : 1)
+        : [];
     } catch(e) {
       rigTripsMap[rig] = [];
     }
   }));
 
-  // Helper: get lat/lon from a trip location object
-  const ll = loc => loc
-    ? { lat: loc.lat ?? loc.latitude ?? null, lon: loc.lon ?? loc.lng ?? loc.longitude ?? null }
-    : { lat: null, lon: null };
+  // Extract first and last GPS coordinate from a trip's gps LineString.
+  // Bouncie format: trip.gps = { type: 'LineString', coordinates: [[lon, lat], ...] }
+  const tripFirstCoord = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[0]         : null; };
+  const tripLastCoord  = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[c.length-1]: null; };
+  const coordNear = (coord, lat, lon) =>
+    coord && haversineKm(coord[1], coord[0], lat, lon) <= PROX_KM;
 
   // Find the best proximity window in a set of trips for a given job location.
-  // Returns { arrivalTs, departureTs, durationMin } or { durationMin: 0 }.
+  // Strategy: arrival = trip whose LAST coordinate is near job (truck drove TO job).
+  //           departure = trip whose FIRST coordinate is near job (truck drove FROM job).
+  //           Dwell time = gap between arrival trip endTime and departure trip startTime.
+  //           Trips with dwell > 30min between them that are BOTH near the job also count.
   function proximityMatch(trips, jobLat, jobLon) {
-    let arrivalTrip = null, departureTrip = null;
+    // Find arrival: earliest trip that ends near the job
+    let arrivalTrip = null;
     for (const trip of trips) {
-      const end   = ll(trip.endLocation);
-      const start = ll(trip.startLocation);
-      if (end.lat && end.lon && haversineKm(end.lat, end.lon, jobLat, jobLon) <= PROX_KM) {
-        if (!arrivalTrip || trip.endTime > arrivalTrip.endTime) arrivalTrip = trip;
-      }
-      if (start.lat && start.lon && haversineKm(start.lat, start.lon, jobLat, jobLon) <= PROX_KM) {
-        if (arrivalTrip && trip.startTime >= arrivalTrip.endTime) {
-          if (!departureTrip || trip.startTime < departureTrip.startTime) departureTrip = trip;
-        }
+      if (coordNear(tripLastCoord(trip), jobLat, jobLon)) {
+        if (!arrivalTrip || trip.endTime < arrivalTrip.endTime) arrivalTrip = trip;
       }
     }
+    if (!arrivalTrip) return { durationMin: 0 };
+
+    // Find departure: LATEST trip that starts near the job, after arrival
+    let departureTrip = null;
+    for (const trip of trips) {
+      if (trip.startTime <= arrivalTrip.endTime) continue; // must be after arrival
+      if (coordNear(tripFirstCoord(trip), jobLat, jobLon)) {
+        if (!departureTrip || trip.startTime > departureTrip.startTime) departureTrip = trip;
+      }
+    }
+
     if (arrivalTrip && departureTrip) {
-      return {
-        arrivalTs:   arrivalTrip.endTime,
-        departureTs: departureTrip.startTime,
-        durationMin: Math.round((new Date(departureTrip.startTime) - new Date(arrivalTrip.endTime)) / 60000),
-        arrivalTrip, departureTrip,
-      };
+      const durationMin = Math.round((new Date(departureTrip.startTime) - new Date(arrivalTrip.endTime)) / 60000);
+      return { arrivalTs: arrivalTrip.endTime, departureTs: departureTrip.startTime, durationMin, arrivalTrip, departureTrip };
     }
-    if (arrivalTrip) {
-      // Fallback: estimate duration from geojson path coordinates
-      const coords = arrivalTrip.path?.features?.[0]?.geometry?.coordinates || [];
-      const prox = coords.filter(([lon, lat]) => haversineKm(lat, lon, jobLat, jobLon) <= PROX_KM);
-      if (prox.length >= 2) {
-        return {
-          arrivalTs:   new Date(prox[0][2]).toISOString(),
-          departureTs: new Date(prox[prox.length - 1][2]).toISOString(),
-          durationMin: Math.round((prox[prox.length - 1][2] - prox[0][2]) / 60000),
-          arrivalTrip, departureTrip: null,
-        };
-      }
-    }
+
+    // No departure found — might still be at site, or only 1 trip visible.
+    // Return partial with zero duration so it doesn't get credited.
     return { durationMin: 0 };
   }
 
@@ -1606,15 +1661,18 @@ async function bouncieJobDurationMatcher(date, env) {
   for (const customer of completedToday) {
     const ss = customer.scheduledStatus || {};
 
-    // Geocode job address
+    // Geocode job address — build full string so Census geocoder finds FL addresses
     let jobLat = ss.lat || customer.geocoded?.lat || null;
     let jobLon = ss.lon || customer.geocoded?.lng || null;
     if (!jobLat || !jobLon) {
-      const geo = await geocodeAddress(customer.address, customer.city || '', customer.zip || '');
-      if (geo) { jobLat = geo.lat; jobLon = geo.lng ?? geo.lon; }
+      const addrParts = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean);
+      const fullAddr  = addrParts.join(', ');
+      const geo = await geocodeAddress(fullAddr);
+      if (geo) { jobLat = geo.lat; jobLon = geo.lon; }
     }
     if (!jobLat || !jobLon) {
-      results.push({ phone: customer.phone, name: fullName(customer), status: 'geocode_failed', address: customer.address });
+      const addrTried = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean).join(', ');
+      results.push({ phone: customer.phone, name: fullName(customer), status: 'geocode_failed', address: customer.address, addrTried, hasCity: !!customer.city });
       continue;
     }
 
@@ -1635,13 +1693,11 @@ async function bouncieJobDurationMatcher(date, env) {
       continue;
     }
 
-    // Confidence: high if best rig is unambiguous and arrival aligns with scheduled time
-    let confidence = allRigsPresent.length > 1 ? 'medium' : 'high';
-    if (confidence === 'high' && ss.startTime && bestMatch.arrivalTs) {
-      const schMs = new Date(`${date}T${ss.startTime}:00Z`).getTime();
-      const arrMs = new Date(bestMatch.arrivalTs).getTime();
-      if (Math.abs(arrMs - schMs) > 90 * 60000) confidence = 'medium';
-    }
+    // Confidence: based on distance between geocode and actual GPS stop
+    const geocodeDist = haversineKm(jobLat, jobLon,
+      tripLastCoord(bestMatch.arrivalTrip)?.[1], tripLastCoord(bestMatch.arrivalTrip)?.[0]) * 3280.84; // to feet
+    let confidence = geocodeDist < 500 ? 'high' : geocodeDist < 1640 ? 'medium' : 'low';
+    if (allRigsPresent.length > 1 && confidence === 'high') confidence = 'medium';
 
     const intentRig = ss.rig || null; // what was scheduled (may be null for Day Pool)
 
@@ -1690,6 +1746,7 @@ async function bouncieJobDurationMatcher(date, env) {
       rigChanged: intentRig && intentRig !== bestRig,
       duration:   bestMatch.durationMin,
       confidence,
+      geocodeDistFt: Math.round(geocodeDist),
       arrival:    bestMatch.arrivalTs,
       departure:  bestMatch.departureTs,
       rigsPresent: allRigsPresent,
