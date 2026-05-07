@@ -101,6 +101,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .svc-status-canceled{background:#f1f5f9;color:#475569;}
 .svc-history-more{padding:10px 16px;text-align:center;font-size:13px;color:var(--muted);font-style:italic;border-top:1px solid var(--border);}
 .svc-history-empty{padding:24px 16px;text-align:center;font-size:14px;color:var(--muted);}
+.svc-gps-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;}
+.svc-gps-badge{font-size:11px;font-weight:600;color:var(--muted);background:#f1f5f9;border-radius:5px;padding:2px 7px;white-space:nowrap;}
+.svc-gps-badge.rig-1{color:#1d4ed8;background:#dbeafe;}
+.svc-gps-badge.rig-2{color:#15803d;background:#dcfce7;}
+.svc-gps-badge.rig-3{color:#c2410c;background:#ffedd5;}
+.svc-detail-grid{display:grid;grid-template-columns:max-content 1fr;gap:3px 10px;margin-top:8px;font-size:12px;}
+.svc-detail-key{color:var(--muted);font-weight:600;white-space:nowrap;padding-top:1px;}
+.svc-detail-val{color:var(--text);line-height:1.45;}
 
 /* ── Context Blocks ── */
 .ctx-blocks{max-width:1100px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:10px;}
@@ -538,6 +546,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const RIG_LABELS_P = {rig_1:'Old Tacoma', rig_2:'New Tacoma', rig_3:'Chevy'};
+const RIG_COLORS_P = {rig_1:'#1d4ed8', rig_2:'#15803d', rig_3:'#c2410c'};
+const RIG_CLASS_P  = {rig_1:'rig-1', rig_2:'rig-2', rig_3:'rig-3'};
 let _customer = null;
 let _allEvents = [];
 let _tlFilter = 'all';
@@ -1019,18 +1030,34 @@ function renderServiceHistory(c) {
   // jobHistory entries (newest first after sort above)
   jh.forEach(j => {
     const isUpcoming = j.status === 'scheduled' || j.status === 'needs_scheduling';
+    const rigKey   = j.actualRig || j.rig || null;
+    const durMin   = j.actualDuration || 0;
+    const durFmt   = durMin > 0 ? `${Math.floor(durMin/60)}h ${durMin%60}m` : null;
+    const arrFmt   = j.actualArrival ? new Date(j.actualArrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : null;
+    const depFmt   = j.actualDeparture ? new Date(j.actualDeparture).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : null;
+    const pmRaw    = j.paymentMethod || j.payment || null;
+    const pmFmt    = pmRaw ? ({zelle:'Zelle',cash:'Cash',check:'Check'}[pmRaw.toLowerCase()] || pmRaw) : null;
     entries.push({
       displayDate: j.date
-        ? new Date(j.date + 'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+        ? new Date(j.date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'})
         : '—',
       services: j.services || '—',
       amount:   j.amount ? '$'+Number(j.amount).toLocaleString() : null,
       address:  j.address || null,
-      payment:  j.payment || null,
+      payment:  pmFmt,
       sqFt:     j.sqFt   || null,
       status:   j.status || 'completed',
+      notes:    j.notes  || null,
       icon:     isUpcoming ? '📅' : '✅',
       iconBg:   isUpcoming ? '#eff6ff' : '#f0fdf4',
+      rigKey,
+      rigLabel: RIG_LABELS_P[rigKey] || null,
+      rigClass: RIG_CLASS_P[rigKey]  || '',
+      rigColor: RIG_COLORS_P[rigKey] || null,
+      durFmt, arrFmt, depFmt,
+      hasGps:   !!(j.actualArrival || j.actualDuration),
+      isLegacy: !!(j.date && j.date < '2026-01-01'),
+      durationConfidence: j.durationConfidence || null,
     });
   });
 
@@ -1079,7 +1106,35 @@ function renderServiceHistory(c) {
     ${aiSummaryHtml}
     ${entries.map((e, i) => {
       const truncated = e.services.length > 60 ? e.services.slice(0,57)+'…' : e.services;
-      const hasMore   = e.services.length > 60 || e.address || e.payment || e.sqFt;
+
+      // Collapsed badges (rig + duration + payment)
+      const badgeParts = [];
+      if (e.rigLabel) badgeParts.push(`<span class="svc-gps-badge ${e.rigClass}">${esc(e.rigLabel)}</span>`);
+      if (e.durFmt)   badgeParts.push(`<span class="svc-gps-badge">⏱ ${esc(e.durFmt)}</span>`);
+      else if (!e.isLegacy && e.rigKey) badgeParts.push(`<span class="svc-gps-badge" style="color:#94a3b8;">Time not tracked</span>`);
+      if (e.payment)  badgeParts.push(`<span class="svc-gps-badge">💵 ${esc(e.payment)}</span>`);
+      const badgesHtml = badgeParts.length ? `<div class="svc-gps-badges">${badgeParts.join('')}</div>` : '';
+
+      // Expanded detail rows
+      const detailRows = [];
+      if (e.arrFmt) {
+        const timeStr = `${e.arrFmt}${e.depFmt ? ' – '+e.depFmt : ''}${e.durFmt ? ' ('+e.durFmt+')' : ''}`;
+        detailRows.push(`<span class="svc-detail-key">🕐 On site</span><span class="svc-detail-val">${esc(timeStr)}</span>`);
+      } else if (!e.isLegacy && !e.hasGps) {
+        detailRows.push(`<span class="svc-detail-key">🕐 On site</span><span class="svc-detail-val" style="color:#94a3b8;">Not tracked</span>`);
+      }
+      if (e.rigLabel) detailRows.push(`<span class="svc-detail-key">🚛 Rig</span><span class="svc-detail-val" style="color:${e.rigColor||'inherit'};font-weight:700;">${esc(e.rigLabel)}</span>`);
+      if (e.services && e.services !== '—') detailRows.push(`<span class="svc-detail-key">📋 Services</span><span class="svc-detail-val">${esc(e.services)}</span>`);
+      if (e.address)  detailRows.push(`<span class="svc-detail-key">📍 Address</span><span class="svc-detail-val">${esc(e.address)}</span>`);
+      if (e.sqFt)     detailRows.push(`<span class="svc-detail-key">📐 Sq ft</span><span class="svc-detail-val">${Number(e.sqFt).toLocaleString()} sq ft</span>`);
+      if (e.payment)  detailRows.push(`<span class="svc-detail-key">💵 Payment</span><span class="svc-detail-val">${esc(e.payment)}</span>`);
+      if (e.notes)    detailRows.push(`<span class="svc-detail-key">📝 Notes</span><span class="svc-detail-val">${esc(e.notes)}</span>`);
+      if (e.durationConfidence) detailRows.push(`<span class="svc-detail-key" style="color:#94a3b8;">GPS</span><span class="svc-detail-val" style="color:#94a3b8;">${esc(e.durationConfidence)}</span>`);
+      const detailHtml = detailRows.length
+        ? `<div class="svc-detail-grid">${detailRows.join('')}</div>`
+        : '';
+
+      const hasMore = !!(detailHtml || e.services.length > 60);
       return `
       <div class="svc-entry"${hasMore?` style="cursor:pointer;" onclick="toggleSvcEntry(${i})"`:''}>
         <div class="svc-entry-icon" style="background:${e.iconBg};">${e.icon}</div>
@@ -1092,13 +1147,11 @@ function renderServiceHistory(c) {
             ${esc(truncated)}
             <span class="svc-status ${STATUS_CSS[e.status]||''}">${STATUS_LABEL[e.status]||e.status}</span>
           </div>
+          ${badgesHtml}
           <div id="svc-expand-${i}" style="display:none;">
-            ${e.services.length > 60?`<div style="font-size:13px;color:var(--text);margin-top:5px;line-height:1.5;">${esc(e.services)}</div>`:''}
-            ${e.address?`<div class="svc-entry-meta">📍 ${esc(e.address)}</div>`:''}
-            ${e.payment?`<div class="svc-entry-meta">💳 ${esc(e.payment)}</div>`:''}
-            ${e.sqFt?`<div class="svc-entry-meta">📐 ${Number(e.sqFt).toLocaleString()} sq ft</div>`:''}
+            ${detailHtml}
           </div>
-          ${hasMore?`<div id="svc-chevron-${i}" style="font-size:11px;color:var(--sky);margin-top:3px;">▼ details</div>`:''}
+          ${hasMore?`<div id="svc-chevron-${i}" style="font-size:11px;color:var(--sky);margin-top:4px;">▼ details</div>`:''}
         </div>
       </div>`;
     }).join('')}
@@ -1196,6 +1249,43 @@ function toggleRecentActivity() {
 // ── Customer Insights collapsible ────────────────────────────────────────────
 let _insightsExpanded = false;
 
+function renderGpsInsights(c) {
+  const jh = (c.jobHistory || []).filter(j => j.status !== 'canceled' && j.status !== 'no_show');
+  const chips = [];
+
+  // Average job duration
+  const durs = jh.filter(j => j.actualDuration > 0).map(j => j.actualDuration);
+  if (durs.length > 0) {
+    const avg = Math.round(durs.reduce((s,d) => s+d, 0) / durs.length);
+    chips.push({ label:'Avg Duration', val:`${Math.floor(avg/60)}h ${avg%60}m`, icon:'⏱', color:'#2563eb' });
+  }
+
+  // Preferred rig
+  const rigCounts = {};
+  jh.forEach(j => { const r = j.actualRig || j.rig; if (r) rigCounts[r] = (rigCounts[r]||0) + 1; });
+  const topRig = Object.entries(rigCounts).sort((a,b) => b[1]-a[1])[0];
+  if (topRig) chips.push({ label:'Preferred Rig', val:RIG_LABELS_P[topRig[0]]||topRig[0], icon:'🚛', color:RIG_COLORS_P[topRig[0]]||'#6b7280' });
+
+  // Typical arrival window
+  const hours = jh.filter(j => j.actualArrival).map(j => new Date(j.actualArrival).getHours());
+  if (hours.length > 0) {
+    const avg = hours.reduce((s,h) => s+h, 0) / hours.length;
+    const label = avg < 11.5 ? 'Morning' : avg < 14 ? 'Early afternoon' : 'Late afternoon';
+    chips.push({ label:'Typical Arrival', val:label, icon:'🕐', color:'#6b7280' });
+  }
+
+  if (!chips.length) return '';
+  return `<div style="margin-top:10px;">
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;">📍 GPS Patterns (${durs.length} tracked job${durs.length!==1?'s':''})</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${chips.map(ch => `<div style="background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:7px 11px;flex:1;min-width:100px;border-top:3px solid ${ch.color};">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:2px;">${ch.icon} ${ch.label}</div>
+        <div style="font-size:12px;font-weight:700;color:${ch.color};">${ch.val}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
 function _renderInsightsPanel(el, c) {
   el.innerHTML = `
     <div style="background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;margin-top:8px;margin-bottom:4px;">
@@ -1206,6 +1296,7 @@ function _renderInsightsPanel(el, c) {
       </div>
       <div id="insightsBody" style="display:${_insightsExpanded ? 'block' : 'none'};padding:0 16px 12px;">
         ${renderPredictions(c)}
+        ${renderGpsInsights(c)}
       </div>
     </div>`;
 }
