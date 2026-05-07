@@ -498,6 +498,8 @@ body{background:#f0f2f5;}
   box-shadow:none;
 }
 .job-scheduled.canceled:hover,.job-scheduled.no_show:hover{transform:none;}
+.job-card-extra{border-style:dashed;opacity:.85;}
+.job-card-extra .js-extra-label{font-size:10px;color:#059669;font-weight:600;margin-top:2px;}
 
 /* ── Typography within cards ── */
 .js-name{font-size:13px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
@@ -1404,9 +1406,12 @@ function jobAmount(c) {
 }
 
 function calculateRigTotal(date, rig) {
-  return getScheduledForRig(date, rig)
+  const ssTotal = getScheduledForRig(date, rig)
     .filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; })
     .reduce((s, c) => s + (jobAmount(c).val), 0);
+  const extraTotal = getExtraCompletedJobsForRig(date, rig)
+    .reduce((s, {jhEntry}) => s + (jhEntry.amount || jhEntry.approvedAmount || 0), 0);
+  return ssTotal + extraTotal;
 }
 
 function calculateDayTotal(date) {
@@ -1415,9 +1420,12 @@ function calculateDayTotal(date) {
 
 function calculateDayCollected(date) {
   return RIGS.reduce((s, rig) => {
-    return s + getScheduledForRig(date, rig)
+    const ssCollected = getScheduledForRig(date, rig)
       .filter(c => c.scheduledStatus?.state === 'completed')
       .reduce((r, c) => r + jobAmount(c).val, 0);
+    const extraCollected = getExtraCompletedJobsForRig(date, rig)
+      .reduce((r, {jhEntry}) => r + (jhEntry.amount || jhEntry.approvedAmount || 0), 0);
+    return s + ssCollected + extraCollected;
   }, 0);
 }
 
@@ -1815,8 +1823,10 @@ function renderCalGrid(dates) {
       const halfBadge = dayType === 'half'
         ? ' <span style="font-size:9px;font-weight:700;color:var(--gold);background:rgba(244,166,32,.15);border-radius:3px;padding:0 3px;">½</span>' : '';
       const jobs = getScheduledForRigOrdered(date, rig);
+      const extras = getExtraCompletedJobsForRig(date, rig);
       const jobsHtml = buildJobsHtmlWithDist(jobs);
-      const emptyClass = jobs.length ? '' : ' empty-hint';
+      const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
+      const emptyClass = (jobs.length || extras.length) ? '' : ' empty-hint';
       const routeSummaryHtml = jobs.length >= 2 ? renderRouteSummary(jobs, date, rig) : '';
       const arrivalHtml = renderArrivalButtons(date, rig, jobs);
       const printableJobs = jobs.filter(j => !j.isTest && (j.scheduledStatus?.state||'scheduled') !== 'completed');
@@ -1824,7 +1834,7 @@ function renderCalGrid(dates) {
         ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 ${printableJobs.length} sheets</button></div>`
         : '';
       // Rig label chip — only render when rig has jobs
-      const rigLabelHtml = jobs.length > 0
+      const rigLabelHtml = (jobs.length || extras.length) > 0
         ? `<div class="wk-rig-label" onclick="openCrewPop('${date}','${rig}',this)" style="border-left:3px solid ${RIG_CAP_COLORS[rig]};">
             <span style="color:${RIG_CAP_COLORS[rig]};font-size:11px;font-weight:700;">${RIG_LABELS[rig]}${halfBadge}</span>
             ${crewLabel ? `<span class="rig-crew-label" style="font-size:10px;">${crewLabel}</span>` : ''}
@@ -1833,6 +1843,7 @@ function renderCalGrid(dates) {
         ${rigLabelHtml}
         ${bulkPrintHtml}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+        ${extrasHtml}
         ${routeSummaryHtml}
         ${arrivalHtml}
       </div>`;
@@ -2026,6 +2037,28 @@ function jobCardScheduled(c) {
     ${receiptBtnHtml}
     ${editBtnHtml}
     ${delBtnHtml}
+  </div>`;
+}
+
+function jobCardHistoryExtra(c, jhEntry) {
+  const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const city  = c.city ? esc(formatCity(c.city)) : '';
+  const amt   = jhEntry.amount || jhEntry.approvedAmount || 0;
+  const amtHtml = amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
+  const notes = esc(jhEntry.jobNotes || jhEntry.notes || '');
+  const vipBadge = c.isTest ? '' : _calVipBadge(c);
+  let gpsHtml = '';
+  if (jhEntry.actualArrival) {
+    const arr = new Date(jhEntry.actualArrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    const dep = jhEntry.actualDeparture ? new Date(jhEntry.actualDeparture).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : null;
+    const dur = jhEntry.actualDuration > 0 ? `${Math.floor(jhEntry.actualDuration/60)}h ${jhEntry.actualDuration%60}m` : null;
+    gpsHtml = `<div class="js-gps-time">⏱ ${arr}${dep?' – '+dep:''}${dur?' ('+dur+')':''}</div>`;
+  }
+  return `<div class="job-scheduled completed job-card-extra" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+    <div class="js-name"><span>${name}${vipBadge}</span><span>${amtHtml}</span></div>
+    ${city || notes ? `<div class="js-meta">${city}${notes ? (city?' · ':'')+notes : ''}</div>` : ''}
+    ${gpsHtml}
+    <div class="js-extra-label">+1 same-day job</div>
   </div>`;
 }
 
@@ -2229,6 +2262,35 @@ function getScheduledForRig(date, rig) {
 
 function findCustomer(phone) {
   return (dbRecord.customers||[]).find(c=>c.phone===phone);
+}
+
+function _normalizeRig(raw) {
+  if (!raw) return null;
+  const k = String(raw).toLowerCase().trim();
+  if (k === 'rig_1' || k.includes('old')) return 'rig_1';
+  if (k === 'rig_2' || k.includes('new')) return 'rig_2';
+  if (k === 'rig_3' || k.includes('chev')) return 'rig_3';
+  return raw;
+}
+
+// Returns [{customer, jhEntry}] for completed jobHistory entries NOT already represented by scheduledStatus.
+function getExtraCompletedJobsForRig(date, rig) {
+  const result = [];
+  for (const c of (dbRecord.customers || [])) {
+    const jh = c.jobHistory || [];
+    const matching = jh.filter(j =>
+      j.date === date && j.status === 'completed' && _normalizeRig(j.rig) === rig
+    );
+    if (!matching.length) continue;
+    matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
+    const ss = c.scheduledStatus;
+    const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
+    const startIdx = ssCovers ? 1 : 0;
+    for (let i = startIdx; i < matching.length; i++) {
+      result.push({ customer: c, jhEntry: matching[i] });
+    }
+  }
+  return result;
 }
 
 // ── DRAG AND DROP ─────────────────────────────────────────────────────────────
@@ -4085,10 +4147,8 @@ function renderPriorityStrip(date) {
 function renderDayRevBanner(date) {
   const el = document.getElementById('dayRevBanner');
   if (!el) return;
-  const booked = calculateDayTotal(date);
-  const collected = RIGS.reduce((s,rig) =>
-    s + getScheduledForRig(date,rig).filter(c=>(c.scheduledStatus||{}).state==='completed')
-         .reduce((t,c)=>t+(jobAmount(c).val),0), 0);
+  const booked    = calculateDayTotal(date);
+  const collected = calculateDayCollected(date);
   const dateLabel = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
   el.innerHTML = `<span class="rev-date">${dateLabel}</span>
     <span>$${booked.toLocaleString('en-US',{maximumFractionDigits:0})} booked</span>
@@ -4117,20 +4177,24 @@ function renderDayRigGrid(date) {
         </select>
         ${currentDriver?.phone ? `<button class="driver-text-btn" onclick="event.stopPropagation();textDriver('${date}','${rig}')">📱 Text</button>` : ''}
       </div>` : '';
+    const extras = getExtraCompletedJobsForRig(date, rig);
+    const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
     const jobsHtml = buildJobsHtmlWithDist(jobs);
-    const emptyClass = jobs.length ? '' : ' empty-hint';
-    const emptyMsg = !jobs.length
+    const totalCount = jobs.length + extras.length;
+    const emptyClass = totalCount ? '' : ' empty-hint';
+    const emptyMsg = !totalCount
       ? `<div style="text-align:center;padding:2rem 1rem;color:#c4cad4;font-size:13px;font-weight:600;letter-spacing:.2px;">No jobs scheduled</div>` : '';
     const routeSummaryHtml = jobs.length >= 2 ? renderRouteSummary(jobs, date, rig) : '';
     return `<div class="day-rig-col">
       <div class="day-rig-hdr" style="border-top:3px solid ${rigColor};">
         <span style="width:9px;height:9px;border-radius:50%;background:${rigColor};flex-shrink:0;display:inline-block;"></span>
         <span style="flex:1;">${RIG_LABELS[rig]}</span>
-        <span style="font-size:11px;color:rgba(255,255,255,.4);font-weight:500;">${jobs.length} job${jobs.length!==1?'s':''}</span>
+        <span style="font-size:11px;color:rgba(255,255,255,.4);font-weight:500;">${totalCount} job${totalCount!==1?'s':''}</span>
       </div>
       <div class="day-cap-bar"><div class="day-cap-fill" style="width:${capPct}%;background:${rigColor};"></div></div>
       ${grossHtml}${driverRowHtml}
       <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="drj-${date}-${rig}">${jobsHtml}${emptyMsg}</div>
+      ${extrasHtml}
       ${routeSummaryHtml}
       ${renderArrivalButtons(date, rig, jobs)}
     </div>`;
@@ -4141,7 +4205,7 @@ function renderDayRigGrid(date) {
     sortables.push(Sortable.create(lane, {
       group:{ name:'jobs', pull:true, put:() => true },
       animation:150, ghostClass:'sortable-ghost', chosenClass:'sortable-chosen',
-      filter:'.dist-marker,.route-summary,.route-warn,.route-missing',
+      filter:'.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false,100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
