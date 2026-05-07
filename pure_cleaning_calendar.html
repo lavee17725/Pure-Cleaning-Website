@@ -1516,7 +1516,7 @@ function jobCardMiniQuote(c) {
   return `<div class="job-unscheduled" data-phone="${c.phone}" style="border-left:3px solid var(--gold);cursor:default;" title="${name}">
     <div class="jcard-top">
       <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${name}</a>${testBadge}</div>
-      <span class="phone-badge">📞 Phone</span>
+      <button class="card-del-btn" onclick="event.stopPropagation();dismissMiniQuote('${c.phone}')" title="Dismiss from Mini Quote queue">✕</button>
     </div>
     ${svc || amt ? `<div class="jd" style="font-weight:600;color:var(--navy);">${svc}${amt ? ' — $'+Number(amt).toLocaleString() : ''}</div>` : ''}
     ${savedAt ? `<div class="jd">Saved ${savedAt}</div>` : ''}
@@ -2224,9 +2224,7 @@ function jobCardScheduled(c) {
     if (ss.confirmedByCustomer) {
       confirmBadge = ' <span title="Confirmed by customer" style="color:#22c55e;font-size:12px;">✅</span>';
     } else if (c.linkCode) {
-      confirmBadge = ' <span title="Confirmation link sent — awaiting response" style="color:#f59e0b;font-size:12px;">⏳</span>';
-    } else {
-      confirmBadge = ' <span title="No confirmation link sent yet" style="color:#94a3b8;font-size:12px;">❓</span>';
+      confirmBadge = ' <span title="Confirmation link sent — awaiting response" style="color:#9ca3af;font-size:11px;">⏳</span>';
     }
   }
   const _jhMatch = (c.jobHistory||[]).slice().reverse().find(j => j.date === ss.scheduledDate);
@@ -4353,6 +4351,18 @@ async function confirmTapSchedule() {
   showToast(`✓ ${esc(name)} → ${dayLabel} · Day Pool`, 'Undo', () => { undoAction(_tapSchedPhone, prev); });
 }
 
+function dismissMiniQuote(phone) {
+  // Target the specific record with pending mini-quote state (may be a duplicate)
+  const record = (dbRecord.customers||[]).find(x =>
+    (x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
+    x.quoteStatus?.state === 'phone_quoted_pending_mini_quote'
+  );
+  if (!record) return;
+  record.quoteStatus.state = 'phone_quoted';
+  saveDb().then(() => render());
+  showToast('✓ Removed from Mini Quote queue');
+}
+
 // ── QUEUE EDIT MODAL ──────────────────────────────────────────────────────────
 
 function openQueueEditModal(phone) {
@@ -4412,6 +4422,15 @@ async function saveQueueEdit() {
   if (notes) c.scheduledStatus.scheduleNote = notes;
 
   const phone = _queueEditPhone;
+
+  // Clear phone_quoted_pending_mini_quote on any same-phone duplicate record
+  (dbRecord.customers||[]).forEach(x => {
+    if ((x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
+        x.quoteStatus?.state === 'phone_quoted_pending_mini_quote') {
+      x.quoteStatus.state = 'phone_quoted';
+    }
+  });
+
   closeQueueEditModal();
   await saveDb();
   render();
