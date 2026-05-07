@@ -327,6 +327,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-rig-grid{display:grid;grid-template-columns:repeat(3,1fr);min-height:calc(100vh - 220px);}
 .day-rig-col{border-right:1px solid var(--border);}
 .day-rig-col:last-child{border-right:none;}
+/* Day Pool zone */
+.day-pool-wrap{padding:6px 10px 2px;border-bottom:1.5px solid var(--border);background:rgba(99,102,241,.06);}
+.day-pool-hdr{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#6366f1;margin-bottom:5px;}
+.day-pool-lane{min-height:44px;border:1.5px dashed #c7d2fe;border-radius:8px;padding:5px 6px;display:flex;flex-wrap:wrap;gap:5px;}
+.day-pool-lane.empty-hint{background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(99,102,241,.04) 8px,rgba(99,102,241,.04) 16px);}
+.day-pool-lane .job-scheduled{margin:0;font-size:11.5px;}
+/* GPS time row on job cards */
+.js-gps-time{font-size:11px;color:#059669;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:3px;}
+.js-gps-rig-shift{font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;font-weight:700;margin-left:2px;}
+/* Sync GPS button */
+.sync-gps-btn{background:none;border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.7);border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.sync-gps-btn:hover{background:rgba(255,255,255,.08);color:#fff;}
+.sync-gps-btn:disabled{opacity:.45;cursor:not-allowed;}
+/* End-of-day rollup */
+.day-rollup{margin:16px 0 0;background:var(--card);border:1.5px solid var(--border);border-radius:12px;overflow:hidden;}
+.day-rollup-hdr{padding:9px 14px;background:var(--navy2);font-size:12px;font-weight:700;color:rgba(255,255,255,.7);display:flex;align-items:center;gap:8px;}
+.day-rollup-row{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);font-size:13px;}
+.day-rollup-row:last-child{border-bottom:none;}
+.day-rollup-rig{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.day-rollup-name{font-weight:700;color:var(--navy);flex:1;}
+.day-rollup-stat{color:var(--muted);font-size:12px;}
 .day-rig-hdr{padding:8px 10px;background:var(--navy2);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;}
 .day-cap-bar{height:5px;background:#1e3a5f;margin:.375rem .625rem .25rem;border-radius:3px;overflow:hidden;}
 .day-cap-fill{height:100%;border-radius:3px;background:var(--sky);transition:width .3s;}
@@ -558,7 +579,9 @@ body{background:#f0f2f5;}
       <div class="swipe-hint"><span>‹ swipe or ← → arrow keys</span><span>swipe or arrow keys ›</span></div>
       <div class="priority-strip" id="priorityStrip"></div>
       <div class="day-rev-banner" id="dayRevBanner"></div>
+      <div id="dayPoolWrap"></div>
       <div class="day-rig-grid" id="dayRigGrid"></div>
+      <div id="dayRollup" style="max-width:none;padding:0 0 16px;"></div>
     </div>
     <!-- Month view -->
     <div id="monthViewWrap" style="display:none;">
@@ -1909,10 +1932,25 @@ function jobCardScheduled(c) {
     return `<div class="js-roof-info">🏠 ${esc(label)}${sqft}${meth}${warn}</div>`;
   })() : '';
 
+  // GPS time-on-site row (populated after Bouncie sync)
+  const _gpsEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === ss.scheduledDate);
+  const _gpsSrc   = _gpsEntry?.actualArrival ? _gpsEntry : (ss.actualArrival ? ss : null);
+  let gpsHtml = '';
+  if (_gpsSrc) {
+    const _arrFmt = new Date(_gpsSrc.actualArrival).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const _depFmt = _gpsSrc.actualDeparture ? new Date(_gpsSrc.actualDeparture).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : null;
+    const _durMin  = _gpsSrc.actualDuration || 0;
+    const _durFmt  = _durMin > 0 ? `${Math.floor(_durMin / 60)}h ${_durMin % 60}m` : null;
+    const _rigShift = (_gpsSrc.intentRig && _gpsSrc.intentRig !== _gpsSrc.actualRig)
+      ? `<span class="js-gps-rig-shift">was ${RIG_LABELS[_gpsSrc.intentRig] || _gpsSrc.intentRig}</span>` : '';
+    gpsHtml = `<div class="js-gps-time">⏱ ${_arrFmt}${_depFmt ? ' – ' + _depFmt : ''}${_durFmt ? ' (' + _durFmt + ')' : ''}${_rigShift}</div>`;
+  }
+
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
+    ${gpsHtml}
     ${roofInfoHtml}
     ${reviewBtnHtml}
     ${printBtnHtml}
@@ -3804,7 +3842,9 @@ function renderDayView(date) {
     d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   renderPriorityStrip(date);
   renderDayRevBanner(date);
+  renderDayPool(date);
   renderDayRigGrid(date);
+  renderDayRollup(date);
 }
 
 function renderPriorityStrip(date) {
@@ -3861,7 +3901,8 @@ function renderDayRevBanner(date) {
   el.innerHTML = `<span class="rev-date">${dateLabel}</span>
     <span>$${booked.toLocaleString('en-US',{maximumFractionDigits:0})} booked</span>
     <span style="color:rgba(255,255,255,.3);">/</span>
-    <span class="rev-collected">$${collected.toLocaleString('en-US',{maximumFractionDigits:0})} collected</span>`;
+    <span class="rev-collected">$${collected.toLocaleString('en-US',{maximumFractionDigits:0})} collected</span>
+    <button id="syncGpsBtn" class="sync-gps-btn" onclick="syncGpsNow('${date}')" title="Sync Bouncie GPS data for this day">🛰 Sync GPS</button>`;
 }
 
 function renderDayRigGrid(date) {
@@ -3924,6 +3965,141 @@ function renderDayRigGrid(date) {
       }
     }));
   });
+}
+
+// ── DAY POOL ──────────────────────────────────────────────────────────────────
+
+// Jobs scheduled for a specific date but with no rig assigned yet.
+function getDayPoolJobs(date) {
+  return (dbRecord.customers || []).filter(c => {
+    const ss = c.scheduledStatus;
+    if (!ss) return false;
+    if (ss.scheduledDate !== date) return false;
+    if (ss.rig) return false; // already has a rig → in rig column, not pool
+    return ss.state === 'scheduled' || ss.state === 'needs_scheduling';
+  });
+}
+
+function renderDayPool(date) {
+  const el = document.getElementById('dayPoolWrap');
+  if (!el) return;
+  const jobs = getDayPoolJobs(date);
+  if (!jobs.length) { el.innerHTML = ''; return; }
+
+  const cardsHtml = jobs.map(c => jobCardScheduled(c)).join('');
+  el.innerHTML = `
+    <div class="day-pool-wrap">
+      <div class="day-pool-hdr">
+        📅 Day Pool — Rig TBD
+        <span style="font-size:11px;font-weight:500;color:#818cf8;">${jobs.length} job${jobs.length !== 1 ? 's' : ''} · drag to a rig column to assign</span>
+      </div>
+      <div class="day-pool-lane${jobs.length ? '' : ' empty-hint'}" id="dayPoolLane" data-date="${date}" data-rig="pool">
+        ${cardsHtml}
+      </div>
+    </div>`;
+
+  // Wire up pool as a sortable — accepts drops FROM rig columns too
+  const lane = document.getElementById('dayPoolLane');
+  if (lane) {
+    sortables.push(Sortable.create(lane, {
+      group: { name: 'jobs', pull: true, put: () => true },
+      animation: 150, ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
+      filter: '.dist-marker,.route-summary',
+      onStart: () => { wasDragging = true; },
+      onEnd:   () => { setTimeout(() => wasDragging = false, 100); },
+      onAdd: evt => handleDropToPool(evt.item.dataset.phone, date),
+    }));
+  }
+}
+
+async function handleDropToPool(phone, date) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  c.scheduledStatus.state         = 'scheduled';
+  c.scheduledStatus.scheduledDate = date;
+  c.scheduledStatus.rig           = null;
+  const name = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim();
+  const dateStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  showToast(`📅 ${esc(name)} → ${dateStr} · Day Pool (rig TBD)`, 'Undo', () => { undoAction(phone, prev); });
+  saveDb().catch(() => {});
+  renderDayPool(date);
+  renderCalGrid(getWeekDates());
+  renderSidebar();
+}
+
+// ── GPS SYNC ──────────────────────────────────────────────────────────────────
+
+async function syncGpsNow(date) {
+  const btn = document.getElementById('syncGpsBtn');
+  if (btn) { btn.textContent = '⏳ Syncing…'; btn.disabled = true; }
+  try {
+    const result = await fetch(`${PCPC_API}/api/bouncie/match?date=${date}&_t=${Date.now()}`).then(r => r.json());
+    if (result.error) throw new Error(result.error);
+    // Re-fetch DB to pick up GPS-updated records
+    const fresh = await fetch(`${PCPC_API}/customers?_t=${Date.now()}`).then(r => r.json());
+    if (fresh.customers) { dbRecord = fresh; }
+    renderDayView(date);
+    const m = result.matched || 0;
+    const shifted = (result.results || []).filter(r => r.rigChanged).length;
+    let msg = `✓ GPS synced — ${m} job${m !== 1 ? 's' : ''} matched`;
+    if (shifted) msg += ` · ${shifted} rig${shifted !== 1 ? 's' : ''} auto-corrected`;
+    showToast(msg);
+  } catch(e) {
+    showToast(`GPS sync failed — ${e.message || 'check Bouncie auth'}`);
+    if (btn) { btn.textContent = '🛰 Sync GPS'; btn.disabled = false; }
+  }
+}
+
+// ── END-OF-DAY ROLLUP ─────────────────────────────────────────────────────────
+
+function renderDayRollup(date) {
+  const el = document.getElementById('dayRollup');
+  if (!el) return;
+
+  const rigStats = RIGS.map(rig => {
+    const jobs = getScheduledForRig(date, rig);
+    const done = jobs.filter(c => (c.scheduledStatus || {}).state === 'completed');
+    const revenue = done.reduce((s, c) => s + jobAmount(c).val, 0);
+    // GPS duration from scheduledStatus (written by Bouncie matcher)
+    const gpsMin = done.reduce((s, c) => {
+      const ss = c.scheduledStatus || {};
+      const jhEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === date);
+      return s + ((jhEntry || ss).actualDuration || 0);
+    }, 0);
+    return { rig, label: RIG_LABELS[rig], color: RIG_CAP_COLORS[rig], done: done.length, total: jobs.length, revenue, gpsMin };
+  });
+
+  const anyCompleted = rigStats.some(s => s.done > 0);
+  if (!anyCompleted) { el.innerHTML = ''; return; }
+
+  const totalRev = rigStats.reduce((s, r) => s + r.revenue, 0);
+  const totalJobs = rigStats.reduce((s, r) => s + r.done, 0);
+  const totalMin  = rigStats.reduce((s, r) => s + r.gpsMin, 0);
+
+  const fmtDur = min => min > 0 ? `${Math.floor(min / 60)}h ${min % 60}m` : '—';
+
+  const rows = rigStats.map(s => {
+    if (s.done === 0 && s.total === 0) return '';
+    const gpsTag = s.gpsMin > 0 ? `<span class="day-rollup-stat">· ⏱ ${fmtDur(s.gpsMin)}</span>` : '';
+    const pendingTag = s.total > s.done ? `<span class="day-rollup-stat" style="color:#f97316;">· ${s.total - s.done} pending</span>` : '';
+    return `<div class="day-rollup-row">
+      <div class="day-rollup-rig" style="background:${s.color};"></div>
+      <div class="day-rollup-name">${esc(s.label)}</div>
+      <span class="day-rollup-stat">${s.done} job${s.done !== 1 ? 's' : ''}</span>
+      ${s.revenue > 0 ? `<span class="day-rollup-stat">· $${s.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>` : ''}
+      ${gpsTag}${pendingTag}
+    </div>`;
+  }).filter(Boolean).join('');
+
+  const totalGpsTag = totalMin > 0 ? ` · ⏱ ${fmtDur(totalMin)} on-site` : '';
+  el.innerHTML = `<div style="padding:0 10px;">
+    <div class="day-rollup">
+      <div class="day-rollup-hdr">📊 Day Summary${totalJobs > 0 ? ` — $${totalRev.toLocaleString('en-US', { maximumFractionDigits: 0 })} / ${totalJobs} job${totalJobs !== 1 ? 's' : ''}${totalGpsTag}` : ''}</div>
+      ${rows}
+    </div>
+  </div>`;
 }
 
 // ── DAY NAVIGATION ────────────────────────────────────────────────────────────
