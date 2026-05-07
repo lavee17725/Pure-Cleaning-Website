@@ -1126,8 +1126,9 @@ function getJobWindow(ss) {
 }
 
 function windowLabel(ss) {
-  const w = WINDOWS.find(x => x.id === getJobWindow(ss));
-  return w ? `${w.emoji} ${w.label}` : '🌅 Morning';
+  if (!ss?.window) return null; // only show emoji label when operator explicitly assigned a window
+  const w = WINDOWS.find(x => x.id === ss.window);
+  return w ? `${w.emoji} ${w.label}` : null;
 }
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
@@ -2127,7 +2128,7 @@ function jobCardScheduled(c) {
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
-    <div class="js-meta">${winLbl} · ${_durLabel}${city ? ' · '+city : ''}</div>
+    <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
@@ -2492,9 +2493,9 @@ async function handleDropToWindow(phone, date, rig, win) {
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   showToast(`${winMeta?.emoji||''} ${esc(name)} → ${RIG_LABELS[rig]} · ${winMeta?.label||win}`, 'Undo', () => { undoAction(phone, prev); });
   saveDb().catch(()=>{});
-  renderDayRigGrid(date);
+  renderSidebar();     // initSortables() runs here — must come before win-lane init
   renderDayPool(date);
-  renderSidebar();
+  renderDayRigGrid(date); // re-adds win-lane sortables after initSortables cleaned up
 }
 
 async function handleDropToSidebar(phone, evt) {
@@ -2673,29 +2674,40 @@ function openJobModal(phone) {
   const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
 
   document.getElementById('jmTitle').textContent = name;
+  const curWin = ss.window || null;
+  const curRig = ss.rig || null;
   document.getElementById('jmBody').innerHTML = `
-    <div style="margin-bottom:.875rem;display:flex;gap:8px;align-items:center;">
+    <div style="margin-bottom:.875rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <span class="status-badge ${stateBadge}">${ss.state||'scheduled'}</span>
       ${ss.scheduledDate ? `<span style="font-size:13px;color:var(--muted);">${new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span>` : ''}
     </div>
-    <div style="font-size:14px;line-height:2;margin-bottom:1rem;">
+    <div style="font-size:13px;line-height:1.9;margin-bottom:.875rem;color:var(--muted);">
       ${ph ? ph+'<br>' : ''}
       ${addr ? addr+'<br>' : ''}
-      ${crewNames ? `👤 ${crewNames}<br>` : ''}
-      ${alertIcons(c.alerts||[])} ${(c.alerts||[]).map(a=>a.label).join(', ')||'No alerts'}<br>
+      ${crewNames !== '—' ? `👤 ${crewNames}<br>` : ''}
     </div>
     <div class="modal-field">
-      <label>Duration (hours)</label>
-      <select id="jmDur" class="modal-input">
-        ${[1,2,3,4,5,6].map(h=>`<option value="${h}" ${(ss.estimatedDuration||2)===h?'selected':''}>${h} hour${h===1?'':'s'}</option>`).join('')}
-      </select>
+      <label>Rig</label>
+      <div id="jmRigPicker" style="display:flex;gap:6px;margin-top:4px;">
+        ${RIGS.map(r => `<button class="win-btn${r===curRig?' active':''}" data-rig="${r}"
+          onclick="event.stopPropagation();document.querySelectorAll('#jmRigPicker .win-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')"
+          style="font-size:11px;">${RIG_LABELS[r]}</button>`).join('')}
+      </div>
     </div>
     <div class="modal-field">
-      <label>Start Time</label>
-      <input type="time" id="jmStart" class="modal-input" value="${ss.startTime||'09:00'}">
+      <label>Time Window</label>
+      <div id="jmWinPicker" class="win-btn-row" style="margin:4px 0 0;">
+        ${WINDOWS.map(w => `<button class="win-btn${w.id===curWin?' active':''}" data-win="${w.id}"
+          onclick="event.stopPropagation();document.querySelectorAll('#jmWinPicker .win-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')"
+          style="font-size:11px;">${w.emoji} ${w.label}</button>`).join('')}
+      </div>
     </div>
     <div class="modal-field">
-      <label>Job Notes (internal)</label>
+      <label>Date</label>
+      <input type="date" id="jmDate" class="modal-input" value="${ss.scheduledDate||''}">
+    </div>
+    <div class="modal-field">
+      <label>Job Notes</label>
       <input type="text" id="jmNotes" class="modal-input" value="${esc(ss.jobNotes||'')}" placeholder="Services, address notes…">
     </div>
   `;
@@ -2715,9 +2727,13 @@ function closeJobModal() { document.getElementById('jobModal').classList.add('hi
 function saveJobModal() {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
-  c.scheduledStatus.estimatedDuration = parseInt(document.getElementById('jmDur').value)||2;
-  c.scheduledStatus.startTime = document.getElementById('jmStart').value || '09:00';
-  c.scheduledStatus.jobNotes  = document.getElementById('jmNotes').value.trim();
+  const newRig  = document.querySelector('#jmRigPicker .win-btn.active')?.dataset.rig;
+  const newWin  = document.querySelector('#jmWinPicker .win-btn.active')?.dataset.win;
+  const newDate = (document.getElementById('jmDate')?.value || '').trim();
+  if (newRig)  c.scheduledStatus.rig           = newRig;
+  if (newWin)  c.scheduledStatus.window        = newWin;
+  if (newDate) c.scheduledStatus.scheduledDate = newDate;
+  c.scheduledStatus.jobNotes = document.getElementById('jmNotes').value.trim();
   saveDb().catch(()=>{});
   closeJobModal();
   render();
