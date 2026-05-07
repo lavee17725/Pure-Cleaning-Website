@@ -529,6 +529,8 @@ body{background:#f0f2f5;}
 .js-name{font-size:13px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{font-size:11px;color:#6b7280;margin-top:2px;line-height:1.45;}
 .js-roof-info{font-size:11px;color:#c2410c;font-weight:600;margin-top:2px;}
+.js-svc{font-size:11px;color:var(--text);font-weight:600;margin-top:2px;line-height:1.4;}
+.js-svc.missing{color:var(--muted);font-style:italic;font-weight:400;}
 .job-amount,.jn-amount{font-variant-numeric:tabular-nums;font-size:13px;font-weight:700;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 
 /* Empty rig lane */
@@ -1923,7 +1925,7 @@ function jobCardSidebar(c) {
     ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
     : '';
 
-  const _hasTargetDate = ss.scheduledDate && ss.state !== 'scheduled';
+  const _hasTargetDate = !!ss.scheduledDate;
   const _targetDateFmt = _hasTargetDate
     ? esc(new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))
     : null;
@@ -2211,11 +2213,18 @@ function jobCardScheduled(c) {
       confirmBadge = ' <span title="No confirmation link sent yet" style="color:#94a3b8;font-size:12px;">❓</span>';
     }
   }
+  const _jhMatch = (c.jobHistory||[]).slice().reverse().find(j => j.date === ss.scheduledDate);
+  const _svcRaw  = (ss.jobNotes || c.quoteStatus?.mainServices || c.quoteStatus?.notes
+                 || _jhMatch?.services || _jhMatch?.jobNotes || '').trim();
+  const svcLine  = _svcRaw
+    ? `<div class="js-svc">📋 ${esc(_svcRaw)}</div>`
+    : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
     <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
+    ${svcLine}
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
