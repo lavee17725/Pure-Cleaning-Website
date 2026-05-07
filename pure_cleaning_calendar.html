@@ -283,6 +283,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-receipt-btn:hover:not(:disabled):not(.sent){background:#c7d2fe;}
 .js-receipt-btn:disabled{opacity:.38;cursor:not-allowed;}
 .js-receipt-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
+.js-zelle-btn{display:block;width:100%;padding:4px 8px;border:1px solid #bfdbfe;border-radius:5px;background:#eff6ff;color:#1d4ed8;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-zelle-btn:hover:not(.sent){background:#bfdbfe;}
+.js-zelle-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
 
 /* ── CREW POPOVER ── */
 .crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
@@ -1084,6 +1087,10 @@ body{background:#f0f2f5;}
 <script>
 const PCPC_API       = 'https://purecleaning-api.tylerfumero.workers.dev';
 const QUOTE_BASE_CAL = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+// ── Payment request constants ──────────────────────────────────────────────
+const ZELLE_NUMBER  = '954-389-2642';
+const ZELLE_NAME    = 'Ido Fumero';
+const BUSINESS_NAME = 'Pure Cleaning Pressure Cleaning';
 const _SL_ALP_CAL    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function shortenUrlCal(longUrl) {
@@ -2084,6 +2091,7 @@ function jobCardScheduled(c) {
   let printBtnHtml   = '';
   let paymentBtnHtml = '';
   let receiptBtnHtml = '';
+  let zelleReqBtnHtml = '';
   const complaintLink = (!c.isTest && phone)
     ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
     : '';
@@ -2109,6 +2117,9 @@ function jobCardScheduled(c) {
         paymentBtnHtml = `<button class="js-pay-btn paid" onclick="event.stopPropagation()">✓ Paid via ${esc(c.paymentInfo.method||'cash')}</button>`;
       } else {
         paymentBtnHtml = `<button class="js-pay-btn" onclick="event.stopPropagation();openPaymentModal('${phone}')">💰 Log Payment</button>`;
+        const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
+        const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
+        zelleReqBtnHtml = `<button class="js-zelle-btn" onclick="event.stopPropagation();requestPayment('${phone}',this)">${_zLbl}</button>`;
       }
 
       // Send receipt (only after payment logged)
@@ -2125,6 +2136,11 @@ function jobCardScheduled(c) {
     }
   } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
     printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
+    if (ss.scheduledDate && ss.scheduledDate <= isoToday()) {
+      const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
+      const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
+      zelleReqBtnHtml = `<button class="js-zelle-btn" onclick="event.stopPropagation();requestPayment('${phone}',this)">${_zLbl}</button>`;
+    }
   }
 
   const editBtnHtml = (!c.isTest && phone)
@@ -2231,6 +2247,7 @@ function jobCardScheduled(c) {
     ${reviewBtnHtml}
     ${printBtnHtml}
     ${complaintLink}
+    ${zelleReqBtnHtml}
     ${paymentBtnHtml}
     ${receiptBtnHtml}
     ${editBtnHtml}
@@ -3871,6 +3888,34 @@ function sendArrivalText(phone, name, slot, date, rig, btn) {
 
 // ── PAYMENT MODAL ────────────────────────────────────────────────────────────
 let _payPhone = null;
+
+function requestPayment(phone, el) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const fn  = (c.firstName||c.fn||'').trim().split(' ')[0] || 'there';
+  const ss  = c.scheduledStatus || {};
+  const pm  = c.paymentMethod || ss.paymentMethod || 'zelle';
+  const rawAmt = ss.approvedAmount ? Number(ss.approvedAmount) : 0;
+  const amtFmt = '$' + rawAmt.toFixed(2);
+
+  let body;
+  if (pm === 'check') {
+    body = `Hello ${fn},\n\nI hope the job came out satisfactory! When you get the opportunity, please make the check out to "${ZELLE_NAME}" for ${amtFmt}.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
+  } else if (pm === 'cash') {
+    body = `Hello ${fn},\n\nI hope the job came out satisfactory! When you get the opportunity, please have the cash payment of ${amtFmt} ready.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
+  } else {
+    body = `Hello ${fn},\n\nI hope the job came out satisfactory. When you get the opportunity, please zelle the business at ${ZELLE_NUMBER}, it'll be under ${ZELLE_NAME}.\n\nThe total amount was ${amtFmt}.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
+  }
+
+  if (el) {
+    const orig = el.textContent;
+    el.textContent = '✓ Request sent';
+    el.classList.add('sent');
+    setTimeout(() => { el.textContent = orig; el.classList.remove('sent'); }, 3000);
+  }
+
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
+}
 
 function openPaymentModal(phone) {
   const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
