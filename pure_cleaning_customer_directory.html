@@ -63,7 +63,8 @@ td{padding:10px 12px;font-size:13px;color:var(--text);white-space:nowrap;}
 td.wrap{white-space:normal;max-width:200px;}
 td.money{font-weight:700;color:var(--terra);}
 td.muted{color:var(--muted);}
-.tier-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;}
+.tier-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;cursor:pointer;transition:opacity .12s;}
+.tier-chip:hover{opacity:.8;}
 .flag-icons{font-size:11px;margin-left:4px;}
 
 /* Empty + loading */
@@ -267,6 +268,26 @@ function buildFilterPills(){
   ).join('');
 }
 
+const TIER_KEY_MAP = {
+  'SCHEDULED':  'scheduled',
+  'HOT':        'hot',
+  'WARM':       'warm',
+  'OVERDUE':    'overdue',
+  'LOYAL':      'loyal',
+  'NEW':        'new',
+  'NO HISTORY': 'no_history',
+  'OPT-OUT':    'opted_out',
+};
+
+function filterByTier(key){
+  activeFilters = new Set([key]);
+  document.querySelectorAll('.filter-pill').forEach(el=>{
+    el.classList.toggle('active', el.dataset.key === key);
+  });
+  applyAll();
+  document.getElementById('filterRow').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
 function togglePill(key){
   if(key==='all'){
     activeFilters=new Set(['all']);
@@ -417,9 +438,13 @@ function flagIcons(c){
 
 function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
+  const _tfk=TIER_KEY_MAP[c._tier]||null;
+  const _tchip=_tfk
+    ?`<span class="tier-chip" style="background:${c._tierColor};" title="Filter by ${c._tier}" onclick="event.stopPropagation();filterByTier('${_tfk}')">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`
+    :`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr onclick="navProfile('${ph}')">
     <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}</td>
-    <td><span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span></td>
+    <td>${_tchip}</td>
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
@@ -433,8 +458,10 @@ function buildCard(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
   const name=((c.firstName||'')+' '+(c.lastName||'')).trim()||'Unknown';
   const spend=c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—';
+  const _tfkc=TIER_KEY_MAP[c._tier]||null;
+  const _badgeClick=_tfkc?`onclick="event.stopPropagation();filterByTier('${_tfkc}')" title="Filter by ${c._tier}"`:'';
   return `<div class="cust-card" onclick="navProfile('${ph}')">
-    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tierEmoji||c._tier.slice(0,2)}</div>
+    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};cursor:${_tfkc?'pointer':'default'};" ${_badgeClick}>${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}</div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
