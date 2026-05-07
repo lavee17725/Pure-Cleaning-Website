@@ -404,6 +404,7 @@ body{background:#f0f2f5;}
 .dh-rev{font-size:17px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums;margin:4px 0 6px;letter-spacing:-.3px;}
 .dh-rev.dh-rev-empty{font-size:14px;color:rgba(255,255,255,.2);font-weight:400;letter-spacing:0;}
 .dh-rev-jobs{font-size:11px;font-weight:500;color:rgba(255,255,255,.42);font-variant-numeric:normal;letter-spacing:0;}
+.dh-rev-collected{font-size:11px;font-weight:700;color:#6ee7b7;font-variant-numeric:normal;letter-spacing:0;}
 
 /* Capacity bars in week header */
 .wk-cap-bars{display:flex;flex-direction:column;gap:3px;margin-top:4px;}
@@ -1358,11 +1359,21 @@ function jobAmount(c) {
 }
 
 function calculateRigTotal(date, rig) {
-  return getScheduledForRig(date, rig).reduce((s, c) => s + (jobAmount(c).val), 0);
+  return getScheduledForRig(date, rig)
+    .filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; })
+    .reduce((s, c) => s + (jobAmount(c).val), 0);
 }
 
 function calculateDayTotal(date) {
   return RIGS.reduce((s, rig) => s + calculateRigTotal(date, rig), 0);
+}
+
+function calculateDayCollected(date) {
+  return RIGS.reduce((s, rig) => {
+    return s + getScheduledForRig(date, rig)
+      .filter(c => c.scheduledStatus?.state === 'completed')
+      .reduce((r, c) => r + jobAmount(c).val, 0);
+  }, 0);
 }
 
 // ── ROUTE DISTANCE (Stage 12) ─────────────────────────────────────────────────
@@ -1730,11 +1741,15 @@ function renderCalGrid(dates) {
     const isToday = date === today;
     const isPast  = date < today;
     const dayTotal = calculateDayTotal(date);
-    const totalJobCount = RIGS.reduce((s,rig) => s + getScheduledForRig(date,rig).length, 0);
+    const dayCollected = calculateDayCollected(date);
+    // Exclude canceled/no_show from the header count
+    const totalJobCount = RIGS.reduce((s,rig) => s + getScheduledForRig(date,rig)
+      .filter(c => { const st = c.scheduledStatus?.state; return st !== 'canceled' && st !== 'no_show'; }).length, 0);
 
-    // ── 3-segment capacity bars ──
+    // ── 3-segment capacity bars (active jobs only) ──
     const capBarsHtml = RIGS.map(rig => {
-      const n = getScheduledForRig(date, rig).length;
+      const n = getScheduledForRig(date, rig)
+        .filter(c => { const st = c.scheduledStatus?.state; return st !== 'canceled' && st !== 'no_show'; }).length;
       const pct = Math.min((n * 90 / 480) * 100, 100);
       return `<div class="wk-cap-bar" title="${RIG_LABELS[rig]}: ${n} job${n!==1?'s':''}">
         <div class="wk-cap-fill" style="width:${pct}%;background:${RIG_CAP_COLORS[rig]};"></div>
@@ -1790,7 +1805,7 @@ function renderCalGrid(dates) {
           <div class="dh-right">${wxHtml}</div>
         </div>
         ${totalJobCount > 0
-          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span></div>`
+          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
           : `<div class="dh-rev dh-rev-empty">—</div>`}
         <div class="wk-cap-bars">${capBarsHtml}</div>
         ${optAllHtml}
@@ -1895,7 +1910,7 @@ function jobCardScheduled(c) {
   })() : '';
 
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')" style="${state === 'completed' && !_showHistorical ? 'display:none;' : state === 'completed' ? 'opacity:.5;' : ''}">
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>${amtHtml}</div>
     <div class="js-meta">${time} · ${dur}h${city ? ' · '+city : ''}</div>
     ${roofInfoHtml}
@@ -2070,7 +2085,7 @@ function getUnscheduled() {
 function getScheduledForRig(date, rig) {
   return (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
-    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed') && ss.scheduledDate===date && ss.rig===rig;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed'||ss.state==='canceled'||ss.state==='no_show') && ss.scheduledDate===date && ss.rig===rig;
   });
 }
 
@@ -2679,18 +2694,9 @@ function logEvent(type, phone, meta) {
   }).catch(() => {});
 }
 
-// ── Historical job toggle ─────────────────────────────────────────────────────
-let _showHistorical = false;
-function toggleHistoricalJobs() {
-  _showHistorical = !_showHistorical;
-  const btn = document.getElementById('histToggleBtn');
-  if (btn) { btn.style.opacity = _showHistorical ? '1' : '.6'; btn.style.color = _showHistorical ? 'var(--sky)' : ''; }
-  // Show/hide completed job cards (scheduledStatus.state === 'completed')
-  document.querySelectorAll('.job-card-completed').forEach(el => {
-    el.style.display = _showHistorical ? '' : 'none';
-  });
-  render();
-}
+// ── Historical job toggle (kept for API compat; completed jobs now always visible) ──
+let _showHistorical = true;
+function toggleHistoricalJobs() { /* no-op — completed jobs always stay on calendar */ }
 
 function unscheduleJob() {
   const c = findCustomer(jmPhone);

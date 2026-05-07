@@ -377,14 +377,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- Callouts -->
   <div class="callouts" id="callouts"></div>
 
-  <!-- Property Measurements (Phase 1 GPS/Pricing Intelligence) -->
-  <div style="max-width:1100px;margin:10px auto 0;padding:0 16px;" id="propertyMeasurementsSection"></div>
-
-  <!-- Service History -->
+  <!-- Service History (main entry point) -->
   <div style="max-width:1100px;margin:12px auto 0;padding:0 16px;" id="serviceHistorySection"></div>
 
-  <!-- Smart Context Blocks -->
+  <!-- Opportunity Cards (Context Blocks) -->
   <div class="ctx-blocks" id="ctxBlocks" style="margin-top:0;margin-bottom:4px;"></div>
+
+  <!-- Customer Insights (collapsible, static placeholder) -->
+  <div id="customerInsightsPanel" style="max-width:1100px;margin:0 auto;padding:0 16px;"></div>
 
   <!-- Main two-column -->
   <div class="main-content">
@@ -393,9 +393,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div class="panel">
         <div class="panel-header">
           <div class="panel-title">Recent Activity</div>
-          <div class="tl-filters" id="tlFilters"></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="tl-filters" id="tlFilters"></div>
+            <button onclick="toggleRecentActivity()" id="recentActivityToggle" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--muted);padding:2px 5px;line-height:1;border-radius:4px;" title="Toggle Recent Activity">▼</button>
+          </div>
         </div>
-        <div class="timeline" id="timeline"></div>
+        <div id="recentActivityBody" style="display:none;">
+          <div class="timeline" id="timeline"></div>
+        </div>
       </div>
 
       <!-- Notes -->
@@ -422,6 +427,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <!-- RIGHT: Sidebar -->
     <div class="sidebar-stack" id="sidebarStack"></div>
   </div>
+
+  <!-- Property Measurements (collapsible) -->
+  <div style="max-width:1100px;margin:10px auto 0;padding:0 16px;" id="propertyMeasurementsSection"></div>
 
   <!-- Extended profile sections (collapsible) -->
   <div id="extendedSections" style="max-width:1100px;margin:20px auto 0;padding:0 16px;display:flex;flex-direction:column;gap:12px;"></div>
@@ -941,6 +949,43 @@ function renderHeroBanner(c) {
   `;
 }
 
+function generateCustomerSummary(c) {
+  const { totalJobs: jobs, lifetimeSpend: spend, lastService } = getEffectiveStats(c);
+  const sinceYr = getCustomerSinceYear(c);
+  const mo = lastService ? monthsAgo(lastService) : null;
+  const parts = [];
+
+  if (sinceYr) {
+    const age = new Date().getFullYear() - sinceYr;
+    if (age >= 2) parts.push(`${age}-yr customer`);
+    else parts.push(`Customer since ${sinceYr}`);
+  }
+
+  if (jobs > 0) {
+    const spendStr = spend > 0 ? `  ·  $${spend >= 1000 ? (spend/1000).toFixed(spend>=10000?0:1)+'k' : spend.toLocaleString()} lifetime` : '';
+    parts.push(`${jobs} job${jobs>1?'s':''}${spendStr}`);
+  }
+
+  if (lastService && mo !== null) {
+    const ss = c.scheduledStatus || {};
+    const qs = c.quoteStatus || {};
+    const raw = (ss.jobNotes || qs.mainServices || '').split(/[,;]/)[0].trim().toLowerCase();
+    const descStr = raw ? ` (${raw})` : '';
+    parts.push(`Last service ${moAgoLabel(Math.round(mo))}${descStr}`);
+  }
+
+  const ss = c.scheduledStatus || {};
+  if (ss.state === 'scheduled' && ss.scheduledDate) {
+    const d = new Date(ss.scheduledDate + 'T12:00:00');
+    parts.push(`Scheduled ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`);
+  }
+
+  if (c.hasSealHistory) parts.push('Seal history ✓');
+  else if (c.sealingInterest) parts.push('Sealing interest flagged');
+
+  return parts.length ? parts.join('  ·  ') : null;
+}
+
 function renderServiceHistory(c) {
   const el = document.getElementById('serviceHistorySection');
   if (!el) return;
@@ -989,7 +1034,26 @@ function renderServiceHistory(c) {
     });
   });
 
-  const legacyMore = totalJobs - jh.length;
+  // Aggregate-only case: jobs exist but no per-job records (historical import)
+  if (jh.length === 0 && totalJobs > 0) {
+    const spendStr = c.lifetimeSpend > 0 ? ` · $${Number(c.lifetimeSpend).toLocaleString()} lifetime` : '';
+    const lastStr  = c.lastService
+      ? new Date(c.lastService + 'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+      : null;
+    entries.push({
+      displayDate: lastStr || 'Historical data',
+      services:    `${totalJobs} job${totalJobs>1?'s':''} on record${spendStr} — imported from historical records`,
+      amount:      null,
+      address:     null,
+      payment:     null,
+      sqFt:        null,
+      status:      'completed',
+      icon:        '📁',
+      iconBg:      '#f8fafc',
+    });
+  }
+
+  const legacyMore = jh.length > 0 ? Math.max(0, totalJobs - jh.length) : 0;
 
   if (!entries.length && totalJobs === 0) {
     el.innerHTML = `<div class="svc-history-panel">
@@ -1002,11 +1066,17 @@ function renderServiceHistory(c) {
   const moreHtml = legacyMore > 0
     ? `<div class="svc-history-more">… and ${legacyMore} more job${legacyMore>1?'s':''} in historical records</div>` : '';
 
+  const aiSummary = generateCustomerSummary(c);
+  const aiSummaryHtml = aiSummary
+    ? `<div style="font-size:12px;color:var(--muted);background:#f8fafc;border-bottom:1px solid var(--border);padding:7px 16px;line-height:1.6;">${esc(aiSummary)}</div>`
+    : '';
+
   el.innerHTML = `<div class="svc-history-panel">
     <div style="padding:14px 16px;border-bottom:1.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
       <div style="font-size:15px;font-weight:800;color:var(--navy);">Service History</div>
       ${totalJobs>0?`<div style="font-size:12px;color:var(--muted);">${totalJobs} total job${totalJobs>1?'s':''}</div>`:''}
     </div>
+    ${aiSummaryHtml}
     ${entries.map((e, i) => {
       const truncated = e.services.length > 60 ? e.services.slice(0,57)+'…' : e.services;
       const hasMore   = e.services.length > 60 || e.address || e.payment || e.sqFt;
@@ -1110,6 +1180,17 @@ function renderContextBlocks(c) {
         ${b.btnHref?`<a href="${b.btnHref}" class="ctx-block-btn ${b.btnCls}">${b.btnLabel}</a>`:''}
       </div>
     </div>`).join('');
+}
+
+// ── Recent Activity collapsible ──────────────────────────────────────────────
+let _recentActivityExpanded = false;
+
+function toggleRecentActivity() {
+  _recentActivityExpanded = !_recentActivityExpanded;
+  const body = document.getElementById('recentActivityBody');
+  const btn  = document.getElementById('recentActivityToggle');
+  if (body) body.style.display = _recentActivityExpanded ? 'block' : 'none';
+  if (btn)  btn.textContent = _recentActivityExpanded ? '▲' : '▼';
 }
 
 // ── Customer Insights collapsible ────────────────────────────────────────────
@@ -1231,23 +1312,13 @@ function renderProfile(customer, events){
     cmptSection.innerHTML = '';
   }
 
-  // ── Customer Insights (collapsible) ──
-  let insightsPanel = document.getElementById('customerInsightsPanel');
-  if (!insightsPanel) {
-    insightsPanel = document.createElement('div');
-    insightsPanel.id = 'customerInsightsPanel';
-    insightsPanel.style.cssText = 'max-width:1100px;margin:0 auto;padding:0 16px;';
-    const calloutsEl = document.getElementById('callouts');
-    calloutsEl.parentNode.insertBefore(insightsPanel, calloutsEl.nextSibling);
-  }
-  _renderInsightsPanel(insightsPanel, c);
-
-  // ── Property Measurements (Phase 1) ──
-  renderPropertyMeasurements(c);
-
-  // ── Service History + Context Blocks ──
+  // ── Service History + Context Blocks (main entry point) ──
   renderServiceHistory(c);
   renderContextBlocks(c);
+
+  // ── Customer Insights (collapsible, targets static div) ──
+  const insightsPanel = document.getElementById('customerInsightsPanel');
+  if (insightsPanel) _renderInsightsPanel(insightsPanel, c);
 
   // ── Timeline ──
   const entries=buildTimeline(c, events);
@@ -1267,6 +1338,9 @@ function renderProfile(customer, events){
 
   // ── Notes ──
   renderNotes(c);
+
+  // ── Property Measurements (collapsible) ──
+  renderPropertyMeasurements(c);
 
   // ── Extended collapsible sections ──
   renderExtendedSections(c, events);
