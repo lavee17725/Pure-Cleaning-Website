@@ -606,6 +606,8 @@ body{background:#f0f2f5;}
   <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
   <button class="topbar-action" onclick="window.print()">🖨</button>
   <button class="topbar-action" id="histToggleBtn" onclick="toggleHistoricalJobs()" title="Show/hide completed jobs on calendar" style="opacity:.6;">🗂️ History</button>
+  <button class="topbar-action" id="geocodeBackfillBtn" onclick="startGeocodingBackfill()" title="One-time geocode for all customers missing coordinates" style="opacity:.6;">🗺 Geocode</button>
+  <span id="geocodeBackfillBar" style="display:none;font-size:11px;color:#fff;opacity:.8;max-width:220px;white-space:nowrap;overflow:hidden;"></span>
   <div class="view-pills">
     <button class="vpill active" id="vpWeek"  onclick="switchView('week')">Week</button>
     <button class="vpill"        id="vpDay"   onclick="switchView('day')">Day</button>
@@ -1642,7 +1644,8 @@ function distanceBetween(lat1, lng1, lat2, lng2) {
 }
 
 function getJobCoords(c) {
-  const g = c.geocoded;
+  // Check both c.coordinates (Google) and c.geocoded (Census/legacy) — prefer coordinates
+  const g = c.coordinates || c.geocoded;
   if (g && g.lat && g.lng) return { lat: +g.lat, lng: +g.lng };
   return null;
 }
@@ -1942,36 +1945,89 @@ function cancelOptimize() {
 }
 
 async function geocodeAddress(address, city, zip) {
+  if (!address) return null;
   try {
-    const params = new URLSearchParams({
-      street: address, city: city || '', zip: zip || '',
-      benchmark: 'Public_AR_Current', format: 'json'
+    const fullAddr = [address.trim(), city||'', 'FL', zip||''].filter(Boolean).join(', ').replace(/, ,/g, ',');
+    const phone = null; // when called directly (no phone), worker geocodes but doesn't save
+    const res = await fetch(`${PCPC_API}/api/geocode`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ address: fullAddr }),
     });
-    const res = await fetch(`https://geocoding.geo.census.gov/geocoder/locations/address?${params}`);
+    if (!res.ok) return null;
     const data = await res.json();
-    const m = data?.result?.addressMatches?.[0];
-    if (!m) return null;
-    return { lat: m.coordinates.y, lng: m.coordinates.x, accuracy: 'ROOFTOP',
-             formattedAddress: m.matchedAddress || '', geocodedAt: new Date().toISOString() };
+    return data?.lat ? data : null;
   } catch(e) { return null; }
+}
+
+async function geocodeAndSave(c) {
+  if (!c.address) return false;
+  try {
+    const fullAddr = [c.address.trim(), c.city||'', 'FL', c.zip||''].filter(Boolean).join(', ').replace(/, ,/g, ',');
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    const res = await fetch(`${PCPC_API}/api/geocode`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ address: fullAddr, phone }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data?.lat) return false;
+    // Mirror into local dbRecord so calendar updates immediately
+    c.coordinates = { ...data };
+    c.geocoded    = { lat: data.lat, lng: data.lng, formattedAddress: data.formattedAddress || '',
+                      geocodedAt: data.geocodedAt, accuracy: data.confidence === 'high' ? 'ROOFTOP' : 'RANGE_INTERPOLATED' };
+    if (data.confidence === 'low') c.needsAddressVerification = true;
+    return true;
+  } catch(e) { return false; }
 }
 
 async function autoGeocodeJobs() {
   const scheduled = (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
-    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && c.address && !c.geocoded?.lat;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && c.address
+      && !c.coordinates?.lat && !c.geocoded?.lat;
   });
   if (!scheduled.length) return;
   let updated = 0;
   for (const c of scheduled) {
-    const geo = await geocodeAddress(c.address, c.city||'', c.zip||'');
-    if (geo) { c.geocoded = geo; updated++; }
-    await new Promise(r => setTimeout(r, 120)); // rate limit Census API
+    const ok = await geocodeAndSave(c);
+    if (ok) updated++;
+    await new Promise(r => setTimeout(r, 80)); // stay well under 50 QPS
   }
-  if (updated) {
-    saveDb().catch(()=>{});
+  if (updated) renderCalGrid(getWeekDates());
+}
+
+async function startGeocodingBackfill() {
+  const btn = document.getElementById('geocodeBackfillBtn');
+  const bar = document.getElementById('geocodeBackfillBar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  if (bar) bar.style.display = '';
+
+  const targets = (dbRecord.customers||[]).filter(c =>
+    c.address && !c.coordinates?.lat && !c.geocoded?.lat && !c.isReferralOnly
+  );
+  const total = targets.length;
+  let done = 0, failed = 0;
+
+  if (bar) bar.textContent = `Geocoding 0 / ${total}…`;
+
+  for (const c of targets) {
+    const ok = await geocodeAndSave(c);
+    if (ok) done++; else failed++;
+    if (bar) bar.textContent = `Geocoding ${done+failed} / ${total}… (${done} ok, ${failed} failed)`;
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  if (bar) bar.textContent = `✓ Done — ${done} geocoded, ${failed} failed. Reloading…`;
+  if (done) {
+    await saveDb().catch(() => {});
     renderCalGrid(getWeekDates());
   }
+  setTimeout(() => {
+    if (btn) { btn.disabled = false; btn.textContent = '🗺 Backfill Geocoding'; }
+    if (bar) bar.style.display = 'none';
+  }, 3500);
 }
 
 function jobCardSidebar(c) {
