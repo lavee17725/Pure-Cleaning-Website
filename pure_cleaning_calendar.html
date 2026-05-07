@@ -2084,12 +2084,8 @@ function jobCardScheduled(c) {
   // Crew quick-edit panel (collapsed by default)
   const _currentCrew = ss.crew || [];
   const _currentDur  = ss.estimatedDuration || 2;
-  // ss.duration = 'half' → operator confirmed; 'full' or absent → default ~Full Day
-  const _durLabel = ss.duration === 'half'
-    ? 'Half Day'
-    : ss.duration === 'full'
-      ? '~Full Day'
-      : (_currentDur <= 4 ? '~Half Day' : '~Full Day'); // backwards compat for old jobs
+  // absent or 'full' → ~Full Day (estimated default); operator-confirmed 'half'/'full' drop the tilde
+  const _durLabel = ss.duration === 'half' ? 'Half Day' : ss.duration === 'full' ? 'Full Day' : '~Full Day';
   const _crewNames   = _currentCrew.map(id => CREW_MEMBERS.find(cm => cm.id === id)?.name || id).join(', ');
   const _crewChips   = CREW_MEMBERS.map(cm => {
     const active = _currentCrew.includes(cm.id);
