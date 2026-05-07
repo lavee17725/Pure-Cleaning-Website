@@ -2157,10 +2157,10 @@ async function handleDropToSidebar(phone, evt) {
   // Only clear scheduling-specific fields — never touch name, phone, amount, quoteStatus, etc.
   if (c.scheduledStatus) {
     c.scheduledStatus.state = 'needs_scheduling';
-    c.scheduledStatus.scheduledDate = null;
+    // Keep scheduledDate as proposed date — sidebar card displays it as "Proposed: …"
     c.scheduledStatus.rig = null;
   } else {
-    c.scheduledStatus = { state: 'needs_scheduling', scheduledDate: null, rig: null };
+    c.scheduledStatus = { state: 'needs_scheduling', rig: null };
   }
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   showToast(`↩ ${esc(name)} moved back to Needs Scheduling`, 'Undo', () => { undoAction(phone, prev); });
@@ -2625,7 +2625,6 @@ function executeCancelJob(phone, reason) {
   if (reason === 'reschedule_later') {
     // Return to queue rather than cancel
     c.scheduledStatus.state = 'needs_scheduling';
-    c.scheduledStatus.scheduledDate = null;
     c.scheduledStatus.rig = null;
     logEvent('job_rescheduled', phone, {name, reason});
     saveDb().catch(()=>{});
@@ -2697,7 +2696,6 @@ function unscheduleJob() {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
   c.scheduledStatus.state = 'needs_scheduling';
-  c.scheduledStatus.scheduledDate = null;
   c.scheduledStatus.rig = null;
   saveDb().catch(()=>{});
   closeJobModal();
