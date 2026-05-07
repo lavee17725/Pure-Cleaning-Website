@@ -629,7 +629,7 @@ async function executeImport() {
     const now = new Date().toISOString();
     const cat = _categorized;
     let imported = 0, skipped = 0, newCustomers = 0;
-    let scheduledImported = 0, completedImported = 0, reviewQueued = 0;
+    let scheduledImported = 0, completedImported = 0, reviewQueued = 0, sameDayCalendarAdded = 0;
     const todayIso = new Date().toISOString().split('T')[0];
 
     const processRow = (r, overridePhone) => {
@@ -697,6 +697,19 @@ async function executeImport() {
         status:     'completed',
       };
 
+      // For same-day completed imports: also set scheduledStatus so the job is
+      // visible on the calendar. Default rig=rig_1 (Old Tacoma) — reassign via DnD.
+      const isSameDay = r.date === todayIso;
+      const sameDayScheduledStatus = isSameDay ? {
+        state: 'completed',
+        scheduledDate: r.date,
+        rig: 'rig_1',
+        approvedAmount: r.amount,
+        jobNotes: r.services || '',
+        completedAt: now,
+        source: 'csv_import',
+      } : null;
+
       if (byPhone[ph]) {
         const cust = byPhone[ph];
         const existingIds = new Set((cust.jobHistory||[]).map(j => j.jobId));
@@ -706,6 +719,8 @@ async function executeImport() {
         }
         cust.jobHistory = [...(cust.jobHistory||[]), jobEntry];
         if (!cust.lastService || r.date > cust.lastService) cust.lastService = r.date;
+        // Overwrite scheduledStatus for same-day completed jobs (makes them visible on calendar)
+        if (sameDayScheduledStatus) { cust.scheduledStatus = sameDayScheduledStatus; sameDayCalendarAdded++; }
       } else {
         const parts = (r.customer||'').replace(/\(.*?\)/g,'').trim().split(/\s+/).filter(Boolean);
         const fn = parts[0] || r.customer;
@@ -721,10 +736,12 @@ async function executeImport() {
           legacyStats: null,
           alerts: [], optOut: null, movedAway: null,
           reactivationExcluded: null, linkCode: null, linkBin: null,
-          lastTextedDate: null, quoteStatus: null, scheduledStatus: null,
+          lastTextedDate: null, quoteStatus: null,
+          scheduledStatus: sameDayScheduledStatus,
         };
         db.customers.push(byPhone[ph]);
         newCustomers++;
+        if (sameDayScheduledStatus) sameDayCalendarAdded++;
       }
 
       // Review queue logic — only for jobs on or after 2026-05-01
@@ -808,6 +825,7 @@ async function executeImport() {
         ${completedImported} completed job${completedImported !== 1 ? 's' : ''} · ${scheduledImported} scheduled (added to queue) · ${newCustomers} new customer${newCustomers !== 1 ? 's' : ''}<br>
         ${reviewQueued > 0 ? `📝 ${reviewQueued} customer${reviewQueued !== 1 ? 's' : ''} added to review request queue (4-day alert)<br>` : ''}
         ${skipped} row${skipped !== 1 ? 's' : ''} skipped (duplicates + phantoms + review-skipped)<br>
+        ${sameDayCalendarAdded > 0 ? `📅 ${sameDayCalendarAdded} same-day job${sameDayCalendarAdded !== 1 ? 's' : ''} added to calendar (defaulted to Old Tacoma — reassign via drag-and-drop if on a different rig)<br>` : ''}
         ✓ KV count: ${preCount} → ${postCount} customers (+${postCount - preCount})<br>
         Backup key: <code style="font-size:11px;color:var(--muted);">${esc(snap.key)}</code>
       </div>
