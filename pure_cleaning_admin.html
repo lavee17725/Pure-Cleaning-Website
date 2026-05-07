@@ -118,7 +118,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 <body>
 
 <!-- Notification bell -->
-<button id="notifBell" onclick="openNotifPanel()" aria-label="Notifications">
+<button id="notifBell" onclick="toggleNotifPanel()" aria-label="Notifications">
   🔔
   <span class="notif-dot" id="notifDot"></span>
 </button>
@@ -137,7 +137,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 </div>
 
 <div id="notifOverlay" onclick="closeNotifPanel()"></div>
-<div id="notifPanel">
+<div id="notifPanel" onclick="event.stopPropagation()">
   <div class="np-header">
     <span class="np-title">Notifications</span>
     <button class="np-close" onclick="closeNotifPanel()">✕</button>
@@ -483,6 +483,15 @@ function closeNotifPanel() {
   document.getElementById('notifPanel').classList.remove('open');
   document.getElementById('notifOverlay').classList.remove('show');
 }
+
+function toggleNotifPanel() {
+  const isOpen = document.getElementById('notifPanel').classList.contains('open');
+  isOpen ? closeNotifPanel() : openNotifPanel();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeNotifPanel();
+});
 
 function dismissAlert(evtId) {
   const dismissed = _getDismissed();
