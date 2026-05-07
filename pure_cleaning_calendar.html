@@ -3160,6 +3160,34 @@ function _doCompleteJob(log) {
     c.reviewQueue = { queuedAt: new Date().toISOString(), status: 'pending', jobDate: completedDate };
   }
 
+  // Write jobHistory entry — enables GPS attribution, profile Service History, and per-job payment tracking
+  if (!c.jobHistory) c.jobHistory = [];
+  const _jhNow   = new Date().toISOString();
+  const _jhJobId = `${jmPhone}_${completedDate}_${Math.round((ss.approvedAmount||0)*100)}_cal${Date.now().toString(36)}`;
+  const _jhEntry = {
+    jobId:       _jhJobId,
+    date:        completedDate,
+    services:    ss.jobNotes || '',
+    amount:      ss.approvedAmount || 0,
+    rig:         ss.rig || null,
+    city:        c.city || null,
+    address:     c.address || null,
+    status:      'completed',
+    completedAt: _jhNow,
+    crew:        (ss.crew || []).slice(),
+    source:      'calendar_completion',
+    ...(log.paymentStatus === 'paid' ? {
+      payment:       log.paymentMethod || null,
+      paymentMethod: log.paymentMethod || null,
+      paidAt:        log.paidAt || _jhNow,
+    } : {}),
+  };
+  // Idempotent: don't double-push if same completion already exists
+  if (!c.jobHistory.some(j => j.date === completedDate && j.source === 'calendar_completion')) {
+    c.jobHistory.push(_jhEntry);
+    ss._lastJobId = _jhJobId; // link for payment logging
+  }
+
   saveDb().catch(()=>{});
   closeJobModal();
   render();
@@ -4059,6 +4087,22 @@ async function submitPayment() {
     const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
     if (c) {
       c.paymentInfo = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
+      if (method) c.paymentMethod = method; // update preferred default for next job pre-fill
+
+      // Update matching jobHistory entry (per-job payment tracking)
+      const ss = c.scheduledStatus || {};
+      const jhMatch = (c.jobHistory || []).find(j =>
+        (ss._lastJobId && j.jobId === ss._lastJobId) ||
+        (j.date === (ss.scheduledDate || paidDate) && j.status === 'completed' && !j.payment)
+      );
+      if (jhMatch) {
+        jhMatch.payment       = method;
+        jhMatch.paymentMethod = method;
+        jhMatch.paidAt        = new Date().toISOString();
+        if (notes) jhMatch.paymentNotes = notes;
+      }
+      // Persist jobHistory update (saveDb writes full DB including jobHistory + paymentInfo)
+      saveDb().catch(() => {});
     }
 
     closePaymentModal();
