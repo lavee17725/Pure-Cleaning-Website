@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <title>Your Receipt — Pure Cleaning</title>
@@ -290,17 +291,18 @@ async function init() {
       const data = await res.json();
       cust = data.customer;
     } else {
-      // Load via quote id — get customer from quote then customers
-      const [qRes, dbRes] = await Promise.all([
-        fetch(`${PCPC_API}/quote/${id}`),
-        fetch(`${PCPC_API}/customers`),
-      ]);
+      // Load via quote id — get phone from quote, then load scoped customer record
+      const qRes = await fetch(`${PCPC_API}/quote/${id}`);
       if (!qRes.ok) { showState('error'); return; }
       const qd = await qRes.json();
-      const db = await dbRes.json();
       const norm = p => (p||'').replace(/\D/g,'').slice(-10);
-      cust = (db.customers||[]).find(c => norm(c.phone) === norm(qd.ph||''));
-      if (cust) customerPhone = norm(cust.phone);
+      const qPhone = norm(qd.ph || qd.phone || '');
+      if (!qPhone) { showState('error'); return; }
+      customerPhone = qPhone;
+      const custRes = await fetch(`${PCPC_API}/customer/${qPhone}`);
+      if (!custRes.ok) { showState('error'); return; }
+      const cd = await custRes.json();
+      cust = cd.customer;
     }
 
     if (!cust) { showState('error'); return; }

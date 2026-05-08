@@ -9,9 +9,19 @@ account_id = "ffe39f1ca6f7d9685b881c704c7ae51a"
 binding = "DATA"
 id = "76a0da4d65264885b06ed1f1aa25e27d"
 
+# ── R2 backup bucket ──────────────────────────────────────────────────────────
+# SETUP REQUIRED before deploying: create R2 bucket "pure-cleaning-backups" in
+# Cloudflare dashboard → R2 → Create bucket, then uncomment the block below.
+# R2 cost: $0.015/GB-month storage (10GB free), $4.50/M writes (1M free)
+# At ~25MB/backup × 365 days ≈ 9GB/year — well within free tier.
+#
+# [[r2_buckets]]
+# binding = "BACKUPS"
+# bucket_name = "pure-cleaning-backups"
+
 [vars]
 ENVIRONMENT = "production"
 
-# ── Bouncie job duration matcher — 11pm ET = 3am UTC ──
+# ── Crons: Bouncie matcher (3 AM UTC), nightly backup (4 AM UTC) ──────────────
 [triggers]
-crons = ["0 3 * * *"]
+crons = ["0 3 * * *", "0 4 * * *"]

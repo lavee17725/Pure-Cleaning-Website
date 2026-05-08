@@ -55,26 +55,137 @@ const DEFAULT_ADDONS_CONFIG = {
   },
 };
 
+// ── Backup helpers ────────────────────────────────────────────────────────
+
+const BACKUP_KV_KEYS = ['customer_db', 'incoming_requests', 'bouncie:rig_mapping',
+                        'reviews_data', 'service_frequency', 'addons_config', 'tasks_db', 'blocked_weeks'];
+
+async function runNightlyBackup(env) {
+  if (!env.BACKUPS) {
+    await env.DATA.put('backup:last_run', JSON.stringify({
+      ranAt: new Date().toISOString(), status: 'error',
+      errors: ['R2 bucket not bound — uncomment [[r2_buckets]] in wrangler.toml and create the bucket'],
+      sizeBytes: 0, durationMs: 0,
+    }));
+    return;
+  }
+
+  const startMs  = Date.now();
+  const ts       = new Date().toISOString();
+  const date     = ts.split('T')[0];
+  const heartbeat = { ranAt: ts, date, status: 'error', sizeBytes: 0, durationMs: 0, errors: [] };
+
+  try {
+    // Read all critical KV keys
+    const data = {};
+    await Promise.all(BACKUP_KV_KEYS.map(async k => {
+      data[k] = await env.DATA.get(k, 'json');
+    }));
+
+    const payload = JSON.stringify({ version: 2, timestamp: ts, keys: data });
+    const key     = `backups/${date}/full-backup.json`;
+
+    await env.BACKUPS.put(key, payload, {
+      httpMetadata: { contentType: 'application/json' },
+      customMetadata: { date, sizeBytes: String(payload.length), version: '2' },
+    });
+
+    heartbeat.status    = 'success';
+    heartbeat.sizeBytes = payload.length;
+    heartbeat.backupKey = key;
+
+    // Retention policy
+    const deleted = await applyRetentionPolicy(env);
+    heartbeat.deletedOldBackups = deleted.length;
+  } catch (e) {
+    heartbeat.errors.push(e.message);
+    console.error('Backup cron error:', e.message);
+  } finally {
+    heartbeat.durationMs = Date.now() - startMs;
+    await env.DATA.put('backup:last_run', JSON.stringify(heartbeat));
+  }
+}
+
+async function applyRetentionPolicy(env) {
+  const listed = await env.BACKUPS.list({ prefix: 'backups/' });
+  const now    = Date.now();
+  const deleted = [];
+
+  for (const obj of (listed.objects || [])) {
+    const m = obj.key.match(/^backups\/(\d{4}-\d{2}-\d{2})\//);
+    if (!m) continue;
+
+    const d       = new Date(m[1] + 'T12:00:00Z');
+    const ageDays = (now - d.getTime()) / 86400000;
+
+    if (ageDays <= 30)  continue;                              // keep all last 30 days
+    if (ageDays <= 90  && d.getUTCDay() === 0) continue;      // keep Sundays up to 90 days
+    if (ageDays <= 365 && d.getUTCDate() === 1) continue;     // keep 1st-of-month up to 1 year
+
+    try { await env.BACKUPS.delete(obj.key); deleted.push(obj.key); } catch {}
+  }
+  return deleted;
+}
+
+// ── Error log helper ─────────────────────────────────────────────────────
+async function appendErrorLog(env, entry) {
+  const date = entry.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0];
+  const key  = `errors:log:${date}`;
+  const log  = (await env.DATA.get(key, 'json')) || [];
+  log.push(entry);
+  if (log.length > 500) log.splice(0, log.length - 500); // cap per day
+  await env.DATA.put(key, JSON.stringify(log), { expirationTtl: 30 * 86400 }); // 30-day TTL
+}
+
+// ── Auth helpers ──────────────────────────────────────────────────────────
+
+function constantTimeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return result === 0;
+}
+
+function generateSessionToken() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifySession(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  if (!auth.startsWith('Bearer ')) return false;
+  const token = auth.slice(7).trim();
+  if (!token || token.length < 32) return false;
+  const session = await env.DATA.get(`session:${token}`, 'json');
+  return !!session;
+}
+
 export default {
   async scheduled(event, env, ctx) {
-    // Nightly Bouncie job duration matcher — 11pm ET = 3am UTC
-    const today = new Date().toISOString().split('T')[0];
-    ctx.waitUntil((async () => {
-      const startMs = Date.now();
-      const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
-      try {
-        const result = await bouncieJobDurationMatcher(today, env);
-        heartbeat.status = 'success';
-        heartbeat.jobsMatched = result?.matched ?? result?.jobsMatched ?? 0;
-        heartbeat.jobsTotal   = result?.total ?? 0;
-      } catch (e) {
-        console.error('duration cron error:', e.message);
-        heartbeat.errors.push(e.message);
-      } finally {
-        heartbeat.durationMs = Date.now() - startMs;
-        await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
-      }
-    })());
+    if (event.cron === '0 4 * * *') {
+      // Nightly backup — 4 AM UTC (runs after Bouncie matcher)
+      ctx.waitUntil(runNightlyBackup(env));
+    } else {
+      // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
+      const today = new Date().toISOString().split('T')[0];
+      ctx.waitUntil((async () => {
+        const startMs = Date.now();
+        const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
+        try {
+          const result = await bouncieJobDurationMatcher(today, env);
+          heartbeat.status = 'success';
+          heartbeat.jobsMatched = result?.matched ?? result?.jobsMatched ?? 0;
+          heartbeat.jobsTotal   = result?.total ?? 0;
+        } catch (e) {
+          console.error('duration cron error:', e.message);
+          heartbeat.errors.push(e.message);
+        } finally {
+          heartbeat.durationMs = Date.now() - startMs;
+          await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
+        }
+      })());
+    }
   },
 
   async fetch(request, env, ctx) {
@@ -94,8 +205,68 @@ export default {
       const path = url.pathname.replace(/^\/+|\/+$/g, '');
 
       if (path === 'health') {
-        return jsonResponse({ status: 'ok', timestamp: Date.now() }, corsHeaders);
+        const db = await env.DATA.get(KV_KEYS.customers, 'json');
+        const customerCount = (db?.customers || []).length;
+        return jsonResponse({ status: 'ok', timestamp: Date.now(), customerCount }, corsHeaders);
       }
+
+      // ── Auth: login ───────────────────────────────────────────────────────────
+      if (path === 'auth/login' && request.method === 'POST') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateKey = `rate:login:${ip}`;
+        const attempts = (await env.DATA.get(rateKey, 'json')) || 0;
+        if (attempts >= 5) {
+          return jsonResponse({ error: 'rate_limited', message: 'Too many attempts. Wait 1 minute.' }, corsHeaders, 429);
+        }
+        const body = await request.json().catch(() => ({}));
+        if (!env.ADMIN_PASSWORD || !constantTimeEqual(body.password || '', env.ADMIN_PASSWORD)) {
+          await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
+          return jsonResponse({ error: 'invalid_password' }, corsHeaders, 401);
+        }
+        const token = generateSessionToken();
+        const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+        await env.DATA.put(`session:${token}`, JSON.stringify({ createdAt: new Date().toISOString() }), { expirationTtl: 86400 });
+        return jsonResponse({ token, expiresAt }, corsHeaders);
+      }
+
+      // ── Auth: logout ──────────────────────────────────────────────────────────
+      if (path === 'auth/logout' && request.method === 'POST') {
+        const auth = request.headers.get('Authorization') || '';
+        if (auth.startsWith('Bearer ')) {
+          const token = auth.slice(7).trim();
+          if (token) await env.DATA.delete(`session:${token}`).catch(() => {});
+        }
+        return jsonResponse({ success: true }, corsHeaders);
+      }
+
+      // ── Auth gate — all routes below require a valid session ──────────────────
+      // Public routes (no auth required): health (above), auth/*, customer-facing
+      const isPublic =
+        (path === 'incoming'        && request.method === 'POST') ||
+        (path === 'errors/log'      && request.method === 'POST') ||  // public — clients must report errors without auth
+        (path === 'links'           && request.method === 'GET')  ||  // public — q.html needs this to resolve short links
+        (path === 'blocked-weeks'   && request.method === 'GET')  ||  // public — quote form date selection
+        (path === 'reviews'         && request.method === 'GET')  ||  // public — review count badge (cosmetic)
+        (path === 'events'          && request.method === 'POST') ||  // public — analytics from all pages; was working pre-auth
+        (path === 'calendar/blocked-dates' && request.method === 'GET') ||  // public — stub in agreement.html; falls back gracefully
+        (/^customer\/[^/]+$/.test(path) && request.method === 'GET') ||  // public — scoped: returns only that customer's record for agreement/receipt pages
+        (path === 'dates/suggest'   && request.method === 'GET')  ||
+        (path === 'service-frequency' && request.method === 'GET') ||
+        (path === 'addons-config'   && request.method === 'GET')  ||
+        path.startsWith('quote/')   ||
+        (path.startsWith('agreement/') && (
+          path.endsWith('/confirm')       ||
+          path.endsWith('/skip-reminder') ||
+          path.endsWith('/log-reminder')
+        )) ||
+        (path.startsWith('appointment/') && request.method === 'POST') ||
+        (path.startsWith('receipt/')     && (request.method === 'GET' || request.method === 'PATCH'));
+
+      if (!isPublic) {
+        const authed = await verifySession(request, env);
+        if (!authed) return jsonResponse({ error: 'Unauthorized', message: 'Authentication required' }, corsHeaders, 401);
+      }
+      // ── End auth gate ─────────────────────────────────────────────────────────
 
       if (path === 'customers') {
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);
@@ -233,6 +404,73 @@ export default {
         return jsonResponse({ error: 'Method not allowed' }, corsHeaders, 405);
       }
 
+      // ── Public: customer approves their quote ──────────────────────────────────
+      // Path: POST /quote/{code}/approve
+      // Scoped update — reads full DB server-side but never exposes other customers.
+      // Phone-validated: body.phone must match the customer record being updated.
+      if (path.match(/^quote\/[^/]+\/approve$/) && request.method === 'POST') {
+        const code = path.split('/')[1];
+
+        // Rate limit: 10 approvals per IP per minute
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateKey = `rate:approve:${ip}`;
+        const attempts = (await env.DATA.get(rateKey, 'json')) || 0;
+        if (attempts >= 10) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
+
+        const body = await request.json().catch(() => ({}));
+        const { phone, approvedAmount, selectedDate, name, services } = body;
+        if (!phone) return jsonResponse({ error: 'phone required' }, corsHeaders, 400);
+
+        const normPhone = phone.replace(/\D/g, '').slice(-10);
+        const now = new Date().toISOString();
+        const svcStr = Array.isArray(services) ? services.join(', ') : (services || '');
+
+        // Load DB, find or create customer, update ONLY their record
+        const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        let c = (db.customers || []).find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
+
+        if (!c) {
+          const parts = (name || '').trim().split(/\s+/);
+          c = {
+            phone: normPhone,
+            firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '',
+            address: body.address || '', city: body.city || '',
+            lastService: null, totalJobs: 0, lifetimeSpend: 0,
+            hasSealHistory: false, phoneStatus: 'active',
+            quoteStatus: null, scheduledStatus: null,
+            alerts: [], optOut: null, movedAway: null,
+            createdAt: now, source: 'digital_quote_approval',
+          };
+          db.customers.push(c);
+        }
+
+        c.quoteStatus = {
+          state: 'approved', approvedDate: now.split('T')[0], approvedAt: now,
+          approvedAmount: approvedAmount || null, quoteCode: code,
+        };
+        c.scheduledStatus = {
+          state: 'scheduled', scheduledDate: selectedDate || null,
+          rig: null, crew: [], jobNotes: svcStr, startTime: '09:00',
+          approvedAmount: approvedAmount || null,
+          autoScheduled: true, source: 'digital_quote_approval', scheduledAt: now,
+        };
+
+        await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+
+        await appendErrorLog(env, {
+          id: crypto.randomUUID(), timestamp: now,
+          source: 'customer', page: `quote/${code}/approve`,
+          errorType: 'QUOTE_APPROVED',
+          message: `Quote ${code} approved · phone …${normPhone.slice(-4)} · $${approvedAmount || '?'} · ${selectedDate || 'no date'}`,
+          url: request.url,
+          userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
+          ip: ip.slice(0, 50),
+        });
+
+        return jsonResponse({ success: true, scheduled: selectedDate || null }, corsHeaders);
+      }
+
       if (path.startsWith('quote/')) {
         const quoteCode = path.slice('quote/'.length);
         if (!quoteCode) return jsonResponse({ error: 'Quote code required' }, corsHeaders, 400);
@@ -297,6 +535,24 @@ export default {
         c.scheduledStatus.requestedAt = new Date().toISOString();
         await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
         return jsonResponse({ success: true }, corsHeaders);
+      }
+
+      // ── GET /customer/{phone} — scoped public endpoint for customer-facing pages ──
+      // Returns only that one customer's record. Used by agreement.html + receipt.html
+      // to avoid fetching the full /customers DB. Rate limited per IP.
+      if (/^customer\/[^/]+$/.test(path) && request.method === 'GET') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rk = `rate:custview:${ip}`;
+        const n  = (await env.DATA.get(rk, 'json')) || 0;
+        if (n >= 30) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
+
+        const rawPhone = path.slice('customer/'.length);
+        const normPhone = rawPhone.replace(/\D/g, '').slice(-10);
+        const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        const c  = (db.customers || []).find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
+        if (!c) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
+        return jsonResponse({ customer: c }, corsHeaders);
       }
 
       // ── Customer delete / restore / hard-delete ───────────────────────────────
@@ -526,10 +782,150 @@ export default {
         return await handleBackfillStats(env, corsHeaders);
       }
 
+      // ── Error log: ingest (public) ────────────────────────────────────────────
+      if (path === 'errors/log' && request.method === 'POST') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateKey = `rate:errors:${ip}`;
+        const attempts = (await env.DATA.get(rateKey, 'json')) || 0;
+        if (attempts >= 20) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
+
+        const body = await request.json().catch(() => ({}));
+        await appendErrorLog(env, {
+          id:        crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          source:    (body.source    || 'client').slice(0, 20),
+          page:      (body.page      || '').slice(0, 200),
+          errorType: (body.errorType || 'Error').slice(0, 100),
+          message:   (body.message   || '').slice(0, 500),
+          stack:     (body.stack     || '').slice(0, 2000),
+          url:       (body.url       || '').slice(0, 500),
+          userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
+          ip:        ip.slice(0, 50),
+        });
+        return jsonResponse({ ok: true }, corsHeaders);
+      }
+
+      // ── Error log: admin view (protected) ─────────────────────────────────────
+      if (path === 'admin/errors' && request.method === 'GET') {
+        const since = url.searchParams.get('since'); // e.g. '24h', '7d', or ISO
+        const days  = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(Date.now() - i * 86400000);
+          days.push(d.toISOString().split('T')[0]);
+        }
+        const logs = await Promise.all(days.map(d => env.DATA.get(`errors:log:${d}`, 'json').then(v => v || [])));
+        let errors = logs.flat().sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        if (since) {
+          const ms  = since.endsWith('h') ? parseInt(since) * 3600000
+                    : since.endsWith('d') ? parseInt(since) * 86400000 : null;
+          const cut = ms ? new Date(Date.now() - ms).toISOString() : since;
+          errors = errors.filter(e => e.timestamp >= cut);
+        }
+        return jsonResponse({ errors: errors.slice(0, 200), total: errors.length }, corsHeaders);
+      }
+
+      // ── Backup: on-demand trigger (protected) ─────────────────────────────────
+      if (path === 'admin/backup/now' && request.method === 'POST') {
+        if (!env.BACKUPS) return jsonResponse({ error: 'R2 not configured — create bucket and uncomment [[r2_buckets]] in wrangler.toml' }, corsHeaders, 503);
+        await runNightlyBackup(env);
+        const hb = await env.DATA.get('backup:last_run', 'json');
+        return jsonResponse(hb || { status: 'unknown' }, corsHeaders);
+      }
+
+      // ── Backup: list all backups (protected) ──────────────────────────────────
+      if (path === 'admin/backups' && request.method === 'GET') {
+        if (!env.BACKUPS) return jsonResponse({ backups: [], error: 'R2 not configured' }, corsHeaders);
+        const listed = await env.BACKUPS.list({ prefix: 'backups/' });
+        const backups = (listed.objects || [])
+          .map(o => ({
+            key:       o.key,
+            date:      (o.key.match(/backups\/(\d{4}-\d{2}-\d{2})\//) || [])[1] || '',
+            sizeBytes: o.size,
+            uploaded:  o.uploaded,
+            version:   o.customMetadata?.version || '1',
+          }))
+          .sort((a, b) => b.date.localeCompare(a.date));
+        return jsonResponse({ backups, total: backups.length }, corsHeaders);
+      }
+
+      // ── Backup: restore from R2 (protected, destructive) ──────────────────────
+      if (path === 'admin/backup/restore' && request.method === 'POST') {
+        if (!env.BACKUPS) return jsonResponse({ error: 'R2 not configured' }, corsHeaders, 503);
+        const body = await request.json().catch(() => ({}));
+        if (!body.backupKey || !body.confirmRestore) {
+          return jsonResponse({ error: 'backupKey and confirmRestore: true required' }, corsHeaders, 400);
+        }
+
+        // Safety: snapshot current state before overwriting
+        const preSnapKey = `customer_db_pre_restore_${Date.now()}`;
+        const current = await env.DATA.get('customer_db', 'json');
+        if (current) await env.DATA.put(preSnapKey, JSON.stringify(current));
+
+        // Fetch backup from R2
+        const obj = await env.BACKUPS.get(body.backupKey);
+        if (!obj) return jsonResponse({ error: 'Backup not found' }, corsHeaders, 404);
+        const text = await obj.text();
+        const backup = JSON.parse(text);
+
+        if (!backup.keys) return jsonResponse({ error: 'Invalid backup format — missing keys' }, corsHeaders, 422);
+
+        // Restore each KV key
+        const restored = [];
+        for (const [k, v] of Object.entries(backup.keys)) {
+          if (v !== null && v !== undefined) {
+            await env.DATA.put(k, JSON.stringify(v));
+            restored.push(k);
+          }
+        }
+
+        // Audit log
+        await appendErrorLog(env, {
+          id:        crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          source:    'worker',
+          page:      'admin/backup/restore',
+          errorType: 'RESTORE',
+          message:   `Restored from ${body.backupKey} — keys: ${restored.join(', ')}`,
+          url:       request.url,
+          userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
+          ip:        (request.headers.get('CF-Connecting-IP') || 'unknown').slice(0, 50),
+        });
+
+        return jsonResponse({
+          success: true,
+          restoredFrom: body.backupKey,
+          backupTimestamp: backup.timestamp,
+          keysRestored: restored,
+          preRestoreSnapshot: preSnapKey,
+        }, corsHeaders);
+      }
+
+      // ── Backup: last run heartbeat (protected) ────────────────────────────────
+      if (path === 'admin/backup/last_run' && request.method === 'GET') {
+        const hb = await env.DATA.get('backup:last_run', 'json');
+        return jsonResponse(hb || { status: 'never_run' }, corsHeaders);
+      }
+
       return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
     } catch (err) {
-      console.error('Worker error', err);
-      return jsonResponse({ error: err.message }, corsHeaders, 500);
+      console.error('Worker error:', err.message);
+      // Log uncaught worker exceptions to error monitoring
+      try {
+        await appendErrorLog(env, {
+          id:        crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          source:    'worker',
+          page:      url?.pathname || 'unknown',
+          errorType: err.name || 'Error',
+          message:   (err.message || String(err)).slice(0, 500),
+          stack:     (err.stack || '').slice(0, 2000),
+          url:       request?.url || '',
+          userAgent: (request?.headers?.get('User-Agent') || '').slice(0, 300),
+          ip:        (request?.headers?.get('CF-Connecting-IP') || 'unknown').slice(0, 50),
+        });
+      } catch {} // never let logging mask the real error
+      return jsonResponse({ error: 'Internal server error' }, corsHeaders, 500);
     }
   },
 };

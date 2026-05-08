@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Backups</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.back-nav{background:var(--navy2);padding:6px 1.25rem;}
+.back-nav a{color:var(--muted);text-decoration:none;font-size:12px;}
+.header{background:var(--navy);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--white);}
+.logo span{color:var(--gold);}
+.stat-row{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;}
+.stat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.5rem .875rem;text-align:center;}
+.stat-n{font-size:20px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace;}
+.stat-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:2px;}
+.stat.ok .stat-n{color:#34d399;}
+.stat.err .stat-n{color:#f87171;}
+.btn-primary{background:var(--gold);color:var(--navy);border:none;border-radius:8px;padding:.625rem 1.25rem;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s;font-family:inherit;}
+.btn-primary:hover{opacity:.85;}
+.btn-primary:disabled{opacity:.4;cursor:default;}
+.btn-danger{background:var(--red);color:#fff;border:none;border-radius:8px;padding:.5rem 1rem;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-danger:hover{opacity:.85;}
+.wrap{padding:1rem 1.25rem;max-width:900px;margin:0 auto;}
+.section{background:var(--card);border:1.5px solid var(--border);border-radius:12px;margin-bottom:1rem;overflow:hidden;}
+.section-head{padding:.875rem 1.125rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.section-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--text);}
+.section-body{padding:1rem 1.125rem;}
+.hb-row{display:flex;gap:1.5rem;flex-wrap:wrap;font-size:13px;}
+.hb-row span{color:var(--muted);}
+.hb-row strong{color:var(--text);}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:.5rem .75rem;border-bottom:1px solid var(--border);}
+td{padding:.6rem .75rem;border-bottom:1px solid var(--border);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+.date-cell{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);}
+.size-cell{font-family:'DM Mono',monospace;color:var(--muted);}
+.age-cell{color:var(--muted);}
+.actions-cell{text-align:right;white-space:nowrap;}
+.btn-restore-sm{background:none;border:1px solid rgba(220,38,38,.4);color:var(--red);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-restore-sm:hover{background:rgba(220,38,38,.08);}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:var(--navy2);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:1.75rem;max-width:480px;width:calc(100% - 2rem);}
+.modal h3{color:var(--white);margin-bottom:.75rem;}
+.modal p{color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:1rem;}
+.modal .warn{color:#fbbf24;font-size:12px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:.5rem .75rem;margin-bottom:1rem;}
+.modal-key{font-family:'DM Mono',monospace;color:var(--gold);font-size:12px;background:rgba(0,0,0,.3);border-radius:4px;padding:2px 6px;}
+.modal-actions{display:flex;gap:.75rem;justify-content:flex-end;margin-top:1.25rem;}
+.btn-cancel{background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:.5rem 1rem;font-size:13px;cursor:pointer;font-family:inherit;}
+.empty{text-align:center;padding:2rem;color:var(--muted);}
+.status-ok{color:var(--green);}
+.status-err{color:var(--red);}
+.setup-warn{background:rgba(251,191,36,.1);border:1.5px solid rgba(251,191,36,.3);border-radius:10px;padding:1rem 1.125rem;margin-bottom:1rem;color:#92400e;font-size:13px;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="back-nav"><a href="/pure_cleaning_calendar.html">← Calendar</a></div>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span> · Backups</div>
+  <div class="stat-row">
+    <div class="stat" id="lastStat"><div class="stat-n" id="lastAge">—</div><div class="stat-l">Last backup</div></div>
+    <div class="stat" id="sizeStat"><div class="stat-n" id="lastSize">—</div><div class="stat-l">Backup size</div></div>
+    <div class="stat" id="countStat"><div class="stat-n" id="backupCount">—</div><div class="stat-l">Total backups</div></div>
+    <button class="btn-primary" id="backupNowBtn" onclick="triggerBackupNow()">⬆ Backup Now</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div id="setupWarn" class="setup-warn" style="display:none">
+    ⚠️ R2 bucket not configured. Backups are not running.
+    See <strong>DEPLOY.md → R2 Backup Setup</strong> for steps:
+    create <code>pure-cleaning-backups</code> bucket in Cloudflare R2, then uncomment
+    <code>[[r2_buckets]]</code> in <code>cloudflare-worker/wrangler.toml</code> and redeploy.
+  </div>
+
+  <div class="section">
+    <div class="section-head"><span class="section-title">Last run</span></div>
+    <div class="section-body" id="heartbeatBody"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-head">
+      <span class="section-title">Backup history</span>
+      <span id="retentionNote" style="font-size:11px;color:var(--muted)">30d daily · 90d weekly · 1y monthly</span>
+    </div>
+    <div id="backupTableWrap"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Restore confirm modal -->
+<div class="modal-overlay" id="restoreModal">
+  <div class="modal">
+    <h3>⚠️ Restore Backup</h3>
+    <p>This will overwrite the live customer database with the selected backup. Current data will be snapshotted to KV as a pre-restore safety copy.</p>
+    <div class="warn">This action affects production data immediately. It cannot be undone without another restore.</div>
+    <p>Restore from: <span class="modal-key" id="restoreKeyLabel"></span></p>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeRestoreModal()">Cancel</button>
+      <button class="btn-danger" id="confirmRestoreBtn" onclick="executeRestore()">Yes, restore this backup</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let pendingRestoreKey = null;
+
+function fmtBytes(b) {
+  if (!b) return '—';
+  if (b > 1048576) return (b / 1048576).toFixed(1) + ' MB';
+  return (b / 1024).toFixed(0) + ' KB';
+}
+function fmtAge(iso) {
+  if (!iso) return '—';
+  const h = (Date.now() - new Date(iso)) / 3600000;
+  if (h < 1)  return Math.round(h * 60) + 'm ago';
+  if (h < 24) return h.toFixed(1) + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+async function loadHeartbeat() {
+  const r = await fetch(`${API}/admin/backup/last_run`).catch(() => null);
+  if (!r || !r.ok) { document.getElementById('heartbeatBody').innerHTML = '<div class="empty">Could not reach API</div>'; return; }
+  const hb = await r.json();
+
+  if (hb.status === 'never_run' || !hb.ranAt) {
+    document.getElementById('heartbeatBody').innerHTML = '<div class="empty">No backup has run yet. Click ⬆ Backup Now to start.</div>';
+    return;
+  }
+
+  const isErr = hb.status === 'error';
+  if (hb.errors && hb.errors[0] && hb.errors[0].includes('R2 bucket not bound')) {
+    document.getElementById('setupWarn').style.display = '';
+  }
+
+  document.getElementById('lastAge').textContent = fmtAge(hb.ranAt);
+  document.getElementById('lastSize').textContent = fmtBytes(hb.sizeBytes);
+  document.getElementById('lastStat').className = 'stat ' + (isErr ? 'err' : 'ok');
+
+  const rows = [
+    ['Status', `<span class="${isErr ? 'status-err' : 'status-ok'}">${esc(hb.status)}</span>`],
+    ['Ran at', fmtDate(hb.ranAt) + ' ' + new Date(hb.ranAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})],
+    ['Duration', hb.durationMs != null ? hb.durationMs + 'ms' : '—'],
+    ['Backup key', hb.backupKey ? `<span style="font-family:'DM Mono',monospace;font-size:11px">${esc(hb.backupKey)}</span>` : '—'],
+    ['Deleted old', hb.deletedOldBackups != null ? hb.deletedOldBackups + ' files' : '—'],
+    hb.errors?.length ? ['Errors', `<span class="status-err">${esc(hb.errors.join(', '))}</span>`] : null,
+  ].filter(Boolean);
+
+  document.getElementById('heartbeatBody').innerHTML =
+    '<div class="hb-row">' + rows.map(([l,v]) => `<div><span>${l}</span><br><strong>${v}</strong></div>`).join('') + '</div>';
+}
+
+async function loadBackupList() {
+  const r = await fetch(`${API}/admin/backups`).catch(() => null);
+  if (!r || !r.ok) { document.getElementById('backupTableWrap').innerHTML = '<div class="empty">Could not load backup list</div>'; return; }
+  const data = await r.json();
+  const list = data.backups || [];
+  document.getElementById('backupCount').textContent = list.length;
+
+  if (!list.length) {
+    document.getElementById('backupTableWrap').innerHTML = '<div class="empty">No backups found — run ⬆ Backup Now to create the first one.</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>Date</th><th>Size</th><th>Age</th><th>Key</th><th></th></tr></thead><tbody>';
+  list.forEach(b => {
+    html += `<tr>
+      <td class="date-cell">${esc(b.date)}</td>
+      <td class="size-cell">${fmtBytes(b.sizeBytes)}</td>
+      <td class="age-cell">${fmtAge(b.uploaded)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">${esc(b.key)}</td>
+      <td class="actions-cell"><button class="btn-restore-sm" onclick="openRestoreModal('${esc(b.key)}')">↩ Restore</button></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('backupTableWrap').innerHTML = html;
+}
+
+async function triggerBackupNow() {
+  const btn = document.getElementById('backupNowBtn');
+  btn.disabled = true;
+  btn.textContent = 'Backing up…';
+  const r = await fetch(`${API}/admin/backup/now`, { method: 'POST' }).catch(() => null);
+  if (r && r.ok) {
+    const hb = await r.json();
+    if (hb.status === 'error') {
+      alert('Backup error: ' + (hb.errors || []).join(', '));
+    }
+  } else {
+    alert('Backup request failed. Check API connection.');
+  }
+  btn.disabled = false;
+  btn.textContent = '⬆ Backup Now';
+  await Promise.all([loadHeartbeat(), loadBackupList()]);
+}
+
+function openRestoreModal(key) {
+  pendingRestoreKey = key;
+  document.getElementById('restoreKeyLabel').textContent = key;
+  document.getElementById('restoreModal').classList.add('open');
+}
+function closeRestoreModal() {
+  pendingRestoreKey = null;
+  document.getElementById('restoreModal').classList.remove('open');
+}
+
+async function executeRestore() {
+  if (!pendingRestoreKey) return;
+  const btn = document.getElementById('confirmRestoreBtn');
+  btn.disabled = true;
+  btn.textContent = 'Restoring…';
+
+  const r = await fetch(`${API}/admin/backup/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backupKey: pendingRestoreKey, confirmRestore: true }),
+  }).catch(() => null);
+
+  closeRestoreModal();
+  btn.disabled = false;
+  btn.textContent = 'Yes, restore this backup';
+
+  if (!r || !r.ok) { alert('Restore failed. Check console.'); return; }
+  const result = await r.json();
+  alert(`✅ Restored from ${result.restoredFrom}\n` +
+        `Backup timestamp: ${result.backupTimestamp}\n` +
+        `Keys restored: ${(result.keysRestored||[]).join(', ')}\n\n` +
+        `Pre-restore snapshot saved as:\n${result.preRestoreSnapshot}`);
+  await loadHeartbeat();
+}
+
+// Load on start
+Promise.all([loadHeartbeat(), loadBackupList()]);
+</script>
+</body>
+</html>

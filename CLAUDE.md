@@ -175,6 +175,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 **Before/after on data repairs.** Print the before state, get confirmation, apply, print after state, run assertions.
 
+**Admin auth uses KV-stored session tokens.** Worker secrets `ADMIN_PASSWORD` and (optionally) `SESSION_SECRET` set via `wrangler secret put`. Login endpoint: `POST /auth/login`. Tokens stored as `session:{token}` in KV with 86400s TTL. Auth gate is a 20-line IIFE at the top of every admin HTML file. Public routes: health, auth/login, auth/logout, POST /incoming, quote/*, agreement/confirm, appointment/*, receipt GET/PATCH, service-frequency GET, addons-config GET. The verify-deploy.js script now checks auth is enforced (expects 401 on protected endpoints without token). Set `VERIFY_TOKEN` env var for authenticated checks.
+
 **Never hardcode secrets in source files.** Worker secrets (`GOOGLE_MAPS_API_KEY`, `BOUNCIE_CLIENT_SECRET`) are set via `wrangler secret put`, not in code. The pre-commit hook (`scripts/secret-scan.js`) will block commits containing Bearer tokens, AWS keys, GitHub PATs, Google API keys, Stripe keys, and similar patterns. Bypass with `SKIP_SECRET_SCAN=1 git commit` only for confirmed false positives.
 
 **Do not edit `csv_backfill` jobHistory entries.** They are the historical record. Remove or exclude them with guards; do not rewrite them.
@@ -215,6 +217,14 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Cron heartbeat: `bouncie:last_cron_run` KV key written after every nightly run | Silent cron failures were undetectable — no signal if Bouncie matcher had been broken for weeks; heartbeat + 26h staleness check in verify-deploy.js closes the gap |
 | May 8, 2026 | DB integrity check: `scripts/integrity-check.js` with schema, uniqueness, referential, and type assertions | 1,243 customer single-blob KV; malformed record can crash calendar/directory/review hub silently; found 6 duplicate phone entries (Brian Osteen + 5x Tyler test records) on first run |
 | May 8, 2026 | Pre-commit secret scanning via husky + `scripts/secret-scan.js` | No previous protection against accidental API key commits; git history is permanent — once pushed, key must be rotated even after deletion; bypass: `SKIP_SECRET_SCAN=1 git commit` |
+| May 8, 2026 | Admin auth: KV-stored session tokens, single shared password, auth gate on all admin pages | Customer DB (1,243 records) was publicly accessible to anyone who knew the URL; branch: feature/admin-auth; requires `wrangler secret put ADMIN_PASSWORD` + `VERIFY_TOKEN` env for verify-deploy.js to run authenticated checks |
+| May 8, 2026 | Mobile UA verification in verify-deploy.js | Tyler builds on Mac; Mom and drivers use mobile — viewport meta, iPhone/Android UA 200 checks, tap target size scan (< 36px), fixed-width overflow scan (> 400px), position:fixed without max-width scan; first run found calendar .cal-grid at 1225px (intentional) and 8/18px tap targets in bulk reactivation |
+| May 8, 2026 | Centralized error monitoring: POST /errors/log (public, rate-limited), GET /admin/errors (protected), appendErrorLog KV helper, window.onerror + unhandledrejection on every HTML page | Client-side JS errors and worker exceptions were previously invisible — only visible in user's browser console or Cloudflare logs; pure_cleaning_errors.html dashboard with 30s auto-refresh; verify-deploy.js fails if >200 errors/24h |
+| May 8, 2026 | R2 offsite backup: nightly cron at 4 AM UTC writes customer_db + 7 other KV keys to pure-cleaning-backups R2 bucket; restore takes pre-restore KV snapshot for safety | KV-only backup strategy had single point of failure; retention: 30d daily, 90d weekly, 1y monthly; cost $0/month at current scale; R2 binding commented in wrangler.toml until bucket created |
+
+| May 8, 2026 | Customer quote flow refactored for auth: GET /links public, POST /quote/{code}/approve (scoped), reschedule via POST /incoming | Auth deploy broke q.html (GET /links returned 401) and approval/reschedule flows — customer_quote.html was architected like an admin page using GET+PUT /customers and GET+PUT /incoming; refactored to scoped public endpoints; GET /customers still 401 |
+| May 8, 2026 | agreement.html + receipt.html also broken post-auth; GET /customer/{phone} scoped endpoint added | Both pages called GET /customers on page load; new scoped endpoint returns only one customer's record; /customers (full DB) still 401 |
+| May 8, 2026 | AUTH_BOUNDARIES.md created; verify-deploy.js CHECK 8 auto-audits customer pages for protected endpoint calls | Systematic prevention of same bug class: any customer HTML fetch() to a non-public path = deploy failure |
 
 *Append future decisions below this line.*
 
@@ -257,6 +267,21 @@ After any fix that meets one of the triggers below, **before closing the session
 
 **4. Tell Tyler:**
 > "Logged to CLAUDE.md Section 8. Added [N] checks to verify-deploy.js."
+
+### Auth boundary rule
+
+When ANY architectural change ships, before declaring success:
+1. Identify every existing flow that touches the changed system
+2. Simulate what an end user (not admin) experiences — test in incognito
+3. ANY 401 on a customer-facing page = deploy-blocker
+4. Add a verify-deploy.js check for the same class of regression
+
+`verify-deploy.js` CHECK 8 runs customer-facing smoke tests automatically:
+- Fetches each customer page without auth — fails if any page has auth gate
+- Extracts all `fetch()` API calls from customer HTML — fails if any call hits a protected endpoint
+- Tests critical API endpoints without auth — fails if any return 401
+
+Reference: `cloudflare-worker/src/AUTH_BOUNDARIES.md` — lists every public and admin-only route with scope constraints. **Update this file before adding any new endpoint.**
 
 ### Cron heartbeat
 
