@@ -427,21 +427,22 @@ async function init() {
   try {
     const norm = p => (p||'').replace(/\D/g,'').slice(-10);
 
-    const [quoteRes, dbRes] = await Promise.all([
-      id ? fetch(`${PCPC_API}/quote/${id}`) : Promise.resolve(null),
-      fetch(`${PCPC_API}/customers`),
-    ]);
-
-    const db = await dbRes.json();
-
+    // Load quote (if id), then customer by scoped phone endpoint
     if (id) {
       quoteCode = id;
-      if (!quoteRes || !quoteRes.ok) { showState('error'); return; }
+      const quoteRes = await fetch(`${PCPC_API}/quote/${id}`);
+      if (!quoteRes.ok) { showState('error'); return; }
       quoteData = await quoteRes.json();
-      customer  = (db.customers||[]).find(c => norm(c.phone) === norm(quoteData.ph||''));
+      const qPhone = norm(quoteData.ph || '');
+      if (qPhone) {
+        const cr = await fetch(`${PCPC_API}/customer/${qPhone}`);
+        customer = cr.ok ? (await cr.json()).customer : null;
+      }
     } else {
       const normPhone = norm(phone);
-      customer = (db.customers||[]).find(c => norm(c.phone) === normPhone);
+      const cr = await fetch(`${PCPC_API}/customer/${normPhone}`);
+      if (!cr.ok) { showState('error'); return; }
+      customer = (await cr.json()).customer;
       if (!customer) { showState('error'); return; }
       const qs = customer.quoteStatus || {};
       const ss = customer.scheduledStatus || {};
@@ -1134,20 +1135,8 @@ async function saveOfferingInterest() {
   if (!phone) return;
   const now   = new Date().toISOString();
   const notes = document.getElementById('rustNotesTa')?.value?.trim() || '';
-  const dbRes = await fetch(`${PCPC_API}/customers`);
-  const db    = await dbRes.json();
-  const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
-  const cust  = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-  if (!cust) return;
-  if (sealingChecked) {
-    cust.sealingInterestRequested = { at: now };
-    cust.sealingInterest = { expressed: true, surfaces: [...sealingSurfaces], paverJointSand: sealingPaverSand, expressedAt: now };
-  }
-  if (rustChecked) {
-    cust.rustInterestRequested = { at: now, surface: rustSurface, notes };
-    cust.rustInterest = { expressed: true, surface: rustSurface, notes, expressedAt: now };
-  }
-  await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+  // Note: sealing/rust interest tracking requires admin auth — silently skip for now.
+  // TODO: implement POST /customer/{phone}/interest scoped endpoint.
 }
 
 

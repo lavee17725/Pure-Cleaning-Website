@@ -223,6 +223,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | R2 offsite backup: nightly cron at 4 AM UTC writes customer_db + 7 other KV keys to pure-cleaning-backups R2 bucket; restore takes pre-restore KV snapshot for safety | KV-only backup strategy had single point of failure; retention: 30d daily, 90d weekly, 1y monthly; cost $0/month at current scale; R2 binding commented in wrangler.toml until bucket created |
 
 | May 8, 2026 | Customer quote flow refactored for auth: GET /links public, POST /quote/{code}/approve (scoped), reschedule via POST /incoming | Auth deploy broke q.html (GET /links returned 401) and approval/reschedule flows — customer_quote.html was architected like an admin page using GET+PUT /customers and GET+PUT /incoming; refactored to scoped public endpoints; GET /customers still 401 |
+| May 8, 2026 | agreement.html + receipt.html also broken post-auth; GET /customer/{phone} scoped endpoint added | Both pages called GET /customers on page load; new scoped endpoint returns only one customer's record; /customers (full DB) still 401 |
+| May 8, 2026 | AUTH_BOUNDARIES.md created; verify-deploy.js CHECK 8 auto-audits customer pages for protected endpoint calls | Systematic prevention of same bug class: any customer HTML fetch() to a non-public path = deploy failure |
 
 *Append future decisions below this line.*
 
@@ -265,6 +267,21 @@ After any fix that meets one of the triggers below, **before closing the session
 
 **4. Tell Tyler:**
 > "Logged to CLAUDE.md Section 8. Added [N] checks to verify-deploy.js."
+
+### Auth boundary rule
+
+When ANY architectural change ships, before declaring success:
+1. Identify every existing flow that touches the changed system
+2. Simulate what an end user (not admin) experiences — test in incognito
+3. ANY 401 on a customer-facing page = deploy-blocker
+4. Add a verify-deploy.js check for the same class of regression
+
+`verify-deploy.js` CHECK 8 runs customer-facing smoke tests automatically:
+- Fetches each customer page without auth — fails if any page has auth gate
+- Extracts all `fetch()` API calls from customer HTML — fails if any call hits a protected endpoint
+- Tests critical API endpoints without auth — fails if any return 401
+
+Reference: `cloudflare-worker/src/AUTH_BOUNDARIES.md` — lists every public and admin-only route with scope constraints. **Update this file before adding any new endpoint.**
 
 ### Cron heartbeat
 

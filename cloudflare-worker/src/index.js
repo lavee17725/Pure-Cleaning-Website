@@ -245,6 +245,11 @@ export default {
         (path === 'incoming'        && request.method === 'POST') ||
         (path === 'errors/log'      && request.method === 'POST') ||  // public — clients must report errors without auth
         (path === 'links'           && request.method === 'GET')  ||  // public — q.html needs this to resolve short links
+        (path === 'blocked-weeks'   && request.method === 'GET')  ||  // public — quote form date selection
+        (path === 'reviews'         && request.method === 'GET')  ||  // public — review count badge (cosmetic)
+        (path === 'events'          && request.method === 'POST') ||  // public — analytics from all pages; was working pre-auth
+        (path === 'calendar/blocked-dates' && request.method === 'GET') ||  // public — stub in agreement.html; falls back gracefully
+        (/^customer\/[^/]+$/.test(path) && request.method === 'GET') ||  // public — scoped: returns only that customer's record for agreement/receipt pages
         (path === 'dates/suggest'   && request.method === 'GET')  ||
         (path === 'service-frequency' && request.method === 'GET') ||
         (path === 'addons-config'   && request.method === 'GET')  ||
@@ -530,6 +535,24 @@ export default {
         c.scheduledStatus.requestedAt = new Date().toISOString();
         await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
         return jsonResponse({ success: true }, corsHeaders);
+      }
+
+      // ── GET /customer/{phone} — scoped public endpoint for customer-facing pages ──
+      // Returns only that one customer's record. Used by agreement.html + receipt.html
+      // to avoid fetching the full /customers DB. Rate limited per IP.
+      if (/^customer\/[^/]+$/.test(path) && request.method === 'GET') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rk = `rate:custview:${ip}`;
+        const n  = (await env.DATA.get(rk, 'json')) || 0;
+        if (n >= 30) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
+
+        const rawPhone = path.slice('customer/'.length);
+        const normPhone = rawPhone.replace(/\D/g, '').slice(-10);
+        const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        const c  = (db.customers || []).find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
+        if (!c) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
+        return jsonResponse({ customer: c }, corsHeaders);
       }
 
       // ── Customer delete / restore / hard-delete ───────────────────────────────

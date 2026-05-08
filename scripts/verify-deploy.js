@@ -384,6 +384,126 @@ async function checkErrorSpike() {
   }
 }
 
+// ── CHECK 8: Customer-facing flow smoke tests ─────────────────────────────
+//
+// Simulates what an unauthenticated customer experiences.
+// ANY 401 from a customer page's API call = deploy-blocker.
+//
+// Also scans HTML for fetch() calls and flags any that hit protected endpoints.
+
+const CUSTOMER_PAGES = [
+  'index.html',
+  'q.html',
+  'pure_cleaning_quote.html',
+  'pure_cleaning_customer_quote.html',
+  'pure_cleaning_agreement.html',
+  'pure_cleaning_receipt.html',
+];
+
+// Mirrors isPublic in cloudflare-worker/src/index.js
+const PUBLIC_API_PATHS = new Set([
+  'health', 'auth/login', 'auth/logout',
+  'incoming', 'errors/log', 'links',
+  'blocked-weeks', 'reviews', 'events',
+  'calendar/blocked-dates',
+  'dates/suggest', 'service-frequency', 'addons-config',
+]);
+const PUBLIC_API_PREFIXES = [
+  'quote', 'agreement', 'appointment', 'receipt', 'customer',
+];
+
+function isKnownPublicPath(rawPath) {
+  // Strip query string and leading/trailing slashes
+  const p = rawPath.split('?')[0].replace(/^\/+|\/+$/g, '');
+  if (!p) return true;
+  if (PUBLIC_API_PATHS.has(p)) return true;
+  // Prefix match (with or without trailing slash)
+  return PUBLIC_API_PREFIXES.some(pre => p === pre || p.startsWith(pre + '/'));
+}
+
+function extractApiPaths(html) {
+  const paths = new Set();
+  // Template literals: ${PCPC_API}/path  ${API}/path  ${API_CQ}/path
+  const tplRe = /\$\{[A-Z_]+(?:_CQ)?\}\/([a-zA-Z0-9_\-/]+)/g;
+  let m;
+  while ((m = tplRe.exec(html)) !== null) paths.add(m[1].split('?')[0].split('{')[0]);
+  // String concat: API + '/path'
+  const concatRe = /[A-Z_]+\s*\+\s*['"]\/([a-zA-Z0-9_\-/]+)['"]/g;
+  while ((m = concatRe.exec(html)) !== null) paths.add(m[1].split('?')[0]);
+  // Absolute URL
+  const absRe = /purecleaning-api\.tylerfumero\.workers\.dev\/([a-zA-Z0-9_\-/]+)/g;
+  while ((m = absRe.exec(html)) !== null) paths.add(m[1].split('?')[0].replace(/\/$/, ''));
+  return paths;
+}
+
+async function checkCustomerFlows() {
+  for (const file of CUSTOMER_PAGES) {
+    const url = `${GITHUB_PAGES}/${file}`;
+    let html = '';
+    try {
+      const r = await fetch(url);
+      if (!r.ok) { fail(`Customer flow — ${file}`, `HTTP ${r.status}`); continue; }
+      html = await r.text();
+      pass(`Customer flow — ${file} reachable`);
+    } catch (e) {
+      fail(`Customer flow — ${file}`, e.message);
+      continue;
+    }
+
+    // Auth gate check: customer pages must NOT have the auth gate redirect
+    if (file !== 'login.html' && html.includes('/login.html?return=') && html.includes('localStorage.getItem(\'admin_token\')')) {
+      // Only fail if this is NOT known to be admin-only
+      const knownAdmin = ['pure_cleaning_calendar', 'pure_cleaning_customer_directory',
+        'pure_cleaning_incoming', 'pure_cleaning_review_hub', 'pure_cleaning_bulk_reactivation',
+        'pure_cleaning_admin', 'pure_cleaning_errors', 'pure_cleaning_backups',
+      ].some(a => file.includes(a));
+      if (!knownAdmin) {
+        fail(`Customer flow — ${file} has auth gate`, 'Customer page redirects to login — customers would be locked out');
+      }
+    }
+
+    // Extract and audit all API paths called from this customer page
+    const apiPaths = extractApiPaths(html);
+    const unknown = [];
+    for (const p of apiPaths) {
+      // Skip external services
+      if (p.startsWith('http') || p.includes('jsonbin') || p.includes('formspree') || p.includes('zapier')) continue;
+      if (!isKnownPublicPath(p)) unknown.push(p);
+    }
+    if (unknown.length > 0) {
+      fail(`Customer flow — ${file} calls protected endpoint(s)`,
+        unknown.map(p => `/${p}`).join(', ') + ' — add to isPublic or create scoped endpoint');
+    } else if (apiPaths.size > 0) {
+      pass(`Customer flow — ${file} API paths all public`, `(${apiPaths.size} calls verified)`);
+    }
+  }
+
+  // Live endpoint smoke test for the critical customer path
+  const criticalEndpoints = [
+    { path: '/links',          method: 'GET',  desc: 'q.html link resolver' },
+    { path: '/incoming',       method: 'POST', desc: 'quote + reschedule submission', body: '{"id":"smoke_test","status":"new","source":"smoke_test"}' },
+    { path: '/service-frequency', method: 'GET', desc: 'quote form services list' },
+    { path: '/addons-config',  method: 'GET',  desc: 'quote form add-ons' },
+    { path: '/dates/suggest',  method: 'GET',  desc: 'quote form date suggestions' },
+  ];
+
+  for (const { path, method, desc, body } of criticalEndpoints) {
+    try {
+      const opts = { method, headers: method === 'POST' ? { 'Content-Type': 'application/json' } : {} };
+      if (body) opts.body = body;
+      const r = await fetch(`${WORKERS_API}${path}`, opts);
+      if (r.status === 401) {
+        fail(`Customer API — ${path}`, `Returns 401 without auth — ${desc} is broken for customers`);
+      } else {
+        pass(`Customer API — ${path}`, `HTTP ${r.status} (${desc})`);
+      }
+      await r.body?.cancel().catch(() => {});
+    } catch (e) {
+      fail(`Customer API — ${path} fetch`, e.message);
+    }
+  }
+}
+
 // ── CHECK 7: Mobile compatibility ─────────────────────────────────────────
 const MOBILE_UAS = [
   {
@@ -484,9 +604,18 @@ async function checkMobileCompatibility() {
 
 // ── CHECK 5: Cron heartbeat ───────────────────────────────────────────────
 async function checkCronHeartbeat() {
+  const verifyToken = process.env.VERIFY_TOKEN;
+  if (!verifyToken) {
+    warn('Cron heartbeat', 'Set VERIFY_TOKEN to enable cron heartbeat check');
+    return;
+  }
   let hb;
   try {
-    hb = await fetchJson(`${WORKERS_API}/admin/cron-heartbeat`);
+    const r = await fetch(`${WORKERS_API}/admin/cron-heartbeat`, {
+      headers: { 'Authorization': `Bearer ${verifyToken}` },
+    });
+    if (!r.ok) { warn('Cron heartbeat', `HTTP ${r.status}`); return; }
+    hb = await r.json();
   } catch (e) {
     fail('Cron heartbeat — fetch', e.message);
     return;
@@ -531,6 +660,7 @@ async function main() {
   await checkCronHeartbeat();
   await checkBackupHealth();
   await checkErrorSpike();
+  await checkCustomerFlows();
   await checkMobileCompatibility();
 
   // Print results
