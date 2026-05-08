@@ -842,7 +842,7 @@ function customerToDbRecord(c) {
     city: c.city || '',
     lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
     totalJobs: c.totalJobs,
-    lifetimeSpend: Math.round(c.lifetimeSpend),
+    lifetimeSpend: Math.round(c.lifetimeSpend || 0),
     hasSealHistory: c.hasSeal || false,
     phoneStatus: c.phoneStatus || 'active',
     linkCode: c.linkCode || null,
@@ -860,15 +860,25 @@ function customerToDbRecord(c) {
 }
 
 function dbRecordToCustomer(r) {
-  const lastDateObj = r.lastService ? new Date(r.lastService) : null;
+  // Use same effective stats as getTier() — jobHistory takes priority over stale aggregate fields
+  const jh = r.jobHistory || [];
+  const effectiveLastService = jh.length > 0
+    ? (jh.map(j => j.date).filter(Boolean).sort().slice(-1)[0] || null)
+    : (r.lastService || null);
+  const effectiveTotalJobs    = jh.length > 0 ? jh.length    : (r.totalJobs     ?? 0);
+  const effectiveSpend        = jh.length > 0
+    ? jh.reduce((s, j) => s + (Number(j.amount) || 0), 0)
+    : (r.lifetimeSpend ?? 0);
+
+  const lastDateObj = effectiveLastService ? new Date(effectiveLastService) : null;
   const ms = monthsSince(lastDateObj);
-  const totalJobs = r.totalJobs ?? 0;
-  const lifetimeSpend = r.lifetimeSpend ?? 0;
+  const totalJobs    = effectiveTotalJobs;
+  const lifetimeSpend = effectiveSpend;
   const avgTicket = totalJobs ? lifetimeSpend / totalJobs : 0;
   const hasSeal = r.hasSealHistory || false;
   const t = getTier(r);
   return {
-    fn: r.firstName, ln: r.lastName, phone: r.phone,
+    fn: r.firstName || r.fn || '', ln: r.lastName || r.ln || '', phone: r.phone,
     address: r.address || '', city: r.city || '',
     lastDateObj, totalJobs, lifetimeSpend,
     avgTicket, maxTicket: 0, hasSeal, tier: t.label, tierColor: t.color, tierEmoji: t.emoji, tierVip: t.vip, monthsSince: ms,
