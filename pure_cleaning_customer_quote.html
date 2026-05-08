@@ -698,65 +698,25 @@ function guessJobDuration() {
 }
 
 function updateQuoteApproved(phone, approvedTotal) {
-  const dur = guessJobDuration();
-  const svcStr = quoteData && quoteData.services
-    ? (Array.isArray(quoteData.services) ? quoteData.services.join(', ') : String(quoteData.services))
-    : '';
-  // Normalize to 10-digit — incoming phone may have leading country code
-  const normPhone = (phone || '').replace(/\D/g, '').slice(-10);
-  const now = new Date().toISOString();
+  // Use scoped public endpoint — never exposes full customer DB
+  const params = new URLSearchParams(window.location.search);
+  const code = (quoteData && quoteData.linkCode) || params.get('c') || params.get('id') || 'unknown';
+  const services = quoteData && Array.isArray(quoteData.services) ? quoteData.services : [];
 
-  fetch(`${PCPC_API_CQ}/customers`)
-    .then(r => r.json())
-    .then(db => {
-      if (!db.customers) db.customers = [];
-      let c = db.customers.find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
-
-      if (!c) {
-        // New customer — build record from quote data
-        const nameParts = (quoteData.name || '').trim().split(/\s+/);
-        c = {
-          phone: normPhone,
-          firstName: nameParts[0] || '',
-          lastName: nameParts.slice(1).join(' ') || '',
-          address: quoteData.address || '',
-          city: quoteData.city || '',
-          zip: quoteData.zip || '',
-          email: quoteData.email || '',
-          lastService: null, totalJobs: 0, lifetimeSpend: 0,
-          hasSealHistory: false, phoneStatus: 'active',
-          linkCode: null, linkBin: null, lastTextedDate: null,
-          quoteStatus: null, scheduledStatus: null,
-          alerts: [], optOut: null, movedAway: null,
-          createdAt: now, source: 'digital_quote_approval'
-        };
-        db.customers.push(c);
-      }
-
-      if (!c.quoteStatus) c.quoteStatus = {};
-      c.quoteStatus.state        = 'approved';
-      c.quoteStatus.approvedDate = now.split('T')[0];
-      c.quoteStatus.approvedAt   = now;
-      c.scheduledStatus = {
-        state: 'scheduled',
-        scheduledDate: selectedDate ? selectedDate.val : null,
-        rig: null, crew: [],
-        estimatedDuration: dur, jobNotes: svcStr, startTime: '09:00',
-        approvedAmount: approvedTotal || null,
-        autoScheduled: true,
-        source: 'digital_quote_approval',
-        scheduledAt: now
-      };
-
-      return fetch(`${PCPC_API_CQ}/customers`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(db)
-      });
+  fetch(`${PCPC_API_CQ}/quote/${encodeURIComponent(code)}/approve`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      phone:          (phone || '').replace(/\D/g, '').slice(-10),
+      approvedAmount: approvedTotal || null,
+      selectedDate:   selectedDate ? selectedDate.val : null,
+      name:           (quoteData && quoteData.name)    || '',
+      address:        (quoteData && quoteData.address) || '',
+      city:           (quoteData && quoteData.city)    || '',
+      services,
     })
-    .then(() => {
-      try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
-    })
+  })
+    .then(() => { try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {} })
     .catch(e => console.warn('[approval tracking]', e.message));
 }
 
@@ -851,13 +811,11 @@ async function submitReschedule() {
   if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
 
   try {
-    const inc = await fetch(`${PCPC_API_CQ}/incoming`).then(r => r.json());
-    const requests = inc.requests || [];
-    requests.unshift(payload);
+    // POST /incoming appends a single entry and is public — no GET+PUT needed
     await fetch(`${PCPC_API_CQ}/incoming`, {
-      method: 'PUT',
+      method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ ...inc, requests })
+      body: JSON.stringify(payload)
     });
   } catch(e) { console.warn('[reschedule]', e.message); }
 
