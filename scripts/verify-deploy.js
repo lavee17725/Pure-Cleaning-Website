@@ -310,7 +310,49 @@ async function checkDbSanity() {
   else pass('DB sanity — duplicate phones', 'none');
 }
 
-// ── CHECK 6: Error monitoring — spike detection ───────────────────────────
+// ── CHECK 6: Backup health ────────────────────────────────────────────────
+async function checkBackupHealth() {
+  // /admin/backup/last_run is a protected endpoint; skip if no token
+  const verifyToken = process.env.VERIFY_TOKEN;
+  if (!verifyToken) {
+    warn('Backup health', 'Set VERIFY_TOKEN to enable backup health checks');
+    return;
+  }
+  let hb;
+  try {
+    const r = await fetch(`${WORKERS_API}/admin/backup/last_run`, {
+      headers: { 'Authorization': `Bearer ${verifyToken}` },
+    });
+    if (!r.ok) { warn('Backup health', `HTTP ${r.status}`); return; }
+    hb = await r.json();
+  } catch (e) {
+    warn('Backup health — fetch', e.message);
+    return;
+  }
+
+  if (!hb || hb.status === 'never_run') {
+    warn('Backup health', 'No backup has run yet — expected after first 4 AM UTC cron or manual trigger');
+    return;
+  }
+
+  const ageHours  = (Date.now() - new Date(hb.ranAt)) / 3600000;
+  const ageLabel  = ageHours < 1 ? `${Math.round(ageHours * 60)}m ago` : `${ageHours.toFixed(1)}h ago`;
+
+  if (ageHours > 26) {
+    fail('Backup health — staleness', `Last backup ${ageLabel} — expected within 26h. Cron may be failing.`);
+  } else if (hb.status === 'error') {
+    const errMsg = (hb.errors || []).join('; ') || 'unknown';
+    if (errMsg.includes('R2 bucket not bound')) {
+      warn('Backup health — R2 not configured', 'Create pure-cleaning-backups bucket and uncomment [[r2_buckets]] in wrangler.toml');
+    } else {
+      warn('Backup health — status:error', `Ran ${ageLabel}: ${errMsg}`);
+    }
+  } else {
+    pass('Backup health', `${ageLabel} · ${(hb.sizeBytes / 1048576).toFixed(1)}MB · status:${hb.status}`);
+  }
+}
+
+// ── CHECK 7: Error monitoring — spike detection ───────────────────────────
 async function checkErrorSpike() {
   // Requires auth (admin/errors is a protected endpoint)
   const verifyToken = process.env.VERIFY_TOKEN;
@@ -487,6 +529,7 @@ async function main() {
   await checkRenderSimulation();
   await checkDbSanity();
   await checkCronHeartbeat();
+  await checkBackupHealth();
   await checkErrorSpike();
   await checkMobileCompatibility();
 

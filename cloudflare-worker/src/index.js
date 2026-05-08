@@ -55,6 +55,78 @@ const DEFAULT_ADDONS_CONFIG = {
   },
 };
 
+// ── Backup helpers ────────────────────────────────────────────────────────
+
+const BACKUP_KV_KEYS = ['customer_db', 'incoming_requests', 'bouncie:rig_mapping',
+                        'reviews_data', 'service_frequency', 'addons_config', 'tasks_db', 'blocked_weeks'];
+
+async function runNightlyBackup(env) {
+  if (!env.BACKUPS) {
+    await env.DATA.put('backup:last_run', JSON.stringify({
+      ranAt: new Date().toISOString(), status: 'error',
+      errors: ['R2 bucket not bound — uncomment [[r2_buckets]] in wrangler.toml and create the bucket'],
+      sizeBytes: 0, durationMs: 0,
+    }));
+    return;
+  }
+
+  const startMs  = Date.now();
+  const ts       = new Date().toISOString();
+  const date     = ts.split('T')[0];
+  const heartbeat = { ranAt: ts, date, status: 'error', sizeBytes: 0, durationMs: 0, errors: [] };
+
+  try {
+    // Read all critical KV keys
+    const data = {};
+    await Promise.all(BACKUP_KV_KEYS.map(async k => {
+      data[k] = await env.DATA.get(k, 'json');
+    }));
+
+    const payload = JSON.stringify({ version: 2, timestamp: ts, keys: data });
+    const key     = `backups/${date}/full-backup.json`;
+
+    await env.BACKUPS.put(key, payload, {
+      httpMetadata: { contentType: 'application/json' },
+      customMetadata: { date, sizeBytes: String(payload.length), version: '2' },
+    });
+
+    heartbeat.status    = 'success';
+    heartbeat.sizeBytes = payload.length;
+    heartbeat.backupKey = key;
+
+    // Retention policy
+    const deleted = await applyRetentionPolicy(env);
+    heartbeat.deletedOldBackups = deleted.length;
+  } catch (e) {
+    heartbeat.errors.push(e.message);
+    console.error('Backup cron error:', e.message);
+  } finally {
+    heartbeat.durationMs = Date.now() - startMs;
+    await env.DATA.put('backup:last_run', JSON.stringify(heartbeat));
+  }
+}
+
+async function applyRetentionPolicy(env) {
+  const listed = await env.BACKUPS.list({ prefix: 'backups/' });
+  const now    = Date.now();
+  const deleted = [];
+
+  for (const obj of (listed.objects || [])) {
+    const m = obj.key.match(/^backups\/(\d{4}-\d{2}-\d{2})\//);
+    if (!m) continue;
+
+    const d       = new Date(m[1] + 'T12:00:00Z');
+    const ageDays = (now - d.getTime()) / 86400000;
+
+    if (ageDays <= 30)  continue;                              // keep all last 30 days
+    if (ageDays <= 90  && d.getUTCDay() === 0) continue;      // keep Sundays up to 90 days
+    if (ageDays <= 365 && d.getUTCDate() === 1) continue;     // keep 1st-of-month up to 1 year
+
+    try { await env.BACKUPS.delete(obj.key); deleted.push(obj.key); } catch {}
+  }
+  return deleted;
+}
+
 // ── Error log helper ─────────────────────────────────────────────────────
 async function appendErrorLog(env, entry) {
   const date = entry.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0];
@@ -91,24 +163,29 @@ async function verifySession(request, env) {
 
 export default {
   async scheduled(event, env, ctx) {
-    // Nightly Bouncie job duration matcher — 11pm ET = 3am UTC
-    const today = new Date().toISOString().split('T')[0];
-    ctx.waitUntil((async () => {
-      const startMs = Date.now();
-      const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
-      try {
-        const result = await bouncieJobDurationMatcher(today, env);
-        heartbeat.status = 'success';
-        heartbeat.jobsMatched = result?.matched ?? result?.jobsMatched ?? 0;
-        heartbeat.jobsTotal   = result?.total ?? 0;
-      } catch (e) {
-        console.error('duration cron error:', e.message);
-        heartbeat.errors.push(e.message);
-      } finally {
-        heartbeat.durationMs = Date.now() - startMs;
-        await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
-      }
-    })());
+    if (event.cron === '0 4 * * *') {
+      // Nightly backup — 4 AM UTC (runs after Bouncie matcher)
+      ctx.waitUntil(runNightlyBackup(env));
+    } else {
+      // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
+      const today = new Date().toISOString().split('T')[0];
+      ctx.waitUntil((async () => {
+        const startMs = Date.now();
+        const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
+        try {
+          const result = await bouncieJobDurationMatcher(today, env);
+          heartbeat.status = 'success';
+          heartbeat.jobsMatched = result?.matched ?? result?.jobsMatched ?? 0;
+          heartbeat.jobsTotal   = result?.total ?? 0;
+        } catch (e) {
+          console.error('duration cron error:', e.message);
+          heartbeat.errors.push(e.message);
+        } finally {
+          heartbeat.durationMs = Date.now() - startMs;
+          await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
+        }
+      })());
+    }
   },
 
   async fetch(request, env, ctx) {
@@ -655,6 +732,88 @@ export default {
           errors = errors.filter(e => e.timestamp >= cut);
         }
         return jsonResponse({ errors: errors.slice(0, 200), total: errors.length }, corsHeaders);
+      }
+
+      // ── Backup: on-demand trigger (protected) ─────────────────────────────────
+      if (path === 'admin/backup/now' && request.method === 'POST') {
+        if (!env.BACKUPS) return jsonResponse({ error: 'R2 not configured — create bucket and uncomment [[r2_buckets]] in wrangler.toml' }, corsHeaders, 503);
+        await runNightlyBackup(env);
+        const hb = await env.DATA.get('backup:last_run', 'json');
+        return jsonResponse(hb || { status: 'unknown' }, corsHeaders);
+      }
+
+      // ── Backup: list all backups (protected) ──────────────────────────────────
+      if (path === 'admin/backups' && request.method === 'GET') {
+        if (!env.BACKUPS) return jsonResponse({ backups: [], error: 'R2 not configured' }, corsHeaders);
+        const listed = await env.BACKUPS.list({ prefix: 'backups/' });
+        const backups = (listed.objects || [])
+          .map(o => ({
+            key:       o.key,
+            date:      (o.key.match(/backups\/(\d{4}-\d{2}-\d{2})\//) || [])[1] || '',
+            sizeBytes: o.size,
+            uploaded:  o.uploaded,
+            version:   o.customMetadata?.version || '1',
+          }))
+          .sort((a, b) => b.date.localeCompare(a.date));
+        return jsonResponse({ backups, total: backups.length }, corsHeaders);
+      }
+
+      // ── Backup: restore from R2 (protected, destructive) ──────────────────────
+      if (path === 'admin/backup/restore' && request.method === 'POST') {
+        if (!env.BACKUPS) return jsonResponse({ error: 'R2 not configured' }, corsHeaders, 503);
+        const body = await request.json().catch(() => ({}));
+        if (!body.backupKey || !body.confirmRestore) {
+          return jsonResponse({ error: 'backupKey and confirmRestore: true required' }, corsHeaders, 400);
+        }
+
+        // Safety: snapshot current state before overwriting
+        const preSnapKey = `customer_db_pre_restore_${Date.now()}`;
+        const current = await env.DATA.get('customer_db', 'json');
+        if (current) await env.DATA.put(preSnapKey, JSON.stringify(current));
+
+        // Fetch backup from R2
+        const obj = await env.BACKUPS.get(body.backupKey);
+        if (!obj) return jsonResponse({ error: 'Backup not found' }, corsHeaders, 404);
+        const text = await obj.text();
+        const backup = JSON.parse(text);
+
+        if (!backup.keys) return jsonResponse({ error: 'Invalid backup format — missing keys' }, corsHeaders, 422);
+
+        // Restore each KV key
+        const restored = [];
+        for (const [k, v] of Object.entries(backup.keys)) {
+          if (v !== null && v !== undefined) {
+            await env.DATA.put(k, JSON.stringify(v));
+            restored.push(k);
+          }
+        }
+
+        // Audit log
+        await appendErrorLog(env, {
+          id:        crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          source:    'worker',
+          page:      'admin/backup/restore',
+          errorType: 'RESTORE',
+          message:   `Restored from ${body.backupKey} — keys: ${restored.join(', ')}`,
+          url:       request.url,
+          userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
+          ip:        (request.headers.get('CF-Connecting-IP') || 'unknown').slice(0, 50),
+        });
+
+        return jsonResponse({
+          success: true,
+          restoredFrom: body.backupKey,
+          backupTimestamp: backup.timestamp,
+          keysRestored: restored,
+          preRestoreSnapshot: preSnapKey,
+        }, corsHeaders);
+      }
+
+      // ── Backup: last run heartbeat (protected) ────────────────────────────────
+      if (path === 'admin/backup/last_run' && request.method === 'GET') {
+        const hb = await env.DATA.get('backup:last_run', 'json');
+        return jsonResponse(hb || { status: 'never_run' }, corsHeaders);
       }
 
       return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
