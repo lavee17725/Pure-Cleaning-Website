@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Recently Deleted — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--sky:#2d7dd2;--green:#1d9e75;--red:#dc2626;--gold:#f4a620;--white:#fff;--bg:#fdf8f2;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.back-bar{background:var(--navy);padding:6px 1.25rem;}
+.back-bar a{color:rgba(255,255,255,.5);text-decoration:none;font-size:12px;font-weight:600;}
+.back-bar a:hover{color:rgba(255,255,255,.8);}
+.header{background:var(--navy);padding:1.125rem 1.25rem 1.25rem;border-bottom:3px solid #dc2626;}
+.hdr-title{font-size:22px;font-weight:700;color:#fff;margin-bottom:3px;}
+.hdr-sub{font-size:13px;color:rgba(255,255,255,.5);}
+.wrap{max-width:600px;margin:0 auto;padding:1.5rem 1.25rem 5rem;}
+.empty{text-align:center;padding:4rem 1.5rem;color:var(--muted);}
+.empty-icon{font-size:48px;margin-bottom:.75rem;}
+.empty-title{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:.375rem;}
+.empty-sub{font-size:14px;}
+.del-card{background:var(--white);border:1.5px solid #fecaca;border-radius:14px;padding:1rem 1.25rem;margin-bottom:.875rem;}
+.del-name{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.del-meta{font-size:12px;color:var(--muted);margin-bottom:3px;}
+.del-reason{font-size:11px;color:#9ca3af;margin-bottom:.75rem;}
+.del-age{font-size:12px;font-weight:600;color:#dc2626;margin-bottom:.75rem;}
+.del-btns{display:flex;gap:8px;flex-wrap:wrap;}
+.btn-restore{padding:8px 14px;border:1.5px solid rgba(29,158,117,.4);border-radius:8px;background:rgba(29,158,117,.08);color:#1d9e75;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.btn-restore:hover{background:#1d9e75;color:#fff;}
+.btn-hard-del{padding:8px 14px;border:1.5px solid rgba(229,62,62,.4);border-radius:8px;background:none;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.btn-hard-del:hover{background:#dc2626;color:#fff;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:1rem;display:flex;align-items:center;gap:8px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border);}
+.loading{text-align:center;padding:3rem;color:var(--muted);}
+/* Hard-delete confirm modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:1rem;}
+.modal-bg.open{display:flex;}
+.modal-box{background:#fff;border-radius:18px;padding:1.75rem;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+.modal-title{font-size:18px;font-weight:700;color:#0a1628;margin-bottom:.5rem;}
+.modal-body{font-size:14px;color:#6b7280;line-height:1.6;margin-bottom:1rem;}
+.modal-input{width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;margin-bottom:1rem;}
+.modal-input:focus{border-color:#dc2626;}
+.modal-actions{display:flex;gap:10px;}
+.btn-cancel-m{flex:1;padding:11px;border:1.5px solid #e8e2d8;border-radius:10px;background:#fff;color:#6b7280;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+.btn-hard-m{flex:1;padding:11px;border:none;border-radius:10px;background:#dc2626;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.btn-hard-m:disabled{background:#e8e2d8;color:#9ca3af;cursor:not-allowed;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:9px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;pointer-events:none;opacity:0;transition:opacity .35s;white-space:nowrap;}
+.toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<div class="back-bar"><a href="/pure_cleaning_admin.html">← Admin Home</a></div>
+<div class="header">
+  <div class="hdr-title">🗑️ Recently Deleted</div>
+  <div class="hdr-sub">Soft-deleted records — restore within 30 days or permanently remove.</div>
+</div>
+
+<div class="wrap">
+  <div id="mainContent" class="loading">Loading deleted records…</div>
+</div>
+
+<!-- Hard-delete confirm modal -->
+<div class="modal-bg" id="hardDelModal">
+  <div class="modal-box">
+    <div class="modal-title">☠️ Permanently delete?</div>
+    <div class="modal-body" id="hardDelBody"></div>
+    <input type="text" class="modal-input" id="hardDelNameInput" placeholder="Type full name to confirm">
+    <div class="modal-actions">
+      <button class="btn-cancel-m" onclick="closeHardDelModal()">Cancel</button>
+      <button class="btn-hard-m" id="hardDelConfirmBtn" onclick="confirmHardDelete()">Permanent Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const PROTECTED = '9546843614';
+let _deletedCustomers = [];
+let _hardDelPhone = null;
+let _hardDelName  = null;
+
+async function load() {
+  try {
+    const res  = await fetch(`${API}/admin/recently-deleted`);
+    const data = await res.json();
+    _deletedCustomers = data.customers || [];
+    render();
+  } catch(e) {
+    document.getElementById('mainContent').innerHTML =
+      `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Could not load deleted records</div><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+function render() {
+  const el = document.getElementById('mainContent');
+  if (!_deletedCustomers.length) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">✨</div><div class="empty-title">Nothing here</div><div class="empty-sub">No records deleted in the past 30 days.</div></div>`;
+    return;
+  }
+  const now = Date.now();
+  el.innerHTML = `<div class="section-title">${_deletedCustomers.length} record${_deletedCustomers.length!==1?'s':''} deleted in past 30 days</div>` +
+    _deletedCustomers.map(c => {
+      const name     = `${c.firstName||''} ${c.lastName||''}`.trim() || '—';
+      const phone    = (c.phone||'').replace(/\D/g,'');
+      const age      = c.deletedAt ? ageStr(c.deletedAt) : '';
+      const reason   = c.deleteReason ? `Reason: ${c.deleteReason.replace(/_/g,' ')}` : '';
+      const by       = c.deletedBy ? ` · by ${c.deletedBy}` : '';
+      const isProtected = phone === PROTECTED;
+      const daysLeft = c.deletedAt ? Math.max(0, 30 - Math.floor((now - new Date(c.deletedAt).getTime()) / 86400000)) : 0;
+      return `<div class="del-card">
+        <div class="del-name">${esc(name)}</div>
+        <div class="del-meta">📞 ${fmtPhone(phone)}${c.city ? ' · ' + esc(c.city) : ''}${c.lifetimeSpend ? ' · $'+Number(c.lifetimeSpend).toLocaleString()+' lifetime' : ''}</div>
+        ${age ? `<div class="del-age">Deleted ${esc(age)}${by} · ${daysLeft}d left to restore</div>` : ''}
+        ${reason ? `<div class="del-reason">${esc(reason)}</div>` : ''}
+        <div class="del-btns">
+          <button class="btn-restore" onclick="restoreCustomer('${phone}','${esc(name)}')">↩️ Restore</button>
+          ${!isProtected ? `<button class="btn-hard-del" onclick="openHardDelModal('${phone}','${esc(name)}')">☠️ Permanent Delete</button>` : '<span style="font-size:11px;color:#9ca3af;padding:8px 0;">🔒 Protected</span>'}
+        </div>
+      </div>`;
+    }).join('');
+}
+
+async function restoreCustomer(phone, name) {
+  try {
+    const res  = await fetch(`${API}/customer/${phone}/restore`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ restoredBy: 'tyler' })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.error||'Restore failed'); }
+    _deletedCustomers = _deletedCustomers.filter(c => (c.phone||'').replace(/\D/g,'') !== phone);
+    render();
+    showToast(`↩️ ${name} restored`);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+function openHardDelModal(phone, name) {
+  _hardDelPhone = phone; _hardDelName = name;
+  document.getElementById('hardDelBody').innerHTML = `Permanently delete <strong>${name}</strong>? This <strong>cannot be undone</strong> — the record will be gone forever.`;
+  document.getElementById('hardDelNameInput').value = '';
+  document.getElementById('hardDelModal').classList.add('open');
+  setTimeout(() => document.getElementById('hardDelNameInput').focus(), 100);
+}
+
+function closeHardDelModal() {
+  document.getElementById('hardDelModal').classList.remove('open');
+  _hardDelPhone = null; _hardDelName = null;
+}
+
+async function confirmHardDelete() {
+  const typed = (document.getElementById('hardDelNameInput').value||'').trim().toLowerCase();
+  if (!_hardDelName || typed !== _hardDelName.toLowerCase()) {
+    document.getElementById('hardDelNameInput').style.borderColor = '#dc2626';
+    setTimeout(() => { document.getElementById('hardDelNameInput').style.borderColor = ''; }, 1500);
+    return;
+  }
+  const btn = document.getElementById('hardDelConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    const res = await fetch(`${API}/customer/${_hardDelPhone}/permanent-delete`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ confirmName: _hardDelName, deletedBy: 'tyler' })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || 'Failed');
+    _deletedCustomers = _deletedCustomers.filter(c => (c.phone||'').replace(/\D/g,'') !== _hardDelPhone);
+    closeHardDelModal();
+    render();
+    showToast(`☠️ ${_hardDelName} permanently deleted`);
+  } catch(e) {
+    btn.disabled = false; btn.textContent = 'Permanent Delete';
+    alert('Error: ' + e.message);
+  }
+}
+
+function esc(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function fmtPhone(p){ const d=(p||'').replace(/\D/g,'').slice(-10); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:p||'—'; }
+function ageStr(iso){
+  const ms=Date.now()-new Date(iso).getTime();
+  const d=Math.floor(ms/86400000),h=Math.floor(ms/3600000);
+  if(d>=1) return d===1?'1 day ago':`${d} days ago`;
+  return h<=1?'just now':`${h}h ago`;
+}
+let _toastTimer=null;
+function showToast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(_toastTimer); _toastTimer=setTimeout(()=>el.classList.remove('show'),2500);
+}
+
+load();
+</script>
+</body>
+</html>

@@ -243,6 +243,10 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   <div class="sec-hdr">Action Items · Auto-Generated</div>
   <div class="action-list" id="actionItems"></div>
 
+  <!-- ── STRATEGIC INSIGHTS ── -->
+  <div class="sec-hdr">Strategic Insights</div>
+  <div id="strategicInsightsGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:1.5rem;"></div>
+
   <!-- ── INTELLIGENCE QUEUES ── -->
   <div class="sec-hdr">Intelligence Queues</div>
   <div id="intelligenceCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;margin-bottom:.5rem;"></div>
@@ -485,7 +489,7 @@ function renderDrilldownBody(records) {
     const rows = (r.rows||[]).map(rv => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span style="color:#64748b;">${rv.label}</span><span style="font-weight:600;color:#1e293b;">${rv.val}</span></div>`).join('');
     const btns = (r.actions||[]).map(a => `<button onclick="(${a.fn.toString()})()" style="padding:5px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;background:#f1f5f9;border:1px solid #e2e8f0;color:#334155;margin-right:6px;margin-top:6px;">${a.label}</button>`).join('');
     const profileLink = r.phone
-      ? `<a href="/pure_cleaning_customer_profile.html?phone=${r.phone}" style="display:inline-block;margin-top:6px;font-size:12px;color:#2d7dd2;font-weight:600;text-decoration:none;" target="_blank">View Profile →</a>`
+      ? `<a href="/pure_cleaning_customer_profile.html?phone=${r.phone}" style="display:inline-block;margin-top:6px;font-size:12px;color:#2d7dd2;font-weight:600;text-decoration:none;">View Profile →</a>`
       : '';
     return `<div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 12px;margin-bottom:8px;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px;">
@@ -1552,6 +1556,110 @@ function renderActions() {
     </div>`).join('');
 }
 
+// ─── STRATEGIC INSIGHTS (migrated from Intelligence Center) ──────────────────
+function _siSealScore(c) {
+  if (c.hasSealHistory) return 95;
+  if (c.sealingInterest) return 85;
+  let s = 20;
+  const spend = c.lifetimeSpend || 0;
+  if (spend >= 1500) s += 20; else if (spend >= 800) s += 10;
+  const jobs = c.totalJobs || 0;
+  if (jobs >= 4) s += 15; else if (jobs >= 2) s += 8;
+  const city = normCity(c.city || '').toLowerCase();
+  const premiumCities = ['weston','southwest ranches','davie','plantation','parkland','coral springs','pembroke pines'];
+  if (premiumCities.some(pc => city.includes(pc))) s += 15;
+  return Math.min(100, s);
+}
+
+function renderStrategicInsights() {
+  const el = document.getElementById('strategicInsightsGrid');
+  if (!el) return;
+  const custs = (dbRecord.customers || []).filter(c => !c.deleted);
+
+  // City revenue map
+  const cityMap = {};
+  custs.forEach(c => {
+    if (!c.lifetimeSpend) return;
+    const city = normCity(c.city || '');
+    if (!cityMap[city]) cityMap[city] = { revenue: 0, count: 0, repeat: 0 };
+    cityMap[city].revenue += c.lifetimeSpend;
+    cityMap[city].count++;
+    if ((c.totalJobs || 0) >= 2) cityMap[city].repeat++;
+  });
+  const cityEntries = Object.entries(cityMap).filter(([k]) => k !== 'Other').sort((a,b) => b[1].revenue - a[1].revenue);
+  const topCity = cityEntries[0] || ['—', { revenue: 0, count: 1, repeat: 0 }];
+  const topCityAvg = topCity[1].count ? Math.round(topCity[1].revenue / topCity[1].count) : 0;
+
+  // Best repeat rate city (min 10 customers)
+  const repeatEntries = Object.entries(cityMap)
+    .filter(([k, v]) => k !== 'Other' && v.count >= 10)
+    .map(([k, v]) => ({ city: k, rate: v.repeat / v.count }))
+    .sort((a, b) => b.rate - a.rate);
+  const bestRepeatCity = repeatEntries[0];
+  const overallRepeatRate = Math.round(custs.filter(c => (c.totalJobs||0) >= 2).length / (custs.length || 1) * 100);
+
+  // Top 10% revenue concentration
+  const sorted = [...custs].filter(c => (c.lifetimeSpend||0) > 0).sort((a,b) => (b.lifetimeSpend||0) - (a.lifetimeSpend||0));
+  const top10Count = Math.max(1, Math.round(sorted.length * 0.1));
+  const top10Revenue = sorted.slice(0, top10Count).reduce((s,c) => s + (c.lifetimeSpend||0), 0);
+  const totalRevenue = custs.reduce((s, c) => s + (c.lifetimeSpend||0), 0);
+  const top10Pct = totalRevenue ? Math.round(top10Revenue / totalRevenue * 100) : 0;
+
+  // Overdue 6+ months, not lost (no moved/optout, churn not extreme)
+  const overdue6mo = custs.filter(c => {
+    if (!c.lastService || c.movedAway || c.optOut) return false;
+    const days = (Date.now() - new Date(c.lastService+'T12:00:00').getTime()) / 86400000;
+    return days >= 180 && days < 730; // 6mo–2yr window
+  });
+
+  // Sealing opportunity
+  const noSealHistory = custs.filter(c => !c.hasSealHistory && !c.movedAway);
+  const strongSealCandidates = noSealHistory.filter(c => _siSealScore(c) >= 60);
+
+  // YTD growth: current year vs same period last year
+  const now = new Date();
+  const cy = now.getFullYear();
+  const py = cy - 1;
+  const ytdCutoff = new Date(py, now.getMonth(), now.getDate()).getTime();
+  const ytdCurr = custs.filter(c => { if(!c.lastService)return false; const ms=new Date(c.lastService+'T12:00:00').getTime(); return ms>=new Date(cy,0,1).getTime()&&ms<=Date.now(); }).length;
+  const ytdPrev = custs.filter(c => { if(!c.lastService)return false; const ms=new Date(c.lastService+'T12:00:00').getTime(); return ms>=new Date(py,0,1).getTime()&&ms<=ytdCutoff; }).length;
+  const yoyChange = ytdPrev ? Math.round((ytdCurr-ytdPrev)/ytdPrev*100) : 0;
+  const yoySign = yoyChange >= 0 ? '+' : '';
+
+  const cards = [
+    { icon:'📍', color:'#2d7dd2', title:'TOP REVENUE CITY',
+      text:`${topCity[0]} generates ${fmtFull(topCity[1].revenue)} lifetime revenue from ${topCity[1].count} customers — avg ${fmtFull(topCityAvg)}/customer`,
+      action:'Focus Google Ads spend here', link: null },
+    { icon:'🔄', color:'#16a34a', title:'BEST REPEAT RATE CITY',
+      text: bestRepeatCity
+        ? `${bestRepeatCity.city} customers return most often — ${Math.round(bestRepeatCity.rate*100)}% have 2+ jobs vs ${overallRepeatRate}% overall`
+        : `Overall repeat rate: ${overallRepeatRate}% of customers have 2+ jobs`,
+      action:'Best market for referral program', link: null },
+    { icon:'💰', color:'#c2410c', title:'HIGH-VALUE CUSTOMER PROFILE',
+      text:`Top 10% of customers (${top10Count} people) account for ${top10Pct}% of all lifetime revenue`,
+      action:`VIP retention could protect ${fmtFull(top10Revenue)}`, link: null },
+    { icon:'⏰', color:'#d97706', title:'SERVICE CYCLE INSIGHT',
+      text:`${overdue6mo.length} customers are overdue by 6+ months but not yet lost — peak reactivation window`,
+      action:'Start reactivation now for best ROI', link: null },
+    { icon:'💎', color:'#7c3aed', title:'SEALING OPPORTUNITY',
+      text:`${noSealHistory.length} customers show no seal history — ${strongSealCandidates.length} are strong candidates based on spend + location`,
+      action:'View sealing prospects →', link:'/pure_cleaning_customer_directory.html?filter=sealing_prospects' },
+    { icon:'📈', color:'#0ea5e9', title:'GROWTH TRAJECTORY',
+      text:`${ytdCurr} customers serviced in ${cy} YTD vs ${ytdPrev} in same period ${py} — ${yoySign}${yoyChange}%`,
+      action: yoyChange >= 0 ? '↑ Growth on track' : '↓ Below prior year pace', link: null },
+  ];
+
+  el.innerHTML = cards.map(c => `
+    <div style="background:#fff;border-radius:14px;padding:1.125rem 1.25rem;border:1.5px solid #e8e2d8;border-left:4px solid ${c.color};">
+      <div style="font-size:22px;margin-bottom:.375rem;">${c.icon}</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#64748b;margin-bottom:.5rem;">${c.title}</div>
+      <div style="font-size:13.5px;color:#1a1f2e;line-height:1.55;margin-bottom:.625rem;">${c.text}</div>
+      ${c.link
+        ? `<a href="${c.link}" style="font-size:12px;font-weight:700;color:${c.color};text-decoration:none;">→ ${c.action}</a>`
+        : `<div style="font-size:12px;font-weight:600;color:${c.color};">→ ${c.action}</div>`}
+    </div>`).join('');
+}
+
 // ─── S7: Intelligence Cards ──────────────────────────────────────────────────
 function renderIntelligenceCards() {
   const custs = dbRecord.customers||[];
@@ -1592,7 +1700,6 @@ function renderIntelligenceCards() {
 
   window._iqFns = cards.map(c => c.fn);
 
-  // Add "View full intelligence center" link at end of cards HTML
   document.getElementById('intelligenceCards').innerHTML = cards.map((c, i) => `
     <div onclick="window._iqFns[${i}]()" style="background:#fff;border-radius:14px;padding:1rem 1.125rem;box-shadow:0 1px 3px rgba(0,0,0,.07);cursor:pointer;border-top:3px solid ${c.color};transition:box-shadow .15s;" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,.12)'" onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.07)'">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:.375rem;">
@@ -1601,8 +1708,7 @@ function renderIntelligenceCards() {
       </div>
       <div style="font-size:32px;font-weight:700;color:#1e293b;letter-spacing:-1px;margin-bottom:.25rem;">${c.count}</div>
       <div style="font-size:12px;color:#64748b;">${c.desc}</div>
-    </div>`).join('')
-  + `<div style="grid-column:1/-1;text-align:right;margin-top:.25rem;"><a href="/pure_cleaning_intelligence.html" style="font-size:12px;color:#2d7dd2;font-weight:700;text-decoration:none;">🧠 Open Intelligence Center →</a></div>`;
+    </div>`).join('');
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -1917,6 +2023,7 @@ function renderAll() {
     ['Heatmap',            renderHeatmap],
     ['Geo',                renderGeo],
     ['Lifecycle',          renderLifecycle],
+    ['StrategicInsights',  renderStrategicInsights],
     ['IntelligenceCards',  renderIntelligenceCards],
     ['Reactivation',       renderReactivation],
     ['PhoneQuoteFunnel',   renderPhoneQuoteFunnel],

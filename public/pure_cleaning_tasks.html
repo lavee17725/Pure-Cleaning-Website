@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Tasks · Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#f8f5f0;--white:#fff;--terra:#c2410c;--terra-l:#ea580c;
+  --gold:#d4a574;--green:#1d9e75;--text:#1a1f2e;--muted:#8b7d6b;
+  --border:#e8e2d8;--shadow:0 2px 8px rgba(26,31,46,.06);--shadow-h:0 6px 20px rgba(26,31,46,.12);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+
+/* ── Header ── */
+.hdr{background:var(--white);border-bottom:1.5px solid var(--border);padding:.875rem 1.25rem;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow);}
+.hdr-back{font-size:13px;font-weight:600;color:var(--muted);}
+.hdr-title{font-size:18px;font-weight:700;color:var(--text);}
+.hdr-count{font-size:12px;font-weight:600;color:var(--muted);background:var(--cream);border:1.5px solid var(--border);border-radius:20px;padding:2px 9px;}
+
+/* ── Wrap ── */
+.wrap{max-width:680px;margin:0 auto;padding:1.25rem 1rem 5rem;}
+@media(min-width:640px){.wrap{padding:1.5rem 1.5rem 6rem;}}
+
+/* ── Quick-add ── */
+.qa-row{display:flex;gap:8px;margin-bottom:1rem;}
+.qa-input{flex:1;padding:10px 13px;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;background:var(--white);outline:none;transition:border-color .15s;}
+.qa-input:focus{border-color:var(--terra);}
+.qa-btn{padding:10px 18px;background:var(--terra);color:#fff;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;}
+.qa-btn:hover{background:var(--terra-l);}
+
+/* ── Filter bar ── */
+.filter-bar{display:flex;flex-direction:column;gap:8px;margin-bottom:1rem;}
+.pill-row{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch;}
+.pill-row::-webkit-scrollbar{display:none;}
+.pill{padding:5px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--white);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;color:var(--muted);transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.pill.active{background:var(--terra);color:#fff;border-color:var(--terra);}
+select.filter-select{padding:6px 12px;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;background:var(--white);color:var(--text);outline:none;cursor:pointer;}
+
+/* ── Section ── */
+.section{margin-bottom:.75rem;}
+.sec-hdr{display:flex;align-items:center;gap:8px;padding:8px 0 6px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+.sec-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);}
+.sec-count{font-size:10px;font-weight:700;background:var(--cream);border:1.5px solid var(--border);border-radius:20px;padding:1px 7px;color:var(--muted);}
+.sec-arrow{font-size:12px;color:var(--muted);margin-left:auto;transition:transform .2s;}
+.sec-arrow.open{transform:rotate(90deg);}
+.sec-body{display:flex;flex-direction:column;gap:6px;}
+
+/* ── Priority group header ── */
+.pri-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:8px 0 3px;border-top:1px solid var(--border);margin-top:4px;}
+
+/* ── Task card ── */
+.task-card{background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:11px 13px;display:flex;align-items:flex-start;gap:10px;transition:box-shadow .15s,border-color .15s;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.task-card:hover{box-shadow:var(--shadow-h);border-color:#d0c8be;}
+.task-card.done-card{opacity:.55;}
+.task-cb{width:18px;height:18px;border:2px solid var(--border);border-radius:5px;flex-shrink:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:1px;transition:all .15s;}
+.task-cb.checked{background:#10b981;border-color:#10b981;color:#fff;}
+.task-body{flex:1;min-width:0;}
+.task-title{font-size:14px;font-weight:700;color:var(--text);line-height:1.3;word-break:break-word;}
+.task-title.done-title{text-decoration:line-through;color:var(--muted);}
+.task-meta{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;}
+.badge{font-size:10px;font-weight:700;border-radius:10px;padding:2px 7px;}
+.badge-owner-tyler  {background:#dbeafe;color:#1d4ed8;}
+.badge-owner-sissy  {background:#fce7f3;color:#be185d;}
+.badge-owner-both   {background:#ede9fe;color:#6d28d9;}
+.badge-owner-mom    {background:#d1fae5;color:#065f46;}
+.badge-owner-dad    {background:#ffedd5;color:#9a3412;}
+.badge-owner-unassigned{background:#f3f4f6;color:#6b7280;}
+.badge-cat{background:var(--cream);color:var(--muted);border:1.5px solid var(--border);}
+.badge-due{font-size:10px;font-weight:700;color:#6b7280;}
+.badge-due.overdue{color:#ef4444;}
+.pri-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px;}
+
+/* ── Expand form ── */
+.task-expand{border-top:1px solid var(--border);margin-top:10px;padding-top:10px;display:flex;flex-direction:column;gap:8px;}
+.task-expand.hidden{display:none;}
+.exp-row{display:flex;gap:8px;flex-wrap:wrap;}
+.exp-input{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;background:var(--cream);outline:none;width:100%;}
+.exp-input:focus{border-color:var(--terra);}
+.exp-select{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;background:var(--cream);outline:none;cursor:pointer;flex:1;}
+.exp-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.exp-save{padding:7px 16px;background:var(--terra);color:#fff;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;}
+.exp-kill{padding:7px 12px;background:none;color:#9ca3af;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.exp-kill:hover{color:#ef4444;border-color:#ef4444;}
+
+/* ── Empty state ── */
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--muted);font-size:14px;}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(80px);background:#1a1f2e;color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;transition:transform .25s ease;white-space:nowrap;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <a class="hdr-back" href="/pure_cleaning_admin.html">← Hub</a>
+  <span class="hdr-title">📋 Tasks</span>
+  <span class="hdr-count" id="openCount">—</span>
+</div>
+
+<div class="wrap">
+  <!-- Quick-add -->
+  <div class="qa-row">
+    <input class="qa-input" id="qaInput" type="text" placeholder="Add a task…" maxlength="200"
+      onkeydown="if(event.key==='Enter')addTask()">
+    <button class="qa-btn" onclick="addTask()">+ Add</button>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <div class="pill-row" id="ownerPills">
+      <div class="pill active" data-val="all"       onclick="setOwner('all',this)">All</div>
+      <div class="pill"        data-val="tyler"     onclick="setOwner('tyler',this)">Tyler</div>
+      <div class="pill"        data-val="sissy"     onclick="setOwner('sissy',this)">Sissy</div>
+      <div class="pill"        data-val="both"      onclick="setOwner('both',this)">Both</div>
+      <div class="pill"        data-val="mom"       onclick="setOwner('mom',this)">Mom</div>
+      <div class="pill"        data-val="dad"       onclick="setOwner('dad',this)">Dad</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <select class="filter-select" id="catSelect" onchange="setFilter('category',this.value)">
+        <option value="all">All Categories</option>
+        <option value="action">Action</option>
+        <option value="bug">Bug</option>
+        <option value="build">Build</option>
+        <option value="strategy">Strategy</option>
+        <option value="ops">Ops</option>
+        <option value="parking_lot">Parking Lot</option>
+      </select>
+      <div class="pill-row" style="gap:5px;">
+        <div class="pill active" data-val="open"        onclick="setStatus('open',this)">Open</div>
+        <div class="pill"        data-val="in_progress" onclick="setStatus('in_progress',this)">In Progress</div>
+        <div class="pill"        data-val="done"        onclick="setStatus('done',this)">Done</div>
+        <div class="pill"        data-val="killed"      onclick="setStatus('killed',this)">Killed</div>
+        <div class="pill"        data-val="all"         onclick="setStatus('all',this)">All</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task list -->
+  <div id="taskList"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let allTasks = [];
+let filter = { owner: 'all', category: 'all', status: 'open' };
+
+// ── Filter helpers ──────────────────────────────────────────────────────────────
+function setOwner(val, el) {
+  filter.owner = val;
+  document.querySelectorAll('#ownerPills .pill').forEach(p => p.classList.toggle('active', p.dataset.val === val));
+  render();
+}
+function setStatus(val, el) {
+  filter.status = val;
+  el.closest('.pill-row').querySelectorAll('.pill').forEach(p => p.classList.toggle('active', p.dataset.val === val));
+  render();
+}
+function setFilter(key, val) { filter[key] = val; render(); }
+
+// ── Data ───────────────────────────────────────────────────────────────────────
+async function loadTasks() {
+  try {
+    const res = await fetch(`${API}/api/tasks`);
+    const db = await res.json();
+    allTasks = db.tasks || [];
+    if (!allTasks.length) await seedTasks();
+    render();
+  } catch(e) {
+    document.getElementById('taskList').innerHTML = '<div class="empty">Failed to load tasks — check connection</div>';
+  }
+}
+
+async function addTask() {
+  const inp = document.getElementById('qaInput');
+  const title = (inp.value || '').trim();
+  if (!title) { inp.focus(); return; }
+  inp.disabled = true;
+  try {
+    const res = await fetch(`${API}/api/tasks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, owner: 'tyler', category: 'action', priority: 'medium', status: 'open' })
+    });
+    const data = await res.json();
+    allTasks.unshift(data.task);
+    inp.value = '';
+    render();
+    showToast('Task added');
+  } finally { inp.disabled = false; }
+}
+
+async function toggleDone(id, el) {
+  const task = allTasks.find(t => t.id === id);
+  if (!task) return;
+  const newStatus = task.status === 'done' ? 'open' : 'done';
+  el.classList.toggle('checked', newStatus === 'done');
+  el.textContent = newStatus === 'done' ? '✓' : '';
+  task.status = newStatus;
+  if (newStatus === 'done') task.doneAt = new Date().toISOString();
+  else task.doneAt = null;
+  await fetch(`${API}/api/tasks/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus, doneAt: task.doneAt })
+  });
+  setTimeout(render, 400);
+}
+
+async function saveTask(id) {
+  const card = document.querySelector(`.task-card[data-id="${id}"]`);
+  if (!card) return;
+  const updates = {
+    title:       card.querySelector('.exp-title').value.trim(),
+    description: card.querySelector('.exp-desc').value.trim(),
+    owner:       card.querySelector('.exp-owner').value,
+    category:    card.querySelector('.exp-cat').value,
+    priority:    card.querySelector('.exp-pri').value,
+    status:      card.querySelector('.exp-status').value,
+    dueDate:     card.querySelector('.exp-due').value || null,
+    notes:       card.querySelector('.exp-notes').value.trim(),
+  };
+  if (!updates.title) return;
+  const res = await fetch(`${API}/api/tasks/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates)
+  });
+  const data = await res.json();
+  const i = allTasks.findIndex(t => t.id === id);
+  if (i !== -1) allTasks[i] = { ...allTasks[i], ...updates };
+  render();
+  showToast('Saved');
+}
+
+async function killTask(id) {
+  await fetch(`${API}/api/tasks/${id}`, { method: 'DELETE' });
+  const t = allTasks.find(t => t.id === id);
+  if (t) t.status = 'killed';
+  render();
+  showToast('Task removed');
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────────
+const PRI_ORDER  = { urgent:0, high:1, medium:2, low:3 };
+const PRI_DOT    = { urgent:'#ef4444', high:'#f97316', medium:'#eab308', low:'#22c55e' };
+const PRI_LABEL  = { urgent:'🔴 Urgent', high:'🟠 High', medium:'🟡 Medium', low:'🟢 Low' };
+const STATUS_SECTIONS = [
+  { status: 'open',        label: '📂 Open',        collapsed: false },
+  { status: 'in_progress', label: '⚡ In Progress',  collapsed: false },
+  { status: 'done',        label: '✅ Done',          collapsed: true  },
+  { status: 'killed',      label: '🗑 Killed',        collapsed: true  },
+];
+
+let _expanded = new Set();      // task IDs with expand open
+let _secOpen  = {};             // section collapse state
+
+function applyFilter(tasks) {
+  return tasks.filter(t => {
+    if (filter.owner !== 'all' && t.owner !== filter.owner) return false;
+    if (filter.category !== 'all' && t.category !== filter.category) return false;
+    if (filter.status !== 'all' && t.status !== filter.status) return false;
+    if (filter.status === 'open' && t.status === 'in_progress') return false;
+    if (filter.status === 'in_progress' && t.status !== 'in_progress') return false;
+    return true;
+  });
+}
+
+function render() {
+  const statusesToShow = filter.status === 'all'
+    ? STATUS_SECTIONS
+    : STATUS_SECTIONS.filter(s => filter.status === 'open'
+        ? (s.status === 'open' || s.status === 'in_progress')
+        : s.status === filter.status);
+
+  let openCount = allTasks.filter(t => t.status === 'open' || t.status === 'in_progress').length;
+  document.getElementById('openCount').textContent = `${openCount} open`;
+
+  let html = '';
+  for (const sec of statusesToShow) {
+    const tasks = allTasks.filter(t => {
+      if (t.status !== sec.status) return false;
+      if (filter.owner !== 'all' && t.owner !== filter.owner) return false;
+      if (filter.category !== 'all' && t.category !== filter.category) return false;
+      return true;
+    }).sort((a, b) => (PRI_ORDER[a.priority]||9) - (PRI_ORDER[b.priority]||9));
+
+    if (!tasks.length) continue;
+    const isOpen = _secOpen[sec.status] !== undefined ? _secOpen[sec.status] : !sec.collapsed;
+    const arrow = isOpen ? 'open' : '';
+    html += `<div class="section">
+      <div class="sec-hdr" onclick="toggleSec('${sec.status}')">
+        <span class="sec-label">${sec.label}</span>
+        <span class="sec-count">${tasks.length}</span>
+        <span class="sec-arrow ${arrow}">›</span>
+      </div>
+      <div class="sec-body" id="sec-${sec.status}" style="${isOpen?'':'display:none;'}">`;
+
+    // Group by priority within section
+    const byPri = {};
+    tasks.forEach(t => { (byPri[t.priority] = byPri[t.priority] || []).push(t); });
+    ['urgent','high','medium','low'].forEach(pri => {
+      if (!byPri[pri]) return;
+      if (sec.status !== 'done' && sec.status !== 'killed') {
+        html += `<div class="pri-hdr">${PRI_LABEL[pri]}</div>`;
+      }
+      byPri[pri].forEach(t => { html += taskCardHtml(t); });
+    });
+
+    html += '</div></div>';
+  }
+  if (!html) html = '<div class="empty">No tasks match this filter</div>';
+  document.getElementById('taskList').innerHTML = html;
+}
+
+function taskCardHtml(t) {
+  const expanded    = _expanded.has(t.id);
+  const isDone      = t.status === 'done' || t.status === 'killed';
+  const dot         = PRI_DOT[t.priority] || '#9ca3af';
+  const ownerClass  = `badge-owner-${t.owner || 'unassigned'}`;
+  const catLabel    = { action:'Action', bug:'Bug', build:'Build', strategy:'Strategy', ops:'Ops', parking_lot:'Parking Lot' }[t.category] || t.category;
+  let dueHtml = '';
+  if (t.dueDate) {
+    const d = new Date(t.dueDate+'T12:00:00'); const today = new Date(); today.setHours(0,0,0,0);
+    const overdue = d < today && !isDone;
+    dueHtml = `<span class="badge-due ${overdue?'overdue':''}">${overdue?'⚠ ':''}${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>`;
+  }
+  const cbClass = isDone ? 'checked' : '';
+  const cbText  = isDone ? '✓' : '';
+
+  const expandHtml = expanded ? `
+    <div class="task-expand" onclick="event.stopPropagation()">
+      <input class="exp-input exp-title" value="${esc(t.title)}" placeholder="Title" maxlength="200">
+      <input class="exp-input exp-desc" value="${esc(t.description||'')}" placeholder="Description (optional)">
+      <div class="exp-row">
+        <select class="exp-select exp-owner">
+          ${['tyler','sissy','both','mom','dad','unassigned'].map(o=>`<option value="${o}"${t.owner===o?' selected':''}>${o}</option>`).join('')}
+        </select>
+        <select class="exp-select exp-cat">
+          ${['action','bug','build','strategy','ops','parking_lot'].map(c=>`<option value="${c}"${t.category===c?' selected':''}>${c}</option>`).join('')}
+        </select>
+        <select class="exp-select exp-pri">
+          ${['urgent','high','medium','low'].map(p=>`<option value="${p}"${t.priority===p?' selected':''}>${p}</option>`).join('')}
+        </select>
+        <select class="exp-select exp-status">
+          ${['open','in_progress','done','killed'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <input class="exp-input exp-due" type="date" value="${t.dueDate||''}" placeholder="Due date">
+      <textarea class="exp-input exp-notes" rows="2" placeholder="Notes…">${esc(t.notes||'')}</textarea>
+      <div class="exp-actions">
+        <button class="exp-save" onclick="saveTask('${t.id}')">Save</button>
+        <button class="exp-kill" onclick="killTask('${t.id}')">Kill task</button>
+      </div>
+    </div>` : '';
+
+  return `<div class="task-card${isDone?' done-card':''}" data-id="${t.id}" onclick="toggleExpand('${t.id}')">
+    <div class="task-cb ${cbClass}" onclick="event.stopPropagation();toggleDone('${t.id}',this)">${cbText}</div>
+    <div style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;">
+      <span class="pri-dot" style="background:${dot};margin-top:6px;"></span>
+      <div class="task-body">
+        <div class="task-title ${isDone?'done-title':''}">${esc(t.title)}</div>
+        <div class="task-meta">
+          <span class="badge ${ownerClass}">${t.owner||'unassigned'}</span>
+          <span class="badge badge-cat">${catLabel}</span>
+          ${dueHtml}
+        </div>
+        ${expandHtml}
+      </div>
+    </div>
+  </div>`;
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function toggleExpand(id) {
+  if (_expanded.has(id)) _expanded.delete(id); else _expanded.add(id);
+  render();
+}
+function toggleSec(status) {
+  const el = document.getElementById(`sec-${status}`);
+  const arrow = el?.previousElementSibling?.querySelector('.sec-arrow');
+  if (!el) return;
+  const nowOpen = el.style.display === 'none';
+  _secOpen[status] = nowOpen;
+  el.style.display = nowOpen ? '' : 'none';
+  if (arrow) arrow.classList.toggle('open', nowOpen);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+// ── Seed data ─────────────────────────────────────────────────────────────────
+async function seedTasks() {
+  const seed = [
+    // 🔴 Urgent
+    { title:'Send Jim New review request',                   owner:'tyler', category:'action',   priority:'urgent', dueDate:'2026-05-07' },
+    { title:'Send Keith Wolf review request',                owner:'tyler', category:'action',   priority:'urgent', dueDate:'2026-05-07' },
+    { title:'Get Bouncie client secret + restore Worker env var', owner:'tyler', category:'ops', priority:'urgent', dueDate:'2026-05-07' },
+    { title:"Find Patricia Mendez phone number",             owner:'tyler', category:'action',   priority:'high' },
+    { title:"Mom's iCloud password recovery",                owner:'tyler', category:'ops',      priority:'urgent', dueDate:'2026-05-07' },
+    // 🟠 High
+    { title:'Mac Messages setup with business phone',        owner:'tyler', category:'ops',      priority:'high' },
+    { title:'Install Bouncie in Chevy + activation drive',   owner:'tyler', category:'ops',      priority:'high',   dueDate:'2026-05-07' },
+    { title:'Map all 3 rigs to IMEIs in Admin',              owner:'tyler', category:'ops',      priority:'high',   dueDate:'2026-05-07' },
+    { title:'Find missing 4th May 4 paper job',              owner:'tyler', category:'ops',      priority:'high' },
+    { title:'Pack for Atlanta Friday flight',                owner:'tyler', category:'ops',      priority:'high',   dueDate:'2026-05-08' },
+    { title:'Validate all builds shipped today',             owner:'tyler', category:'action',   priority:'high',   dueDate:'2026-05-07' },
+    // 🟡 Medium — build queue
+    { title:'Time windows (Morning/Early/Late) refactor',    owner:'tyler', category:'build',    priority:'medium' },
+    { title:'Painting interest tracker on quote page',       owner:'tyler', category:'build',    priority:'medium', dueDate:'2026-05-09' },
+    { title:'Customer profile: show last service description prominently', owner:'tyler', category:'build', priority:'medium' },
+    { title:'Audit historical CSV imports for missing services data', owner:'tyler', category:'bug', priority:'medium' },
+    { title:'Equipment-based rig attribution rules (soft wash → Chevy confirmed; observe more)', owner:'tyler', category:'build', priority:'medium' },
+    { title:'Phoneless job log (separate from main customer DB)', owner:'tyler', category:'build', priority:'medium' },
+    { title:'Print Hub for Mom (paper bridge) — design + build', owner:'tyler', category:'build', priority:'medium' },
+    // Atlanta weekend
+    { title:'Define Sissy commission structure',             owner:'both',  category:'strategy', priority:'medium', dueDate:'2026-05-10' },
+    { title:'Show Sissy the system in person Saturday',      owner:'both',  category:'action',   priority:'high',   dueDate:'2026-05-09' },
+    { title:'Pick ONE painting subcontractor to start',      owner:'tyler', category:'strategy', priority:'medium' },
+    { title:'Write 30-day Sissy ramp plan',                  owner:'tyler', category:'strategy', priority:'medium' },
+    // Parking lot
+    { title:'White-label CRM productization (Year 2-3)',     owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'Commercial prospecting (Month 4-6)',            owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'Property scraping via Playwright BCPA Miami-Dade', owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'Live rig positions on calendar (Bouncie Phase 3)', owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'Geofence alerts',                               owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'Mileage logging',                               owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'AI reactivation message drafter',               owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'AI daily summary',                              owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'AI customer scoring',                           owner:'tyler', category:'parking_lot', priority:'low' },
+    { title:'Review timing analytics dashboard',             owner:'tyler', category:'parking_lot', priority:'low' },
+  ];
+  const res = await fetch(`${API}/api/tasks/bulk`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tasks: seed })
+  });
+  const data = await res.json();
+  allTasks = (await (await fetch(`${API}/api/tasks`)).json()).tasks || [];
+  showToast(`Seeded ${data.created} tasks`);
+}
+
+loadTasks();
+</script>
+</body>
+</html>

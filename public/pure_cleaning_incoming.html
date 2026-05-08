@@ -7,9 +7,9 @@
 <title>Pure Cleaning · Incoming Requests</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--navy:#0a1628;--navy2:#111f38;--blue:#1a4a8a;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;}
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--terra:#c2410c;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;--input-bg:#fff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 
 .back-nav{background:var(--navy2);border-bottom:1px solid var(--border);padding:6px 1.25rem;}
 .back-nav a{color:var(--muted);text-decoration:none;font-size:12px;}
@@ -44,7 +44,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);m
 
 .req-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem;gap:8px;}
 .req-name-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
-.req-name{font-size:16px;font-weight:700;color:var(--white);}
+.req-name{font-size:16px;font-weight:700;color:var(--text);}
 .stale-badge{font-size:10px;font-weight:700;background:rgba(229,62,62,.15);color:var(--red);padding:2px 7px;border-radius:8px;letter-spacing:.5px;text-transform:uppercase;}
 .req-time{font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;font-family:'DM Mono',monospace;}
 
@@ -148,6 +148,7 @@ let activeTab   = 'new';
 let lastRefresh = null;
 let selectedIds = new Set();
 let _toastTimeout = null, _toastUndo = null, _toastCommit = null;
+let _knownPhones  = null; // null = still loading, Set<string> when ready
 
 // ── Service name → quote builder format ───────────────────────────
 const SVC_MAP = {
@@ -210,17 +211,16 @@ function deleteRequest(id) {
   allRequests = allRequests.filter(r => r.id !== id);
   selectedIds.delete(id);
   renderTab();
+  // Persist immediately so a refresh doesn't resurrect the record
+  persistRequests().catch(() => {});
+  auditLog('deleted_request', { id: req.id, name: (req.customerData?.firstName||'') + ' ' + (req.customerData?.lastName||''), phone: req.customerData?.phone || '' });
   const snapshot = req;
-  let committed = false;
-  showUndoToast('Request deleted.', () => {
-    if (committed) return;
+  showUndoToast('Request deleted.', async () => {
+    // Undo: restore record and re-persist
     allRequests = [snapshot, ...allRequests];
     renderTab();
-  }, async () => {
-    committed = true;
     await persistRequests().catch(() => {});
-    auditLog('deleted_request', { id: snapshot.id, name: (snapshot.customerData?.firstName||'') + ' ' + (snapshot.customerData?.lastName||''), phone: snapshot.customerData?.phone || '' });
-  });
+  }, null);
 }
 
 // ── Dismiss ────────────────────────────────────────────────────────
@@ -282,16 +282,15 @@ async function bulkAction(action) {
     allRequests = allRequests.filter(r => !ids.includes(r.id));
     ids.forEach(id => selectedIds.delete(id));
     renderTab();
-    let committed = false;
-    showUndoToast(`${snapshots.length} requests deleted.`, () => {
-      if (committed) return;
+    // Persist immediately — don't wait for undo timeout
+    persistRequests().catch(() => {});
+    snapshots.forEach(s => auditLog('deleted_request', { id: s.id }));
+    showUndoToast(`${snapshots.length} requests deleted.`, async () => {
+      // Undo: restore and re-persist
       allRequests = [...snapshots, ...allRequests];
       renderTab();
-    }, async () => {
-      committed = true;
       await persistRequests().catch(() => {});
-      snapshots.forEach(s => auditLog('deleted_request', { id: s.id }));
-    });
+    }, null);
   } else {
     const newStatus = action === 'dismiss' ? 'dismissed' : 'new';
     ids.forEach(id => {
@@ -386,14 +385,44 @@ function setCount(tab, n, isNew) {
   el.className = 'cnt' + (isNew && n > 0 ? ' urgent' : '');
 }
 
+// ── Customer profile button ────────────────────────────────────────
+function viewCxBtn(phone) {
+  const norm = (phone || '').replace(/\D/g, '');
+  if (!norm) return '';
+  const url = `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(norm)}`;
+  // While customer DB is still loading, show as enabled (optimistic)
+  if (_knownPhones === null || _knownPhones.has(norm)) {
+    return `<a href="${url}" class="btn-cx">💬 View customer →</a>`;
+  }
+  return `<span class="btn-cx" style="opacity:.35;cursor:default;" title="No customer record yet — build a quote first to create one">💬 View customer →</span>`;
+}
+
+async function loadKnownPhones() {
+  try {
+    const res = await fetch(`${PCPC_API}/customers`);
+    if (!res.ok) { _knownPhones = new Set(); return; }
+    const data = await res.json();
+    _knownPhones = new Set(
+      (data.customers || [])
+        .filter(c => !c.deleted)
+        .map(c => (c.phone || '').replace(/\D/g, ''))
+        .filter(Boolean)
+    );
+  } catch {
+    _knownPhones = new Set(); // fail open — don't block the button forever
+  }
+  renderTab();
+}
+
 // ── Card builder ───────────────────────────────────────────────────
 function buildCard(req) {
   const d       = req.customerData || {};
   const now     = Date.now();
-  const age     = now - new Date(req.submittedAt);
+  const age     = now - new Date(req.submittedAt || req.created_at);
   const isStale = req.status === 'new' && age > 48 * 3600 * 1000;
-  const phone   = d.phone   || '';
-  const city    = d.city    || '';
+  const phone   = d.phone   || req.phone   || '';
+  const city    = d.city    || req.city    || '';
+  const address = d.address || req.address || '';
 
   // Services chips
   const svcs = (d.services || []);
@@ -418,16 +447,17 @@ function buildCard(req) {
 
   // Actions
   let actions = '';
-  const cxUrl = `${NEW_CUSTOMER_URL}?phone=${encodeURIComponent(phone)}`;
   const delBtn = `<button class="btn-delete" onclick="deleteRequest('${req.id}')">✕ Delete</button>`;
   if (req.status === 'new') {
     const qUrl = buildQuoteUrl(req);
-    const name = esc((d.firstName||'')+' '+(d.lastName||'')).trim();
+    const name = esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || req.customer_name || '');
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
+      <button class="btn-build" style="background:#1d9e75;" onclick="initCall('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">📞 Call</button>
+      <button class="btn-build" style="background:#1d9e75;" onclick="initText('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">💬 Text</button>
       <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
       ${delBtn}
-      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+      ${viewCxBtn(phone)}`;
   } else if (req.status === 'quoted') {
     const qt = req.quotedAt
       ? new Date(req.quotedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
@@ -437,19 +467,19 @@ function buildCard(req) {
       <span class="quoted-pill">✓ Quoted ${qt}</span>
       <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)">↩ Back to New</button>
       ${delBtn}
-      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+      ${viewCxBtn(phone)}`;
   } else if (req.status === 'waitlist') {
     actions = `
       <span style="font-size:11px;font-weight:600;color:#d97706;background:#fef9c3;padding:2px 8px;border-radius:10px;">⏳ Waitlist — wants ${esc(d.timeframe||'a specific week')}</span>
       <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)" style="margin-top:8px;">↩ Move to Active</button>
       ${delBtn}
-      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+      ${viewCxBtn(phone)}`;
   } else {
     // dismissed / ignored
     actions = `
       <button class="btn-restore" onclick="changeStatus('${req.id}','new',this)">↩ Restore</button>
       ${delBtn}
-      <a href="${cxUrl}" class="btn-cx">💬 View customer →</a>`;
+      ${viewCxBtn(phone)}`;
   }
 
   const isSel = selectedIds.has(req.id);
@@ -457,14 +487,18 @@ function buildCard(req) {
     <div class="req-header">
       <div class="req-name-wrap">
         <input class="bulk-cb" type="checkbox" ${isSel?'checked':''} onchange="toggleBulkSelect('${req.id}')" style="margin-right:6px;">
-        <span class="req-name">${esc(d.firstName||'')} ${esc(d.lastName||'')}</span>
+        <span class="req-name">${esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || req.customer_name || '—')}</span>
         ${isStale ? '<span class="stale-badge">⚠ Stale</span>' : ''}
       </div>
       <span class="req-time">${timeAgo(req.submittedAt)}</span>
     </div>
     <div class="req-meta">
       ${phone ? `<span class="meta-item">📞 <strong>${esc(phone)}</strong></span>` : ''}
-      ${city  ? `<span class="meta-item">📍 <strong>${esc(city)}</strong></span>`  : ''}
+      ${address && city
+        ? `<span class="meta-item">📍 <strong>${esc(address)}, ${esc(city)}</strong></span>`
+        : city
+        ? `<span class="meta-item">📍 <strong>${esc(city)}</strong></span>`
+        : ''}
       ${d.timeframe        ? `<span class="meta-item">⏰ <strong>${esc(d.timeframe)}</strong></span>` : ''}
       ${d.reminderFrequency? `<span class="meta-item">🔄 ${esc(d.reminderFrequency)}</span>` : ''}
     </div>
@@ -492,6 +526,18 @@ function buildQuoteUrl(req) {
     const encoded = btoa(unescape(encodeURIComponent(payload)));
     return `${QUOTE_BUILDER_URL}?customer=${encodeURIComponent(encoded)}`;
   } catch(e) { return QUOTE_BUILDER_URL; }
+}
+
+function initCall(phone, firstName) {
+  const dialPhone = '+1' + phone.replace(/\D/g, '');
+  window.location.href = `tel:${dialPhone}`;
+  auditLog('request_call_initiated', { phone, firstName, calledAt: new Date().toISOString(), calledBy: 'operator' });
+}
+
+function initText(phone, firstName) {
+  const body = `Hi ${firstName || 'there'}! This is Pure Cleaning Pressure Cleaning calling about your quote request. Got a minute to chat about what you're looking for?`;
+  window.location.href = `sms:+1${phone.replace(/\D/g, '')}&body=${encodeURIComponent(body)}`;
+  auditLog('request_text_initiated', { phone, firstName, textedAt: new Date().toISOString(), textedBy: 'operator' });
 }
 
 // ── Status updates ─────────────────────────────────────────────────
@@ -538,6 +584,7 @@ function esc(s) {
 
 // ── Init ───────────────────────────────────────────────────────────
 loadRequests();
+loadKnownPhones();
 setInterval(() => loadRequests(true), 30000);
 </script>
 </body>

@@ -39,7 +39,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .tag{display:inline-block;padding:4px 11px;border-radius:20px;font-size:12px;font-weight:700;}
 .tag-new{background:#fef9c3;color:#854d0e;}
 .tag-seen{background:#e0f2fe;color:#0369a1;}
-.tag-nudge{background:#fee2e2;color:#991b1b;}
+.tag-followup{background:#fee2e2;color:#991b1b;}
 .tag-lr{background:#fee2e2;color:#991b1b;}
 
 .cta{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
@@ -52,6 +52,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .btn-lost-btn:active{background:#fef2f2;}
 .btn-resend{background:var(--sky);color:#fff;}
 .btn-resend:active{background:#2470c0;}
+.btn-verbal{background:#f0fdf4;color:var(--green);border:2px solid #86efac;}
+.btn-verbal:active{background:#dcfce7;}
 .btn:disabled{opacity:.5;cursor:not-allowed;}
 
 .empty{text-align:center;padding:3.5rem 1.25rem;}
@@ -115,16 +117,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <div class="tabs">
   <div class="tab active" id="tab-waiting" onclick="switchTab('waiting')">
-    🟡 Waiting<span class="tbadge" id="cnt-waiting">0</span>
-    <small>not booked yet</small>
+    🟡 Following Up<span class="tbadge" id="cnt-waiting">0</span>
+    <small>in conversation</small>
   </div>
   <div class="tab" id="tab-booked" onclick="switchTab('booked')">
-    ✅ Booked<span class="tbadge" id="cnt-booked">0</span>
-    <small>approved</small>
+    ✅ Confirmed<span class="tbadge" id="cnt-booked">0</span>
+    <small>confirmed & booked</small>
   </div>
   <div class="tab" id="tab-lost" onclick="switchTab('lost')">
-    ❌ Lost<span class="tbadge" id="cnt-lost">0</span>
-    <small>no response / elsewhere</small>
+    ❌ Didn't Convert<span class="tbadge" id="cnt-lost">0</span>
+    <small>went another way</small>
   </div>
 </div>
 
@@ -159,6 +161,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="mfoot">
       <button class="mbtn-cancel" onclick="closeLostModal()">Cancel</button>
       <button class="mbtn-confirm" id="lostConfirm" onclick="confirmLost()" disabled>Mark Lost</button>
+    </div>
+  </div>
+</div>
+
+<!-- VERBAL CONFIRM MODAL — bottom sheet -->
+<div class="moverlay hidden" id="verbalModal" onclick="if(event.target===this)closeVerbalModal()">
+  <div class="msheet">
+    <div class="mtitle" id="verbalModalTitle">Mark confirmed verbally?</div>
+    <div class="msub">Marks as confirmed without the customer tapping the agreement link. Auto-reminder will be disabled.</div>
+    <label class="msub" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px;margin-top:.75rem;">Scheduled date (optional)</label>
+    <input type="date" id="verbalDateInput" style="width:100%;padding:10px 12px;background:#fdf8f2;border:1.5px solid #e8e2d8;border-radius:10px;font-family:inherit;font-size:15px;outline:none;margin-bottom:1.25rem;">
+    <div class="mfoot">
+      <button class="mbtn-cancel" onclick="closeVerbalModal()">Cancel</button>
+      <button class="mbtn-confirm" onclick="submitVerbalConfirm()">Mark Confirmed</button>
     </div>
   </div>
 </div>
@@ -246,7 +262,7 @@ function showPane(name) {
 }
 
 function updateCounts() {
-  document.getElementById('cnt-waiting').textContent = allQuotes.filter(c => (c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed') && !c.quoteStatus.deleted).length;
+  document.getElementById('cnt-waiting').textContent = allQuotes.filter(c => { const s = c.quoteStatus.state; return (s === 'sent' || s === 'viewed' || s === 'phone_quoted_mini_quote_sent') && !c.quoteStatus.deleted; }).length;
   document.getElementById('cnt-booked').textContent  = allQuotes.filter(c => c.quoteStatus.state === 'approved').length;
   const canceledCount = (dbRecord.customers||[]).filter(c => c.scheduledStatus && c.scheduledStatus.state === 'canceled').length;
   document.getElementById('cnt-lost').textContent    = allQuotes.filter(c => c.quoteStatus.state === 'lost').length + canceledCount;
@@ -261,29 +277,38 @@ function renderPane(name) {
 }
 
 function renderWaiting() {
+  const waitStates = new Set(['sent', 'viewed', 'phone_quoted_mini_quote_sent']);
   const quotes = allQuotes
-    .filter(c => (c.quoteStatus.state === 'sent' || c.quoteStatus.state === 'viewed') && !c.quoteStatus.deleted)
-    .sort((a,b) => new Date(b.quoteStatus.sentDate) - new Date(a.quoteStatus.sentDate));
+    .filter(c => waitStates.has(c.quoteStatus.state) && !c.quoteStatus.deleted)
+    .sort((a,b) => {
+      const tA = new Date(a.quoteStatus.sentAt || a.quoteStatus.sentDate || 0).getTime();
+      const tB = new Date(b.quoteStatus.sentAt || b.quoteStatus.sentDate || 0).getTime();
+      return tB - tA;
+    });
   if (!quotes.length) return `<div class="empty"><div class="empty-icon">🎉</div><h3>You're all caught up!</h3><p>No quotes waiting on customer response.</p></div>`;
   return quotes.map(c => {
     const qs   = c.quoteStatus;
-    const days = daysSince(qs.sentDate);
+    const ts   = qs.sentAt || qs.sentDate;
+    const days = daysSince(ts);
     const name = esc(((c.firstName||'') + ' ' + (c.lastName||'')).trim() || '—');
     let tag = '';
-    if (days < 3)                         tag = '<span class="tag tag-new">🆕 New</span>';
-    else if (days < 7 && qs.viewedDate)   tag = '<span class="tag tag-seen">👀 Saw it</span>';
-    else if (days >= 7)                   tag = '<span class="tag tag-nudge">⏰ Needs nudge</span>';
+    if (days < 3)                        tag = '<span class="tag tag-new">🆕 New</span>';
+    else if (days < 7 && qs.viewedDate)  tag = '<span class="tag tag-seen">👀 Saw it</span>';
+    else if (days >= 7)                  tag = '<span class="tag tag-followup">⏰ Needs follow-up</span>';
     const ago = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+    const skipNote = qs.reminderSkipped ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;">🔕 Auto-reminder off</div>` : '';
     return `<div class="card" id="card-${c.phone}">
       <button class="card-del-btn" onclick="openDeleteModal('${c.phone}','${name}')" title="Delete quote">⋯</button>
       <div class="cn" style="padding-right:28px;">${name}${alertBadge(c.alerts)}</div>
       <div class="cd">📞 ${fmtPhone(c.phone)}</div>
       ${c.city ? `<div class="cd">📍 ${esc(c.city)}</div>` : ''}
       <div class="cm"><span style="color:var(--muted);font-size:13px;">Sent ${ago}</span>${tag}</div>
+      ${skipNote}
       <div class="cta">
         <button class="btn btn-text"     onclick="textAgain('${c.phone}')">📱 Text Again</button>
         <button class="btn btn-book"     onclick="markBooked('${c.phone}')">✓ Booked</button>
         <button class="btn btn-lost-btn" onclick="openLostModal('${c.phone}','${name}')">❌ Lost</button>
+        <button class="btn btn-verbal"   onclick="openVerbalModal('${c.phone}','${name}')">✓ Verbal</button>
       </div>
     </div>`;
   }).join('');
@@ -354,6 +379,51 @@ function renderLost() {
       <div class="cta">${reEngageBtn}</div>
     </div>`;
   }).join('');
+}
+
+// ── VERBAL CONFIRM ────────────────────────────────────────────────────────────
+let _verbalPhone = null;
+let _verbalName  = '';
+
+function openVerbalModal(phone, name) {
+  _verbalPhone = phone;
+  _verbalName  = name;
+  document.getElementById('verbalModalTitle').textContent = `Mark ${name} confirmed verbally?`;
+  document.getElementById('verbalDateInput').value = '';
+  document.getElementById('verbalModal').classList.remove('hidden');
+}
+
+function closeVerbalModal() {
+  document.getElementById('verbalModal').classList.add('hidden');
+  _verbalPhone = null;
+}
+
+async function submitVerbalConfirm() {
+  if (!_verbalPhone) return;
+  const phone = _verbalPhone;
+  const scheduledDate = document.getElementById('verbalDateInput').value || null;
+  closeVerbalModal();
+
+  try {
+    await fetch('https://purecleaning-api.tylerfumero.workers.dev/agreement/' + phone + '/manual-confirm', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ scheduledDate })
+    });
+    // Update local state
+    const c = allQuotes.find(x => x.phone === phone);
+    if (c && c.quoteStatus) {
+      c.quoteStatus.state       = 'confirmed';
+      c.quoteStatus.confirmedBy = 'verbal';
+      c.quoteStatus.confirmedAt = new Date().toISOString();
+    }
+    await dbRecord; // wait if loading
+    sessionStorage.removeItem('pcpc_customer_db_cache');
+    updateCounts();
+    showPane('waiting');
+  } catch(e) {
+    alert('Error marking verbal confirm: ' + e.message);
+  }
 }
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────

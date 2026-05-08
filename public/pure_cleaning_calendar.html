@@ -89,6 +89,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .card-sms-btn:hover{text-decoration:underline;}
 .card-del-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:16px;line-height:1;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
 .card-del-btn:hover{color:#dc2626;background:#fee2e2;}
+.card-edit-btn{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:15px;line-height:1;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;transition:color .15s,background .15s;padding:0;}
+.card-edit-btn:hover{color:var(--sky);background:#dbeafe;}
+.qe-win-btn{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;background:var(--white);color:var(--navy);transition:all .12s;-webkit-tap-highlight-color:transparent;}
+.qe-win-btn.active{background:var(--sky);color:#fff;border-color:var(--sky);}
 .test-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .phone-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
 .seal-badge{display:inline-flex;align-items:center;gap:2px;font-size:10px;font-weight:700;background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:10px;letter-spacing:.3px;vertical-align:middle;flex-shrink:0;}
@@ -184,8 +188,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-review-btn.no-phone{background:#f9fafb !important;border-color:#e5e7eb !important;color:#9ca3af !important;cursor:default;}
 
 /* ── PRINT BUTTONS ── */
-.js-print-btn{display:block;width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;background:#f9fafb;color:#374151;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-print-btn{flex:1;padding:4px 8px;border:1px solid #d1d5db;border-radius:5px;background:#f9fafb;color:#374151;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:center;transition:background .1s;}
 .js-print-btn:hover{background:#e5e7eb;}
+.js-email-btn{flex:1;padding:4px 8px;border:1px solid #c4b5fd;border-radius:5px;background:#ede9fe;color:#7c3aed;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:center;transition:background .1s;}
+.js-email-btn:hover{background:#ddd6fe;}
+.js-inv-btns{display:flex;gap:5px;margin-top:4px;}
+/* Week grid drag-to-scroll */
+#weekViewWrap{position:relative;}
+.cal-grid.wv-dragging{cursor:grabbing !important;user-select:none;}
+.wv-fade{position:absolute;top:0;bottom:0;width:48px;pointer-events:none;z-index:10;opacity:0;transition:opacity .2s;}
+.wv-fade-l{left:0;background:linear-gradient(to right,rgba(250,250,247,.9),transparent);}
+.wv-fade-r{right:0;background:linear-gradient(to left,rgba(250,250,247,.9),transparent);}
 .rig-print-row{padding:2px 8px 4px;}
 .rig-print-btn{font-size:10px;color:#6b7280;background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 8px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .1s;}
 .rig-print-btn:hover{background:#f1f5f9;color:#374151;border-color:#cbd5e1;}
@@ -279,6 +292,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-receipt-btn:hover:not(:disabled):not(.sent){background:#c7d2fe;}
 .js-receipt-btn:disabled{opacity:.38;cursor:not-allowed;}
 .js-receipt-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
+.js-zelle-btn{display:block;width:100%;padding:4px 8px;border:1px solid #bfdbfe;border-radius:5px;background:#eff6ff;color:#1d4ed8;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
+.js-zelle-btn:hover:not(.sent){background:#bfdbfe;}
+.js-zelle-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
 
 /* ── CREW POPOVER ── */
 .crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
@@ -374,11 +390,108 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-rollup-rig{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
 .day-rollup-name{font-weight:700;color:var(--navy);flex:1;}
 .day-rollup-stat{color:var(--muted);font-size:12px;}
+/* ── Ops Dashboard ── */
+.ops-panel{margin:16px 0 0;background:var(--card);border:1.5px solid var(--border);border-radius:12px;overflow:hidden;}
+.ops-hdr{padding:9px 14px;background:var(--navy2);font-size:12px;font-weight:700;color:rgba(255,255,255,.75);display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+.ops-hdr:hover{background:#172b4d;}
+.ops-rig-section{padding:10px 14px;border-bottom:1px solid var(--border);}
+.ops-rig-section:last-child{border-bottom:none;}
+.ops-rig-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:7px;display:flex;align-items:center;gap:6px;}
+.ops-grid{display:grid;grid-template-columns:minmax(90px,auto) 1fr;gap:3px 10px;margin-bottom:7px;}
+.ops-metric{font-size:11px;color:var(--muted);align-self:center;}
+.ops-val{font-size:12px;font-weight:700;color:var(--navy);}
+.ops-cost-line{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;padding:2px 0;}
+.ops-cost-line.total{font-size:12px;font-weight:700;color:var(--navy);border-top:1px dashed var(--border);margin-top:5px;padding-top:5px;display:flex;justify-content:space-between;}
+.ops-cost-line.margin-good{color:#16a34a;}
+.ops-cost-line.margin-warn{color:#f97316;}
+.ops-cost-line.margin-bad{color:#dc2626;}
+.ops-config-row{padding:7px 14px;background:#f8fafc;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;}
+.ops-cfg-input{width:46px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:11px;font-family:'DM Sans',sans-serif;text-align:center;color:var(--text);}
+/* ── Expense logging panel ── */
+.exp-panel{border-top:1px solid var(--border);background:#fff;}
+.exp-hdr{padding:7px 14px;background:#f8fafc;font-size:11px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+.exp-hdr:hover{background:#f0f4ff;}
+.exp-hdr-total{margin-left:auto;color:#c2410c;font-size:12px;font-weight:800;}
+.exp-chevron{font-size:9px;color:var(--muted);margin-left:4px;}
+.exp-rows{padding:6px 14px 4px;}
+.exp-row{display:flex;align-items:center;gap:6px;padding:3px 0;}
+.exp-extra-row{display:flex;align-items:center;gap:6px;padding:3px 0;}
+.exp-lbl{font-size:12px;color:var(--text);min-width:90px;}
+.exp-currency{font-size:12px;color:var(--muted);flex-shrink:0;}
+.exp-field{width:80px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;font-family:'DM Sans',sans-serif;text-align:right;color:var(--text);-moz-appearance:textfield;}
+.exp-field::-webkit-inner-spin-button,.exp-field::-webkit-outer-spin-button{-webkit-appearance:none;}
+.exp-field:focus{outline:none;border-color:var(--sky);}
+.exp-label-input{flex:1;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-family:'DM Sans',sans-serif;color:var(--text);}
+.exp-label-input:focus{outline:none;border-color:var(--sky);}
+.exp-remove-btn{padding:2px 6px;border:1px solid #e5e7eb;border-radius:4px;background:#fff;color:#9ca3af;cursor:pointer;font-size:12px;line-height:1;}
+.exp-remove-btn:hover{background:#fee2e2;color:#dc2626;border-color:#fca5a5;}
+.exp-divider{border:none;border-top:1px dashed var(--border);margin:4px 14px;}
+.exp-footer{padding:4px 14px 8px;}
+.exp-total-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:12px;font-weight:700;color:var(--navy);}
+.exp-total-val{color:#c2410c;font-size:14px;font-weight:800;}
+.exp-avgs{font-size:10px;color:var(--muted);padding:2px 0;}
+.exp-actions{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
+.exp-add-btn{padding:4px 10px;border:1.5px dashed var(--border);border-radius:6px;background:none;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;}
+.exp-add-btn:hover{border-color:var(--sky);color:var(--sky);}
+.exp-copy-btn{padding:4px 10px;border:1.5px solid var(--border);border-radius:6px;background:none;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;}
+.exp-copy-btn:hover{border-color:var(--navy);color:var(--navy);}
+.exp-corr{display:flex;flex-direction:column;gap:2px;margin-top:3px;}
+.js-revert-btn{display:block;width:100%;margin-top:4px;padding:5px 10px;background:#ede9fe;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;text-align:center;}
+.js-revert-btn:hover{background:#ddd6fe;}
 .day-rig-hdr{padding:8px 10px;background:var(--navy2);border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:#fff;display:flex;align-items:center;gap:8px;}
 .day-cap-bar{height:5px;background:#1e3a5f;margin:.375rem .625rem .25rem;border-radius:3px;overflow:hidden;}
 .day-cap-fill{height:100%;border-radius:3px;background:var(--sky);transition:width .3s;}
 .day-cap-fill.warn{background:var(--gold);}
+.day-rig-summary{padding:4px 10px 5px;background:#0d1e35;border-bottom:1px solid #1e3a5f;font-size:10px;color:rgba(255,255,255,.5);line-height:1.6;}
+.day-rig-summary b{color:rgba(255,255,255,.8);font-weight:600;}
+.day-rig-warn{padding:2px 10px 3px;background:#fef9ec;font-size:10px;font-weight:600;color:#92400e;border-bottom:1px solid #fde68a;}
+.morning-stops-row{padding:3px 10px 4px;background:#0a1e34;border-bottom:1px solid #1e3a5f;display:flex;flex-wrap:wrap;align-items:center;gap:5px;}
+.ms-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;}
+.ms-found{background:rgba(16,185,129,.18);color:#6ee7b7;border:1px solid rgba(16,185,129,.3);}
+.ms-missed{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.3);}
+.ms-extended{background:rgba(245,158,11,.18);color:#fcd34d;border:1px solid rgba(245,158,11,.3);}
+.ms-skip-btn{margin-left:auto;padding:1px 7px;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:transparent;color:rgba(255,255,255,.4);font-size:9px;font-weight:700;cursor:pointer;letter-spacing:.3px;}
+.ms-skip-btn:hover{border-color:rgba(255,255,255,.4);color:rgba(255,255,255,.7);}
 .day-cap-fill.full{background:var(--red);}
+
+/* ── TIME WINDOWS ── */
+/* Section headers in week-view flat list (non-draggable dividers) */
+.win-section-hdr{display:flex;align-items:center;gap:6px;padding:5px 10px 3px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);background:rgba(0,0,0,.02);border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:4px -1px 2px;user-select:none;pointer-events:none;}
+.win-section-hdr:first-child{margin-top:0;border-top:none;}
+.win-section-hdr .win-range,.win-lane-hdr .win-range{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:10px;margin-left:2px;}
+.win-section-hdr .win-heavy,.win-lane-hdr .win-heavy{font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;border:1px solid #fde68a;margin-left:auto;}
+.win-section-hdr.heavy,.win-lane.heavy .win-lane-hdr{background:#fef9ec;}
+/* Draggable win-lanes (day view) */
+.win-lane{border-bottom:1px solid var(--border);min-height:48px;transition:background .12s;}
+.win-lane:last-child{border-bottom:none;}
+.win-lane-hdr{display:flex;align-items:center;gap:5px;padding:5px 10px 3px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);background:rgba(0,0,0,.02);border-bottom:1px solid var(--border);user-select:none;pointer-events:none;}
+.win-lane.sortable-drag-over{background:rgba(56,189,248,.06);}
+.win-lane-empty .win-lane-hdr{opacity:.65;}
+.win-lane-drop-hint{text-align:center;padding:6px 0 8px;font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.2px;}
+/* ── Sidebar collapse ── */
+.sidebar-collapse-btn{width:100%;background:var(--card);border:none;border-bottom:1px solid var(--border);padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer;text-align:right;font-family:'DM Sans',sans-serif;font-weight:600;letter-spacing:.2px;transition:background .1s;flex-shrink:0;}
+.sidebar-collapse-btn:hover{background:#f0f4f8;}
+.sidebar-tab{display:none;align-items:center;justify-content:center;flex:1;cursor:pointer;padding:16px 0;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.5px;writing-mode:vertical-rl;transform:rotate(180deg);-webkit-tap-highlight-color:transparent;}
+.sidebar-tab:hover{color:var(--sky);}
+.left-col.collapsed .sidebar-content{display:none;}
+.left-col.collapsed .sidebar-tab{display:flex;}
+.left-col.collapsed .sidebar-collapse-btn{display:none;}
+.layout.sidebar-collapsed{grid-template-columns:32px 1fr;}
+.layout.sidebar-collapsed.crew-visible{grid-template-columns:32px 1fr 250px;}
+/* ── Card address + time estimates ── */
+.js-addr{font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.js-est-time{font-size:11px;color:#94a3b8;font-style:italic;margin-top:1px;}
+.js-est-time.confirmed{color:#374151;font-style:normal;font-weight:600;}
+.js-home-dist{font-size:10px;color:#94a3b8;margin-top:1px;}
+.js-home-dist.near{color:#16a34a;}
+.js-home-dist.far{color:#f97316;}
+.pa-link{font-size:9px;font-weight:700;color:var(--sky);background:#eff6ff;border-radius:3px;padding:1px 4px;margin-left:5px;text-decoration:none;white-space:nowrap;vertical-align:middle;}
+.pa-link:hover{background:#dbeafe;}
+/* Scheduling modal window buttons */
+.win-btn-row{display:flex;gap:6px;margin:6px 0;}
+.win-btn{flex:1;padding:8px 4px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;cursor:pointer;background:var(--white);color:var(--navy);transition:all .12s;-webkit-tap-highlight-color:transparent;}
+.win-btn.active{background:var(--sky);color:#fff;border-color:var(--sky);}
+.wk-win-counts{font-size:9px;font-weight:600;color:var(--muted);margin-top:3px;letter-spacing:.2px;}
 
 /* ── SWIPE HINT ── */
 .swipe-hint{display:flex;justify-content:space-between;padding:.2rem .875rem;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);letter-spacing:.5px;background:#071525;border-bottom:1px solid #1e3a5f;}
@@ -498,11 +611,15 @@ body{background:#f0f2f5;}
   box-shadow:none;
 }
 .job-scheduled.canceled:hover,.job-scheduled.no_show:hover{transform:none;}
+.job-card-extra{border-style:dashed;opacity:.85;}
+.job-card-extra .js-extra-label{font-size:10px;color:#059669;font-weight:600;margin-top:2px;}
 
 /* ── Typography within cards ── */
 .js-name{font-size:13px;font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{font-size:11px;color:#6b7280;margin-top:2px;line-height:1.45;}
 .js-roof-info{font-size:11px;color:#c2410c;font-weight:600;margin-top:2px;}
+.js-svc{font-size:11px;color:var(--text);font-weight:600;margin-top:2px;line-height:1.4;}
+.js-svc.missing{color:var(--muted);font-style:italic;font-weight:400;}
 .job-amount,.jn-amount{font-variant-numeric:tabular-nums;font-size:13px;font-weight:700;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 
 /* Empty rig lane */
@@ -561,6 +678,8 @@ body{background:#f0f2f5;}
   <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
   <button class="topbar-action" onclick="window.print()">🖨</button>
   <button class="topbar-action" id="histToggleBtn" onclick="toggleHistoricalJobs()" title="Show/hide completed jobs on calendar" style="opacity:.6;">🗂️ History</button>
+  <button class="topbar-action" id="geocodeBackfillBtn" onclick="startGeocodingBackfill()" title="One-time geocode for all customers missing coordinates" style="opacity:.6;">🗺 Geocode</button>
+  <span id="geocodeBackfillBar" style="display:none;font-size:11px;color:#fff;opacity:.8;max-width:220px;white-space:nowrap;overflow:hidden;"></span>
   <div class="view-pills">
     <button class="vpill active" id="vpWeek"  onclick="switchView('week')">Week</button>
     <button class="vpill"        id="vpDay"   onclick="switchView('day')">Day</button>
@@ -583,21 +702,27 @@ body{background:#f0f2f5;}
 <div class="layout" id="mainLayout">
 
   <!-- LEFT: NEEDS MINI QUOTE + NEEDS SCHEDULING -->
-  <div class="left-col">
-    <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
-    <div class="needs-list" id="mqList"></div>
-    <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
-    <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
-      <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
-      <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
+  <div class="left-col" id="leftSidebar">
+    <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()">◀ collapse</button>
+    <div class="sidebar-content" id="sidebarContent">
+      <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
+      <div class="needs-list" id="mqList"></div>
+      <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
+      <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
+        <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
+        <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
+      </div>
+      <div class="needs-list" id="needsList"></div>
     </div>
-    <div class="needs-list" id="needsList"></div>
+    <div class="sidebar-tab" id="sidebarTab" onclick="toggleSidebar()">📋 Queue</div>
   </div>
 
   <!-- MAIN: CALENDAR -->
   <div class="main-col">
     <!-- Week view (default) -->
     <div id="weekViewWrap">
+      <div class="wv-fade wv-fade-l" id="wvFadeL"></div>
+      <div class="wv-fade wv-fade-r" id="wvFadeR"></div>
       <div class="cal-grid" id="calGrid"></div>
     </div>
     <!-- Day view -->
@@ -914,6 +1039,54 @@ body{background:#f0f2f5;}
   </div>
 </div>
 
+<!-- QUEUE EDIT MODAL -->
+<div class="overlay hidden" id="queueEditModal" onclick="if(event.target===this)closeQueueEditModal()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">✏️ Edit Job — <span id="queueEditName" style="color:var(--sky);"></span></div>
+    <div class="modal-field">
+      <label>Services</label>
+      <textarea id="queueEditServices" class="modal-input" rows="2" placeholder="Roof Softwash, Driveway, Walls..." style="resize:vertical;"></textarea>
+    </div>
+    <div class="modal-field">
+      <label>Total Price</label>
+      <div style="position:relative;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
+        <input type="number" id="queueEditPrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Target Date <span style="color:var(--muted);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0;">(optional — only if customer agreed verbally)</span></label>
+      <input type="date" id="queueEditDate" class="modal-input">
+    </div>
+    <div class="modal-field">
+      <label>Time Window</label>
+      <div id="queueEditWinRow" style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" class="qe-win-btn" data-win="morning" onclick="selectQueueEditWin('morning',this)">🌅 Morning</button>
+        <button type="button" class="qe-win-btn" data-win="early_afternoon" onclick="selectQueueEditWin('early_afternoon',this)">☀️ Early Afternoon</button>
+        <button type="button" class="qe-win-btn" data-win="late_afternoon" onclick="selectQueueEditWin('late_afternoon',this)">🌇 Late Afternoon</button>
+        <button type="button" class="qe-win-btn" data-win="" onclick="selectQueueEditWin('',this)">— Unscheduled</button>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Rig</label>
+      <select id="queueEditRig" class="modal-input">
+        <option value="">— Unassigned</option>
+        <option value="rig_1">Old Tacoma</option>
+        <option value="rig_2">New Tacoma</option>
+        <option value="rig_3">Chevy</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Notes</label>
+      <textarea id="queueEditNotes" class="modal-input" rows="2" placeholder="Internal notes..." style="resize:vertical;"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeQueueEditModal()">Cancel</button>
+      <button class="mbtn-save" onclick="saveQueueEdit()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- OPTIMIZE ROUTE MODAL -->
 <div class="overlay hidden" id="optimizeModal" onclick="if(event.target===this)cancelOptimize()">
   <div class="modal" style="max-width:360px;">
@@ -984,9 +1157,17 @@ body{background:#f0f2f5;}
     <div class="mini-cal-grid" id="tapSchedMiniCal"></div>
     <input id="tapSchedDate" type="hidden">
     <div id="tapSchedSelectedLabel" style="font-size:13px;font-weight:700;color:var(--sky);min-height:18px;margin-bottom:10px;"></div>
+    <div style="margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Time Window</div>
+      <div class="win-btn-row" id="tapSchedWinRow">
+        <button class="win-btn active" data-win="morning"         onclick="selectTapSchedWindow('morning',this)">🌅 Morning</button>
+        <button class="win-btn"        data-win="early_afternoon" onclick="selectTapSchedWindow('early_afternoon',this)">☀️ Early</button>
+        <button class="win-btn"        data-win="late_afternoon"  onclick="selectTapSchedWindow('late_afternoon',this)">🌇 Late</button>
+      </div>
+    </div>
     <div>
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Note <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
-      <input id="tapSchedNote" type="text" placeholder="e.g. AM preferred, call ahead…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
+      <input id="tapSchedNote" type="text" placeholder="e.g. call ahead, gate code…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:8px;">🛰 Rig will be auto-assigned by GPS when job runs — no need to pick one now.</div>
     <div class="modal-footer" style="margin-top:1.25rem;">
@@ -1000,6 +1181,41 @@ body{background:#f0f2f5;}
 <script>
 const PCPC_API       = 'https://purecleaning-api.tylerfumero.workers.dev';
 const QUOTE_BASE_CAL = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+// ── Payment request constants ──────────────────────────────────────────────
+const ZELLE_NUMBER  = '954-389-2642';
+const ZELLE_NAME    = 'Ido Fumero';
+const BUSINESS_NAME = 'Pure Cleaning Pressure Cleaning';
+// ── Home base (dispatch origin for distance calculations) ──────────────────
+const HOME_BASE = { lat: 26.0418239, lng: -80.3709794, address: '16621 SW 62nd Street, Southwest Ranches, FL' };
+// ── County property appraiser city maps ───────────────────────────────────
+const _BROWARD_CITIES = new Set(['weston','davie','plantation','coral springs','pembroke pines','miramar','cooper city','southwest ranches','fort lauderdale','hollywood','hallandale beach','dania beach','sunrise','lauderhill','lauderdale lakes','north lauderdale','margate','coconut creek','pompano beach','deerfield beach','oakland park','wilton manors','tamarac','lauderdale-by-the-sea','sea ranch lakes','west park','pembroke park','parkland','lighthouse point','hillsboro beach','lazy lake','west hollywood','broadview park','franklin park','boulevard gardens','washington park','villages of oriole','royal palm ranch']);
+const _MIAMI_DADE_CITIES = new Set(['miami','hialeah','homestead','miami gardens','kendall','pinecrest','coral gables','doral','sweetwater','miami lakes','south miami','miami beach','miami shores','north miami','north miami beach','aventura','key biscayne','bal harbour','surfside','bay harbor islands','golden beach','el portal','biscayne park','miami springs','virginia gardens','medley','opa-locka','florida city','cutler bay','palmetto bay','opa locka']);
+const _PALM_BEACH_CITIES = new Set(['boca raton','delray beach','boynton beach','west palm beach','lake worth','wellington','palm beach gardens','royal palm beach','greenacres','lake worth beach','belle glade','pahokee','south bay','riviera beach','palm springs','lantana','hypoluxo','manalapan','ocean ridge','briny breezes','gulf stream','south palm beach','juno beach','jupiter','tequesta','palm beach','north palm beach','westlake','loxahatchee']);
+
+function getPropertyAppraiserUrl(city, address) {
+  if (!city || !address) return null;
+  const c = city.toLowerCase().trim();
+  const encoded = encodeURIComponent(`${address}, ${city}, FL`);
+  if (_BROWARD_CITIES.has(c))    return `https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=${encoded}`;
+  if (_MIAMI_DADE_CITIES.has(c)) return `https://www.miamidade.gov/Apps/PA/PAOnlineTools/`;
+  if (_PALM_BEACH_CITIES.has(c)) return `https://www.pbcgov.com/papa/Asps/PropertySearch/PropertySearch.aspx`;
+  return null;
+}
+
+function getPaLabel(city) {
+  if (!city) return null;
+  const c = city.toLowerCase().trim();
+  if (_BROWARD_CITIES.has(c))    return 'BCPA';
+  if (_MIAMI_DADE_CITIES.has(c)) return 'MDPA';
+  if (_PALM_BEACH_CITIES.has(c)) return 'PBPA';
+  return null;
+}
+
+function homeDistMi(c) {
+  const coords = getJobCoords(c);
+  if (!coords) return null;
+  return distanceBetween(HOME_BASE.lat, HOME_BASE.lng, coords.lat, coords.lng) * 1.3;
+}
 const _SL_ALP_CAL    = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function shortenUrlCal(longUrl) {
@@ -1025,10 +1241,23 @@ function openCardSms(phone) {
   const c = findCustomer(phone);
   if (!c || !c.linkCode || !c.linkBin) return;
   const fn = (c.firstName||c.fn||'there');
+  const ss = c.scheduledStatus || {};
   const longUrl  = `${QUOTE_BASE_CAL}?c=${c.linkBin}.${c.linkCode}`;
   const shortUrl = shortenUrlCal(longUrl);
-  const body = `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Thanks for reaching out to us today!\n\nI built a simple new way for you to get a quote — your info is already filled in:\n\n${shortUrl}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\n— Pure Cleaning Family\n954-389-2642\nReply STOP to opt out.`;
-  window.location.href = `sms:+1${(c.phone||'').replace(/\D/g,'')}?&body=${encodeURIComponent(body)}`;
+  const svc  = (c.quoteStatus?.mainServices || ss.jobNotes || '').trim();
+  const amt  = ss.approvedAmount ? `$${Number(ss.approvedAmount).toLocaleString('en-US',{maximumFractionDigits:0})}` : null;
+  const date = ss.scheduledDate ? new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : null;
+  const lines = [
+    `Hi ${fn}! Your job with Pure Cleaning is on the books:`,
+    svc  ? `📋 Service: ${svc}` : null,
+    amt  ? `💰 Price: ${amt}`   : null,
+    date ? `📅 Date: ${date}`   : null,
+    `Tap to confirm: ${shortUrl}`,
+    ``,
+    `We'll text or call the night before with a rough arrival time. Questions? Call us at 954-389-2642. — Pure Cleaning Pressure Cleaning`,
+    `Reply STOP to opt out.`,
+  ].filter(l => l !== null).join('\n');
+  window.location.href = `sms:+1${(c.phone||'').replace(/\D/g,'')}?&body=${encodeURIComponent(lines)}`;
 }
 
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
@@ -1078,10 +1307,160 @@ const CREW_MEMBERS = [
 const RIGS = ['rig_1','rig_2','rig_3'];
 const RIG_LABELS = {rig_1:'Old Tacoma', rig_2:'New Tacoma', rig_3:'Chevy'};
 
+const WINDOWS = [
+  { id: 'morning',         emoji: '🌅', label: 'Morning',         range: '9:30 – 12:30' },
+  { id: 'early_afternoon', emoji: '☀️', label: 'Early Afternoon', range: '11:30 – 2:30' },
+  { id: 'late_afternoon',  emoji: '🌇', label: 'Late Afternoon',  range: '1:30 – 4:00'  },
+];
+const WIN_ORDER = { morning: 0, early_afternoon: 1, late_afternoon: 2 };
+// Window start times in minutes from midnight
+const WIN_START_MINS = { morning: 9*60+30, early_afternoon: 11*60+30, late_afternoon: 13*60+30 };
+const TRAVEL_BUFFER_MINS = 15; // travel buffer between consecutive jobs
+
+function minsToTime(m) {
+  const h = Math.floor(m / 60), min = m % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${h12}:${String(min).padStart(2,'0')} ${ampm}`;
+}
+
+// Populated by buildWindowLanes before each card render; consumed by jobCardScheduled
+const _estTimeMap = new Map(); // phone → {startMin, endMin, isManual}
+
+function getCustomerJobDuration(c) {
+  // Priority 1: average of GPS-tracked actual durations (most accurate)
+  const jhDurs = (c.jobHistory || [])
+    .filter(j => (j.actualDuration || 0) > 0 && j.status === 'completed')
+    .map(j => j.actualDuration);
+  if (jhDurs.length > 0) return Math.round(jhDurs.reduce((s, d) => s + d, 0) / jhDurs.length);
+  // Priority 2: operator-set estimate
+  const ss = c.scheduledStatus || {};
+  if (ss.estimatedDuration) return Math.round(ss.estimatedDuration * 60);
+  // Priority 3: service-type keywords
+  const svc = (ss.jobNotes || c.quoteStatus?.mainServices || '').toLowerCase();
+  if (/seal|sand/.test(svc))       return 240;
+  if (/roof|softwash|soft.wash/.test(svc)) return 150;
+  if (/wall/.test(svc))            return 120;
+  if (/driv/.test(svc))            return 90;
+  return 120; // default 2 hours
+}
+
+function computeWindowTimes(jobs, windowId) {
+  let cursor = WIN_START_MINS[windowId] ?? (9*60+30);
+  return jobs.map((c, i) => {
+    const durMins  = getCustomerJobDuration(c);
+    const startMin = cursor;
+    const endMin   = startMin + durMins;
+    // Use actual drive time to next job if coords available; fall back to TRAVEL_BUFFER_MINS
+    let travelMins = TRAVEL_BUFFER_MINS;
+    if (i < jobs.length - 1) {
+      const a = getJobCoords(c), b = getJobCoords(jobs[i + 1]);
+      if (a && b) travelMins = Math.max(5, Math.round(distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3 / 30 * 60));
+    }
+    cursor = endMin + travelMins;
+    return { startMin, endMin, durMins, travelMins, isManual: false };
+  });
+}
+
+function computeRigDaySummary(jobs) {
+  if (!jobs.length) return null;
+  const phoneKey = c => (c.phone || '').replace(/\D/g, '').slice(-10);
+  const times = jobs.map(c => _estTimeMap.get(phoneKey(c))).filter(Boolean);
+  if (!times.length) return null;
+
+  // First and last job's times
+  const firstTime = times[0];
+  const lastTime  = times[times.length - 1];
+
+  // Drive from home to first job
+  const firstCoords = getJobCoords(jobs[0]);
+  const homeToFirstMi  = firstCoords ? distanceBetween(HOME_BASE.lat, HOME_BASE.lng, firstCoords.lat, firstCoords.lng) * 1.3 : 0;
+  const homeToFirstMin = homeToFirstMi > 0 ? Math.max(5, Math.round(homeToFirstMi / 30 * 60)) : 0;
+  // Drive from last job to home
+  const lastCoords     = getJobCoords(jobs[jobs.length - 1]);
+  const lastToHomeMi   = lastCoords ? distanceBetween(lastCoords.lat, lastCoords.lng, HOME_BASE.lat, HOME_BASE.lng) * 1.3 : 0;
+  const lastToHomeMin  = lastToHomeMi > 0 ? Math.max(5, Math.round(lastToHomeMi / 30 * 60)) : 0;
+  // Inter-job distance
+  let interMi = 0;
+  for (let i = 0; i < jobs.length - 1; i++) {
+    const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i + 1]);
+    if (a && b) interMi += distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
+  }
+
+  const departMin  = firstTime.startMin - homeToFirstMin;
+  const returnMin  = lastTime.endMin + lastToHomeMin;
+  const totalMin   = returnMin - departMin;
+  const totalMi    = homeToFirstMi + interMi + lastToHomeMi;
+  const hasCoords  = homeToFirstMi > 0;
+
+  const warnings = [];
+  if (totalMin > 9 * 60) warnings.push(`⚠️ Long day — ${Math.floor(totalMin/60)}h ${totalMin%60}m door-to-door`);
+  if (lastTime.endMin > 17 * 60) warnings.push(`⚠️ Last job ends after 5 PM`);
+  for (let i = 0; i < jobs.length - 1; i++) {
+    const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i + 1]);
+    if (a && b && distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3 > 20) {
+      warnings.push(`⚠️ Far gap: jobs ${i + 1}→${i + 2}`);
+      break;
+    }
+  }
+
+  return { departMin, returnMin, totalMin, totalMi: hasCoords ? totalMi : null, hasCoords, warnings };
+}
+
+function getJobWindow(ss) {
+  if (!ss) return 'morning';
+  if (ss.window) return ss.window;
+  const t = ss.startTime || '09:00';
+  const h = parseInt(t.split(':')[0], 10);
+  if (h < 11) return 'morning';
+  if (h < 14) return 'early_afternoon';
+  return 'late_afternoon';
+}
+
+function windowLabel(ss) {
+  if (!ss?.window) return null; // only show emoji label when operator explicitly assigned a window
+  const w = WINDOWS.find(x => x.id === ss.window);
+  return w ? `${w.emoji} ${w.label}` : null;
+}
+
 // ── STATE ──────────────────────────────────────────────────────────────────────
 let dbRecord      = {};
 let weekOffset    = 0;
 let calState      = loadCalState();
+let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
+let _sidebarAutoCollapsed   = false;
+const OPS_CFG_DEFAULTS = { fuelPerMi: 0.30, laborPerHr: 40, chlorineCost: 25 };
+const MORNING_STOP_POI_KEYS = [
+  { key: 'gas',      emoji: '⛽', label: '7-Eleven' },
+  { key: 'chlorine', emoji: '🧪', label: 'Pro-Line'  },
+];
+let _morningStopsData   = {}; // date → { rig → { gas:{...}, chlorine:{...} } }
+let _morningStopAvgMins = {}; // poiKey → avgMin
+let _opsConfig = null;
+let _opsPanelOpen = true;
+
+function loadOpsConfig() {
+  if (_opsConfig) return _opsConfig;
+  try { _opsConfig = { ...OPS_CFG_DEFAULTS, ...JSON.parse(localStorage.getItem('pcpc_ops_config') || '{}') }; }
+  catch { _opsConfig = { ...OPS_CFG_DEFAULTS }; }
+  return _opsConfig;
+}
+
+function saveOpsConfigField(field, val) {
+  const cfg = loadOpsConfig();
+  cfg[field] = parseFloat(val) || OPS_CFG_DEFAULTS[field];
+  _opsConfig = cfg;
+  localStorage.setItem('pcpc_ops_config', JSON.stringify(cfg));
+  renderDayRollup(dayViewDate || isoToday());
+}
+
+function toggleOpsPanel() {
+  _opsPanelOpen = !_opsPanelOpen;
+  const body = document.getElementById('opsPanelBody');
+  const chev = document.getElementById('opsPanelChevron');
+  if (body) body.style.display = _opsPanelOpen ? '' : 'none';
+  if (chev) chev.textContent = _opsPanelOpen ? '▲' : '▼';
+}
 let cpDate        = null; // date currently editing in crew pop
 let cpRig         = null; // rig currently editing
 let cpSelCrew     = [];   // selected crew in popover
@@ -1259,6 +1638,8 @@ function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 async function init() {
   dayViewDate = isoToday();
+  // Restore saved manual collapse state immediately before render
+  if (_sidebarManualCollapsed) _applySidebarCollapsed(true, true);
   renderShell();
   loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
   try {
@@ -1365,6 +1746,37 @@ function renderSidebar() {
     el.innerHTML = buildQueueHtml(jobs);
   }
   initSortables();
+
+  // Auto-collapse when both pools empty; auto-expand when items added
+  const totalItems = mqJobs.length + jobs.length;
+  if (totalItems === 0 && !_sidebarManualCollapsed) {
+    _applySidebarCollapsed(true, false);
+  } else if (totalItems > 0 && _sidebarAutoCollapsed && !_sidebarManualCollapsed) {
+    _applySidebarCollapsed(false, false);
+  }
+}
+
+function _applySidebarCollapsed(collapsed, manual) {
+  if (manual) {
+    _sidebarManualCollapsed = collapsed;
+    localStorage.setItem('pcpc_sidebar_manual', collapsed ? '1' : '0');
+    if (!collapsed) _sidebarAutoCollapsed = false;
+  } else {
+    _sidebarAutoCollapsed = collapsed;
+  }
+  const isCollapsed = _sidebarManualCollapsed || _sidebarAutoCollapsed;
+  const layout  = document.getElementById('mainLayout');
+  const sidebar = document.getElementById('leftSidebar');
+  const btn     = document.getElementById('sidebarCollapseBtn');
+  if (layout)  layout.classList.toggle('sidebar-collapsed', isCollapsed);
+  if (sidebar) sidebar.classList.toggle('collapsed', isCollapsed);
+  if (btn)     btn.textContent = isCollapsed ? '▶' : '◀ collapse';
+}
+
+function toggleSidebar() {
+  // Manual toggle: flip current combined state
+  const isCollapsed = _sidebarManualCollapsed || _sidebarAutoCollapsed;
+  _applySidebarCollapsed(!isCollapsed, true);
 }
 
 function getMiniQuoteNeeded() {
@@ -1389,7 +1801,7 @@ function jobCardMiniQuote(c) {
   return `<div class="job-unscheduled" data-phone="${c.phone}" style="border-left:3px solid var(--gold);cursor:default;" title="${name}">
     <div class="jcard-top">
       <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${name}</a>${testBadge}</div>
-      <span class="phone-badge">📞 Phone</span>
+      <button class="card-del-btn" onclick="event.stopPropagation();dismissMiniQuote('${c.phone}')" title="Dismiss from Mini Quote queue">✕</button>
     </div>
     ${svc || amt ? `<div class="jd" style="font-weight:600;color:var(--navy);">${svc}${amt ? ' — $'+Number(amt).toLocaleString() : ''}</div>` : ''}
     ${savedAt ? `<div class="jd">Saved ${savedAt}</div>` : ''}
@@ -1404,9 +1816,12 @@ function jobAmount(c) {
 }
 
 function calculateRigTotal(date, rig) {
-  return getScheduledForRig(date, rig)
+  const ssTotal = getScheduledForRig(date, rig)
     .filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; })
     .reduce((s, c) => s + (jobAmount(c).val), 0);
+  const extraTotal = getExtraCompletedJobsForRig(date, rig)
+    .reduce((s, {jhEntry}) => s + (jhEntry.amount || jhEntry.approvedAmount || 0), 0);
+  return ssTotal + extraTotal;
 }
 
 function calculateDayTotal(date) {
@@ -1415,9 +1830,12 @@ function calculateDayTotal(date) {
 
 function calculateDayCollected(date) {
   return RIGS.reduce((s, rig) => {
-    return s + getScheduledForRig(date, rig)
+    const ssCollected = getScheduledForRig(date, rig)
       .filter(c => c.scheduledStatus?.state === 'completed')
       .reduce((r, c) => r + jobAmount(c).val, 0);
+    const extraCollected = getExtraCompletedJobsForRig(date, rig)
+      .reduce((r, {jhEntry}) => r + (jhEntry.amount || jhEntry.approvedAmount || 0), 0);
+    return s + ssCollected + extraCollected;
   }, 0);
 }
 
@@ -1431,7 +1849,8 @@ function distanceBetween(lat1, lng1, lat2, lng2) {
 }
 
 function getJobCoords(c) {
-  const g = c.geocoded;
+  // Check both c.coordinates (Google) and c.geocoded (Census/legacy) — prefer coordinates
+  const g = c.coordinates || c.geocoded;
   if (g && g.lat && g.lng) return { lat: +g.lat, lng: +g.lng };
   return null;
 }
@@ -1471,6 +1890,57 @@ function buildJobsHtmlWithDist(jobs) {
     }
   }
   return parts.join('');
+}
+
+// buildWindowLanes: day-view per-rig drop zones — each window is a SortableJS lane
+function buildWindowLanes(jobs, date, rig) {
+  const groups = { morning: [], early_afternoon: [], late_afternoon: [] };
+  jobs.forEach(j => {
+    const w = getJobWindow(j.scheduledStatus || {});
+    (groups[w] = groups[w] || []).push(j);
+  });
+  return WINDOWS.map(win => {
+    const g = groups[win.id] || [];
+    const heavy = g.length >= 3;
+    const isEmpty = g.length === 0;
+    // Populate estimated times for jobs in this window before rendering cards
+    const times = computeWindowTimes(g, win.id);
+    g.forEach((c, i) => {
+      const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+      _estTimeMap.set(ph, times[i]);
+    });
+    const cardsHtml = buildJobsHtmlWithDist(g);
+    const dropHint  = isEmpty ? `<div class="win-lane-drop-hint">Drop here</div>` : '';
+    return `<div class="win-lane${isEmpty?' win-lane-empty':''}${heavy?' heavy':''}"
+              data-date="${date}" data-rig="${rig}" data-window="${win.id}"
+              id="wl-${date}-${rig}-${win.id}">
+      <div class="win-lane-hdr">
+        ${win.emoji} ${win.label}
+        <span class="win-range">${win.range}</span>
+        ${heavy ? `<span class="win-heavy">Heavy</span>` : ''}
+      </div>
+      ${cardsHtml}${dropHint}
+    </div>`;
+  }).join('');
+}
+
+function buildJobsByWindow(jobs) {
+  if (!jobs.length) return '';
+  const groups = { morning: [], early_afternoon: [], late_afternoon: [] };
+  jobs.forEach(j => groups[getJobWindow(j.scheduledStatus || {})]?.push(j));
+  let html = '';
+  for (const win of WINDOWS) {
+    const g = groups[win.id];
+    if (!g.length) continue;
+    const heavy = g.length >= 3;
+    html += `<div class="win-section-hdr${heavy?' heavy':''}" data-window="${win.id}">
+      ${win.emoji} <span>${win.label}</span>
+      <span class="win-range">${win.range}</span>
+      ${heavy ? `<span class="win-heavy">Heavy</span>` : ''}
+    </div>`;
+    html += buildJobsHtmlWithDist(g);
+  }
+  return html;
 }
 
 function renderRouteSummary(jobs, date, rig) {
@@ -1680,36 +2150,89 @@ function cancelOptimize() {
 }
 
 async function geocodeAddress(address, city, zip) {
+  if (!address) return null;
   try {
-    const params = new URLSearchParams({
-      street: address, city: city || '', zip: zip || '',
-      benchmark: 'Public_AR_Current', format: 'json'
+    const fullAddr = [address.trim(), city||'', 'FL', zip||''].filter(Boolean).join(', ').replace(/, ,/g, ',');
+    const phone = null; // when called directly (no phone), worker geocodes but doesn't save
+    const res = await fetch(`${PCPC_API}/api/geocode`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ address: fullAddr }),
     });
-    const res = await fetch(`https://geocoding.geo.census.gov/geocoder/locations/address?${params}`);
+    if (!res.ok) return null;
     const data = await res.json();
-    const m = data?.result?.addressMatches?.[0];
-    if (!m) return null;
-    return { lat: m.coordinates.y, lng: m.coordinates.x, accuracy: 'ROOFTOP',
-             formattedAddress: m.matchedAddress || '', geocodedAt: new Date().toISOString() };
+    return data?.lat ? data : null;
   } catch(e) { return null; }
+}
+
+async function geocodeAndSave(c) {
+  if (!c.address) return false;
+  try {
+    const fullAddr = [c.address.trim(), c.city||'', 'FL', c.zip||''].filter(Boolean).join(', ').replace(/, ,/g, ',');
+    const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    const res = await fetch(`${PCPC_API}/api/geocode`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ address: fullAddr, phone }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data?.lat) return false;
+    // Mirror into local dbRecord so calendar updates immediately
+    c.coordinates = { ...data };
+    c.geocoded    = { lat: data.lat, lng: data.lng, formattedAddress: data.formattedAddress || '',
+                      geocodedAt: data.geocodedAt, accuracy: data.confidence === 'high' ? 'ROOFTOP' : 'RANGE_INTERPOLATED' };
+    if (data.confidence === 'low') c.needsAddressVerification = true;
+    return true;
+  } catch(e) { return false; }
 }
 
 async function autoGeocodeJobs() {
   const scheduled = (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
-    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && c.address && !c.geocoded?.lat;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && c.address
+      && !c.coordinates?.lat && !c.geocoded?.lat;
   });
   if (!scheduled.length) return;
   let updated = 0;
   for (const c of scheduled) {
-    const geo = await geocodeAddress(c.address, c.city||'', c.zip||'');
-    if (geo) { c.geocoded = geo; updated++; }
-    await new Promise(r => setTimeout(r, 120)); // rate limit Census API
+    const ok = await geocodeAndSave(c);
+    if (ok) updated++;
+    await new Promise(r => setTimeout(r, 80)); // stay well under 50 QPS
   }
-  if (updated) {
-    saveDb().catch(()=>{});
+  if (updated) renderCalGrid(getWeekDates());
+}
+
+async function startGeocodingBackfill() {
+  const btn = document.getElementById('geocodeBackfillBtn');
+  const bar = document.getElementById('geocodeBackfillBar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  if (bar) bar.style.display = '';
+
+  const targets = (dbRecord.customers||[]).filter(c =>
+    c.address && !c.coordinates?.lat && !c.geocoded?.lat && !c.isReferralOnly
+  );
+  const total = targets.length;
+  let done = 0, failed = 0;
+
+  if (bar) bar.textContent = `Geocoding 0 / ${total}…`;
+
+  for (const c of targets) {
+    const ok = await geocodeAndSave(c);
+    if (ok) done++; else failed++;
+    if (bar) bar.textContent = `Geocoding ${done+failed} / ${total}… (${done} ok, ${failed} failed)`;
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  if (bar) bar.textContent = `✓ Done — ${done} geocoded, ${failed} failed. Reloading…`;
+  if (done) {
+    await saveDb().catch(() => {});
     renderCalGrid(getWeekDates());
   }
+  setTimeout(() => {
+    if (btn) { btn.disabled = false; btn.textContent = '🗺 Backfill Geocoding'; }
+    if (bar) bar.style.display = 'none';
+  }, 3500);
 }
 
 function jobCardSidebar(c) {
@@ -1754,10 +2277,22 @@ function jobCardSidebar(c) {
     ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
     : '';
 
+  const _hasTargetDate = !!ss.scheduledDate;
+  const _targetDateFmt = _hasTargetDate
+    ? esc(new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))
+    : null;
+  const schedBtnHtml = _hasTargetDate
+    ? `<button class="sched-primary-btn" style="background:var(--green);" onclick="event.stopPropagation();quickScheduleFromQueue('${c.phone}')">📅 Schedule for ${_targetDateFmt}</button>
+       <span class="card-sms-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')" style="text-align:center;padding-top:3px;">Change date</span>`
+    : `<button class="sched-primary-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')">📅 Schedule for a Day</button>`;
+
   return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
     <div class="jcard-top">
       <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${name}</a>${alerts}</div>
-      <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
+      <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+        <button class="card-edit-btn" onclick="event.stopPropagation();openQueueEditModal('${c.phone}')" title="Edit job details">✏️</button>
+        <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
+      </div>
     </div>
     ${badgesHtml}
     <div class="jcard-price">${amtHtml}</div>
@@ -1766,7 +2301,7 @@ function jobCardSidebar(c) {
     <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
     ${addOnsLine}
     ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
-    <button class="sched-primary-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')">📅 Schedule for a Day</button>
+    ${schedBtnHtml}
     <div class="drag-hint-subtle">or drag to calendar week view</div>
     ${ss.source === 'csv_import' ? `<div class="jd" style="font-size:10px;color:var(--muted);">📥 from CSV import</div>` : ss.source === 'verbal_agreement' ? `<div class="jd" style="font-size:10px;color:var(--muted);">🖊 verbal agreement</div>` : ''}
     ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
@@ -1815,8 +2350,10 @@ function renderCalGrid(dates) {
       const halfBadge = dayType === 'half'
         ? ' <span style="font-size:9px;font-weight:700;color:var(--gold);background:rgba(244,166,32,.15);border-radius:3px;padding:0 3px;">½</span>' : '';
       const jobs = getScheduledForRigOrdered(date, rig);
+      const extras = getExtraCompletedJobsForRig(date, rig);
       const jobsHtml = buildJobsHtmlWithDist(jobs);
-      const emptyClass = jobs.length ? '' : ' empty-hint';
+      const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
+      const emptyClass = (jobs.length || extras.length) ? '' : ' empty-hint';
       const routeSummaryHtml = jobs.length >= 2 ? renderRouteSummary(jobs, date, rig) : '';
       const arrivalHtml = renderArrivalButtons(date, rig, jobs);
       const printableJobs = jobs.filter(j => !j.isTest && (j.scheduledStatus?.state||'scheduled') !== 'completed');
@@ -1824,15 +2361,21 @@ function renderCalGrid(dates) {
         ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 ${printableJobs.length} sheets</button></div>`
         : '';
       // Rig label chip — only render when rig has jobs
-      const rigLabelHtml = jobs.length > 0
+      const winCounts = WINDOWS.map(w => {
+        const n = jobs.filter(j => getJobWindow(j.scheduledStatus||{}) === w.id).length;
+        return n > 0 ? `${w.emoji}${n}` : null;
+      }).filter(Boolean).join('  ');
+      const rigLabelHtml = (jobs.length || extras.length) > 0
         ? `<div class="wk-rig-label" onclick="openCrewPop('${date}','${rig}',this)" style="border-left:3px solid ${RIG_CAP_COLORS[rig]};">
             <span style="color:${RIG_CAP_COLORS[rig]};font-size:11px;font-weight:700;">${RIG_LABELS[rig]}${halfBadge}</span>
             ${crewLabel ? `<span class="rig-crew-label" style="font-size:10px;">${crewLabel}</span>` : ''}
+            ${winCounts ? `<div class="wk-win-counts">${winCounts}</div>` : ''}
            </div>` : '';
       return `<div class="rig-section">
         ${rigLabelHtml}
         ${bulkPrintHtml}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+        ${extrasHtml}
         ${routeSummaryHtml}
         ${arrivalHtml}
       </div>`;
@@ -1852,7 +2395,7 @@ function renderCalGrid(dates) {
           <div class="dh-right">${wxHtml}</div>
         </div>
         ${totalJobCount > 0
-          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
+          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${totalJobCount >= 6 ? `<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">Busy</span>` : ''}${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
           : `<div class="dh-rev dh-rev-empty">—</div>`}
         <div class="wk-cap-bars">${capBarsHtml}</div>
         ${optAllHtml}
@@ -1875,7 +2418,7 @@ function _calVipBadge(c) {
 function jobCardScheduled(c) {
   const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
   const ss    = c.scheduledStatus || {};
-  const time  = ss.startTime || '9:00am';
+  const winLbl = windowLabel(ss);
   const dur   = ss.estimatedDuration || 2;
   const state = ss.state || 'scheduled';
   const alerts= alertIcons(c.alerts||[]);
@@ -1893,6 +2436,7 @@ function jobCardScheduled(c) {
   let printBtnHtml   = '';
   let paymentBtnHtml = '';
   let receiptBtnHtml = '';
+  let zelleReqBtnHtml = '';
   const complaintLink = (!c.isTest && phone)
     ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
     : '';
@@ -1911,13 +2455,16 @@ function jobCardScheduled(c) {
       reviewBtnHtml = `<button class="js-review-btn timing-${timing.state}" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)"${timing.state==='wait'?' title="Better response rates 24-48 hours after job"':''}>📝 Request review · ${timing.label}</button>`;
     }
     if (!c.isTest && phone) {
-      printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print invoice</button>`;
+      printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button></div>`;
 
       // Payment logging
       if (c.paymentInfo && c.paymentInfo.paidAt) {
         paymentBtnHtml = `<button class="js-pay-btn paid" onclick="event.stopPropagation()">✓ Paid via ${esc(c.paymentInfo.method||'cash')}</button>`;
       } else {
         paymentBtnHtml = `<button class="js-pay-btn" onclick="event.stopPropagation();openPaymentModal('${phone}')">💰 Log Payment</button>`;
+        const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
+        const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
+        zelleReqBtnHtml = `<button class="js-zelle-btn" onclick="event.stopPropagation();requestPayment('${phone}',this)">${_zLbl}</button>`;
       }
 
       // Send receipt (only after payment logged)
@@ -1934,6 +2481,11 @@ function jobCardScheduled(c) {
     }
   } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
     printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
+    if (ss.scheduledDate && ss.scheduledDate <= isoToday()) {
+      const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
+      const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
+      zelleReqBtnHtml = `<button class="js-zelle-btn" onclick="event.stopPropagation();requestPayment('${phone}',this)">${_zLbl}</button>`;
+    }
   }
 
   const editBtnHtml = (!c.isTest && phone)
@@ -1942,6 +2494,10 @@ function jobCardScheduled(c) {
 
   const delBtnHtml = (state !== 'completed' && phone)
     ? `<button class="card-del-btn" onclick="event.stopPropagation();promptCancelJob('${phone}')" title="Remove job from calendar" style="margin-left:auto;">🗑️</button>`
+    : '';
+
+  const revertBtnHtml = (state === 'completed' && phone)
+    ? `<button class="js-revert-btn" onclick="event.stopPropagation();promptRevertJob('${phone}')" title="Undo completion — return to scheduled">↩ Revert</button>`
     : '';
 
   const _svcAgreed = (c.quoteStatus || {}).servicesAgreed || {};
@@ -1973,7 +2529,8 @@ function jobCardScheduled(c) {
   // Crew quick-edit panel (collapsed by default)
   const _currentCrew = ss.crew || [];
   const _currentDur  = ss.estimatedDuration || 2;
-  const _durLabel    = _currentDur <= 4 ? 'Half Day' : _currentDur >= 7 ? 'Full Day' : `${_currentDur}h`;
+  // absent or 'full' → ~Full Day (estimated default); operator-confirmed 'half'/'full' drop the tilde
+  const _durLabel = ss.duration === 'half' ? 'Half Day' : ss.duration === 'full' ? 'Full Day' : '~Full Day';
   const _crewNames   = _currentCrew.map(id => CREW_MEMBERS.find(cm => cm.id === id)?.name || id).join(', ');
   const _crewChips   = CREW_MEMBERS.map(cm => {
     const active = _currentCrew.includes(cm.id);
@@ -2011,21 +2568,79 @@ function jobCardScheduled(c) {
     </div>`;
 
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
+  let confirmBadge = '';
+  if (state === 'scheduled' || state === 'in_progress') {
+    if (ss.confirmedByCustomer) {
+      confirmBadge = ' <span title="Confirmed by customer" style="color:#22c55e;font-size:12px;">✅</span>';
+    } else if (c.linkCode) {
+      confirmBadge = ' <span title="Confirmation link sent — awaiting response" style="color:#9ca3af;font-size:11px;">⏳</span>';
+    }
+  }
+  const _jhMatch = (c.jobHistory||[]).slice().reverse().find(j => j.date === ss.scheduledDate);
+  const _svcRaw  = (ss.jobNotes || c.quoteStatus?.mainServices || c.quoteStatus?.notes
+                 || _jhMatch?.services || _jhMatch?.jobNotes || '').trim();
+  const svcLine  = _svcRaw
+    ? `<div class="js-svc">📋 ${esc(_svcRaw)}</div>`
+    : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${alerts}${vipBadge}</span>
+    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
-    <div class="js-meta">${time} · ${_durLabel}${city ? ' · '+city : ''}</div>
+    <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
+    ${c.address ? (() => {
+        const paUrl = getPropertyAppraiserUrl(c.city, c.address);
+        const paLbl = paUrl ? getPaLabel(c.city) : null;
+        const paBtn = paUrl ? `<a href="${paUrl}" target="_blank" onclick="event.stopPropagation()" class="pa-link">🏠 ${paLbl}</a>` : '';
+        return `<div class="js-addr">📍 ${esc(c.address)}${paBtn}</div>`;
+      })() : ''}
+    ${(() => {
+        const hd = homeDistMi(c);
+        if (!hd || state === 'completed') return '';
+        const cls = hd < 8 ? 'near' : hd > 15 ? 'far' : '';
+        return `<div class="js-home-dist${cls?' '+cls:''}">🚗 ~${hd.toFixed(1)} mi from home</div>`;
+      })()}
+    ${(() => { const et = _estTimeMap.get(phone); return et && !gpsHtml && (state === 'scheduled' || state === 'in_progress') ? `<div class="js-est-time">est. ${minsToTime(et.startMin)} – ${minsToTime(et.endMin)}</div>` : ''; })()}
+    ${svcLine}
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
     ${reviewBtnHtml}
     ${printBtnHtml}
     ${complaintLink}
+    ${zelleReqBtnHtml}
     ${paymentBtnHtml}
     ${receiptBtnHtml}
     ${editBtnHtml}
     ${delBtnHtml}
+    ${revertBtnHtml}
+  </div>`;
+}
+
+function jobCardHistoryExtra(c, jhEntry) {
+  const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const city   = c.city ? esc(formatCity(c.city)) : '';
+  const addr   = jhEntry.address ? esc(jhEntry.address) : (c.address ? esc(c.address) : '');
+  const amt    = jhEntry.amount || jhEntry.approvedAmount || 0;
+  const amtHtml = amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
+  const svcText = (jhEntry.services || jhEntry.jobNotes || jhEntry.notes || '').trim();
+  const svcLine = svcText ? `<div class="js-svc">📋 ${esc(svcText)}</div>` : '';
+  const vipBadge = c.isTest ? '' : _calVipBadge(c);
+  let gpsHtml = '';
+  if (jhEntry.actualArrival) {
+    const arr = new Date(jhEntry.actualArrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    const dep = jhEntry.actualDeparture ? new Date(jhEntry.actualDeparture).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : null;
+    const dur = jhEntry.actualDuration > 0 ? `${Math.floor(jhEntry.actualDuration/60)}h ${jhEntry.actualDuration%60}m` : null;
+    gpsHtml = `<div class="js-gps-time">⏱ ${arr}${dep?' – '+dep:''}${dur?' ('+dur+')':''}</div>`;
+  }
+  const pmFmt = jhEntry.payment ? esc(jhEntry.payment) : null;
+  return `<div class="job-scheduled completed job-card-extra" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+    <div class="js-name"><span>✓ ${name}${vipBadge}</span><span>${amtHtml}</span></div>
+    <div class="js-meta">${[city].filter(Boolean).join(' · ')}</div>
+    ${addr ? `<div class="js-addr">📍 ${addr}</div>` : ''}
+    ${gpsHtml}
+    ${svcLine}
+    ${pmFmt ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">💵 ${pmFmt}</div>` : ''}
+    <div class="js-extra-label" style="font-size:9px;color:var(--muted);margin-top:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">2nd same-day job</div>
   </div>`;
 }
 
@@ -2231,6 +2846,38 @@ function findCustomer(phone) {
   return (dbRecord.customers||[]).find(c=>c.phone===phone);
 }
 
+function _normalizeRig(raw) {
+  if (!raw) return null;
+  const k = String(raw).toLowerCase().trim();
+  if (k === 'rig_1' || k.includes('old')) return 'rig_1';
+  if (k === 'rig_2' || k.includes('new')) return 'rig_2';
+  if (k === 'rig_3' || k.includes('chev')) return 'rig_3';
+  return raw;
+}
+
+// Returns [{customer, jhEntry}] for completed jobHistory entries NOT already represented by scheduledStatus.
+function getExtraCompletedJobsForRig(date, rig) {
+  const result = [];
+  for (const c of (dbRecord.customers || [])) {
+    const jh = c.jobHistory || [];
+    const ssRig = _normalizeRig(c.scheduledStatus?.rig);
+    const matching = jh.filter(j => {
+      if (j.date !== date || j.status !== 'completed') return false;
+      const jhRig = _normalizeRig(j.rig) || ssRig || 'rig_1';
+      return jhRig === rig;
+    });
+    if (!matching.length) continue;
+    matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
+    const ss = c.scheduledStatus;
+    const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
+    const startIdx = ssCovers ? 1 : 0;
+    for (let i = startIdx; i < matching.length; i++) {
+      result.push({ customer: c, jhEntry: matching[i] });
+    }
+  }
+  return result;
+}
+
 // ── DRAG AND DROP ─────────────────────────────────────────────────────────────
 function initSortables() {
   sortables.forEach(s => { try { s.destroy(); } catch {} });
@@ -2243,7 +2890,7 @@ function initSortables() {
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
-      filter: '.card-del-btn,.card-sms-btn',
+      filter: '.card-del-btn,.card-sms-btn,.card-edit-btn',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToSidebar(evt.item.dataset.phone, evt)
@@ -2256,7 +2903,7 @@ function initSortables() {
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
-      filter: '.dist-marker,.route-summary,.route-warn,.route-missing',
+      filter: '.dist-marker,.route-summary,.route-warn,.route-missing,.win-lane-hdr,.win-section-hdr',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
@@ -2292,6 +2939,7 @@ async function handleDropToRig(phone, date, rig) {
   c.scheduledStatus.state = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
   c.scheduledStatus.rig = rig;
+  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning'; // default for week-view drops
 
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   const dateStr = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
@@ -2301,6 +2949,33 @@ async function handleDropToRig(phone, date, rig) {
   renderCalGrid(getWeekDates());
   renderCrewPanel(getWeekDates());
   renderSidebar(); // keep sidebar in sync — "All caught up!" when last card is scheduled
+}
+
+async function handleDropToWindow(phone, date, rig, win) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  const prevRig = prev.rig, prevDate = prev.scheduledDate;
+  // Clear old order slot if changing rig or date
+  if (prevDate && prevRig && (prevDate !== date || prevRig !== rig)) {
+    const p = (phone||'').replace(/\D/g,'').slice(-10);
+    if (calState.jobOrder?.[prevDate]?.[prevRig]) {
+      calState.jobOrder[prevDate][prevRig] = calState.jobOrder[prevDate][prevRig].filter(x => x !== p);
+      saveCalState();
+    }
+  }
+  if (!c.scheduledStatus) c.scheduledStatus = { estimatedDuration:2, jobNotes:'', crew:[] };
+  c.scheduledStatus.state         = 'scheduled';
+  c.scheduledStatus.scheduledDate = date;
+  c.scheduledStatus.rig           = rig;
+  c.scheduledStatus.window        = win;
+  const winMeta = WINDOWS.find(w => w.id === win);
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`${winMeta?.emoji||''} ${esc(name)} → ${RIG_LABELS[rig]} · ${winMeta?.label||win}`, 'Undo', () => { undoAction(phone, prev); });
+  saveDb().catch(()=>{});
+  renderSidebar();     // initSortables() runs here — must come before win-lane init
+  renderDayPool(date);
+  renderDayRigGrid(date); // re-adds win-lane sortables after initSortables cleaned up
 }
 
 async function handleDropToSidebar(phone, evt) {
@@ -2372,6 +3047,7 @@ function saveQuickEdit(phone, forceDur) {
   c.scheduledStatus.crew = crew;
   if (forceDur !== undefined) {
     c.scheduledStatus.estimatedDuration = forceDur;
+    c.scheduledStatus.duration = forceDur === 4 ? 'half' : forceDur === 8 ? 'full' : c.scheduledStatus.duration;
   } else {
     const hrsEl = document.getElementById('crew-qe-hrs-' + phone);
     const hrs = parseFloat(hrsEl?.value || '');
@@ -2478,37 +3154,49 @@ function openJobModal(phone) {
   const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
 
   document.getElementById('jmTitle').textContent = name;
+  const curWin = ss.window || null;
+  const curRig = ss.rig || null;
   document.getElementById('jmBody').innerHTML = `
-    <div style="margin-bottom:.875rem;display:flex;gap:8px;align-items:center;">
+    <div style="margin-bottom:.875rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <span class="status-badge ${stateBadge}">${ss.state||'scheduled'}</span>
       ${ss.scheduledDate ? `<span style="font-size:13px;color:var(--muted);">${new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span>` : ''}
     </div>
-    <div style="font-size:14px;line-height:2;margin-bottom:1rem;">
+    <div style="font-size:13px;line-height:1.9;margin-bottom:.875rem;color:var(--muted);">
       ${ph ? ph+'<br>' : ''}
       ${addr ? addr+'<br>' : ''}
-      ${crewNames ? `👤 ${crewNames}<br>` : ''}
-      ${alertIcons(c.alerts||[])} ${(c.alerts||[]).map(a=>a.label).join(', ')||'No alerts'}<br>
+      ${crewNames !== '—' ? `👤 ${crewNames}<br>` : ''}
     </div>
     <div class="modal-field">
-      <label>Duration (hours)</label>
-      <select id="jmDur" class="modal-input">
-        ${[1,2,3,4,5,6].map(h=>`<option value="${h}" ${(ss.estimatedDuration||2)===h?'selected':''}>${h} hour${h===1?'':'s'}</option>`).join('')}
-      </select>
+      <label>Rig</label>
+      <div id="jmRigPicker" style="display:flex;gap:6px;margin-top:4px;">
+        ${RIGS.map(r => `<button class="win-btn${r===curRig?' active':''}" data-rig="${r}"
+          onclick="event.stopPropagation();document.querySelectorAll('#jmRigPicker .win-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')"
+          style="font-size:11px;">${RIG_LABELS[r]}</button>`).join('')}
+      </div>
     </div>
     <div class="modal-field">
-      <label>Start Time</label>
-      <input type="time" id="jmStart" class="modal-input" value="${ss.startTime||'09:00'}">
+      <label>Time Window</label>
+      <div id="jmWinPicker" class="win-btn-row" style="margin:4px 0 0;">
+        ${WINDOWS.map(w => `<button class="win-btn${w.id===curWin?' active':''}" data-win="${w.id}"
+          onclick="event.stopPropagation();document.querySelectorAll('#jmWinPicker .win-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')"
+          style="font-size:11px;">${w.emoji} ${w.label}</button>`).join('')}
+      </div>
     </div>
     <div class="modal-field">
-      <label>Job Notes (internal)</label>
+      <label>Date</label>
+      <input type="date" id="jmDate" class="modal-input" value="${ss.scheduledDate||''}">
+    </div>
+    <div class="modal-field">
+      <label>Job Notes</label>
       <input type="text" id="jmNotes" class="modal-input" value="${esc(ss.jobNotes||'')}" placeholder="Services, address notes…">
     </div>
   `;
 
   const isCompleted = ss.state === 'completed';
   document.getElementById('jmFooter').innerHTML = `
-    <button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>
+    ${!isCompleted ? `<button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>` : ''}
     ${!isCompleted ? `<button class="mbtn-green" onclick="markComplete()">✓ Complete</button>` : ''}
+    ${isCompleted  ? `<button style="padding:10px 14px;border-radius:10px;background:#ede9fe;color:#7c3aed;border:1.5px solid #c4b5fd;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="closeJobModal();promptRevertJob('${phone}')">↩ Revert to Scheduled</button>` : ''}
     <button style="flex:1;padding:10px;border-radius:10px;background:#fee2e2;color:#dc2626;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptCancelJob('${phone}')">✕ Cancel Job</button>
     <button class="mbtn-save" onclick="saveJobModal()">Save</button>
   `;
@@ -2520,9 +3208,13 @@ function closeJobModal() { document.getElementById('jobModal').classList.add('hi
 function saveJobModal() {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
-  c.scheduledStatus.estimatedDuration = parseInt(document.getElementById('jmDur').value)||2;
-  c.scheduledStatus.startTime = document.getElementById('jmStart').value || '09:00';
-  c.scheduledStatus.jobNotes  = document.getElementById('jmNotes').value.trim();
+  const newRig  = document.querySelector('#jmRigPicker .win-btn.active')?.dataset.rig;
+  const newWin  = document.querySelector('#jmWinPicker .win-btn.active')?.dataset.win;
+  const newDate = (document.getElementById('jmDate')?.value || '').trim();
+  if (newRig)  c.scheduledStatus.rig           = newRig;
+  if (newWin)  c.scheduledStatus.window        = newWin;
+  if (newDate) c.scheduledStatus.scheduledDate = newDate;
+  c.scheduledStatus.jobNotes = document.getElementById('jmNotes').value.trim();
   saveDb().catch(()=>{});
   closeJobModal();
   render();
@@ -2746,6 +3438,34 @@ function _doCompleteJob(log) {
     c.reviewQueue = { queuedAt: new Date().toISOString(), status: 'pending', jobDate: completedDate };
   }
 
+  // Write jobHistory entry — enables GPS attribution, profile Service History, and per-job payment tracking
+  if (!c.jobHistory) c.jobHistory = [];
+  const _jhNow   = new Date().toISOString();
+  const _jhJobId = `${jmPhone}_${completedDate}_${Math.round((ss.approvedAmount||0)*100)}_cal${Date.now().toString(36)}`;
+  const _jhEntry = {
+    jobId:       _jhJobId,
+    date:        completedDate,
+    services:    ss.jobNotes || '',
+    amount:      ss.approvedAmount || 0,
+    rig:         ss.rig || null,
+    city:        c.city || null,
+    address:     c.address || null,
+    status:      'completed',
+    completedAt: _jhNow,
+    crew:        (ss.crew || []).slice(),
+    source:      'calendar_completion',
+    ...(log.paymentStatus === 'paid' ? {
+      payment:       log.paymentMethod || null,
+      paymentMethod: log.paymentMethod || null,
+      paidAt:        log.paidAt || _jhNow,
+    } : {}),
+  };
+  // Idempotent: don't double-push if same completion already exists
+  if (!c.jobHistory.some(j => j.date === completedDate && j.source === 'calendar_completion')) {
+    c.jobHistory.push(_jhEntry);
+    ss._lastJobId = _jhJobId; // link for payment logging
+  }
+
   saveDb().catch(()=>{});
   closeJobModal();
   render();
@@ -2755,6 +3475,81 @@ function _doCompleteJob(log) {
   if (_pendingPhotos.length) uploadPhotos(_capturePhone, _captureDate, _captureServices);
 }
 
+// ── REVERT JOB TO SCHEDULED ───────────────────────────────────────────────────
+
+function promptRevertJob(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const amt  = ss.approvedAmount ? `$${Number(ss.approvedAmount).toLocaleString()}` : '';
+  const dateStr = ss.scheduledDate
+    ? new Date(ss.scheduledDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+    : '';
+  const hasReviewQ = !!c.reviewQueue;
+
+  document.getElementById('cmTitle').textContent = '↩ Revert to Scheduled';
+  document.getElementById('cmBody').innerHTML =
+    `Revert <strong>${esc(name)}</strong>${dateStr ? `'s ${dateStr} job` : ''}${amt ? ` (${amt})` : ''} back to scheduled?<br><br>` +
+    `<span style="font-size:12px;color:var(--muted);">This will:<br>
+    • Remove the jobHistory entry<br>
+    • Subtract ${amt} from lifetime spend<br>
+    • Reset status to <strong>scheduled</strong><br>
+    • Remove review queue entry</span>` +
+    (hasReviewQ ? `<br><br><span style="font-size:12px;color:#d97706;">⚠️ A review request was queued for this job — it will also be removed.</span>` : '');
+  document.getElementById('cmReasonWrap').style.display = 'none';
+  const btn = document.getElementById('cmConfirmBtn');
+  btn.textContent = '↩ Revert';
+  btn.style.background = '#7c3aed';
+  btn.onclick = () => { closeConfirmModal(); _doRevertJob(phone); };
+  document.getElementById('confirmModal').classList.remove('hidden');
+}
+
+function _doRevertJob(phone) {
+  const c = findCustomer(phone);
+  if (!c || !c.scheduledStatus) return;
+  const ss  = c.scheduledStatus;
+  const amt = ss.approvedAmount || 0;
+
+  // Remove calendar_completion jobHistory entry for this job date
+  const jobDate = ss.scheduledDate || ss.completedDate;
+  if (jobDate) {
+    c.jobHistory = (c.jobHistory || []).filter(j => !(j.date === jobDate && j.source === 'calendar_completion'));
+  }
+
+  // Roll back aggregates
+  if (amt > 0) c.lifetimeSpend = Math.max(0, (c.lifetimeSpend || 0) - amt);
+  c.totalJobs = Math.max(0, (c.totalJobs || 0) - 1);
+
+  // lastService = most recent remaining jobHistory date, or null
+  const remaining = (c.jobHistory || []).filter(j => j.date && j.status === 'completed').map(j => j.date).sort();
+  c.lastService = remaining.length ? remaining[remaining.length - 1] : null;
+
+  // Reset scheduledStatus — preserve scheduling intent, clear completion data
+  const revertedAt = new Date().toISOString();
+  ss.state         = 'scheduled';
+  delete ss.completedDate;
+  delete ss.completedAt;
+  delete ss.jobLog;
+  delete ss.paymentStatus;
+  delete ss.paidAmount;
+  delete ss.paidAt;
+  delete ss._lastJobId;
+  // Keep: scheduledDate, rig, window, approvedAmount, jobNotes, paymentRequestSentAt
+
+  // Audit trail
+  if (!ss.revertLog) ss.revertLog = [];
+  ss.revertLog.push({ revertedAt, jobDate, amount: amt, revertedBy: 'operator' });
+
+  // Remove review queue entry if it was for this job
+  if (c.reviewQueue?.jobDate === jobDate) delete c.reviewQueue;
+
+  saveDb().then(() => {
+    render();
+    showToast('↩ Job reverted — back to scheduled');
+  }).catch(() => showToast('⚠️ Revert failed — check connection'));
+}
+
 // ── DELETE / CANCEL FLOWS ──────────────────────────────────────────────────────
 let _confirmCallback = null;
 let _deletedSnapshot = null; // for undo
@@ -2762,6 +3557,9 @@ let _deletedSnapshot = null; // for undo
 function closeConfirmModal() {
   document.getElementById('confirmModal').classList.add('hidden');
   _confirmCallback = null;
+  // Reset confirm button to default red (revert sets it purple)
+  const btn = document.getElementById('cmConfirmBtn');
+  if (btn) btn.style.background = '';
 }
 
 function promptDeleteFromQueue(phone) {
@@ -3205,7 +4003,7 @@ function renderReviewAlertList() {
 }
 
 function sendReviewRequestFromPanel(phone, firstName, rowEl) {
-  const msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  const msg = buildReviewMsg(firstName);
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   const today = isoToday();
   localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
@@ -3325,6 +4123,56 @@ function printInvoice(phone) {
   pcpcApi.logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
 }
 
+function emailInvoice(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const fn   = name.split(' ')[0] || 'there';
+  const yr   = new Date().getFullYear();
+  const invNum   = `PC-${yr}-${(c.phone||'').slice(-4)}-${Date.now().toString().slice(-3)}`;
+  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const compDate = ss.completedDate
+    ? new Date(ss.completedDate+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+    : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services';
+  const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  • ${s}`).join('\n');
+  const addrLine = [c.address, c.city ? c.city+', FL'+(c.zip?' '+c.zip:'') : ''].filter(Boolean).join(', ');
+  const payStatus = ss.paymentCollected ? '✓ PAID — Thank you!' : 'Payment due upon receipt.';
+
+  const subject = `${PRINT_CO} — Invoice ${invNum}`;
+  const body = [
+    `Hello ${fn},`,
+    ``,
+    `Thank you for choosing ${PRINT_CO}! Please find your invoice below.`,
+    ``,
+    `─────────────────────────────`,
+    `INVOICE #${invNum}`,
+    `Date: ${compDate}`,
+    `─────────────────────────────`,
+    ``,
+    `Bill To: ${name}`,
+    addrLine ? `Address: ${addrLine}` : '',
+    ``,
+    `Services Performed:`,
+    svcItems,
+    ``,
+    `─────────────────────────────`,
+    `TOTAL: $${Number(amount).toFixed(2)}`,
+    `─────────────────────────────`,
+    ``,
+    `Payment methods: Zelle · Check · Cash · Venmo`,
+    payStatus,
+    ``,
+    `Questions? Call or text ${PRINT_PHONE}`,
+    `${PRINT_CO}  ·  Family-owned since 1995`,
+  ].filter(l => l !== null).join('\n');
+
+  const toEmail = c.email || '';
+  window.open(`mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+}
+
 // ── JOB SHEET GENERATOR ───────────────────────────────────────────────────────
 function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const ss   = c.scheduledStatus || {};
@@ -3441,7 +4289,12 @@ function printBulkJobSheets(date, rig) {
 }
 
 // ── REVIEW REQUEST TEXTS ──────────────────────────────────────────────────────
-const GOOGLE_REVIEW_LINK = 'https://share.google/ChFC1uAe9Xdveb8XN';
+const GOOGLE_REVIEW_LINK = 'https://g.page/r/CRQZRl3rokhmEAE/review';
+
+// Single-source review message — all send paths use this
+function buildReviewMsg(firstName) {
+  return `Hi ${firstName || 'there'}! It was a pleasure servicing your home. If you have a moment, a quick 5-star Google review would mean the world to our family business 🙏\n\nClick here: ${GOOGLE_REVIEW_LINK}\n\nMentioning the service (like soft wash or driveway) and your city helps us grow.\n\nThanks so much for your support!\n\n— The Fumero Family\nPure Cleaning Pressure Cleaning`;
+}
 
 function getReviewRequestedDate(phone) {
   try {
@@ -3473,7 +4326,7 @@ async function sendReviewRequest(phone, firstName, btn) {
     }
   } catch(e) { console.warn('[review tpl]', e.message); }
 
-  if (!msg) msg = `Hi ${firstName}! Thanks again for trusting Pure Cleaning today — really appreciate it.\n\nIf we did a great job, would you mind leaving us a quick Google review? It means the world to our family business and helps other neighbors find us.\n\n⭐ Leave a review here: ${GOOGLE_REVIEW_LINK}\n\nThanks again from all of us! — Pure Cleaning Family\n954-389-2642`;
+  if (!msg) msg = buildReviewMsg(firstName);
 
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   const today = isoToday();
@@ -3560,6 +4413,39 @@ function sendArrivalText(phone, name, slot, date, rig, btn) {
 // ── PAYMENT MODAL ────────────────────────────────────────────────────────────
 let _payPhone = null;
 
+function requestPayment(phone, el) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const fn  = (c.firstName||c.fn||'').trim().split(' ')[0] || 'there';
+  const ss  = c.scheduledStatus || {};
+  const pm  = c.paymentMethod || ss.paymentMethod || 'zelle';
+  const rawAmt = ss.approvedAmount ? Number(ss.approvedAmount) : 0;
+  const amtFmt = '$' + rawAmt.toFixed(2);
+
+  let body;
+  if (pm === 'check') {
+    body = `Hello ${fn},\n\nI hope the job came out satisfactory! When you get the opportunity, please make the check out to "${ZELLE_NAME}" for ${amtFmt}.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
+  } else if (pm === 'cash') {
+    body = `Hello ${fn},\n\nI hope the job came out satisfactory! When you get the opportunity, please have the cash payment of ${amtFmt} ready.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
+  } else {
+    body = `Hello ${fn},\n\nI hope the job came out satisfactory. When you get the opportunity, please zelle the business at ${ZELLE_NUMBER}, it'll be under ${ZELLE_NAME}.\n\nThe total amount was ${amtFmt}.\n\nThank you!\n\n— ${BUSINESS_NAME}`;
+  }
+
+  // Log that request was sent — does NOT change job state
+  ss.paymentRequestSentAt = new Date().toISOString();
+  ss.paymentRequestCount  = (ss.paymentRequestCount || 0) + 1;
+  saveDb().catch(() => {});
+
+  if (el) {
+    const orig = el.textContent;
+    el.textContent = '✓ Sent';
+    el.classList.add('sent');
+    setTimeout(() => { el.textContent = orig; el.classList.remove('sent'); }, 3000);
+  }
+
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
+}
+
 function openPaymentModal(phone) {
   const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
   if (!c) return;
@@ -3612,6 +4498,22 @@ async function submitPayment() {
     const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
     if (c) {
       c.paymentInfo = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
+      if (method) c.paymentMethod = method; // update preferred default for next job pre-fill
+
+      // Update matching jobHistory entry (per-job payment tracking)
+      const ss = c.scheduledStatus || {};
+      const jhMatch = (c.jobHistory || []).find(j =>
+        (ss._lastJobId && j.jobId === ss._lastJobId) ||
+        (j.date === (ss.scheduledDate || paidDate) && j.status === 'completed' && !j.payment)
+      );
+      if (jhMatch) {
+        jhMatch.payment       = method;
+        jhMatch.paymentMethod = method;
+        jhMatch.paidAt        = new Date().toISOString();
+        if (notes) jhMatch.paymentNotes = notes;
+      }
+      // Persist jobHistory update (saveDb writes full DB including jobHistory + paymentInfo)
+      saveDb().catch(() => {});
     }
 
     closePaymentModal();
@@ -3906,9 +4808,16 @@ async function saveAddUnscheduled() {
 
 // ── TAP-TO-SCHEDULE MODAL ─────────────────────────────────────────────────────
 
-let _tapSchedPhone = null;
-
+let _tapSchedPhone        = null;
 let _tapSchedSelectedDate = null;
+let _tapSchedWindow       = 'morning';
+let _queueEditPhone       = null;
+let _queueEditWin         = 'morning';
+
+function selectTapSchedWindow(win, el) {
+  _tapSchedWindow = win;
+  document.querySelectorAll('#tapSchedWinRow .win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === win));
+}
 
 function _buildMiniCal(selectedDate) {
   const today = isoToday();
@@ -3945,6 +4854,9 @@ function openTapScheduleModal(phone) {
   _tapSchedSelectedDate = proposed || null;
   document.getElementById('tapSchedDate').value = proposed || '';
   document.getElementById('tapSchedNote').value  = c?.scheduledStatus?.scheduleNote || '';
+  // Reset window picker to existing window or default morning
+  _tapSchedWindow = c?.scheduledStatus?.window || 'morning';
+  document.querySelectorAll('#tapSchedWinRow .win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === _tapSchedWindow));
   document.getElementById('tapSchedMiniCal').innerHTML = _buildMiniCal(proposed || null);
   const lbl = document.getElementById('tapSchedSelectedLabel');
   if (proposed) {
@@ -3975,6 +4887,7 @@ async function confirmTapSchedule() {
   c.scheduledStatus.state         = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
   c.scheduledStatus.rig           = null;  // Day Pool — GPS will attribute rig
+  c.scheduledStatus.window        = _tapSchedWindow || 'morning';
   const note = (document.getElementById('tapSchedNote').value || '').trim();
   if (note) c.scheduledStatus.scheduleNote = note;
   await saveDb();
@@ -3983,6 +4896,113 @@ async function confirmTapSchedule() {
   const name = ((c.firstName||'') + ' ' + (c.lastName||'')).trim();
   const dayLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
   showToast(`✓ ${esc(name)} → ${dayLabel} · Day Pool`, 'Undo', () => { undoAction(_tapSchedPhone, prev); });
+}
+
+function dismissMiniQuote(phone) {
+  // Target the specific record with pending mini-quote state (may be a duplicate)
+  const record = (dbRecord.customers||[]).find(x =>
+    (x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
+    x.quoteStatus?.state === 'phone_quoted_pending_mini_quote'
+  );
+  if (!record) return;
+  record.quoteStatus.state = 'phone_quoted';
+  saveDb().then(() => render());
+  showToast('✓ Removed from Mini Quote queue');
+}
+
+// ── QUEUE EDIT MODAL ──────────────────────────────────────────────────────────
+
+function openQueueEditModal(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  _queueEditPhone = phone;
+  const ss = c.scheduledStatus || {};
+  const qs = c.quoteStatus    || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+
+  document.getElementById('queueEditName').textContent = name;
+  document.getElementById('queueEditServices').value = qs.mainServices || ss.jobNotes || qs.notes || '';
+  document.getElementById('queueEditPrice').value    = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || '';
+  document.getElementById('queueEditDate').value     = ss.scheduledDate || ss.customerSelectedDate || '';
+  document.getElementById('queueEditRig').value      = ss.rig || '';
+  document.getElementById('queueEditNotes').value    = ss.scheduleNote || '';
+
+  _queueEditWin = ss.window || 'morning';
+  document.querySelectorAll('#queueEditWinRow .qe-win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === _queueEditWin));
+
+  document.getElementById('queueEditModal').classList.remove('hidden');
+}
+
+function selectQueueEditWin(win, el) {
+  _queueEditWin = win;
+  document.querySelectorAll('#queueEditWinRow .qe-win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === win));
+}
+
+function closeQueueEditModal() {
+  document.getElementById('queueEditModal').classList.add('hidden');
+  _queueEditPhone = null;
+}
+
+async function saveQueueEdit() {
+  if (!_queueEditPhone) return;
+  const c = findCustomer(_queueEditPhone);
+  if (!c) return;
+
+  const services = (document.getElementById('queueEditServices').value || '').trim();
+  const price    = parseFloat(document.getElementById('queueEditPrice').value) || 0;
+  const date     = document.getElementById('queueEditDate').value || null;
+  const rig      = document.getElementById('queueEditRig').value || null;
+  const notes    = (document.getElementById('queueEditNotes').value || '').trim();
+
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  if (!c.quoteStatus)     c.quoteStatus     = {};
+
+  if (services) {
+    c.quoteStatus.mainServices     = services;
+    c.scheduledStatus.jobNotes     = services;
+  }
+  if (price)  c.scheduledStatus.approvedAmount = price;
+  if (date)   c.scheduledStatus.scheduledDate  = date;
+  else        delete c.scheduledStatus.scheduledDate;
+  c.scheduledStatus.window      = _queueEditWin || null;
+  c.scheduledStatus.rig         = rig;
+  if (notes) c.scheduledStatus.scheduleNote = notes;
+
+  const phone = _queueEditPhone;
+
+  // Clear phone_quoted_pending_mini_quote on any same-phone duplicate record
+  (dbRecord.customers||[]).forEach(x => {
+    if ((x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
+        x.quoteStatus?.state === 'phone_quoted_pending_mini_quote') {
+      x.quoteStatus.state = 'phone_quoted';
+    }
+  });
+
+  closeQueueEditModal();
+  await saveDb();
+  render();
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`✓ ${esc(name)} updated`);
+}
+
+async function quickScheduleFromQueue(phone) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const ss   = c.scheduledStatus || {};
+  const date = ss.scheduledDate;
+  if (!date) { openTapScheduleModal(phone); return; }
+  const prev = JSON.parse(JSON.stringify(ss));
+
+  c.scheduledStatus.state  = 'scheduled';
+  // scheduledDate, rig, window already set from queue edit
+  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning';
+
+  await saveDb();
+  render();
+  const name     = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  const dayLabel = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  const rigLabel = ss.rig ? ` · ${RIG_LABELS[ss.rig]}` : ' · Day Pool';
+  showToast(`✓ ${esc(name)} → ${dayLabel}${rigLabel}`, 'Undo', () => { undoAction(phone, prev); });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -4037,6 +5057,13 @@ function renderDayView(date) {
   renderDayPool(date);
   renderDayRigGrid(date);
   renderDayRollup(date);
+  // Fetch stored morning stops if not already in memory cache
+  if (!_morningStopsData[date]) {
+    fetchMorningStops(date).then(() => {
+      // Re-render rig grid to show morning stop badges once data arrives
+      if (_morningStopsData[date]) renderDayRigGrid(date);
+    });
+  }
 }
 
 function renderPriorityStrip(date) {
@@ -4085,15 +5112,27 @@ function renderPriorityStrip(date) {
 function renderDayRevBanner(date) {
   const el = document.getElementById('dayRevBanner');
   if (!el) return;
-  const booked = calculateDayTotal(date);
-  const collected = RIGS.reduce((s,rig) =>
-    s + getScheduledForRig(date,rig).filter(c=>(c.scheduledStatus||{}).state==='completed')
-         .reduce((t,c)=>t+(jobAmount(c).val),0), 0);
+  const booked    = calculateDayTotal(date);
+  const collected = calculateDayCollected(date);
   const dateLabel = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  // Total drive: home→first job + inter-job for each rig
+  let _totalDrive = 0, _hasAnyCoords = false;
+  for (const rig of RIGS) {
+    const rjobs = getScheduledForRigOrdered(date, rig).filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
+    if (!rjobs.length) continue;
+    const first = getJobCoords(rjobs[0]);
+    if (first) { _totalDrive += distanceBetween(HOME_BASE.lat, HOME_BASE.lng, first.lat, first.lng) * 1.3; _hasAnyCoords = true; }
+    for (let i = 0; i < rjobs.length - 1; i++) {
+      const a = getJobCoords(rjobs[i]), b = getJobCoords(rjobs[i+1]);
+      if (a && b) { _totalDrive += distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3; _hasAnyCoords = true; }
+    }
+  }
+  const driveHtml = _hasAnyCoords ? `<span style="color:rgba(255,255,255,.55);font-size:12px;">🚗 ~${_totalDrive.toFixed(1)} mi</span>` : '';
   el.innerHTML = `<span class="rev-date">${dateLabel}</span>
     <span>$${booked.toLocaleString('en-US',{maximumFractionDigits:0})} booked</span>
     <span style="color:rgba(255,255,255,.3);">/</span>
     <span class="rev-collected">$${collected.toLocaleString('en-US',{maximumFractionDigits:0})} collected</span>
+    ${driveHtml}
     <button id="syncGpsBtn" class="sync-gps-btn" onclick="syncGpsNow('${date}')" title="Sync Bouncie GPS data for this day">🛰 Sync GPS</button>`;
 }
 
@@ -4117,44 +5156,62 @@ function renderDayRigGrid(date) {
         </select>
         ${currentDriver?.phone ? `<button class="driver-text-btn" onclick="event.stopPropagation();textDriver('${date}','${rig}')">📱 Text</button>` : ''}
       </div>` : '';
-    const jobsHtml = buildJobsHtmlWithDist(jobs);
-    const emptyClass = jobs.length ? '' : ' empty-hint';
-    const emptyMsg = !jobs.length
-      ? `<div style="text-align:center;padding:2rem 1rem;color:#c4cad4;font-size:13px;font-weight:600;letter-spacing:.2px;">No jobs scheduled</div>` : '';
+    const extras = getExtraCompletedJobsForRig(date, rig);
+    const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
+    // buildWindowLanes populates _estTimeMap — must run before computeRigDaySummary
+    const winLanesHtml = buildWindowLanes(jobs, date, rig);
+    const totalCount = jobs.length + extras.length;
     const routeSummaryHtml = jobs.length >= 2 ? renderRouteSummary(jobs, date, rig) : '';
+    // Day summary: only for scheduled/in_progress jobs with coords
+    const activeJobs = jobs.filter(c => { const s = c.scheduledStatus?.state; return s === 'scheduled' || s === 'in_progress'; });
+    const daySummary = activeJobs.length >= 1 ? computeRigDaySummary(activeJobs) : null;
+    const summaryHtml = (() => {
+      if (!daySummary) return '';
+      const { departMin, returnMin, totalMin, totalMi, hasCoords, warnings } = daySummary;
+      const dh = Math.floor(totalMin/60), dm = totalMin%60;
+      const durStr = `${dh}h ${String(dm).padStart(2,'0')}m`;
+      const miStr  = totalMi ? ` · <b>🚗 ~${totalMi.toFixed(1)} mi</b>` : '';
+      const timeLine = hasCoords
+        ? `<b>${minsToTime(departMin)}</b> depart → <b>${minsToTime(returnMin)}</b> return · <b>${durStr}</b>${miStr}`
+        : `<b>${minsToTime(daySummary.departMin || activeJobs[0]?.scheduledStatus?.window ? (WIN_START_MINS[activeJobs[0].scheduledStatus.window] || 9*60+30) : 9*60+30)}</b> first job · <b>${durStr}</b> est.`;
+      const warnHtml = warnings.length
+        ? `<div class="day-rig-warn">${warnings.join(' · ')}</div>` : '';
+      return `<div class="day-rig-summary">${timeLine}</div>${warnHtml}`;
+    })();
+    const morningStopHtml = renderMorningStopBadges(date, rig);
     return `<div class="day-rig-col">
       <div class="day-rig-hdr" style="border-top:3px solid ${rigColor};">
         <span style="width:9px;height:9px;border-radius:50%;background:${rigColor};flex-shrink:0;display:inline-block;"></span>
         <span style="flex:1;">${RIG_LABELS[rig]}</span>
-        <span style="font-size:11px;color:rgba(255,255,255,.4);font-weight:500;">${jobs.length} job${jobs.length!==1?'s':''}</span>
+        <span style="font-size:11px;color:rgba(255,255,255,.4);font-weight:500;">${totalCount} job${totalCount!==1?'s':''}</span>
       </div>
+      ${summaryHtml}
+      ${morningStopHtml}
       <div class="day-cap-bar"><div class="day-cap-fill" style="width:${capPct}%;background:${rigColor};"></div></div>
       ${grossHtml}${driverRowHtml}
-      <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="drj-${date}-${rig}">${jobsHtml}${emptyMsg}</div>
+      ${winLanesHtml}
+      ${extrasHtml}
       ${routeSummaryHtml}
       ${renderArrivalButtons(date, rig, jobs)}
     </div>`;
   }).join('');
   el.innerHTML = html;
-  // Wire up sortables on day rig lanes
-  document.querySelectorAll('#dayRigGrid .rig-jobs').forEach(lane => {
+  // Wire up per-window sortable lanes in day view
+  document.querySelectorAll('#dayRigGrid .win-lane').forEach(lane => {
     sortables.push(Sortable.create(lane, {
       group:{ name:'jobs', pull:true, put:() => true },
       animation:150, ghostClass:'sortable-ghost', chosenClass:'sortable-chosen',
-      filter:'.dist-marker,.route-summary,.route-warn,.route-missing',
+      dragoverBubble: false,
+      filter:'.win-lane-hdr,.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false,100); },
-      onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
-      onUpdate: evt => {
-        const d = evt.to.dataset.date, r = evt.to.dataset.rig;
-        const phones = Array.from(evt.to.querySelectorAll('.job-scheduled[data-phone]'))
-          .map(el => (el.dataset.phone||'').replace(/\D/g,'').slice(-10));
-        if (!calState.jobOrder) calState.jobOrder = {};
-        if (!calState.jobOrder[d]) calState.jobOrder[d] = {};
-        calState.jobOrder[d][r] = phones;
-        saveCalState();
-        renderDayRigGrid(date);
-      }
+      onAdd: evt => handleDropToWindow(
+        evt.item.dataset.phone,
+        evt.to.dataset.date,
+        evt.to.dataset.rig,
+        evt.to.dataset.window
+      ),
+      onUpdate: () => { /* within-window reorder — visual only, no persist */ }
     }));
   });
 }
@@ -4221,6 +5278,283 @@ async function handleDropToPool(phone, date) {
   renderSidebar();
 }
 
+// ── EXPENSE LOGGING ───────────────────────────────────────────────────────────
+
+function loadDayExpenses(date, rig) {
+  try {
+    const s = localStorage.getItem(`expenses:${date}:${rig}`);
+    if (s) return JSON.parse(s);
+  } catch {}
+  return { date, rig, gas: null, chlorine: null, other: null, extraItems: [] };
+}
+
+function saveDayExpenses(date, rig, data) {
+  localStorage.setItem(`expenses:${date}:${rig}`, JSON.stringify({ ...data, savedAt: new Date().toISOString() }));
+}
+
+function getExpenseTotal(data) {
+  return (data.gas || 0) + (data.chlorine || 0) + (data.other || 0) +
+    (data.extraItems || []).reduce((s, i) => s + (i.amount || 0), 0);
+}
+
+function saveExpenseField(date, rig, field, val) {
+  const data = loadDayExpenses(date, rig);
+  data[field] = val === '' ? null : parseFloat(val) || 0;
+  saveDayExpenses(date, rig, data);
+  // Refresh header total and correlation — no full re-render
+  const hdrTot = document.querySelector(`#expPanel_${rig} .exp-hdr-total`);
+  if (hdrTot) { const t = getExpenseTotal(loadDayExpenses(date, rig)); hdrTot.textContent = t > 0 ? `$${t.toFixed(2)}` : ''; }
+  const corrEl = document.getElementById(`expCorr_${rig}`);
+  if (corrEl) corrEl.innerHTML = buildExpenseCorrelationHtml(date, rig);
+}
+
+function saveExpenseExtraLabel(date, rig, idx, label) {
+  const data = loadDayExpenses(date, rig);
+  if (data.extraItems[idx]) { data.extraItems[idx].label = label; saveDayExpenses(date, rig, data); }
+}
+
+function saveExpenseExtraAmt(date, rig, idx, val) {
+  const data = loadDayExpenses(date, rig);
+  if (!data.extraItems[idx]) return;
+  data.extraItems[idx].amount = val === '' ? null : parseFloat(val) || 0;
+  saveDayExpenses(date, rig, data);
+  updateExpenseTotal(date, rig);
+}
+
+function addExpenseItem(date, rig) {
+  const data = loadDayExpenses(date, rig);
+  data.extraItems = data.extraItems || [];
+  data.extraItems.push({ label: '', amount: null });
+  saveDayExpenses(date, rig, data);
+  renderDayRollup(date);
+  setTimeout(() => {
+    const lblInputs = document.querySelectorAll(`[id^="exp_${rig}_extra_lbl_"]`);
+    if (lblInputs.length) lblInputs[lblInputs.length - 1].focus();
+  }, 60);
+}
+
+function removeExpenseItem(date, rig, idx) {
+  const data = loadDayExpenses(date, rig);
+  data.extraItems.splice(idx, 1);
+  saveDayExpenses(date, rig, data);
+  renderDayRollup(date);
+}
+
+function copyYesterdayExpenses(date, rig) {
+  const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() - 1);
+  const yDate = d.toISOString().split('T')[0];
+  const prev = loadDayExpenses(yDate, rig);
+  const today = loadDayExpenses(date, rig);
+  today.gas       = prev.gas;
+  today.chlorine  = prev.chlorine;
+  today.other     = prev.other;
+  today.extraItems = (prev.extraItems || []).map(i => ({ ...i }));
+  saveDayExpenses(date, rig, today);
+  renderDayRollup(date);
+  showToast('Copied yesterday\'s expenses');
+}
+
+function updateExpenseTotal(date, rig) {
+  let total = (parseFloat(document.getElementById(`exp_${rig}_gas`)?.value) || 0)
+            + (parseFloat(document.getElementById(`exp_${rig}_chlorine`)?.value) || 0)
+            + (parseFloat(document.getElementById(`exp_${rig}_other`)?.value) || 0);
+  const data = loadDayExpenses(date, rig);
+  (data.extraItems || []).forEach((_, idx) => {
+    total += parseFloat(document.getElementById(`exp_${rig}_extra_${idx}`)?.value) || 0;
+  });
+  const totEl = document.getElementById(`expTotal_${rig}`);
+  if (totEl) totEl.textContent = total > 0 ? `$${total.toFixed(2)}` : '—';
+  const hdrTot = document.querySelector(`#expPanel_${rig} .exp-hdr-total`);
+  if (hdrTot) hdrTot.textContent = total > 0 ? `$${total.toFixed(2)}` : '';
+}
+
+function getExpenseAvgs(rig, days = 30) {
+  const gas = [], chl = [], tot = [];
+  for (let i = 1; i <= days; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const date = d.toISOString().split('T')[0];
+    const data = loadDayExpenses(date, rig);
+    const t = getExpenseTotal(data);
+    if (t === 0 && data.gas == null && data.chlorine == null) continue;
+    if (data.gas      != null) gas.push(data.gas);
+    if (data.chlorine != null) chl.push(data.chlorine);
+    if (t > 0) tot.push(t);
+  }
+  const avg = arr => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : null;
+  return { gas: avg(gas), chlorine: avg(chl), total: avg(tot), days: tot.length };
+}
+
+function buildExpenseCorrelationHtml(date, rig) {
+  const data  = loadDayExpenses(date, rig);
+  const stops = _morningStopsData[date]?.[rig];
+  if (!stops) return '';
+  const lines = [];
+  const check = (amt, stop, label) => {
+    if (amt == null || amt === 0) return;
+    if (stop?.found) lines.push(`<span style="color:#16a34a;font-size:10px;">✓ ${label} GPS consistent</span>`);
+    else             lines.push(`<span style="color:#dc2626;font-size:10px;">⚠️ ${label} logged — no GPS stop</span>`);
+  };
+  check(data.gas,      stops.gas,      '7-Eleven');
+  check(data.chlorine, stops.chlorine, 'Pro-Line');
+  return lines.length ? `<div class="exp-corr">${lines.join('')}</div>` : '';
+}
+
+function toggleExpPanel(rig) {
+  const key = `expOpen_${rig}`;
+  const isOpen = localStorage.getItem(key) !== '0';
+  localStorage.setItem(key, isOpen ? '0' : '1');
+  const body    = document.getElementById(`expPanelBody_${rig}`);
+  const chevron = document.querySelector(`#expPanel_${rig} .exp-chevron`);
+  if (body)    body.style.display    = isOpen ? 'none' : '';
+  if (chevron) chevron.textContent   = isOpen ? '▼' : '▲';
+}
+
+function renderExpensePanel(date, rig) {
+  const data  = loadDayExpenses(date, rig);
+  const total = getExpenseTotal(data);
+  const avgs  = getExpenseAvgs(rig);
+  const isOpen = localStorage.getItem(`expOpen_${rig}`) !== '0';
+  const fv = v => v != null ? v.toFixed(2) : '';
+
+  // Yesterday copy button
+  const d2 = new Date(date + 'T12:00:00'); d2.setDate(d2.getDate() - 1);
+  const yDate = d2.toISOString().split('T')[0];
+  const prevTotal = getExpenseTotal(loadDayExpenses(yDate, rig));
+  const copyBtn = prevTotal > 0
+    ? `<button class="exp-copy-btn" onclick="event.stopPropagation();copyYesterdayExpenses('${date}','${rig}')">📋 Yesterday</button>`
+    : '';
+
+  const extraRows = (data.extraItems || []).map((item, idx) => `
+    <div class="exp-extra-row">
+      <input class="exp-label-input" type="text" placeholder="Label…"
+             id="exp_${rig}_extra_lbl_${idx}" value="${esc(item.label || '')}"
+             onblur="saveExpenseExtraLabel('${date}','${rig}',${idx},this.value)"
+             onclick="event.stopPropagation()">
+      <span class="exp-currency">$</span>
+      <input class="exp-field" type="number" inputmode="decimal" min="0" step="0.01"
+             id="exp_${rig}_extra_${idx}" value="${item.amount != null ? item.amount.toFixed(2) : ''}" placeholder="0.00"
+             oninput="updateExpenseTotal('${date}','${rig}')"
+             onblur="saveExpenseExtraAmt('${date}','${rig}',${idx},this.value)"
+             onclick="event.stopPropagation()">
+      <button class="exp-remove-btn" title="Remove" onclick="event.stopPropagation();removeExpenseItem('${date}','${rig}',${idx})">×</button>
+    </div>`).join('');
+
+  const avgsLine = avgs.days > 0
+    ? `<div class="exp-avgs">Avg/day (${avgs.days}d): ${avgs.gas != null ? `⛽ $${avgs.gas}` : ''} ${avgs.chlorine != null ? `🧪 $${avgs.chlorine}` : ''} · total $${avgs.total}</div>`
+    : '';
+
+  return `<div class="exp-panel" id="expPanel_${rig}">
+    <div class="exp-hdr" onclick="toggleExpPanel('${rig}')">
+      <span>📒 Expenses</span>
+      <span class="exp-hdr-total">${total > 0 ? '$' + total.toFixed(2) : ''}</span>
+      <span class="exp-chevron">${isOpen ? '▲' : '▼'}</span>
+    </div>
+    <div id="expPanelBody_${rig}" style="${isOpen ? '' : 'display:none;'}">
+      <div class="exp-rows">
+        <div class="exp-row">
+          <span class="exp-lbl">⛽ Gas</span>
+          <span class="exp-currency">$</span>
+          <input class="exp-field" type="number" inputmode="decimal" min="0" step="0.01"
+                 id="exp_${rig}_gas" value="${fv(data.gas)}" placeholder="0.00"
+                 oninput="updateExpenseTotal('${date}','${rig}')"
+                 onblur="saveExpenseField('${date}','${rig}','gas',this.value)"
+                 onclick="event.stopPropagation()">
+        </div>
+        <div class="exp-row">
+          <span class="exp-lbl">🧪 Chlorine</span>
+          <span class="exp-currency">$</span>
+          <input class="exp-field" type="number" inputmode="decimal" min="0" step="0.01"
+                 id="exp_${rig}_chlorine" value="${fv(data.chlorine)}" placeholder="0.00"
+                 oninput="updateExpenseTotal('${date}','${rig}')"
+                 onblur="saveExpenseField('${date}','${rig}','chlorine',this.value)"
+                 onclick="event.stopPropagation()">
+        </div>
+        <div class="exp-row">
+          <span class="exp-lbl">🛒 Other</span>
+          <span class="exp-currency">$</span>
+          <input class="exp-field" type="number" inputmode="decimal" min="0" step="0.01"
+                 id="exp_${rig}_other" value="${fv(data.other)}" placeholder="0.00"
+                 oninput="updateExpenseTotal('${date}','${rig}')"
+                 onblur="saveExpenseField('${date}','${rig}','other',this.value)"
+                 onclick="event.stopPropagation()">
+        </div>
+        ${extraRows}
+      </div>
+      <hr class="exp-divider">
+      <div class="exp-footer">
+        <div class="exp-total-row">
+          <span>Total expenses</span>
+          <span id="expTotal_${rig}" class="exp-total-val">${total > 0 ? '$' + total.toFixed(2) : '—'}</span>
+        </div>
+        ${avgsLine}
+        <div id="expCorr_${rig}">${buildExpenseCorrelationHtml(date, rig)}</div>
+        <div class="exp-actions">
+          <button class="exp-add-btn" onclick="event.stopPropagation();addExpenseItem('${date}','${rig}')">+ line item</button>
+          ${copyBtn}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── MORNING STOP VALIDATION ───────────────────────────────────────────────────
+
+async function fetchMorningStops(date) {
+  try {
+    const r = await fetch(`${PCPC_API}/api/bouncie/morning-stops?date=${date}&_t=${Date.now()}`).then(r => r.json());
+    if (r.morningStops) _morningStopsData[date] = r.morningStops;
+    if (r.poiStats) {
+      for (const [k, v] of Object.entries(r.poiStats)) {
+        if (v?.avgMin) _morningStopAvgMins[k] = v.avgMin;
+      }
+    }
+  } catch(e) { /* silent — GPS data optional */ }
+}
+
+function toggleMorningStopSkip(date, rig) {
+  const key = `ms_skip:${date}:${rig}`;
+  localStorage.getItem(key) === '1'
+    ? localStorage.removeItem(key)
+    : localStorage.setItem(key, '1');
+  renderDayRigGrid(date);
+}
+
+function renderMorningStopBadges(date, rig) {
+  const skipKey  = `ms_skip:${date}:${rig}`;
+  const isSkipped = localStorage.getItem(skipKey) === '1';
+  const stops     = _morningStopsData[date]?.[rig];
+  if (!stops && !isSkipped) return '';  // sync hasn't run yet
+
+  const skipBtn = `<button class="ms-skip-btn" onclick="event.stopPropagation();toggleMorningStopSkip('${date}','${rig}')">${isSkipped ? '↩ Unskip' : '⏩ Skip'}</button>`;
+
+  if (isSkipped) {
+    return `<div class="morning-stops-row"><span style="font-size:10px;color:rgba(255,255,255,.35);">⏩ Morning stops skipped</span>${skipBtn}</div>`;
+  }
+
+  const badges = MORNING_STOP_POI_KEYS.map(({ key, emoji, label }) => {
+    const stop = stops[key];
+    if (!stop) return '';
+    if (!stop.found) {
+      return `<span class="ms-badge ms-missed">${emoji} ${label} missed ⚠️</span>`;
+    }
+    const timeStr = stop.arrivedAt
+      ? new Date(stop.arrivedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : '';
+    const dur = stop.durationMin;
+    const avg = _morningStopAvgMins[key] || null;
+    let durStr = dur != null ? `${dur} min` : '';
+    let cls = 'ms-found';
+    let note = avg ? ` (avg ${avg} min)` : '';
+    if (avg && dur != null && dur > avg * 2) {
+      cls = 'ms-extended';
+      note = ` (avg ${avg} min) — extended`;
+    }
+    return `<span class="ms-badge ${cls}">${emoji} ${label}${timeStr ? ' ' + timeStr : ''}${durStr ? ' ' + durStr : ''}${note} ✓</span>`;
+  }).filter(Boolean).join('');
+
+  return `<div class="morning-stops-row">${badges}${skipBtn}</div>`;
+}
+
 // ── GPS SYNC ──────────────────────────────────────────────────────────────────
 
 async function syncGpsNow(date) {
@@ -4229,6 +5563,8 @@ async function syncGpsNow(date) {
   try {
     const result = await fetch(`${PCPC_API}/api/bouncie/match?date=${date}&_t=${Date.now()}`).then(r => r.json());
     if (result.error) throw new Error(result.error);
+    // Cache morning stop results from the match response
+    if (result.morningStops) _morningStopsData[date] = result.morningStops;
     // Re-fetch DB to pick up GPS-updated records
     const fresh = await fetch(`${PCPC_API}/customers?_t=${Date.now()}`).then(r => r.json());
     if (fresh.customers) { dbRecord = fresh; }
@@ -4237,6 +5573,10 @@ async function syncGpsNow(date) {
     const shifted = (result.results || []).filter(r => r.rigChanged).length;
     let msg = `✓ GPS synced — ${m} job${m !== 1 ? 's' : ''} matched`;
     if (shifted) msg += ` · ${shifted} rig${shifted !== 1 ? 's' : ''} auto-corrected`;
+    // Morning stop summary in toast
+    const msAll = result.morningStops || {};
+    const msMissed = Object.values(msAll).flatMap(s => Object.values(s).filter(p => !p.found)).length;
+    if (msMissed) msg += ` · ${msMissed} stop${msMissed > 1 ? 's' : ''} missed ⚠️`;
     showToast(msg);
   } catch(e) {
     showToast(`GPS sync failed — ${e.message || 'check Bouncie auth'}`);
@@ -4244,52 +5584,117 @@ async function syncGpsNow(date) {
   }
 }
 
-// ── END-OF-DAY ROLLUP ─────────────────────────────────────────────────────────
+// ── OPS DASHBOARD ─────────────────────────────────────────────────────────────
 
 function renderDayRollup(date) {
   const el = document.getElementById('dayRollup');
   if (!el) return;
+  const cfg = loadOpsConfig();
+  const fmtMin = m => m > 0 ? `${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m` : '—';
+  const fmtMi  = m => m != null ? `~${Number(m).toFixed(1)} mi` : null;
+  const fmtDol = d => `$${Math.abs(d).toFixed(2)}`;
+  const fmtPct = p => p != null ? `${Math.round(p)}%` : null;
+  const mCls   = p => p == null ? '' : p >= 75 ? 'margin-good' : p >= 60 ? '' : p >= 50 ? 'margin-warn' : 'margin-bad';
 
-  const rigStats = RIGS.map(rig => {
-    const jobs = getScheduledForRig(date, rig);
-    const done = jobs.filter(c => (c.scheduledStatus || {}).state === 'completed');
-    const revenue = done.reduce((s, c) => s + jobAmount(c).val, 0);
-    // GPS duration from scheduledStatus (written by Bouncie matcher)
-    const gpsMin = done.reduce((s, c) => {
-      const ss = c.scheduledStatus || {};
-      const jhEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === date);
-      return s + ((jhEntry || ss).actualDuration || 0);
+  const rigData = RIGS.map(rig => {
+    const allJobs = getScheduledForRig(date, rig);
+    const active  = allJobs.filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
+    if (!active.length) return null;
+
+    const revenue  = active.reduce((s, c) => s + jobAmount(c).val, 0);
+    const jobCount = active.length;
+
+    // On-site time: GPS actual if available, else per-customer estimate
+    const onSiteMin = active.reduce((s, c) => {
+      const jh = (c.jobHistory || []).slice().reverse().find(j => j.date === date);
+      return s + (jh?.actualDuration || getCustomerJobDuration(c));
     }, 0);
-    return { rig, label: RIG_LABELS[rig], color: RIG_CAP_COLORS[rig], done: done.length, total: jobs.length, revenue, gpsMin };
-  });
 
-  const anyCompleted = rigStats.some(s => s.done > 0);
-  if (!anyCompleted) { el.innerHTML = ''; return; }
+    // Door-to-door summary (reads _estTimeMap populated by buildWindowLanes)
+    const summary = computeRigDaySummary(active);
+    const totalWorkMin = summary?.totalMin || 0;
+    const driveMin     = Math.max(0, totalWorkMin - onSiteMin);
+    const totalMi      = summary?.totalMi ?? null;
 
-  const totalRev = rigStats.reduce((s, r) => s + r.revenue, 0);
-  const totalJobs = rigStats.reduce((s, r) => s + r.done, 0);
-  const totalMin  = rigStats.reduce((s, r) => s + r.gpsMin, 0);
+    // Costs
+    const fuelCost   = totalMi != null ? totalMi * cfg.fuelPerMi : null;
+    const laborCost  = totalWorkMin > 0 ? (totalWorkMin / 60) * cfg.laborPerHr : null;
+    const expData    = loadDayExpenses(date, rig);
+    const expTotal   = getExpenseTotal(expData);
+    const totalCost  = (fuelCost || 0) + (laborCost || 0) + expTotal;
+    const margin     = revenue - totalCost;
+    const marginPct  = revenue > 0 ? (margin / revenue) * 100 : null;
 
-  const fmtDur = min => min > 0 ? `${Math.floor(min / 60)}h ${min % 60}m` : '—';
+    // Warnings
+    const warns = [];
+    if (summary?.warnings?.length) warns.push(...summary.warnings);
+    if (marginPct !== null && marginPct < 60) warns.push(`⚠️ Low margin — ${fmtPct(marginPct)}`);
+    if (totalMi && totalMi > 50) warns.push(`⚠️ Long drive day`);
 
-  const rows = rigStats.map(s => {
-    if (s.done === 0 && s.total === 0) return '';
-    const gpsTag = s.gpsMin > 0 ? `<span class="day-rollup-stat">· ⏱ ${fmtDur(s.gpsMin)}</span>` : '';
-    const pendingTag = s.total > s.done ? `<span class="day-rollup-stat" style="color:#f97316;">· ${s.total - s.done} pending</span>` : '';
-    return `<div class="day-rollup-row">
-      <div class="day-rollup-rig" style="background:${s.color};"></div>
-      <div class="day-rollup-name">${esc(s.label)}</div>
-      <span class="day-rollup-stat">${s.done} job${s.done !== 1 ? 's' : ''}</span>
-      ${s.revenue > 0 ? `<span class="day-rollup-stat">· $${s.revenue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>` : ''}
-      ${gpsTag}${pendingTag}
-    </div>`;
-  }).filter(Boolean).join('');
+    return { rig, revenue, jobCount, onSiteMin, driveMin, totalWorkMin, totalMi, fuelCost, laborCost, expData, expTotal, totalCost, margin, marginPct, warns, summary };
+  }).filter(Boolean);
 
-  const totalGpsTag = totalMin > 0 ? ` · ⏱ ${fmtDur(totalMin)} on-site` : '';
-  el.innerHTML = `<div style="padding:0 10px;">
-    <div class="day-rollup">
-      <div class="day-rollup-hdr">📊 Day Summary${totalJobs > 0 ? ` — $${totalRev.toLocaleString('en-US', { maximumFractionDigits: 0 })} / ${totalJobs} job${totalJobs !== 1 ? 's' : ''}${totalGpsTag}` : ''}</div>
-      ${rows}
+  if (!rigData.length) { el.innerHTML = ''; return; }
+
+  const totRev   = rigData.reduce((s, r) => s + r.revenue, 0);
+  const totCost  = rigData.reduce((s, r) => s + r.totalCost, 0);
+  const totMarg  = totRev - totCost;
+  const totPct   = totRev > 0 ? (totMarg / totRev) * 100 : null;
+  const totJobs  = rigData.reduce((s, r) => s + r.jobCount, 0);
+  const hdrLine  = `$${totRev.toLocaleString('en-US',{maximumFractionDigits:0})} · ${totJobs} job${totJobs!==1?'s':''}${totPct != null ? ` · ${fmtPct(totPct)} margin` : ''}`;
+
+  const rigSections = rigData.map(r => `
+    <div class="ops-rig-section">
+      <div class="ops-rig-label">
+        <span style="width:8px;height:8px;border-radius:50%;background:${RIG_CAP_COLORS[r.rig]};flex-shrink:0;"></span>
+        ${RIG_LABELS[r.rig]}
+      </div>
+      <div class="ops-grid">
+        <span class="ops-metric">Revenue</span>
+        <span class="ops-val">$${r.revenue.toLocaleString('en-US',{maximumFractionDigits:0})} · ${r.jobCount} job${r.jobCount!==1?'s':''}</span>
+        ${r.totalWorkMin > 0 ? `<span class="ops-metric">Working hrs</span><span class="ops-val">${fmtMin(r.totalWorkMin)}${r.summary?.departMin != null ? ` <span style="font-weight:400;color:var(--muted)">(${minsToTime(r.summary.departMin)} – ${minsToTime(r.summary.returnMin)})</span>` : ''}</span>` : ''}
+        ${r.onSiteMin > 0 ? `<span class="ops-metric">On-site</span><span class="ops-val">${fmtMin(r.onSiteMin)}</span>` : ''}
+        ${r.driveMin > 0 ? `<span class="ops-metric">In transit</span><span class="ops-val">${fmtMin(r.driveMin)}${r.totalMi ? ` · ${fmtMi(r.totalMi)}` : ''}</span>` : (r.totalMi ? `<span class="ops-metric">Drive distance</span><span class="ops-val">${fmtMi(r.totalMi)}</span>` : '')}
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:2px;">
+        ${r.fuelCost != null ? `<div class="ops-cost-line">⛽ Fuel est. <span>${fmtMi(r.totalMi)} × $${cfg.fuelPerMi.toFixed(2)}/mi = ${fmtDol(r.fuelCost)}</span></div>` : ''}
+        ${r.laborCost != null ? `<div class="ops-cost-line">👷 Labor <span>${(r.totalWorkMin/60).toFixed(1)} hr × $${cfg.laborPerHr}/hr = ${fmtDol(r.laborCost)}</span></div>` : ''}
+        ${r.expTotal > 0 ? `<div class="ops-cost-line">📒 Logged expenses <span>${fmtDol(r.expTotal)}</span></div>` : ''}
+        ${r.totalCost > 0 ? `<div class="ops-cost-line total"><span>Net / margin</span><span class="${mCls(r.marginPct)}">${fmtDol(r.margin)} · ${fmtPct(r.marginPct)}</span></div>` : ''}
+        ${r.warns.length ? `<div style="margin-top:5px;font-size:10px;font-weight:600;color:#92400e;">${r.warns.join(' · ')}</div>` : ''}
+      </div>
+      ${renderExpensePanel(date, r.rig)}
+    </div>`).join('');
+
+  const totExp    = rigData.reduce((s, r) => s + r.expTotal, 0);
+  const totalSection = rigData.length > 1 && totCost > 0 ? `
+    <div class="ops-rig-section" style="background:#f8fafc;">
+      <div class="ops-rig-label" style="color:var(--navy);">All Rigs — Combined</div>
+      <div class="ops-grid">
+        <span class="ops-metric">Total revenue</span><span class="ops-val">$${totRev.toLocaleString('en-US',{maximumFractionDigits:0})}</span>
+        <span class="ops-metric">Total cost</span><span class="ops-val">${fmtDol(totCost)}</span>
+      </div>
+      ${totExp > 0 ? `<div class="ops-cost-line">📒 Logged expenses <span>${fmtDol(totExp)}</span></div>` : ''}
+      <div class="ops-cost-line total"><span>Net / margin</span><span class="${mCls(totPct)}">${fmtDol(totMarg)} · ${fmtPct(totPct)}</span></div>
+    </div>` : '';
+
+  const configRow = `<div class="ops-config-row">
+    ⛽ <input class="ops-cfg-input" value="${cfg.fuelPerMi.toFixed(2)}" onchange="saveOpsConfigField('fuelPerMi',this.value)" title="Fuel cost per mile ($/mi)" onclick="event.stopPropagation()">/mi &nbsp;
+    👷 <input class="ops-cfg-input" value="${cfg.laborPerHr}" onchange="saveOpsConfigField('laborPerHr',this.value)" title="Labor cost per hour ($/hr)" onclick="event.stopPropagation()">/hr
+    <span style="color:#9ca3af;font-size:10px;">— edit to recalculate</span>
+  </div>`;
+
+  el.innerHTML = `<div style="padding:0 10px 16px;">
+    <div class="ops-panel">
+      <div class="ops-hdr" onclick="toggleOpsPanel()">
+        📊 Day Summary — ${esc(hdrLine)}
+        <span style="margin-left:auto;" id="opsPanelChevron">${_opsPanelOpen ? '▲' : '▼'}</span>
+      </div>
+      <div id="opsPanelBody" style="${_opsPanelOpen ? '' : 'display:none;'}">
+        ${rigSections}
+        ${totalSection}
+        ${configRow}
+      </div>
     </div>
   </div>`;
 }
@@ -4303,6 +5708,7 @@ function dayNav(delta) {
 }
 
 // Swipe left/right in day view
+// ── DAY VIEW — touch swipe + keyboard ─────────────────────────────────────────
 let _dvTouchX = null;
 document.addEventListener('touchstart', e => {
   if (currentView !== 'day') return;
@@ -4316,10 +5722,108 @@ document.addEventListener('touchend', e => {
   dayNav(dx < 0 ? 1 : -1);
 }, { passive: true });
 document.addEventListener('keydown', e => {
-  if (currentView !== 'day' || document.activeElement.tagName === 'INPUT') return;
-  if (e.key === 'ArrowLeft')  dayNav(-1);
-  if (e.key === 'ArrowRight') dayNav(1);
+  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+  if (currentView === 'day') {
+    if (e.key === 'ArrowLeft')  { dayNav(-1);        e.preventDefault(); }
+    if (e.key === 'ArrowRight') { dayNav(1);         e.preventDefault(); }
+  }
+  if (currentView === 'week') {
+    if (e.key === 'ArrowLeft'  && !e.shiftKey) { changeWeek(-1); e.preventDefault(); }
+    if (e.key === 'ArrowRight' && !e.shiftKey) { changeWeek(1);  e.preventDefault(); }
+    if (e.key === 'ArrowLeft'  &&  e.shiftKey) { changeWeek(-4); e.preventDefault(); }
+    if (e.key === 'ArrowRight' &&  e.shiftKey) { changeWeek(4);  e.preventDefault(); }
+  }
 });
+
+// ── WEEK VIEW — drag-to-scroll + touch swipe + edge fades ─────────────────────
+(function() {
+  let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false;
+  const scroller = () => document.querySelector('.main-col');
+  const grid     = () => document.getElementById('calGrid');
+
+  function updateFades() {
+    const sc = scroller();
+    if (!sc || currentView !== 'week') return;
+    const fL = document.getElementById('wvFadeL');
+    const fR = document.getElementById('wvFadeR');
+    if (fL) fL.style.opacity = sc.scrollLeft > 8 ? '1' : '0';
+    if (fR) fR.style.opacity = sc.scrollLeft < (sc.scrollWidth - sc.clientWidth - 8) ? '1' : '0';
+  }
+
+  // Update fades on scroll
+  document.addEventListener('scroll', updateFades, { passive: true, capture: true });
+
+  // Kick off fade check after every render
+  const _origRender = window.render;
+  // (patched below, after render is defined)
+
+  document.addEventListener('mousedown', e => {
+    if (currentView !== 'week') return;
+    if (wasDragging) return; // SortableJS already active
+    // Skip clicks on interactive targets
+    if (e.target.closest('.job-scheduled,.win-lane-hdr,.rig-hdr,.day-hdr,button,a,input,select,textarea,.modal')) return;
+    const sc = scroller();
+    if (!sc) return;
+    _dragging = true;
+    _isH      = false;
+    _startX   = e.clientX;
+    _startY   = e.clientY;
+    _scrollX0 = sc.scrollLeft;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!_dragging) return;
+    const dx = e.clientX - _startX;
+    const dy = e.clientY - _startY;
+    if (!_isH && Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // haven't moved enough to decide
+    if (!_isH) {
+      if (Math.abs(dx) < Math.abs(dy) * 0.8) { _dragging = false; return; } // vertical intent — cancel
+      _isH = true;
+      const g = grid(); if (g) g.classList.add('wv-dragging');
+    }
+    const sc = scroller();
+    if (sc) sc.scrollLeft = _scrollX0 - dx;
+    updateFades();
+  });
+
+  function stopDrag() {
+    if (!_dragging) return;
+    _dragging = false;
+    const g = grid(); if (g) g.classList.remove('wv-dragging');
+    if (!_isH) return;
+    // Snap to nearest column
+    const sc = scroller();
+    if (!sc) return;
+    const col = document.querySelector('.day-col');
+    const colW = col?.offsetWidth || 175;
+    sc.scrollTo({ left: Math.round(sc.scrollLeft / colW) * colW, behavior: 'smooth' });
+    setTimeout(updateFades, 350);
+  }
+
+  document.addEventListener('mouseup',    stopDrag);
+  document.addEventListener('mouseleave', stopDrag);
+
+  // Touch swipe for week view (changes week, doesn't smooth-scroll)
+  let _wvTouchX = null;
+  document.addEventListener('touchstart', e => {
+    if (currentView !== 'week') return;
+    _wvTouchX = e.touches[0].clientX;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (currentView !== 'week' || _wvTouchX === null) return;
+    const dx = e.changedTouches[0].clientX - _wvTouchX;
+    _wvTouchX = null;
+    if (Math.abs(dx) < 55) return;
+    changeWeek(dx < 0 ? 1 : -1);
+  }, { passive: true });
+
+  // Update fades after any render by patching changeWeek / render
+  const _tickFades = () => setTimeout(updateFades, 80);
+  const _cw = window.changeWeek;
+  if (_cw) window.changeWeek = function(d) { _cw(d); _tickFades(); };
+  window.addEventListener('load', _tickFades);
+})();
 
 // ── MONTH VIEW ────────────────────────────────────────────────────────────────
 

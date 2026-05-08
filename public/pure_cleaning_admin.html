@@ -85,24 +85,68 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 
 /* ── Footer ── */
 .footer{text-align:center;padding:2rem 1rem 3rem;font-size:12px;color:var(--muted);line-height:2;}
+#tasksCard:hover{box-shadow:var(--shadow-h);border-color:#d0c8be;}
 
-/* ── Alert toasts ── */
-#alertContainer{position:fixed;bottom:1.5rem;right:1.25rem;z-index:9998;display:flex;flex-direction:column;gap:10px;max-width:340px;}
-@keyframes alertIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
-.alert-toast{background:#1a2a3f;border:1px solid rgba(212,165,116,.35);border-radius:13px;padding:.875rem 1rem;box-shadow:0 4px 20px rgba(0,0,0,.3);animation:alertIn .3s ease;color:#e8edf5;}
-.alert-toast-type{font-size:10px;font-weight:700;letter-spacing:1px;color:#d4a574;margin-bottom:.3rem;}
-.alert-toast-body{font-size:13px;line-height:1.5;margin-bottom:.625rem;}
-.alert-toast-actions{display:flex;gap:8px;}
-.alert-view-btn{flex:1;padding:6px;background:rgba(212,165,116,.15);color:#d4a574;border:1px solid rgba(212,165,116,.25);border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
-.alert-dismiss-btn{flex:1;padding:6px;background:none;color:#7a8aaa;border:1px solid rgba(255,255,255,.1);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+/* ── Notification bell ── */
+#notifBell{position:fixed;top:.875rem;right:1.25rem;z-index:9999;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--white);border:1.5px solid var(--border);border-radius:12px;cursor:pointer;box-shadow:var(--shadow);font-size:20px;transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent;}
+#notifBell:hover{transform:translateY(-1px);box-shadow:var(--shadow-h);}
+#notifBell:active{transform:scale(.96);}
+.notif-dot{position:absolute;top:5px;right:5px;width:10px;height:10px;background:#e53e3e;border-radius:50%;border:2px solid var(--white);display:none;pointer-events:none;}
+.notif-dot.show{display:block;}
+/* ── Notification overlay + panel ── */
+#notifOverlay{display:none;position:fixed;inset:0;background:rgba(26,31,46,.25);z-index:9996;}
+#notifOverlay.show{display:block;}
+#notifPanel{position:fixed;top:0;right:-360px;bottom:0;width:340px;max-width:100vw;background:var(--white);border-left:1.5px solid var(--border);z-index:9997;display:flex;flex-direction:column;box-shadow:-6px 0 28px rgba(26,31,46,.12);transition:right .25s cubic-bezier(.4,0,.2,1);}
+#notifPanel.open{right:0;}
+.np-header{display:flex;align-items:center;justify-content:space-between;padding:1rem 1.25rem;border-bottom:1.5px solid var(--border);flex-shrink:0;}
+.np-title{font-size:16px;font-weight:700;color:var(--text);}
+.np-close{width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted);border-radius:8px;transition:background .15s;}
+.np-close:hover{background:var(--cream);}
+.np-body{flex:1;overflow-y:auto;padding:.75rem 1rem;}
+.notif-empty{text-align:center;padding:3rem 1rem;color:var(--muted);font-size:14px;line-height:1.6;}
+.notif-empty-icon{font-size:32px;display:block;margin-bottom:.75rem;opacity:.5;}
+.notif-card{background:var(--cream);border:1.5px solid var(--border);border-radius:12px;padding:.875rem 1rem;margin-bottom:10px;}
+.notif-card-type{font-size:10px;font-weight:700;letter-spacing:1px;color:var(--terra);margin-bottom:.3rem;}
+.notif-card-body{font-size:13px;line-height:1.5;color:var(--text);margin-bottom:.625rem;}
+.notif-card-actions{display:flex;gap:8px;}
+.nc-view-btn{flex:1;padding:6px;background:var(--terra);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
+.nc-view-btn:hover{background:var(--terra-l);}
+.nc-dismiss-btn{flex:1;padding:6px;background:none;color:var(--muted);border:1.5px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.nc-dismiss-btn:hover{border-color:#dc2626;color:#dc2626;}
 
-/* Add-on editor inputs */
-.addon-input{width:64px;padding:6px 8px;background:var(--cream);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;text-align:right;font-family:'DM Sans',sans-serif;}
 </style>
 </head>
 <body>
 
-<div id="alertContainer"></div>
+<!-- Notification bell -->
+<button id="notifBell" onclick="toggleNotifPanel()" aria-label="Notifications">
+  🔔
+  <span class="notif-dot" id="notifDot"></span>
+</button>
+
+<!-- Notification panel -->
+<!-- RIG MAPPING MODAL -->
+<div id="rigMapOverlay" onclick="closeRigMapping()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9990;"></div>
+<div id="rigMapModal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:18px;padding:1.5rem;width:90%;max-width:460px;z-index:9991;box-shadow:0 16px 48px rgba(0,0,0,.25);">
+  <div style="font-size:18px;font-weight:800;color:#0a1628;margin-bottom:.25rem;">🚛 Rig → GPS Mapping</div>
+  <p style="font-size:13px;color:#6b7280;margin-bottom:1.25rem;">Map each rig to its Bouncie device for automatic job duration tracking.</p>
+  <div id="rigMapBody" style="font-size:14px;color:#6b7280;">Loading vehicles…</div>
+  <div style="display:flex;gap:10px;margin-top:1.25rem;">
+    <button onclick="saveRigMapping()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#0a1628;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Mapping</button>
+    <button onclick="closeRigMapping()" style="flex:1;padding:12px;border:1.5px solid #e2e8f0;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
+  </div>
+</div>
+
+<div id="notifOverlay" onclick="closeNotifPanel()"></div>
+<div id="notifPanel" onclick="event.stopPropagation()">
+  <div class="np-header">
+    <span class="np-title">Notifications</span>
+    <button class="np-close" onclick="closeNotifPanel()">✕</button>
+  </div>
+  <div class="np-body" id="notifList">
+    <div class="notif-empty"><span class="notif-empty-icon">🔔</span>Loading…</div>
+  </div>
+</div>
 
 <div class="header">
   <div class="hdr-greet" id="greeting"></div>
@@ -113,20 +157,42 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
 <div class="wrap">
   <div id="toolSections"></div>
 
+  <!-- Tasks quick-action card -->
+  <a href="/pure_cleaning_tasks.html" id="tasksCard" style="display:flex;align-items:center;gap:16px;background:var(--white);border:2px solid var(--border);border-radius:16px;padding:16px 18px;text-decoration:none;color:inherit;margin-bottom:1rem;transition:box-shadow .18s,border-color .18s;box-shadow:var(--shadow);-webkit-tap-highlight-color:transparent;">
+    <div style="width:52px;height:52px;border-radius:14px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;">✅</div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:16px;font-weight:700;color:var(--text);">Tasks</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:2px;">Never lose an idea to inaction</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+      <span id="tasksOpenBadge" style="display:none;background:#ef4444;color:#fff;font-size:11px;font-weight:700;border-radius:20px;padding:2px 9px;">—</span>
+      <span style="font-size:20px;color:var(--border);">›</span>
+    </div>
+  </a>
+
+  <!-- My Tasks Widget -->
+  <div class="util-panel" id="myTasksWidget">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.625rem;">
+      <div class="util-title" style="margin-bottom:0;">📋 My Tasks</div>
+      <a href="/pure_cleaning_tasks.html" style="font-size:12px;color:var(--terra);font-weight:700;text-decoration:none;">View all →</a>
+    </div>
+    <div id="myTasksList" style="display:flex;flex-direction:column;gap:7px;min-height:40px;">
+      <div style="font-size:13px;color:var(--muted);">Loading…</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:.75rem;">
+      <input id="wtQuickAdd" type="text" placeholder="Quick add task…" maxlength="200"
+        style="flex:1;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;background:var(--cream);outline:none;"
+        onkeydown="if(event.key==='Enter')wtAddTask()">
+      <button class="util-btn" onclick="wtAddTask()" style="white-space:nowrap;">+ Add</button>
+    </div>
+  </div>
+
   <!-- Utility: Test Records -->
   <div class="util-panel" id="testCleanupPanel">
     <div class="util-title">🧪 Test Records</div>
     <div class="util-desc">Records flagged as test when created — auto-expire in 24 hrs. Also detects name/phone matches with no history.</div>
     <button class="util-btn" onclick="loadTestRecords()">Review test records →</button>
     <div id="testRecordsList" style="margin-top:.75rem;"></div>
-  </div>
-
-  <!-- Utility: Default Add-On Suggestions -->
-  <div class="util-panel" id="addonsConfigPanel">
-    <div class="util-title">📋 Default Add-On Suggestions</div>
-    <div class="util-desc">Starting prices when building a mini quote — always customizable per customer.</div>
-    <button class="util-btn" onclick="loadAddonsConfig()">Edit default prices →</button>
-    <div id="addonsEditor" style="margin-top:.75rem;display:none;"></div>
   </div>
 
   <!-- Utility: Google Reviews -->
@@ -174,24 +240,25 @@ const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 // ── TOOL NAVIGATION ──────────────────────────────────────────────────────────────
 const DAILY_DRIVERS = [
-  { icon: '📅', name: 'Calendar',              description: 'Schedule jobs, assign crews, track payroll',                      url: '/pure_cleaning_calendar.html' },
   { icon: '📞', name: 'New Customer',           description: 'Book a phone quote or send a digital quote link',                url: '/pure_cleaning_new_customer.html' },
-  { icon: '✨', name: 'Mini Quote Builder',     description: 'Build the upsell offer after a phone quote',                     url: '/pure_cleaning_mini_quote_builder.html' },
-  { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
+  { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
+  { icon: '📅', name: 'Calendar',               description: 'Schedule jobs, assign crews, track payroll',                     url: '/pure_cleaning_calendar.html' },
   { icon: '👥', name: 'Customer Directory',     description: 'Search and view all 1,200+ customer profiles',                   url: '/pure_cleaning_customer_directory.html', badgeId: 'dir-badge' },
+  { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
+  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
   { icon: '📊', name: 'Insights',               description: 'Conversion funnel, behavior trends, customer analysis',          url: '/pure_cleaning_insights.html' },
-  { icon: '🚚', name: 'Crew & Scheduling',      description: 'Schedule jobs, assign rigs, view weekly calendar',               url: '/pure_cleaning_calendar.html' },
 ];
 
 const MISC_TOOLS = [
-  { icon: '🔔', name: 'Nudge Queue',            description: "Follow up with customers who haven't confirmed",                 url: '/pure_cleaning_nudge_queue.html',       badgeId: 'nudge-badge' },
-  { icon: '📨', name: 'Customer Quote Form',    description: 'Preview the customer-facing quote request form',                 url: '/pure_cleaning_quote.html' },
-  { icon: '🗑️', name: 'Recently Deleted',      description: 'Restore soft-deleted records within 30 days',                   url: '/pure_cleaning_recently_deleted.html' },
-  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
-  { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to cold leads',                     url: '/pure_cleaning_quote_builder_v2.html' },
-  { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
-  { icon: '📋', name: 'Open Quotes',            description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html' },
+  { icon: '📥', name: 'CSV Import',              description: 'Import FileMaker job history — 4-step guided process',           url: '/pure_cleaning_csv_import.html' },
+  { icon: '📸', name: 'Marketing Assets',        description: 'Browse job photos — filter, bulk select, ZIP export',             url: '/pure_cleaning_marketing_assets.html' },
+  { icon: '🚛', name: 'Rig → GPS Mapping',       description: 'Map Old/New Tacoma to Bouncie IMEI for job duration matching',      action: 'openRigMapping' },
+  { icon: '✨', name: 'Mini Quote Builder',     description: 'Build the upsell offer after a phone quote',                     url: '/pure_cleaning_mini_quote_builder.html' },
 
+  { icon: '📨', name: 'Customer Quote Form',    description: 'Preview the customer-facing quote request form',                 url: '/pure_cleaning_quote.html' },
+  { icon: '🧾', name: 'Quote Builder',          description: 'Build and send custom quotes to cold leads',                     url: '/pure_cleaning_quote_builder_v2.html' },
+  { icon: '📋', name: 'Open Quotes',            description: "Track quotes that haven't booked yet",                          url: '/pure_cleaning_quotes.html' },
+  { icon: '🗑️', name: 'Recently Deleted',      description: 'Restore soft-deleted records within 30 days',                   url: '/pure_cleaning_recently_deleted.html' },
   { icon: '🌎', name: 'Live Website',           description: 'View the customer-facing website',                              url: '/',                                     external: true },
 ];
 
@@ -225,16 +292,24 @@ function renderTools() {
     <summary class="misc-summary"><span class="sec-title" style="font-size:13px;">Misc / Tools</span><span class="misc-arrow">›</span></summary>
     <div class="card-grid" style="margin-top:.75rem;">`;
   MISC_TOOLS.forEach(t => {
-    const badge = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
+    const badge  = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
     const target = t.external ? ' target="_blank" rel="noopener"' : '';
-    html += `<a href="${t.url}"${target} class="tool-card cat-tools">
-      <div class="card-icon">${t.icon}</div>
-      <div class="card-body">
-        <div class="card-name">${t.name}</div>
-        <div class="card-desc">${t.description}</div>
-      </div>
-      <div class="card-right">${badge}<span class="card-arrow">›</span></div>
-    </a>`;
+    if (t.action) {
+      html += `<div class="tool-card cat-tools" style="cursor:pointer;" onclick="${t.action}()">
+        <div class="card-icon">${t.icon}</div>
+        <div class="card-body"><div class="card-name">${t.name}</div><div class="card-desc">${t.description}</div></div>
+        <div class="card-right"><span class="card-arrow">›</span></div>
+      </div>`;
+    } else {
+      html += `<a href="${t.url}"${target} class="tool-card cat-tools">
+        <div class="card-icon">${t.icon}</div>
+        <div class="card-body">
+          <div class="card-name">${t.name}</div>
+          <div class="card-desc">${t.description}</div>
+        </div>
+        <div class="card-right">${badge}<span class="card-arrow">›</span></div>
+      </a>`;
+    }
   });
   html += '</div></details>';
 
@@ -256,19 +331,6 @@ async function loadIncomingCount() {
   } catch {}
 }
 
-async function loadNudgeCount() {
-  try {
-    const res  = await fetch(`${PCPC_API}/nudge-queue`);
-    if (!res.ok) return;
-    const data  = await res.json();
-    const count = data.totalCount || 0;
-    const badge = document.getElementById('nudge-badge');
-    if (badge) {
-      badge.textContent   = count > 0 ? String(count) : '';
-      badge.style.display = count > 0 ? 'inline-flex' : 'none';
-    }
-  } catch {}
-}
 
 // ── TEST RECORDS ───────────────────────────────────────────────────────────────
 const TEST_NAMES  = ['tyler fumero','darlah fumero','darla fumero'];
@@ -349,108 +411,180 @@ async function deleteSelectedTestRecords() {
   }
 }
 
-// ── ADD-ONS CONFIG ─────────────────────────────────────────────────────────────
-let _addonsConfig = null;
+// ── NOTIFICATION CENTER ────────────────────────────────────────────────────────
+// Single-user shared state (flagged for future per-user revisit)
+const _NOTIF_READ_KEY  = 'pcpc_notif_read_at';   // ISO timestamp of last panel open
+const _NOTIF_DISMISSED = 'pcpc_notif_dismissed';  // JSON array of dismissed event IDs
+const _NOTIF_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
 
-async function loadAddonsConfig() {
-  const btn = document.querySelector('#addonsConfigPanel .util-btn');
-  if (btn) btn.textContent = 'Loading…';
-  try {
-    const res = await fetch(`${PCPC_API}/addons-config`);
-    _addonsConfig = res.ok ? await res.json() : null;
-    if (!_addonsConfig) { alert('Could not load add-on config'); return; }
-    renderAddonsEditor();
-  } catch(e) { alert('Error: ' + e.message); }
-  if (btn) btn.textContent = 'Edit add-on prices →';
+let _allAlerts    = [];
+let _reviewAlerts = []; // review queue items (4+ days after completion)
+
+function _getDismissed() {
+  try { return new Set(JSON.parse(localStorage.getItem(_NOTIF_DISMISSED) || '[]')); } catch { return new Set(); }
 }
-
-function renderAddonsEditor() {
-  const el = document.getElementById('addonsEditor');
-  el.style.display = 'block';
-  const addons = _addonsConfig.addons || [];
-  let rows = addons.map((a, i) => `
-    <div style="display:grid;grid-template-columns:1fr 72px 72px;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border);">
-      <div style="font-size:13px;color:var(--text);">${a.icon} ${_esc(a.name)}</div>
-      <input type="number" value="${a.bundle}" data-i="${i}" data-field="bundle" onchange="onAddonPriceChange(this)" class="addon-input" title="Bundle price">
-      <input type="number" value="${a.standalone}" data-i="${i}" data-field="standalone" onchange="onAddonPriceChange(this)" class="addon-input" title="Standalone price">
-    </div>`).join('');
-  el.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 72px 72px;gap:8px;margin-bottom:4px;">
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Service</span>
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Bundle</span>
-      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:right;">Regular</span>
-    </div>
-    ${rows}
-    <div style="display:flex;align-items:center;gap:12px;margin-top:.875rem;">
-      <button onclick="saveAddonsConfig()" style="padding:8px 20px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Save Defaults</button>
-      <span id="addonsSaveStatus" style="font-size:12px;color:var(--muted);"></span>
-    </div>`;
+function _saveDismissed(set) {
+  localStorage.setItem(_NOTIF_DISMISSED, JSON.stringify([...set]));
 }
-
-function onAddonPriceChange(input) {
-  const i = parseInt(input.dataset.i);
-  const field = input.dataset.field;
-  if (_addonsConfig && _addonsConfig.addons[i]) {
-    _addonsConfig.addons[i][field] = parseFloat(input.value) || 0;
-  }
-}
-
-async function saveAddonsConfig() {
-  const statusEl = document.getElementById('addonsSaveStatus');
-  statusEl.textContent = 'Saving…';
-  try {
-    const res = await fetch(`${PCPC_API}/addons-config`, {
-      method: 'PUT',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(_addonsConfig)
-    });
-    statusEl.textContent = res.ok ? '✓ Saved' : '✗ Error';
-    setTimeout(() => { statusEl.textContent = ''; }, 2500);
-  } catch(e) { statusEl.textContent = '✗ ' + e.message; }
-}
-
-// ── ALERT TOAST SYSTEM ─────────────────────────────────────────────────────────
-const _ALERT_SINCE_KEY = 'pcpc_alert_since';
-const _ALERT_SEEN_KEY  = 'pcpc_alert_seen';
-const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
 
 async function checkAlerts() {
-  const since = sessionStorage.getItem(_ALERT_SINCE_KEY)
-    || new Date(Date.now() - 24*60*60*1000).toISOString();
-  const seen  = JSON.parse(sessionStorage.getItem(_ALERT_SEEN_KEY) || '[]');
-  sessionStorage.setItem(_ALERT_SINCE_KEY, new Date().toISOString());
+  const since = new Date(Date.now() - 24*60*60*1000).toISOString();
   try {
     const res = await fetch(`${PCPC_API}/events?since=${encodeURIComponent(since)}`);
     if (!res.ok) return;
     const { events = [] } = await res.json();
-    const newEvts = events.filter(e => _ALERT_TYPES.includes(e.eventType) && !seen.includes(e.id));
-    if (!newEvts.length) return;
-    sessionStorage.setItem(_ALERT_SEEN_KEY, JSON.stringify([...seen, ...newEvts.map(e => e.id)]));
-    newEvts.forEach(showAlertToast);
+    const dismissed = _getDismissed();
+    _allAlerts = events.filter(e => _NOTIF_TYPES.includes(e.eventType) && !dismissed.has(e.id || e.loggedAt));
+    _updateBellDot();
+  } catch {}
+  // Also check review queue (separate from event log)
+  checkReviewQueue().catch(() => {});
+}
+
+async function checkReviewQueue() {
+  try {
+    const res = await fetch(`${PCPC_API}/api/review-queue`);
+    if (!res.ok) return;
+    const { queue = [] } = await res.json();
+    const dismissed = _getDismissed();
+    _reviewAlerts = queue
+      .filter(c => c.status === 'ready' && !dismissed.has(`review_${c.phone}_${c.jobDate}`))
+      .map(c => ({
+        _type:     'review_window_open',
+        phone:     c.phone,
+        firstName: c.firstName,
+        lastName:  c.lastName,
+        jobDate:   c.jobDate,
+        ageDays:   c.ageDays,
+        id:        `review_${c.phone}_${c.jobDate}`,
+        loggedAt:  c.queuedAt || new Date().toISOString(),
+      }));
+    _updateBellDot();
   } catch {}
 }
 
-function showAlertToast(evt) {
-  const isAddon = evt.eventType === 'addon_confirmed';
-  const cust = evt.customer || {};
-  const name = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
-  const ph   = cust.ph || '';
-  const title = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
-  let body;
-  if (isAddon) {
-    body = `<strong>${_ea(name)}</strong><br>Added: ${_ea(evt.addonName||'')} ($${evt.bundlePrice||''})<br>New total: $${evt.newAmount||''}`;
-  } else {
-    body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+function _updateBellDot() {
+  const readAt  = localStorage.getItem(_NOTIF_READ_KEY) || '';
+  const allItems = [..._allAlerts, ..._reviewAlerts];
+  const hasNew   = allItems.some(e => (e.loggedAt || '') > readAt);
+  const dot = document.getElementById('notifDot');
+  if (dot) dot.classList.toggle('show', hasNew && allItems.length > 0);
+}
+
+function openNotifPanel() {
+  document.getElementById('notifPanel').classList.add('open');
+  document.getElementById('notifOverlay').classList.add('show');
+  localStorage.setItem(_NOTIF_READ_KEY, new Date().toISOString());
+  _updateBellDot();
+  _renderNotifPanel();
+}
+
+function closeNotifPanel() {
+  document.getElementById('notifPanel').classList.remove('open');
+  document.getElementById('notifOverlay').classList.remove('show');
+}
+
+function toggleNotifPanel() {
+  const isOpen = document.getElementById('notifPanel').classList.contains('open');
+  isOpen ? closeNotifPanel() : openNotifPanel();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeNotifPanel();
+});
+
+function dismissAlert(evtId) {
+  const dismissed = _getDismissed();
+  dismissed.add(evtId);
+  _saveDismissed(dismissed);
+  _allAlerts = _allAlerts.filter(e => (e.id || e.loggedAt) !== evtId);
+  _updateBellDot();
+  _renderNotifPanel();
+}
+
+function _renderNotifPanel() {
+  const list = document.getElementById('notifList');
+  if (!list) return;
+  const allItems = [..._reviewAlerts, ..._allAlerts];
+  if (!allItems.length) {
+    list.innerHTML = `<div class="notif-empty"><span class="notif-empty-icon">🔔</span>No new alerts</div>`;
+    return;
   }
-  const id = 'at-' + (evt.id || Date.now());
-  const el = document.createElement('div');
-  el.id = id; el.className = 'alert-toast';
-  el.innerHTML = `<div class="alert-toast-type">${title}</div><div class="alert-toast-body">${body}</div><div class="alert-toast-actions">${ph?`<button class="alert-view-btn" onclick="window.open('/pure_cleaning_calendar.html?phone=${ph}','_blank')">View Card</button>`:''}<button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
-  document.getElementById('alertContainer').appendChild(el);
+  // Review queue cards first
+  const reviewHtml = _reviewAlerts.map(evt => {
+    const name = `${evt.firstName||''} ${evt.lastName||''}`.trim() || 'Customer';
+    const profileUrl = evt.phone ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(evt.phone)}` : '';
+    return `<div class="notif-card" style="border-left:3px solid var(--green);">
+      <div class="notif-card-type" style="color:var(--green);">📝 REVIEW REQUEST READY</div>
+      <div class="notif-card-body"><strong>${_ea(name)}</strong><br>Completed ${evt.ageDays} days ago · Job date ${_ea(evt.jobDate||'')}</div>
+      <div class="notif-card-actions">
+        <button class="nc-view-btn" onclick="sendReviewFromAdmin('${evt.phone}','${_ea(evt.firstName||'')}')">Send Review Text</button>
+        ${profileUrl ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View</button>` : ''}
+        <button class="nc-dismiss-btn" onclick="dismissAlert('${evt.id}');_reviewAlerts=_reviewAlerts.filter(e=>e.id!=='${evt.id}');_renderNotifPanel()">Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+  list.innerHTML = reviewHtml + _allAlerts.map(evt => {
+    const evtId  = evt.id || evt.loggedAt || String(Date.now());
+    const isAddon = evt.eventType === 'addon_confirmed';
+    const cust   = evt.customer || {};
+    const name   = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
+    const ph     = cust.ph || '';
+    const title  = isAddon ? '🔔 ADD-ON ADDED' : '💎 SEALING INTEREST';
+    const ts     = evt.loggedAt ? new Date(evt.loggedAt).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',month:'short',day:'numeric'}) : '';
+    let body;
+    if (isAddon) {
+      const addonAmt = evt.bundlePrice ? `$${evt.bundlePrice}` : '';
+      const newTotal = evt.newAmount   ? `$${evt.newAmount}`  : evt.total ? `$${evt.total}` : '';
+      body = `<strong>${_ea(name)}</strong> added ${_ea(evt.addonName||evt.addonId||'add-on')}${addonAmt ? ` (${addonAmt})` : ''}${newTotal ? `<br>New total: ${newTotal}` : ''}`;
+    } else {
+      body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
+    }
+    const profileUrl = ph ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}` : '';
+    return `<div class="notif-card">
+      <div class="notif-card-type">${title}</div>
+      <div class="notif-card-body">${body}${ts ? `<br><span style="font-size:11px;color:var(--muted);">${_ea(ts)}</span>` : ''}</div>
+      <div class="notif-card-actions">
+        ${ph ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View Customer</button>` : ''}
+        <button class="nc-dismiss-btn" onclick="dismissAlert(${JSON.stringify(evtId)})">Dismiss</button>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function _ea(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function _esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function sendReviewFromAdmin(phone, firstName) {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reviews-hub`);
+    const hub = await res.json();
+    const tpls = hub.templates || [];
+    const tpl = tpls.find(t => t.type === 'post_job') || tpls[0];
+    if (!tpl) { alert('No review template found'); return; }
+    const fn   = firstName || 'there';
+    const body = (tpl.body || '')
+      .replace(/\{firstName\}/g, fn)
+      .replace(/\{first_name\}/g, fn)
+      .replace(/\{name\}/g, fn);
+    window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
+    // Mark as asked in review queue
+    fetch(`${PCPC_API}/customers`).then(r => r.json()).then(async data => {
+      const custs = data.customers || [];
+      const idx = custs.findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
+      if (idx !== -1) {
+        if (!custs[idx].googleReview) custs[idx].googleReview = {};
+        custs[idx].googleReview.status = 'asked';
+        custs[idx].googleReview.lastRequestSentAt = new Date().toISOString();
+        if (custs[idx].reviewQueue) custs[idx].reviewQueue.status = 'sent';
+        await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({customers:custs}) });
+        _reviewAlerts = _reviewAlerts.filter(e => e.phone !== phone);
+        _renderNotifPanel();
+        _updateBellDot();
+      }
+    }).catch(() => {});
+  } catch(e) { alert('Error: ' + e.message); }
+}
 
 // ── GOOGLE REVIEWS ─────────────────────────────────────────────────────────────
 async function loadReviewCount() {
@@ -499,12 +633,158 @@ async function saveReviewCount() {
 }
 
 // ── INIT ────────────────────────────────────────────────────────────────────────
+// ── RIG MAPPING ────────────────────────────────────────────────────────────────
+const RIGS = [
+  { id: 'rig_1', label: 'Rig 1 — Old Tacoma' },
+  { id: 'rig_2', label: 'Rig 2 — New Tacoma' },
+  { id: 'rig_3', label: 'Rig 3 — Chevy' },
+];
+
+let _bouncieVehicles = [];
+let _rigMapping      = {};
+
+async function openRigMapping() {
+  document.getElementById('rigMapOverlay').style.display = '';
+  document.getElementById('rigMapModal').style.display   = '';
+  document.getElementById('rigMapBody').textContent = 'Loading…';
+  try {
+    const [vRes, mRes] = await Promise.all([
+      fetch(`${PCPC_API}/api/bouncie/vehicles`),
+      fetch(`${PCPC_API}/api/bouncie/rig-mapping`),
+    ]);
+    _bouncieVehicles = (await vRes.json()).vehicles || [];
+    _rigMapping      = (await mRes.json()).mapping  || {};
+  } catch(e) {
+    _bouncieVehicles = [];
+    _rigMapping      = {};
+  }
+  renderRigMapBody();
+}
+
+function renderRigMapBody() {
+  const vehicleOpts = [
+    `<option value="">— not mapped —</option>`,
+    ..._bouncieVehicles.map(v => `<option value="${v.imei}">${_ea(v.nickname || v.imei)} · ${_ea(v.year||'')} ${_ea(v.make||'')} ${_ea(v.model||'')}</option>`),
+  ].join('');
+
+  const rows = RIGS.map(rig => {
+    const current = _rigMapping[rig.id]?.imei || '';
+    const sel = vehicleOpts.replace(`value="${current}"`, `value="${current}" selected`);
+    return `<div style="margin-bottom:1rem;">
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">${_ea(rig.label)}</label>
+      <select data-rig="${rig.id}" style="width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">${sel}</select>
+    </div>`;
+  }).join('');
+
+  document.getElementById('rigMapBody').innerHTML = rows;
+}
+
+async function saveRigMapping() {
+  const selects = document.querySelectorAll('#rigMapBody select[data-rig]');
+  const mapping = {};
+  selects.forEach(sel => {
+    const rigId = sel.dataset.rig;
+    const imei  = sel.value;
+    if (imei) {
+      const vehicle = _bouncieVehicles.find(v => v.imei === imei);
+      mapping[rigId] = { imei, vin: vehicle?.vin || null, nickname: vehicle?.nickname || imei };
+    }
+  });
+  try {
+    const res = await fetch(`${PCPC_API}/api/bouncie/rig-mapping`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ mapping }),
+    });
+    if (!res.ok) throw new Error(res.status);
+    closeRigMapping();
+    // Inline toast
+    const t = document.createElement('div');
+    t.textContent = '✓ Rig mapping saved';
+    t.style.cssText = 'position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:#0a1628;color:#fff;padding:10px 20px;border-radius:20px;font-size:14px;font-weight:600;z-index:9999;';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2500);
+  } catch(e) { alert('Save failed: ' + e.message); }
+}
+
+function closeRigMapping() {
+  document.getElementById('rigMapOverlay').style.display = 'none';
+  document.getElementById('rigMapModal').style.display   = 'none';
+}
+
+// ── INIT ────────────────────────────────────────────────────────────────────────
 renderTools();
 loadIncomingCount();
-loadNudgeCount();
+
 loadReviewCount();
 checkAlerts();
-setInterval(checkAlerts, 60_000);
+setInterval(checkAlerts, 60_000); // refreshes _allAlerts but never auto-opens panel
+
+// ── MY TASKS WIDGET ─────────────────────────────────────────────────────────────
+const PRIORITY_ORDER = { urgent:0, high:1, medium:2, low:3 };
+const OWNER_COLORS   = { tyler:'#3b82f6', sissy:'#ec4899', both:'#8b5cf6', mom:'#10b981', dad:'#f97316', unassigned:'#9ca3af' };
+
+async function loadMyTasks() {
+  try {
+    const res = await fetch(`${PCPC_API}/api/tasks`);
+    const db  = await res.json();
+    const allOpen = (db.tasks || []).filter(t => t.status === 'open' || t.status === 'in_progress');
+    const badge = document.getElementById('tasksOpenBadge');
+    if (badge && allOpen.length) { badge.textContent = `${allOpen.length} open`; badge.style.display = ''; }
+    const open = allOpen
+      .sort((a, b) => (PRIORITY_ORDER[a.priority]||9) - (PRIORITY_ORDER[b.priority]||9))
+      .slice(0, 5);
+    const el = document.getElementById('myTasksList');
+    if (!open.length) {
+      el.innerHTML = '<div style="font-size:13px;color:var(--muted);">All caught up! 🎉</div>';
+      return;
+    }
+    el.innerHTML = open.map(t => {
+      const dot = { urgent:'#ef4444', high:'#f97316', medium:'#eab308', low:'#22c55e' }[t.priority] || '#9ca3af';
+      const color = OWNER_COLORS[t.owner] || '#9ca3af';
+      const due   = t.dueDate ? (() => {
+        const d = new Date(t.dueDate+'T12:00:00'); const today = new Date(); today.setHours(0,0,0,0);
+        const overdue = d < today;
+        return `<span style="font-size:10px;font-weight:700;color:${overdue?'#ef4444':'#6b7280'};margin-left:auto;">${overdue?'⚠ ':''}${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>`;
+      })() : '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+        <span onclick="wtToggleDone('${t.id}',this)" style="width:16px;height:16px;border:2px solid var(--border);border-radius:4px;flex-shrink:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:11px;"></span>
+        <span style="width:7px;height:7px;border-radius:50%;background:${dot};flex-shrink:0;"></span>
+        <span style="font-size:13px;font-weight:600;color:var(--text);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${t.title.replace(/"/g,'&quot;')}">${t.title}</span>
+        <span style="font-size:10px;font-weight:700;color:${color};background:${color}18;border-radius:10px;padding:1px 6px;flex-shrink:0;">${t.owner}</span>
+        ${due}
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('myTasksList').innerHTML = '<div style="font-size:12px;color:#ef4444;">Failed to load tasks</div>';
+  }
+}
+
+async function wtAddTask() {
+  const inp = document.getElementById('wtQuickAdd');
+  const title = (inp.value || '').trim();
+  if (!title) return;
+  inp.disabled = true;
+  try {
+    await fetch(`${PCPC_API}/api/tasks`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ title, owner:'tyler', category:'action', priority:'medium', status:'open' })
+    });
+    inp.value = '';
+    loadMyTasks();
+  } finally { inp.disabled = false; }
+}
+
+async function wtToggleDone(id, el) {
+  el.textContent = '✓';
+  el.style.background = '#10b981'; el.style.borderColor = '#10b981'; el.style.color = '#fff';
+  await fetch(`${PCPC_API}/api/tasks/${id}`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status:'done' })
+  });
+  setTimeout(loadMyTasks, 600);
+}
+
+loadMyTasks();
 </script>
 </body>
 </html>

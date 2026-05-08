@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pure Cleaning Crew">
+<link rel="apple-touch-icon" href="/icons/crew-icon-180.png">
+<title>Pure Cleaning Crew</title>
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--bg:#f4f6f9;--card:#fff;--text:#1a1f2e;--muted:#6b7280;--border:#e2e8f0;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);font-family:-apple-system,'Helvetica Neue',sans-serif;color:var(--text);overscroll-behavior:none;}
+.screen{display:none;min-height:100dvh;flex-direction:column;}
+.screen.active{display:flex;}
+
+/* ── HEADER ── */
+.hdr{background:var(--navy);padding-top:env(safe-area-inset-top);}
+.hdr-inner{padding:14px 16px 12px;display:flex;align-items:flex-start;gap:8px;}
+.hdr-logo{font-weight:900;font-size:20px;color:#fff;letter-spacing:.5px;flex:1;line-height:1.2;}
+.hdr-logo span{color:var(--gold);}
+.hdr-right{text-align:right;flex-shrink:0;}
+.hdr-crew-name{font-size:13px;font-weight:700;color:#fff;}
+.hdr-crew-change{font-size:11px;color:var(--gold);background:none;border:none;cursor:pointer;padding:0;font-family:inherit;display:block;margin-top:2px;}
+.hdr-date{font-size:13px;color:rgba(255,255,255,.6);padding:0 16px 12px;}
+
+/* ── ENTRY SCREEN ── */
+.jobs-list{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;}
+.job-card{background:var(--card);border:1.5px solid var(--border);border-radius:16px;padding:14px 16px;cursor:pointer;transition:background .1s;}
+.job-card:active{background:#eef2f8;}
+.job-name{font-size:18px;font-weight:800;color:var(--navy);}
+.job-sub{font-size:13px;color:var(--muted);margin-top:2px;}
+.job-addr{font-size:11px;color:var(--muted);margin-top:3px;opacity:.8;}
+.job-pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.pill{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;}
+.pill-done{background:#dcfce7;color:#15803d;}
+.pill-part{background:#fef9c3;color:#854d0e;}
+.pill-todo{background:#f1f5f9;color:var(--muted);}
+
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;}
+.empty-icon{font-size:48px;margin-bottom:12px;}
+.empty-title{font-size:18px;font-weight:700;color:var(--navy);}
+.empty-sub{font-size:14px;color:var(--muted);margin-top:6px;line-height:1.5;}
+.manual-btn{margin-top:20px;padding:14px 24px;border:2px solid var(--border);border-radius:14px;background:var(--card);font-size:15px;font-weight:700;color:var(--text);cursor:pointer;font-family:inherit;}
+.load-msg{text-align:center;padding:3rem;color:var(--muted);font-size:15px;}
+
+/* ── DETAIL SCREEN ── */
+.detail-hdr{background:var(--navy);padding-top:env(safe-area-inset-top);}
+.back-row{display:flex;align-items:center;padding:10px 14px 6px;}
+.back-btn{color:var(--gold);font-size:16px;font-weight:700;background:none;border:none;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px;padding:4px 0;}
+.detail-name{font-size:21px;font-weight:900;color:#fff;padding:2px 16px 4px;line-height:1.2;}
+.detail-addr{font-size:12px;color:rgba(255,255,255,.6);padding:0 16px 4px;}
+.detail-svc{font-size:13px;color:rgba(255,255,255,.8);padding:0 16px 12px;font-weight:500;}
+
+.action-list{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;}
+.action-btn{background:var(--card);border:2px solid var(--border);border-radius:20px;padding:22px 20px;cursor:pointer;text-align:left;width:100%;font-family:inherit;transition:border-color .15s,background .15s;-webkit-appearance:none;}
+.action-btn:active{background:#eef2f8;}
+.action-btn.done{border-color:var(--green);background:#f0fdf6;}
+.action-btn.warn{border-color:#f59e0b;}
+.action-icon{font-size:28px;margin-bottom:5px;display:block;}
+.action-label{font-size:21px;font-weight:900;color:var(--navy);letter-spacing:.2px;display:block;}
+.action-status{font-size:13px;color:var(--muted);margin-top:4px;display:block;font-weight:500;line-height:1.4;}
+.action-btn.done .action-status{color:var(--green);font-weight:600;}
+.action-btn.warn .action-status{color:#b45309;font-weight:600;}
+
+/* ── PHOTO CAPTURE AREA ── */
+.photo-area{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;}
+.photo-area-title{font-size:18px;font-weight:800;color:var(--navy);}
+.photo-area-status{font-size:13px;color:var(--muted);min-height:20px;}
+.photo-thumbs{display:flex;flex-wrap:wrap;gap:8px;}
+.ph-thumb{width:80px;height:80px;border-radius:12px;object-fit:cover;border:1.5px solid var(--border);}
+.ph-pending{width:80px;height:80px;border-radius:12px;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:22px;border:1.5px dashed var(--muted);}
+.ph-warn{opacity:.55;}
+.cam-btns{display:flex;gap:10px;margin-top:4px;}
+.cam-btn{flex:1;padding:16px 10px;border-radius:14px;border:none;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;transition:opacity .15s;}
+.cam-btn:active{opacity:.8;}
+.cam-primary{background:var(--navy);color:#fff;}
+.cam-secondary{background:var(--bg);color:var(--text);border:2px solid var(--border);}
+.cam-done{background:var(--green);color:#fff;}
+
+/* ── IDENTITY SCREEN ── */
+.id-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:16px;}
+.id-logo{font-size:24px;font-weight:900;color:var(--navy);letter-spacing:.5px;}
+.id-logo span{color:var(--gold);}
+.id-title{font-size:22px;font-weight:800;color:var(--navy);}
+.id-sub{font-size:14px;color:var(--muted);}
+.crew-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;max-width:340px;}
+.crew-btn{padding:22px 10px;border:2px solid var(--border);border-radius:18px;background:var(--card);font-size:18px;font-weight:800;color:var(--navy);cursor:pointer;font-family:inherit;transition:border-color .12s;}
+.crew-btn:active{border-color:var(--sky);background:#eff6ff;}
+.other-row{display:flex;gap:8px;width:100%;max-width:340px;}
+.other-input{flex:1;padding:14px;border:2px solid var(--border);border-radius:12px;font-size:16px;font-family:inherit;outline:none;background:var(--card);}
+.other-input:focus{border-color:var(--sky);}
+.other-go{padding:14px 18px;border:none;border-radius:12px;background:var(--navy);color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;}
+
+/* ── TIP MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;align-items:flex-end;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.tip-sheet{background:#fff;border-radius:22px 22px 0 0;padding:22px 20px calc(env(safe-area-inset-bottom) + 20px);width:100%;max-width:480px;}
+.tip-title{font-size:20px;font-weight:800;color:var(--navy);margin-bottom:16px;text-align:center;}
+.tip-opts{display:flex;flex-direction:column;gap:10px;}
+.tip-opt{padding:18px 16px;border:2px solid var(--border);border-radius:14px;font-size:17px;font-weight:600;color:var(--text);cursor:pointer;background:var(--card);font-family:inherit;text-align:left;transition:border-color .1s;}
+.tip-opt:active{background:#f0f4fb;}
+.tip-opt.sel{border-color:var(--sky);background:#eff6ff;}
+.tip-amt-row{display:flex;align-items:center;gap:8px;padding:14px 16px;border:2px solid var(--border);border-radius:14px;margin-top:2px;}
+.tip-dollar{font-size:22px;font-weight:700;color:var(--muted);}
+.tip-input{flex:1;font-size:26px;font-weight:800;border:none;outline:none;font-family:inherit;color:var(--navy);background:none;width:0;}
+.tip-save{margin-top:16px;width:100%;padding:18px;border:none;border-radius:14px;background:var(--navy);color:#fff;font-size:18px;font-weight:800;cursor:pointer;font-family:inherit;}
+.tip-save:active{opacity:.85;}
+.tip-cancel{margin-top:6px;width:100%;padding:12px;border:none;border-radius:14px;background:none;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+
+/* ── MANUAL JOB MODAL ── */
+.manual-sheet{background:#fff;border-radius:22px 22px 0 0;padding:22px 20px calc(env(safe-area-inset-bottom) + 20px);width:100%;max-width:480px;}
+.manual-title{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:14px;}
+.manual-field{margin-bottom:12px;}
+.manual-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;display:block;}
+.manual-input{width:100%;padding:13px 14px;border:2px solid var(--border);border-radius:12px;font-size:16px;font-family:inherit;outline:none;}
+.manual-input:focus{border-color:var(--sky);}
+.manual-confirm{width:100%;padding:16px;border:none;border-radius:12px;background:var(--navy);color:#fff;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:4px;}
+.manual-cancel2{width:100%;padding:12px;border:none;border-radius:12px;background:none;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;}
+
+/* ── SYNC BAR ── */
+.sync-bar{position:fixed;bottom:0;left:0;right:0;padding:10px 16px calc(10px + env(safe-area-inset-bottom));font-size:13px;font-weight:600;text-align:center;z-index:400;background:var(--sky);color:#fff;transform:translateY(100%);transition:transform .25s;}
+.sync-bar.visible{transform:translateY(0);}
+.sync-bar.warn{background:#f59e0b;}
+
+/* ── TOAST ── */
+.toast{position:fixed;top:calc(env(safe-area-inset-top) + 56px);left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;font-weight:600;z-index:600;opacity:0;transition:opacity .2s;pointer-events:none;white-space:nowrap;}
+.toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<!-- ── SCREEN: IDENTITY ─────────────────────────────────────────────────── -->
+<div id="screen-identity" class="screen active">
+  <div id="id-hdr" style="background:var(--navy);padding-top:env(safe-area-inset-top);">
+    <div style="padding:20px 16px 16px;text-align:center;">
+      <div class="id-logo">PURE<span>CLEANING</span></div>
+    </div>
+  </div>
+  <div class="id-body">
+    <div class="id-title">Who's on this device?</div>
+    <div class="id-sub">Saved locally — won't be asked again</div>
+    <div class="crew-grid">
+      <button class="crew-btn" onclick="pickCrew('Tyler')">Tyler</button>
+      <button class="crew-btn" onclick="pickCrew('Tony')">Tony</button>
+      <button class="crew-btn" onclick="pickCrew('Byron')">Byron</button>
+      <button class="crew-btn" onclick="pickCrew('Jonathan')">Jonathan</button>
+    </div>
+    <div class="other-row">
+      <input class="other-input" id="otherName" placeholder="Other name…" autocomplete="off" autocapitalize="words" onkeydown="if(event.key==='Enter')pickOther()">
+      <button class="other-go" onclick="pickOther()">Go →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCREEN: ENTRY ─────────────────────────────────────────────────────── -->
+<div id="screen-entry" class="screen">
+  <div class="hdr">
+    <div class="hdr-inner">
+      <div>
+        <div class="hdr-logo">PURE<span>CLEANING</span> <span style="font-size:13px;font-weight:600;color:rgba(255,255,255,.6);">CREW</span></div>
+      </div>
+      <div class="hdr-right">
+        <div class="hdr-crew-name" id="hdrCrewName"></div>
+        <button class="hdr-crew-change" onclick="changeCrew()">change</button>
+      </div>
+    </div>
+    <div class="hdr-date" id="hdrDate"></div>
+  </div>
+  <div id="entryContent" style="flex:1;display:flex;flex-direction:column;">
+    <div class="load-msg" id="loadMsg">Loading jobs…</div>
+  </div>
+</div>
+
+<!-- ── SCREEN: DETAIL ─────────────────────────────────────────────────────── -->
+<div id="screen-detail" class="screen">
+  <div class="detail-hdr">
+    <div class="back-row">
+      <button class="back-btn" onclick="backToEntry()">‹ Today's jobs</button>
+    </div>
+    <div class="detail-name" id="detailName"></div>
+    <div class="detail-addr" id="detailAddr"></div>
+    <div class="detail-svc" id="detailSvc"></div>
+  </div>
+
+  <!-- Three action buttons (normal view) -->
+  <div class="action-list" id="actionList">
+    <button class="action-btn" id="btnBefore" onclick="startCapture('before')">
+      <span class="action-icon">📷</span>
+      <span class="action-label">BEFORE PHOTOS</span>
+      <span class="action-status" id="statusBefore">Tap to open camera</span>
+    </button>
+    <button class="action-btn" id="btnAfter" onclick="startCapture('after')">
+      <span class="action-icon">📷</span>
+      <span class="action-label">AFTER PHOTOS</span>
+      <span class="action-status" id="statusAfter">Tap to open camera</span>
+    </button>
+    <button class="action-btn" id="btnTip" onclick="openTip()">
+      <span class="action-icon">💵</span>
+      <span class="action-label">TIP</span>
+      <span class="action-status" id="statusTip">Tap to record</span>
+    </button>
+  </div>
+
+  <!-- Photo capture view (shown when camera active) -->
+  <div class="photo-area" id="photoArea" style="display:none;">
+    <div class="photo-area-title" id="photoAreaTitle">📷 Before Photos</div>
+    <div class="photo-thumbs" id="photoThumbs"></div>
+    <div class="photo-area-status" id="photoAreaStatus"></div>
+    <div class="cam-btns" id="camBtns" style="display:none;">
+      <button class="cam-btn cam-primary" onclick="triggerCamera()">📷 Take Another</button>
+      <button class="cam-btn cam-done" onclick="donePhotos()">✓ Done</button>
+    </div>
+    <button class="cam-btn cam-secondary" style="margin-top:8px;" onclick="cancelCapture()">Cancel</button>
+  </div>
+</div>
+
+<!-- ── TIP MODAL ─────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="tipModal" onclick="if(event.target===this)closeTip()">
+  <div class="tip-sheet">
+    <div class="tip-title">💵 Did the customer tip?</div>
+    <div class="tip-opts">
+      <button class="tip-opt" id="tipOpt-cash" onclick="selectTipOpt('cash')">✅ Yes — Cash tip</button>
+      <div class="tip-amt-row" id="tipAmtRow" style="display:none;">
+        <span class="tip-dollar">$</span>
+        <input class="tip-input" id="tipAmt" type="number" inputmode="decimal" placeholder="0" min="0" step="0.01">
+      </div>
+      <button class="tip-opt" id="tipOpt-in_payment" onclick="selectTipOpt('in_payment')">💳 Added to payment (no separate cash)</button>
+      <button class="tip-opt" id="tipOpt-none" onclick="selectTipOpt('none')">❌ No tip</button>
+    </div>
+    <button class="tip-save" onclick="saveTip()">Save</button>
+    <button class="tip-cancel" onclick="closeTip()">Cancel</button>
+  </div>
+</div>
+
+<!-- ── MANUAL JOB MODAL ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="manualModal" onclick="if(event.target===this)closeManual()">
+  <div class="manual-sheet">
+    <div class="manual-title">➕ Add Unscheduled Job</div>
+    <div class="manual-field">
+      <label class="manual-label">Customer Name</label>
+      <input class="manual-input" id="manualName" placeholder="First Last" autocapitalize="words" autocomplete="off">
+    </div>
+    <div class="manual-field">
+      <label class="manual-label">Address</label>
+      <input class="manual-input" id="manualAddr" placeholder="123 Main St, City" autocomplete="off">
+    </div>
+    <button class="manual-confirm" onclick="addManualJob()">Add Job</button>
+    <button class="manual-cancel2" onclick="closeManual()">Cancel</button>
+  </div>
+</div>
+
+<!-- ── HIDDEN CAMERA INPUT ───────────────────────────────────────────────── -->
+<!-- capture="environment" forces rear camera on iOS, not the photo library -->
+<input type="file" id="cameraInput" accept="image/*,image/heic,image/heif" capture="environment" style="position:absolute;left:-9999px;opacity:0;" onchange="onCameraChange(this.files[0]);this.value='';">
+
+<!-- ── SHARED UI ─────────────────────────────────────────────────────────── -->
+<div class="sync-bar" id="syncBar"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let _crew         = null;
+let _allCustomers = [];
+let _todaysJobs   = [];       // {phone, firstName, lastName, city, address, startTime, jobNotes, ss}
+let _currentPhone = null;
+let _captureType  = null;     // 'before' | 'after'
+let _session      = {};       // {phone: {beforeIds, afterIds, tip}}
+let _tipChoice    = null;
+let _idb          = null;
+let _manualJobs   = [];       // ephemeral manual entries for this session
+let _toastTimer   = null;
+let _syncTimer    = null;
+
+function sessFor(ph) {
+  if (!_session[ph]) _session[ph] = { beforeIds: [], afterIds: [], tip: null };
+  return _session[ph];
+}
+
+// ── INDEXEDDB (for offline photo queue) ────────────────────────────────────
+function openIDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('pcpc_crew_v1', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+    req.onsuccess = e => res(e.target.result);
+    req.onerror   = e => rej(e);
+  });
+}
+function idbAdd(data) {
+  return new Promise((res, rej) => {
+    const tx  = _idb.transaction('queue', 'readwrite');
+    const req = tx.objectStore('queue').add({ ...data, addedAt: Date.now() });
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+function idbGetAll() {
+  return new Promise((res, rej) => {
+    const tx  = _idb.transaction('queue', 'readonly');
+    const req = tx.objectStore('queue').getAll();
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+function idbDel(id) {
+  return new Promise((res, rej) => {
+    const tx  = _idb.transaction('queue', 'readwrite');
+    const req = tx.objectStore('queue').delete(id);
+    req.onsuccess = () => res();
+    req.onerror   = () => rej(req.error);
+  });
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+async function init() {
+  try { _idb = await openIDB(); } catch(e) { console.warn('IDB:', e); }
+  window.addEventListener('online', () => setTimeout(drainQueue, 800));
+  _crew = localStorage.getItem('pcpc_crew_user');
+  if (!_crew) { showScreen('identity'); return; }
+  showEntry();
+  // Drain any queued items on load if online
+  if (navigator.onLine) setTimeout(drainQueue, 2000);
+}
+
+// ── IDENTITY ───────────────────────────────────────────────────────────────
+function pickCrew(name) {
+  name = name.trim();
+  if (!name) return;
+  _crew = name;
+  localStorage.setItem('pcpc_crew_user', name);
+  showEntry();
+}
+function pickOther() {
+  const val = (document.getElementById('otherName').value || '').trim();
+  if (!val) { document.getElementById('otherName').focus(); return; }
+  pickCrew(val);
+}
+function changeCrew() {
+  localStorage.removeItem('pcpc_crew_user');
+  _crew = null;
+  showScreen('identity');
+}
+
+// ── ENTRY ──────────────────────────────────────────────────────────────────
+async function showEntry() {
+  document.getElementById('hdrCrewName').textContent = _crew || '';
+  const today = isoToday();
+  document.getElementById('hdrDate').textContent = fmtDateLong(today);
+  showScreen('entry');
+  const content = document.getElementById('entryContent');
+  content.innerHTML = '<div class="load-msg" id="loadMsg">Loading jobs…</div>';
+
+  try {
+    const res  = await fetch(`${API}/customers`);
+    const data = await res.json();
+    _allCustomers = (data.customers || []).filter(Boolean);
+    _todaysJobs = _allCustomers
+      .filter(c => {
+        const ss = c.scheduledStatus;
+        return ss && ss.state === 'scheduled' && ss.scheduledDate === today;
+      })
+      .map(c => {
+        const ss = c.scheduledStatus || {};
+        return {
+          phone:     norm(c.phone),
+          firstName: c.firstName || '',
+          lastName:  c.lastName  || '',
+          city:      c.city      || '',
+          address:   c.address   || '',
+          startTime: ss.startTime || '',
+          jobNotes:  ss.jobNotes  || '',
+          ss,
+        };
+      })
+      .sort((a, b) => (a.startTime || '99:99') < (b.startTime || '99:99') ? -1 : 1);
+
+    // Prepend any manual jobs
+    _todaysJobs = [..._manualJobs, ..._todaysJobs];
+    renderEntry(content);
+  } catch(e) {
+    content.innerHTML = `<div class="load-msg">⚠ Could not load jobs<br><span style="font-size:13px;">Check your connection</span></div>`;
+  }
+}
+
+function renderEntry(container) {
+  if (!_todaysJobs.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">☀️</div>
+        <div class="empty-title">No jobs today</div>
+        <div class="empty-sub">Nothing scheduled for today.<br>Tyler will add jobs to the calendar.</div>
+        <button class="manual-btn" onclick="openManual()">+ Add Unscheduled Job</button>
+      </div>`;
+    return;
+  }
+
+  const items = _todaysJobs.map(j => {
+    const sess = sessFor(j.phone);
+    const ss = j.ss || {};
+
+    const bCount = (ss.beforePhotos || []).length + sess.beforeIds.length;
+    const aCount = (ss.afterPhotos  || []).length + sess.afterIds.length;
+    const hasTip = ss.tipAmount != null || sess.tip != null;
+
+    const bPill = bCount
+      ? `<span class="pill pill-done">✅ Before ${bCount > 0 ? '(' + bCount + ')' : ''}</span>`
+      : `<span class="pill pill-todo">📷 Before</span>`;
+    const aPill = aCount
+      ? `<span class="pill pill-done">✅ After ${aCount > 0 ? '(' + aCount + ')' : ''}</span>`
+      : `<span class="pill pill-todo">📷 After</span>`;
+    const tPill = hasTip
+      ? `<span class="pill pill-done">💵 Tip ✅</span>`
+      : `<span class="pill pill-todo">💵 Tip</span>`;
+
+    const name = [j.firstName, j.lastName ? j.lastName[0] + '.' : ''].filter(Boolean).join(' ');
+    const sub  = [j.city, j.startTime ? fmtTime(j.startTime) : ''].filter(Boolean).join(' · ');
+
+    return `<div class="job-card" onclick="showDetail('${esc(j.phone)}')">
+      <div class="job-name">${esc(name)}</div>
+      ${sub ? `<div class="job-sub">${esc(sub)}</div>` : ''}
+      ${j.address ? `<div class="job-addr">${esc(j.address)}</div>` : ''}
+      <div class="job-pills">${bPill}${aPill}${tPill}</div>
+    </div>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="jobs-list">${items}</div>
+    <div style="padding:0 16px 20px;">
+      <button class="manual-btn" style="width:100%;" onclick="openManual()">+ Add Unscheduled Job</button>
+    </div>`;
+}
+
+// ── DETAIL ─────────────────────────────────────────────────────────────────
+function showDetail(phone) {
+  _currentPhone = phone;
+  _captureType  = null;
+
+  const job = _todaysJobs.find(j => j.phone === phone);
+  if (!job) return;
+
+  const fullName = [job.firstName, job.lastName].filter(Boolean).join(' ');
+  document.getElementById('detailName').textContent = fullName || 'Customer';
+  document.getElementById('detailAddr').textContent = job.address || '';
+  document.getElementById('detailSvc').textContent  = job.jobNotes || 'Scheduled service';
+
+  showScreen('detail');
+  setView('actions');
+  updateDetailButtons();
+}
+
+function setView(which) {
+  document.getElementById('actionList').style.display = which === 'actions' ? '' : 'none';
+  document.getElementById('photoArea').style.display  = which === 'photos'  ? '' : 'none';
+}
+
+function updateDetailButtons() {
+  const job  = _todaysJobs.find(j => j.phone === _currentPhone) || {};
+  const ss   = job.ss || {};
+  const sess = sessFor(_currentPhone);
+
+  const bCount = (ss.beforePhotos || []).length + sess.beforeIds.length;
+  const aCount = (ss.afterPhotos  || []).length + sess.afterIds.length;
+  const hasTip = ss.tipAmount != null || sess.tip != null;
+
+  const bBtn = document.getElementById('btnBefore');
+  const aStat = document.getElementById('statusBefore');
+  if (bCount > 0) {
+    bBtn.className = 'action-btn done';
+    aStat.textContent = `✅ ${bCount} photo${bCount > 1 ? 's' : ''} captured · tap to add more`;
+  } else {
+    bBtn.className = 'action-btn';
+    aStat.textContent = 'Tap to open camera';
+  }
+
+  const aBtn  = document.getElementById('btnAfter');
+  const aStat2 = document.getElementById('statusAfter');
+  if (aCount > 0) {
+    aBtn.className = 'action-btn done';
+    aStat2.textContent = `✅ ${aCount} photo${aCount > 1 ? 's' : ''} captured · tap to add more`;
+  } else {
+    aBtn.className = 'action-btn';
+    aStat2.textContent = 'Tap to open camera';
+  }
+
+  const tBtn = document.getElementById('btnTip');
+  const tStat = document.getElementById('statusTip');
+  if (hasTip) {
+    const td = sess.tip || {};
+    const amt = td.tipAmount != null ? td.tipAmount : ss.tipAmount;
+    const mtd = td.tipMethod  || ss.tipMethod;
+    let tipStr = '';
+    if (mtd === 'none') tipStr = 'No tip logged';
+    else if (mtd === 'in_payment') tipStr = 'Added to payment';
+    else if (amt) tipStr = `$${amt} cash`;
+    tBtn.className = 'action-btn done';
+    tStat.textContent = `✅ ${tipStr} · tap to edit`;
+  } else {
+    tBtn.className = 'action-btn';
+    tStat.textContent = 'Tap to record';
+  }
+}
+
+function backToEntry() {
+  _currentPhone = null;
+  _captureType  = null;
+  showEntry(); // re-fetch so job list shows latest status
+}
+
+// ── PHOTO CAPTURE ──────────────────────────────────────────────────────────
+function startCapture(type) {
+  _captureType = type;
+
+  document.getElementById('photoAreaTitle').textContent = type === 'before' ? '📷 Before Photos' : '📷 After Photos';
+  document.getElementById('photoThumbs').innerHTML      = '';
+  document.getElementById('photoAreaStatus').textContent = '';
+  document.getElementById('camBtns').style.display       = 'none';
+
+  setView('photos');
+  // Trigger camera immediately in this user-gesture context
+  triggerCamera();
+}
+
+function cancelCapture() {
+  _captureType = null;
+  setView('actions');
+}
+
+function triggerCamera() {
+  const input = document.getElementById('cameraInput');
+  input.value = '';
+  input.click();
+}
+
+async function onCameraChange(file) {
+  if (!file) return;
+
+  // Show pending placeholder immediately
+  const pendId = 'ph-' + genId();
+  const grid = document.getElementById('photoThumbs');
+  const pend = document.createElement('div');
+  pend.className = 'ph-pending';
+  pend.id = pendId;
+  pend.textContent = '⏳';
+  grid.appendChild(pend);
+  document.getElementById('photoAreaStatus').textContent = 'Compressing…';
+
+  let jpeg, thumb, previewUrl;
+  try {
+    ({ jpeg, thumb, previewUrl } = await compressPhoto(file));
+  } catch(e) {
+    pend.textContent = '⚠';
+    document.getElementById('photoAreaStatus').textContent = '⚠ Could not read photo — try again';
+    return;
+  }
+
+  // Replace placeholder with thumbnail
+  const img = document.createElement('img');
+  img.className = 'ph-thumb';
+  img.src = previewUrl;
+  const el = document.getElementById(pendId);
+  if (el) el.replaceWith(img); else grid.appendChild(img);
+
+  // Upload (or queue if offline)
+  const photoId = genId();
+  document.getElementById('photoAreaStatus').textContent = navigator.onLine ? 'Uploading…' : '📶 Queued — will upload when online';
+
+  const job = _todaysJobs.find(j => j.phone === _currentPhone) || {};
+  const meta = {
+    phone:      _currentPhone,
+    jobDate:    job.ss?.scheduledDate || isoToday(),
+    services:   job.jobNotes || '',
+    photoType:  _captureType,
+    capturedBy: _crew || 'crew',
+    source:     'crew_mobile',
+  };
+
+  const uploaded = await uploadPhoto(photoId, jpeg, thumb, meta);
+
+  if (!uploaded) {
+    img.classList.add('ph-warn');
+    img.title = 'Queued — uploads when back online';
+  }
+
+  // Track in session
+  const sess = sessFor(_currentPhone);
+  if (_captureType === 'before') sess.beforeIds.push(photoId);
+  else                           sess.afterIds.push(photoId);
+
+  const count = _captureType === 'before' ? sess.beforeIds.length : sess.afterIds.length;
+  document.getElementById('photoAreaStatus').textContent =
+    uploaded ? `✓ Saved · ${count} photo${count > 1 ? 's' : ''}` : `📶 Queued · ${count} photo${count > 1 ? 's' : ''}`;
+
+  document.getElementById('camBtns').style.display = '';
+}
+
+async function uploadPhoto(photoId, jpeg, thumb, metadata) {
+  const payload = { photoId, jpeg, thumb, metadata };
+  if (!navigator.onLine) {
+    await queueItem({ type: 'photo_upload', ...payload });
+    updateSyncCount();
+    return false;
+  }
+  try {
+    const res = await fetch(`${API}/photos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(res.status);
+    return true;
+  } catch(e) {
+    await queueItem({ type: 'photo_upload', ...payload });
+    updateSyncCount();
+    return false;
+  }
+}
+
+async function donePhotos() {
+  document.getElementById('photoAreaStatus').textContent = 'Saving…';
+  document.getElementById('camBtns').style.display = 'none';
+
+  const sess = sessFor(_currentPhone);
+  const ids  = _captureType === 'before' ? [...sess.beforeIds] : [...sess.afterIds];
+
+  if (ids.length) {
+    await persistPhotoIds(_currentPhone, _captureType, ids);
+    // Clear from session after persist (now on server or queued)
+    if (_captureType === 'before') sess.beforeIds = [];
+    else                           sess.afterIds  = [];
+  }
+
+  _captureType = null;
+  setView('actions');
+  updateDetailButtons();
+
+  // Refresh the cached customer so job list shows updated counts
+  const c = _allCustomers.find(x => norm(x.phone) === _currentPhone);
+  if (c && c.scheduledStatus) {
+    const field = _captureType === null ? null : (_captureType === 'before' ? 'beforePhotos' : 'afterPhotos');
+    // IDs are now on the server; the refreshed customer on next showEntry() will pick them up
+  }
+}
+
+async function persistPhotoIds(phone, photoType, ids) {
+  const field = photoType === 'before' ? 'beforePhotos' : 'afterPhotos';
+
+  if (!navigator.onLine) {
+    await queueLSItem({ type: 'persist_photos', phone, photoType, ids, field });
+    updateSyncCount();
+    return;
+  }
+  try {
+    const res  = await fetch(`${API}/customers`);
+    const data = await res.json();
+    const custs = data.customers || [];
+    const idx = custs.findIndex(c => c && norm(c.phone) === phone);
+    if (idx !== -1) {
+      const ss = custs[idx].scheduledStatus || {};
+      custs[idx].scheduledStatus = ss;
+      if (!ss[field]) ss[field] = [];
+      ids.forEach(id => { if (!ss[field].includes(id)) ss[field].push(id); });
+      // Also update local cache
+      const li = _allCustomers.findIndex(c => c && norm(c.phone) === phone);
+      if (li !== -1) {
+        const lss = _allCustomers[li].scheduledStatus || {};
+        _allCustomers[li].scheduledStatus = lss;
+        if (!lss[field]) lss[field] = [];
+        ids.forEach(id => { if (!lss[field].includes(id)) lss[field].push(id); });
+        const lj = _todaysJobs.find(j => j.phone === phone);
+        if (lj) lj.ss = _allCustomers[li].scheduledStatus;
+      }
+      await fetch(`${API}/customers`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customers: custs }),
+      });
+    }
+  } catch(e) {
+    console.warn('persistPhotoIds failed:', e);
+    await queueLSItem({ type: 'persist_photos', phone, photoType, ids, field });
+    updateSyncCount();
+  }
+}
+
+// ── TIP ────────────────────────────────────────────────────────────────────
+function openTip() {
+  _tipChoice = null;
+  document.getElementById('tipAmt').value = '';
+  document.getElementById('tipAmtRow').style.display = 'none';
+  document.querySelectorAll('.tip-opt').forEach(b => b.classList.remove('sel'));
+  document.getElementById('tipModal').classList.add('open');
+}
+
+function selectTipOpt(choice) {
+  _tipChoice = choice;
+  document.querySelectorAll('.tip-opt').forEach(b => b.classList.remove('sel'));
+  document.getElementById(`tipOpt-${choice}`).classList.add('sel');
+  document.getElementById('tipAmtRow').style.display = choice === 'cash' ? '' : 'none';
+  if (choice === 'cash') document.getElementById('tipAmt').focus();
+}
+
+function closeTip() {
+  document.getElementById('tipModal').classList.remove('open');
+}
+
+async function saveTip() {
+  if (!_tipChoice) { showToast('Select an option first'); return; }
+
+  let tipAmount = null;
+  const tipMethod = _tipChoice;
+
+  if (_tipChoice === 'cash') {
+    tipAmount = parseFloat(document.getElementById('tipAmt').value);
+    if (!(tipAmount > 0)) { showToast('Enter tip amount'); return; }
+  }
+
+  closeTip();
+
+  const tipData = {
+    tipAmount,
+    tipMethod,
+    tippedAt:      new Date().toISOString(),
+    tipCapturedBy: _crew || 'crew',
+  };
+
+  sessFor(_currentPhone).tip = { ...tipData };
+  updateDetailButtons();
+
+  await saveTipData(_currentPhone, tipAmount, tipMethod, tipData.tippedAt);
+  showToast(tipAmount > 0 ? `✓ $${tipAmount} tip saved` : '✓ Tip logged');
+}
+
+async function saveTipData(phone, tipAmount, tipMethod, tippedAt) {
+  const update = (c) => {
+    if (!c.scheduledStatus) c.scheduledStatus = {};
+    c.scheduledStatus.tipAmount      = tipAmount;
+    c.scheduledStatus.tipMethod      = tipMethod;
+    c.scheduledStatus.tippedAt       = tippedAt;
+    c.scheduledStatus.tipCapturedBy  = _crew || 'crew';
+    if (tipAmount > 0) c.isTipper = true;
+  };
+
+  if (!navigator.onLine) {
+    await queueLSItem({ type: 'save_tip', phone, tipAmount, tipMethod, tippedAt, capturedBy: _crew || 'crew' });
+    updateSyncCount();
+    // Apply to local cache
+    const li = _allCustomers.findIndex(c => c && norm(c.phone) === phone);
+    if (li !== -1) { update(_allCustomers[li]); const lj = _todaysJobs.find(j => j.phone === phone); if (lj) lj.ss = _allCustomers[li].scheduledStatus; }
+    return;
+  }
+  try {
+    const res  = await fetch(`${API}/customers`);
+    const data = await res.json();
+    const custs = data.customers || [];
+    const idx = custs.findIndex(c => c && norm(c.phone) === phone);
+    if (idx !== -1) {
+      update(custs[idx]);
+      // Sync to local cache
+      const li = _allCustomers.findIndex(c => c && norm(c.phone) === phone);
+      if (li !== -1) { update(_allCustomers[li]); const lj = _todaysJobs.find(j => j.phone === phone); if (lj) lj.ss = _allCustomers[li].scheduledStatus; }
+      await fetch(`${API}/customers`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customers: custs }),
+      });
+    }
+  } catch(e) {
+    console.warn('saveTipData failed:', e);
+    await queueLSItem({ type: 'save_tip', phone, tipAmount, tipMethod, tippedAt, capturedBy: _crew || 'crew' });
+    updateSyncCount();
+  }
+}
+
+// ── MANUAL JOBS ────────────────────────────────────────────────────────────
+function openManual() { document.getElementById('manualModal').classList.add('open'); }
+function closeManual() {
+  document.getElementById('manualModal').classList.remove('open');
+  document.getElementById('manualName').value = '';
+  document.getElementById('manualAddr').value = '';
+}
+function addManualJob() {
+  const name = (document.getElementById('manualName').value || '').trim();
+  const addr = (document.getElementById('manualAddr').value || '').trim();
+  if (!name) { document.getElementById('manualName').focus(); return; }
+
+  const parts = name.split(' ');
+  const ph = 'manual_' + genId();
+  const job = {
+    phone: ph, firstName: parts[0], lastName: parts.slice(1).join(' '),
+    city: '', address: addr, startTime: '', jobNotes: 'Unscheduled job',
+    ss: { scheduledDate: isoToday(), state: 'scheduled' },
+  };
+  _manualJobs.unshift(job);
+  _todaysJobs.unshift(job);
+  closeManual();
+  const content = document.getElementById('entryContent');
+  renderEntry(content);
+}
+
+// ── OFFLINE QUEUE ──────────────────────────────────────────────────────────
+// IndexedDB for large photo data; localStorage for small op items
+async function queueItem(data) {
+  if (_idb) {
+    try { await idbAdd(data); } catch(e) { console.warn('IDB add failed:', e); }
+  }
+}
+
+function queueLSItem(data) {
+  try {
+    const q = JSON.parse(localStorage.getItem('pcpc_crew_queue') || '[]');
+    q.push({ ...data, _id: genId(), _addedAt: Date.now() });
+    localStorage.setItem('pcpc_crew_queue', JSON.stringify(q));
+  } catch(e) { console.warn('LS queue failed:', e); }
+  return Promise.resolve();
+}
+
+async function drainQueue() {
+  let processed = 0;
+
+  // 1. Drain IDB photo uploads
+  if (_idb) {
+    try {
+      const items = await idbGetAll();
+      for (const item of items) {
+        try {
+          if (item.type === 'photo_upload') {
+            const res = await fetch(`${API}/photos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ photoId: item.photoId, jpeg: item.jpeg, thumb: item.thumb, metadata: item.metadata }),
+            });
+            if (!res.ok) throw new Error(res.status);
+          }
+          await idbDel(item.id);
+          processed++;
+        } catch(e) { /* leave in queue */ }
+      }
+    } catch(e) { console.warn('IDB drain:', e); }
+  }
+
+  // 2. Drain localStorage op queue
+  try {
+    const q = JSON.parse(localStorage.getItem('pcpc_crew_queue') || '[]');
+    const remaining = [];
+    for (const item of q) {
+      try {
+        if (item.type === 'persist_photos') {
+          await persistPhotoIds(item.phone, item.photoType, item.ids);
+        } else if (item.type === 'save_tip') {
+          await saveTipData(item.phone, item.tipAmount, item.tipMethod, item.tippedAt);
+        }
+        processed++;
+      } catch(e) { remaining.push(item); }
+    }
+    localStorage.setItem('pcpc_crew_queue', JSON.stringify(remaining));
+  } catch(e) { console.warn('LS drain:', e); }
+
+  if (processed > 0) showToast(`✓ Synced ${processed} item${processed > 1 ? 's' : ''}`);
+  updateSyncCount();
+}
+
+async function updateSyncCount() {
+  let total = 0;
+  if (_idb) {
+    try { const items = await idbGetAll(); total += items.length; } catch {}
+  }
+  try {
+    const q = JSON.parse(localStorage.getItem('pcpc_crew_queue') || '[]');
+    total += q.length;
+  } catch {}
+  const bar = document.getElementById('syncBar');
+  if (total > 0) {
+    bar.textContent = `📶 ${total} item${total > 1 ? 's' : ''} queued — will sync when online`;
+    bar.className = 'sync-bar visible';
+  } else {
+    bar.className = 'sync-bar';
+  }
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function norm(p) { return String(p || '').replace(/\D/g, '').slice(-10); }
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function isoToday() { return new Date().toISOString().split('T')[0]; }
+function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+function fmtDateLong(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const days   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const date = new Date(y, m - 1, d);
+  return `${days[date.getDay()]}, ${months[m - 1]} ${d}`;
+}
+
+function fmtTime(t) {
+  if (!t) return '';
+  const [h, mn] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  return `${(h % 12) || 12}:${String(mn).padStart(2, '0')} ${ap}`;
+}
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(`screen-${name}`).classList.add('active');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function compressPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = ev => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        // Full res: max 1920px, 80% JPEG
+        const maxPx = 1920;
+        let w = img.width, h = img.height;
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else        { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const c1 = document.createElement('canvas'); c1.width = w; c1.height = h;
+        c1.getContext('2d').drawImage(img, 0, 0, w, h);
+        const jpeg = c1.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+        // Thumbnail: max 300px, 70%
+        const tMax = 300;
+        let tw = img.width, th = img.height;
+        if (tw > tMax || th > tMax) {
+          if (tw >= th) { th = Math.round(th * tMax / tw); tw = tMax; }
+          else          { tw = Math.round(tw * tMax / th); th = tMax; }
+        }
+        const c2 = document.createElement('canvas'); c2.width = tw; c2.height = th;
+        c2.getContext('2d').drawImage(img, 0, 0, tw, th);
+        const thumb      = c2.toDataURL('image/jpeg', 0.7).split(',')[1];
+        const previewUrl = c2.toDataURL('image/jpeg', 0.7);
+
+        resolve({ jpeg, thumb, previewUrl });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── BOOT ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

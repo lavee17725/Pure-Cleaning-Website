@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Reviews Hub — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--terra:#c2410c;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;--input-bg:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.back-bar{background:var(--navy2);border-bottom:1px solid var(--border);padding:6px 1.25rem;}
+.back-bar a{color:var(--muted);text-decoration:none;font-size:12px;font-weight:600;}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--white);letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.badge{font-size:11px;font-weight:600;background:rgba(244,166,32,.2);color:var(--gold);padding:3px 10px;border-radius:20px;letter-spacing:1px;}
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.tab{flex-shrink:0;padding:.875rem 1rem;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2.5px solid transparent;transition:all .2s;white-space:nowrap;}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.tab:hover:not(.active){color:var(--text);}
+.tab-badge{display:inline-flex;align-items:center;justify-content:center;background:var(--gold);color:var(--navy);border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:5px;}
+.wrap{max-width:800px;margin:0 auto;padding:1.25rem;}
+.panel{display:none;}.panel.active{display:block;}
+.card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:.75rem;transition:border-color .15s;}
+.card.urgent{border-color:rgba(220,38,38,.5);background:rgba(220,38,38,.04);}
+.card.soon{border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.03);}
+.card.reviewed{border-color:rgba(29,158,117,.4);background:rgba(29,158,117,.04);}
+.card-name{font-size:15px;font-weight:700;color:var(--white);margin-bottom:3px;}
+.card-meta{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5;}
+.card-btns{display:flex;flex-wrap:wrap;gap:7px;margin-top:.75rem;}
+.btn{padding:7px 13px;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.btn-primary{background:var(--sky);color:#fff;}
+.btn-primary:hover{background:#2470c0;}
+.btn-green{background:var(--green);color:#fff;}
+.btn-green:hover{background:#0d7a5a;}
+.btn-danger{background:rgba(220,38,38,.18);color:#fca5a5;border:1.5px solid rgba(220,38,62,.35);}
+.btn-danger:hover{background:var(--red);color:#fff;}
+.btn-muted{background:rgba(122,138,170,.15);color:var(--muted);border:1.5px solid var(--border);}
+.btn-muted:hover{border-color:var(--sky);color:var(--sky);}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.btn-gold:hover{background:#e09010;}
+.days-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;}
+.days-green{background:rgba(29,158,117,.2);color:#5de0b3;}
+.days-yellow{background:rgba(245,158,11,.2);color:#fbbf24;}
+.days-orange{background:rgba(234,88,12,.2);color:#fb923c;}
+.days-red{background:rgba(220,38,38,.2);color:#fca5a5;}
+.section-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;display:flex;align-items:center;gap:8px;}
+.section-hdr::after{content:'';flex:1;height:1px;background:var(--border);}
+.empty-state{text-align:center;padding:3rem 1.5rem;color:var(--muted);}
+.empty-icon{font-size:40px;margin-bottom:.75rem;}
+.empty-title{font-size:16px;font-weight:700;color:var(--white);margin-bottom:.375rem;}
+.banner{background:rgba(245,158,11,.1);border:1.5px solid rgba(245,158,11,.4);border-radius:10px;padding:.875rem 1rem;margin-bottom:1rem;font-size:13px;color:#fbbf24;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+/* INSIGHTS */
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.25rem;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1rem;text-align:center;}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--gold);letter-spacing:1px;}
+.stat-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;}
+.goal-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1.25rem;margin-bottom:1.25rem;}
+.goal-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;color:var(--gold);margin-bottom:.875rem;}
+.goal-count-row{display:flex;align-items:center;gap:10px;margin-bottom:1rem;}
+.goal-count-big{font-family:'Bebas Neue',sans-serif;font-size:48px;color:var(--white);letter-spacing:2px;line-height:1;}
+.goal-slash{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--muted);}
+.goal-target{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--muted);}
+.progress-bar{height:12px;background:var(--border);border-radius:6px;overflow:hidden;margin:.875rem 0 .5rem;}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--green),#fbbf24);border-radius:6px;transition:width .6s ease;}
+.goal-sub{font-size:12px;color:var(--muted);line-height:1.6;}
+.edit-count-row{display:flex;gap:8px;align-items:center;margin-bottom:.5rem;}
+.count-input{width:100px;padding:8px 10px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:7px;color:var(--white);font-family:'DM Mono',monospace;font-size:18px;font-weight:600;text-align:center;outline:none;}
+.count-input:focus{border-color:var(--gold);}
+.update-stale{color:#fbbf24;font-size:12px;}
+
+/* TEMPLATES */
+.tpl-card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:.875rem;}
+.tpl-card.active{border-color:var(--gold);}
+.tpl-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.625rem;}
+.tpl-name{font-size:14px;font-weight:700;color:var(--white);}
+.tpl-active-badge{font-size:10px;font-weight:700;background:var(--gold);color:var(--navy);padding:2px 8px;border-radius:10px;}
+.tpl-body{font-size:12px;color:var(--muted);line-height:1.7;white-space:pre-wrap;background:var(--input-bg);border-radius:8px;padding:.75rem;margin-bottom:.75rem;font-family:'DM Mono',monospace;}
+.tpl-stats{font-size:11px;color:var(--muted);margin-bottom:.625rem;}
+.tpl-btns{display:flex;flex-wrap:wrap;gap:6px;}
+.tpl-edit-form{display:none;margin-top:.875rem;}
+.tpl-edit-form.open{display:block;}
+.form-lbl{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.form-input{width:100%;padding:10px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;margin-bottom:.75rem;}
+.form-input:focus{border-color:var(--sky);}
+.form-textarea{width:100%;padding:10px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;outline:none;resize:vertical;margin-bottom:.75rem;min-height:140px;line-height:1.6;}
+.form-textarea:focus{border-color:var(--sky);}
+.variables-hint{font-size:11px;color:var(--muted);margin-bottom:.875rem;line-height:1.7;}
+.variables-hint code{background:var(--input-bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-family:'DM Mono',monospace;color:var(--sky);}
+.send-preview{background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:.75rem;margin-bottom:.875rem;font-size:12px;color:var(--muted);line-height:1.6;white-space:pre-wrap;font-family:'DM Mono',monospace;}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--navy2);color:var(--white);border:1.5px solid var(--border);padding:9px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;pointer-events:none;opacity:0;transition:opacity .35s;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4);}
+.toast.show{opacity:1;}
+
+/* Review note input inline */
+.note-input-wrap{display:none;margin-top:.75rem;}
+.note-input-wrap.open{display:block;}
+.note-input-wrap input{width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;margin-bottom:6px;}
+.note-input-wrap input:focus{border-color:var(--green);}
+
+@media(max-width:600px){.stat-grid{grid-template-columns:1fr 1fr;}}
+</style>
+</head>
+<body>
+
+<div class="back-bar"><a href="/pure_cleaning_admin.html">← Admin Home</a></div>
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="badge">⭐ Reviews Hub</div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="ready" onclick="switchTab('ready')">🎯 Ready <span class="tab-badge" id="badge-ready">—</span></div>
+  <div class="tab" data-tab="requested" onclick="switchTab('requested')">📬 Requested <span class="tab-badge" id="badge-requested" style="background:rgba(45,125,210,.4);color:#93c5fd;">—</span></div>
+  <div class="tab" data-tab="reviewed" onclick="switchTab('reviewed')">⭐ Reviewed <span class="tab-badge" id="badge-reviewed" style="background:rgba(29,158,117,.4);color:#6ee7b7;">—</span></div>
+  <div class="tab" data-tab="wontask" onclick="switchTab('wontask')">🚫 Won't Ask <span class="tab-badge" id="badge-wontask" style="background:rgba(122,138,170,.3);color:var(--muted);">—</span></div>
+  <div class="tab" data-tab="insights" onclick="switchTab('insights')">📊 Insights</div>
+  <div class="tab" data-tab="templates" onclick="switchTab('templates')">📝 Templates</div>
+</div>
+
+<div class="wrap">
+  <!-- TAB 1: READY -->
+  <div class="panel active" id="panel-ready">
+    <div id="ready-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+
+  <!-- TAB 2: REQUESTED -->
+  <div class="panel" id="panel-requested">
+    <div id="requested-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+
+  <!-- TAB 3: REVIEWED -->
+  <div class="panel" id="panel-reviewed">
+    <div id="reviewed-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+
+  <!-- TAB 4: WON'T ASK -->
+  <div class="panel" id="panel-wontask">
+    <div id="wontask-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+
+  <!-- TAB 5: INSIGHTS -->
+  <div class="panel" id="panel-insights">
+    <div id="insights-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+
+  <!-- TAB 6: TEMPLATES -->
+  <div class="panel" id="panel-templates">
+    <div id="templates-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const REVIEW_LINK = 'https://g.page/r/CRQZRl3rokhmEAE/review';
+const REVIEW_GOAL = 300;
+const REVIEW_CUTOFF = '2026-05-01'; // Track only from this date forward
+
+let hubData = null;
+let _editCountMode = false;
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+async function loadHub() {
+  try {
+    const res  = await fetch(`${API}/admin/reviews-hub`);
+    hubData    = await res.json();
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) {
+    showToast('⚠️ Failed to load hub: ' + e.message);
+  }
+}
+
+function updateBadges() {
+  if (!hubData) return;
+  document.getElementById('badge-ready').textContent = hubData.readyToRequest.length + (hubData.readyTotal > 100 ? '+' : '');
+  document.getElementById('badge-requested').textContent = hubData.awaitingConfirmation.length;
+  document.getElementById('badge-reviewed').textContent = hubData.reviewed.length;
+  document.getElementById('badge-wontask').textContent = hubData.wontAsk.length;
+}
+
+let _currentTab = 'ready';
+function switchTab(tab) {
+  _currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  renderCurrentTab();
+}
+function renderCurrentTab() {
+  if (!hubData) return;
+  const fns = { ready: renderReady, requested: renderRequested, reviewed: renderReviewed, wontask: renderWontAsk, insights: renderInsights, templates: renderTemplates };
+  (fns[_currentTab] || renderReady)();
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function esc(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
+function fmtPhone(p){ const d=(p||'').replace(/\D/g,'').slice(-10); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:p||'—'; }
+function daysSince(iso){ if(!iso) return 999; return Math.floor((Date.now()-new Date(iso).getTime())/86400000); }
+function fmtDate(iso){ if(!iso) return '—'; const d=iso.includes('T')?new Date(iso):new Date(iso+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtDateShort(iso){ if(!iso) return '—'; const d=iso.includes('T')?new Date(iso):new Date(iso+'T12:00:00'); return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}); }
+function customerPhone(c){ return (c.phone||'').replace(/\D/g,'').slice(-10); }
+function customerName(c){ return `${c.firstName||''} ${c.lastName||''}`.trim() || '—'; }
+function jobService(c){ return (c.scheduledStatus||{}).jobNotes || (c.quoteStatus||{}).mainServices || (c.quoteStatus||{}).notes || 'Pressure Cleaning'; }
+// Use ss.completedAt (the actual completion timestamp set by _doCompleteJob)
+function jobDate(c){ const ss=c.scheduledStatus||{}; return ss.completedAt||ss.scheduledDate||c.lastService||null; }
+
+function daysBadge(days) {
+  if (days <= 0)  return `<span class="days-badge days-green">today</span>`;
+  if (days <= 3)  return `<span class="days-badge days-green">✓ ${days}d ago — send now</span>`;
+  if (days <= 7)  return `<span class="days-badge days-yellow">${days}d ago</span>`;
+  if (days <= 14) return `<span class="days-badge days-orange">${days}d ago</span>`;
+  return `<span class="days-badge days-red">${days}d ago — overdue</span>`;
+}
+
+function getActiveTemplate() {
+  if (!hubData || !hubData.templates) return null;
+  return hubData.templates.find(t => t.isActive) || hubData.templates[0];
+}
+
+function fillTemplate(tpl, c) {
+  const svc  = jobService(c);
+  const jd   = jobDate(c);
+  const jdFmt = jd ? new Date(jd+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'}) : 'recently';
+  return (tpl.body || '')
+    .replace(/\{firstName\}/g, c.firstName || 'there')
+    .replace(/\{service\}/g, svc)
+    .replace(/\{jobDate\}/g, jdFmt)
+    .replace(/\{reviewLink\}/g, REVIEW_LINK)
+    .replace(/\{ownerName\}/g, 'Tony');
+}
+
+let _toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(_toastTimer); _toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+// ── TAB 1: READY ──────────────────────────────────────────────────────────────
+function renderReady() {
+  const el = document.getElementById('ready-content');
+  const customers = hubData.readyToRequest;
+  const total = hubData.readyTotal;
+
+  if (!customers.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">✨</div><div class="empty-title">Nothing ready right now</div><div style="font-size:13px;color:var(--muted);margin-top:.375rem;">Customers appear here after their job is completed (after May 1, 2026).</div></div>`;
+    return;
+  }
+
+  const tpl = getActiveTemplate();
+  const limitNote = total > 100
+    ? `<div class="banner" style="margin-bottom:1rem;"><span>Showing 100 of <strong>${total}</strong> eligible customers — send requests to move them out of this queue.</span></div>`
+    : '';
+
+  el.innerHTML = limitNote + `<div class="section-hdr">🎯 Ready to ask · ${customers.length} shown</div>` +
+    customers.map(c => {
+      const ph   = customerPhone(c);
+      const name = customerName(c);
+      const svc  = jobService(c);
+      const jd   = jobDate(c);
+      const days = daysSince(jd);
+      const cls  = days <= 7 ? 'urgent' : days <= 14 ? 'soon' : '';
+      const urgency = daysBadge(days);
+      const completedLabel = jd ? `Completed ${fmtDate(jd)}` : 'Completed';
+      return `<div class="card ${cls}" id="ready-${ph}">
+        <div class="card-name">${esc(name)} ${urgency}</div>
+        <div class="card-meta">📞 ${fmtPhone(ph)} · 📋 ${esc(svc.slice(0,60))}${svc.length>60?'…':''} · 📅 ${completedLabel}</div>
+        <div class="card-btns">
+          <button class="btn btn-gold" onclick="sendReviewRequest('${ph}')">📱 Send Review Request</button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+async function sendReviewRequest(phone) {
+  if (!hubData) return;
+  const c   = hubData.readyToRequest.find(x => customerPhone(x) === phone)
+           || hubData.awaitingConfirmation.find(x => customerPhone(x) === phone);
+  if (!c) return;
+  const tpl = getActiveTemplate();
+  if (!tpl) { showToast('⚠️ No active template found'); return; }
+
+  const body = fillTemplate(tpl, c);
+  window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
+
+  // Log to server
+  try {
+    await fetch(`${API}/customer/${phone}/review-request-sent`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ templateUsedId: tpl.id })
+    });
+    showToast(`📱 Request sent to ${c.firstName || customerName(c)}`);
+    // Move card visually to "asked" state
+    const card = document.getElementById(`ready-${phone}`);
+    if (card) { card.style.opacity = '.4'; card.style.pointerEvents = 'none'; }
+    // Update local data
+    c.googleReview = { ...(c.googleReview||{}), status: 'asked', askedAt: new Date().toISOString(), templateUsedId: tpl.id };
+    hubData.awaitingConfirmation.push(c);
+    hubData.readyToRequest = hubData.readyToRequest.filter(x => customerPhone(x) !== phone);
+    updateBadges();
+  } catch(e) { showToast('Error logging: ' + e.message); }
+}
+
+// ── TAB 2: REQUESTED ─────────────────────────────────────────────────────────
+function renderRequested() {
+  const el = document.getElementById('requested-content');
+  const customers = hubData.awaitingConfirmation.filter(c => {
+    const gr = c.googleReview || {};
+    const d = gr.lastRequestSentAt || gr.askedAt;
+    return d && d.slice(0,10) >= REVIEW_CUTOFF;
+  });
+  if (!customers.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">📬</div><div class="empty-title">No pending requests since May 1, 2026</div><div style="font-size:13px;color:var(--muted);">After you send a review request, customers appear here.</div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="section-hdr">📬 Awaiting confirmation · ${customers.length} <span style="font-size:10px;font-weight:400;opacity:.6;">(since May 1, 2026)</span></div>` +
+    customers.map(c => {
+      const ph   = customerPhone(c);
+      const name = customerName(c);
+      const gr   = c.googleReview || {};
+      const days = daysSince(gr.lastRequestSentAt || gr.askedAt);
+      const cls  = days <= 7 ? 'days-green' : days <= 14 ? 'days-yellow' : 'days-red';
+      const svc  = jobService(c);
+      const cardCls = days <= 7 ? '' : days <= 14 ? 'soon' : 'urgent';
+      return `<div class="card ${cardCls}" id="req-${ph}">
+        <div class="card-name">${esc(name)} <span class="days-badge ${cls}">${days}d since request</span></div>
+        <div class="card-meta">📞 ${fmtPhone(ph)} · ${esc(svc.slice(0,50))}${svc.length>50?'…':''}</div>
+        <div class="card-btns">
+          <button class="btn btn-green" onclick="updateStatus('${ph}','left')">⭐ Yes, they reviewed!</button>
+          <button class="btn btn-muted" onclick="updateStatus('${ph}','declined')">○ Didn't review</button>
+          <button class="btn btn-primary" onclick="sendReviewRequest('${ph}')">⏰ Ask again</button>
+          <button class="btn btn-danger" onclick="updateStatus('${ph}','do_not_ask')">🚫 Don't ask anymore</button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+// ── TAB 3: REVIEWED ───────────────────────────────────────────────────────────
+function renderReviewed() {
+  const el = document.getElementById('reviewed-content');
+  const customers = hubData.reviewed.filter(c => {
+    const gr = c.googleReview || {};
+    return gr.leftAt && gr.leftAt.slice(0,10) >= REVIEW_CUTOFF;
+  });
+  if (!customers.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">⭐</div><div class="empty-title">No reviews confirmed since May 1, 2026</div><div style="font-size:13px;color:var(--muted);">Review tracking began May 1, 2026. Mark customers as reviewed to track your progress here.</div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="section-hdr">⭐ ${customers.length} reviews tracked since May 1, 2026 · Nice work!</div>` +
+    customers.map(c => {
+      const ph   = customerPhone(c);
+      const name = customerName(c);
+      const gr   = c.googleReview || {};
+      const leftFmt = gr.leftAt ? fmtDate(gr.leftAt) : '—';
+      const note = gr.noteAboutReview;
+      return `<div class="card reviewed" id="rev-${ph}">
+        <div class="card-name">⭐ ${esc(name)}</div>
+        <div class="card-meta">📞 ${fmtPhone(ph)} · Reviewed ${leftFmt}${c.city?' · '+esc(c.city):''}</div>
+        ${note ? `<div style="font-size:12px;color:#5de0b3;margin-bottom:.5rem;font-style:italic;">"${esc(note)}"</div>` : ''}
+        <div class="card-btns">
+          <button class="btn btn-muted" onclick="toggleNoteInput('${ph}')">✏️ ${note ? 'Edit note' : 'Add note'}</button>
+        </div>
+        <div class="note-input-wrap" id="note-wrap-${ph}">
+          <input type="text" id="note-input-${ph}" placeholder="e.g. Mentioned Tony by name…" value="${esc(note||'')}">
+          <button class="btn btn-green" onclick="saveReviewNote('${ph}')">Save note</button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+function toggleNoteInput(phone) {
+  const wrap = document.getElementById(`note-wrap-${phone}`);
+  if (wrap) { wrap.classList.toggle('open'); if (wrap.classList.contains('open')) document.getElementById(`note-input-${phone}`)?.focus(); }
+}
+async function saveReviewNote(phone) {
+  const input = document.getElementById(`note-input-${phone}`);
+  const note  = (input?.value || '').trim();
+  try {
+    await fetch(`${API}/customer/${phone}/review-status`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'left', noteAboutReview: note })
+    });
+    const c = hubData.reviewed.find(x => customerPhone(x) === phone);
+    if (c) { c.googleReview = c.googleReview || {}; c.googleReview.noteAboutReview = note; }
+    document.getElementById(`note-wrap-${phone}`)?.classList.remove('open');
+    showToast('✓ Note saved');
+    renderReviewed();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+// ── TAB 4: WON'T ASK ─────────────────────────────────────────────────────────
+function renderWontAsk() {
+  const el = document.getElementById('wontask-content');
+  const customers = hubData.wontAsk;
+  if (!customers.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🚫</div><div class="empty-title">No exclusions yet</div></div>`;
+    return;
+  }
+  const LABELS = { do_not_ask: "Don't ask (Tyler's call)", declined: 'Declined / no response' };
+  el.innerHTML = `<div class="section-hdr">🚫 Won't ask · ${customers.length}</div>` +
+    customers.map(c => {
+      const ph   = customerPhone(c);
+      const name = customerName(c);
+      const gr   = c.googleReview || {};
+      const reason = LABELS[gr.status] || gr.status || '—';
+      const eligibleAt = gr.reaskEligibleAt ? fmtDate(gr.reaskEligibleAt.slice(0,10)) : null;
+      return `<div class="card">
+        <div class="card-name">${esc(name)}</div>
+        <div class="card-meta">📞 ${fmtPhone(ph)} · ${esc(reason)}${eligibleAt ? ' · Re-ask eligible ' + eligibleAt : ''}</div>
+        <div class="card-btns">
+          <button class="btn btn-muted" onclick="allowAskingAgain('${ph}')">↩️ Allow asking again</button>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+// ── STATUS UPDATES ────────────────────────────────────────────────────────────
+async function updateStatus(phone, status) {
+  try {
+    await fetch(`${API}/customer/${phone}/review-status`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status })
+    });
+    const MSGS = { left: '⭐ Marked as reviewed — thank you!', declined: '○ Marked as declined — 6-month re-ask cooldown set', do_not_ask: '🚫 Marked do not ask' };
+    showToast(MSGS[status] || 'Status updated');
+    // Update local data
+    const list = hubData.awaitingConfirmation;
+    const idx  = list.findIndex(x => customerPhone(x) === phone);
+    if (idx !== -1) {
+      const c = list.splice(idx, 1)[0];
+      c.googleReview = c.googleReview || {};
+      c.googleReview.status = status;
+      if (status === 'left')     { c.googleReview.leftAt = new Date().toISOString(); hubData.reviewed.push(c); }
+      if (status === 'declined') { c.googleReview.reaskEligibleAt = new Date(Date.now()+180*86400000).toISOString(); hubData.wontAsk.push(c); }
+      if (status === 'do_not_ask') { hubData.wontAsk.push(c); }
+    }
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function allowAskingAgain(phone) {
+  try {
+    await fetch(`${API}/customer/${phone}/allow-asking-again`, { method:'POST', headers:{'Content-Type':'application/json'} });
+    const idx = hubData.wontAsk.findIndex(x => customerPhone(x) === phone);
+    if (idx !== -1) {
+      const c = hubData.wontAsk.splice(idx, 1)[0];
+      c.googleReview = { ...(c.googleReview||{}), status: 'never_asked', reaskEligibleAt: null };
+      hubData.readyToRequest.unshift(c);
+    }
+    showToast('↩️ Customer re-added to eligible pool');
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+// ── TAB 5: INSIGHTS ───────────────────────────────────────────────────────────
+function renderInsights() {
+  const el  = document.getElementById('insights-content');
+  const ins = hubData.insights;
+  const ac  = hubData.actualCount || { count: 92 };
+  const pct = Math.round(ac.count / REVIEW_GOAL * 100);
+  const stale = ac.lastUpdatedAt && (Date.now() - new Date(ac.lastUpdatedAt).getTime()) > 30 * 86400000;
+
+  const staleBanner = stale
+    ? `<div class="banner">📅 Update reminder: Last counted Google reviews on ${fmtDate(ac.lastUpdatedAt.slice(0,10))}. Update for accurate insights. <button class="btn btn-gold" onclick="editCount()">Update now</button></div>`
+    : '';
+  const cutoffReviewed = hubData.reviewed.filter(c => { const gr = c.googleReview||{}; return gr.leftAt && gr.leftAt.slice(0,10) >= REVIEW_CUTOFF; });
+  const cutoffAsked    = hubData.awaitingConfirmation.filter(c => { const gr = c.googleReview||{}; const d = gr.lastRequestSentAt||gr.askedAt; return d && d.slice(0,10) >= REVIEW_CUTOFF; });
+  const cutoffBanner   = `<div class="banner" style="background:rgba(29,158,117,.1);border-color:rgba(29,158,117,.4);color:#5de0b3;">📊 Review tracking began May 1, 2026 — showing <strong>${cutoffAsked.length} requests sent</strong> and <strong>${cutoffReviewed.length} reviews confirmed</strong> since then.</div>`;
+
+  const rate3mo = ins.lastMonthReviewed > 0 ? Math.round((ins.thisMonthReviewed + ins.lastMonthReviewed) / 2) : ins.thisMonthReviewed;
+  const monthsToGoal = rate3mo > 0 ? Math.ceil((REVIEW_GOAL - ac.count) / rate3mo) : '∞';
+
+  el.innerHTML = `
+    ${cutoffBanner}
+    ${staleBanner}
+    <div class="goal-card">
+      <div class="goal-title">🎯 Goal Tracker</div>
+      <div id="count-display">
+        <div class="goal-count-row">
+          <div class="goal-count-big" id="count-big">${ac.count}</div>
+          <div class="goal-slash">/</div>
+          <div class="goal-target">${REVIEW_GOAL}</div>
+          <button class="btn btn-muted" style="font-size:11px;padding:5px 10px;" onclick="editCount()">✏️ Edit</button>
+        </div>
+        <div id="count-edit-row" style="display:none;" class="edit-count-row">
+          <input type="number" class="count-input" id="countEditInput" value="${ac.count}" min="0">
+          <button class="btn btn-green" onclick="saveCount()">Save</button>
+          <button class="btn btn-muted" onclick="cancelEditCount()">Cancel</button>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${Math.min(pct,100)}%;"></div></div>
+        <div class="goal-sub">
+          <strong style="color:var(--white);">${ac.count} / ${REVIEW_GOAL} (${pct}%)</strong>${ac.lastUpdatedAt ? ' · Updated ' + fmtDate(ac.lastUpdatedAt.slice(0,10)) : ''}<br>
+          Tracked in system: ${ins.totalReviewed} · Asked & unconfirmed: ${hubData.awaitingConfirmation.length}
+        </div>
+      </div>
+    </div>
+
+    <div class="section-hdr">📈 Acquisition rate</div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-val">${ins.thisMonthReviewed}</div><div class="stat-lbl">This month</div></div>
+      <div class="stat-card"><div class="stat-val">${ins.lastMonthReviewed}</div><div class="stat-lbl">Last month</div></div>
+      <div class="stat-card"><div class="stat-val">${monthsToGoal === '∞' ? '—' : monthsToGoal + 'mo'}</div><div class="stat-lbl">Months to goal</div></div>
+    </div>
+
+    <div class="section-hdr">📊 Conversion</div>
+    <div class="goal-card">
+      <div class="goal-sub" style="line-height:2;">
+        Request → review: <strong style="color:var(--white);">${ins.conversionRate}%</strong><br>
+        Total asked: <strong style="color:var(--white);">${ins.totalAsked}</strong><br>
+        Total confirmed: <strong style="color:var(--white);">${ins.totalReviewed}</strong>
+      </div>
+    </div>
+
+    <div class="section-hdr">📝 Template performance</div>
+    <div class="goal-card">
+      ${(hubData.templates||[]).map(t => {
+        const stats = ins.byTemplate[t.id] || { asked: 0, reviewed: 0 };
+        const tPct = stats.asked > 0 ? Math.round(stats.reviewed/stats.asked*100) : 0;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:.375rem 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:13px;">${esc(t.name)}${t.isActive?' <span style="font-size:10px;color:var(--gold);">★ active</span>':''}</span>
+          <span style="font-size:12px;color:var(--muted);">${t.timesUsed||0} sent · ${t.reviewsGenerated||0} confirmed · ${tPct}%</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function editCount() {
+  document.querySelector('.goal-count-row').style.display = 'none';
+  document.getElementById('count-edit-row').style.display = 'flex';
+  document.getElementById('countEditInput').focus();
+}
+function cancelEditCount() {
+  document.querySelector('.goal-count-row').style.display = 'flex';
+  document.getElementById('count-edit-row').style.display = 'none';
+}
+async function saveCount() {
+  const val = parseInt(document.getElementById('countEditInput').value);
+  if (isNaN(val) || val < 0) return;
+  try {
+    const res  = await fetch(`${API}/admin/reviews/actual-count`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ count: val, updatedBy: 'tyler' })
+    });
+    const data = await res.json();
+    hubData.actualCount = data;
+    showToast(`✓ Review count updated to ${val}`);
+    renderInsights();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+// ── TAB 6: TEMPLATES ─────────────────────────────────────────────────────────
+function renderTemplates() {
+  const el  = document.getElementById('templates-content');
+  const tpls = hubData.templates || [];
+
+  el.innerHTML = `
+    <div class="section-hdr">📝 SMS templates · ${tpls.length} total</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:1rem;line-height:1.6;">
+      Variables: <code style="background:var(--input-bg);border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;color:var(--sky);">{firstName}</code>
+      <code style="background:var(--input-bg);border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;color:var(--sky);">{service}</code>
+      <code style="background:var(--input-bg);border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;color:var(--sky);">{jobDate}</code>
+      <code style="background:var(--input-bg);border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;color:var(--sky);">{reviewLink}</code>
+      <code style="background:var(--input-bg);border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;color:var(--sky);">{ownerName}</code>
+    </div>
+    ${tpls.map(t => renderTemplateCard(t)).join('')}
+    <div style="margin-top:1.25rem;">
+      <button class="btn btn-primary" onclick="openNewTemplate()">+ New Template</button>
+    </div>
+    <div class="tpl-card" id="new-tpl-form" style="display:none;margin-top:1rem;">
+      <div class="tpl-name" style="margin-bottom:.875rem;">New Template</div>
+      <label class="form-lbl">Template name</label>
+      <input type="text" class="form-input" id="new-tpl-name" placeholder="e.g. Post-roof thank you">
+      <label class="form-lbl">Message body</label>
+      <textarea class="form-textarea" id="new-tpl-body" placeholder="Hi {firstName}! ..."></textarea>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin-bottom:.875rem;cursor:pointer;">
+        <input type="checkbox" id="new-tpl-active" style="accent-color:var(--gold);"> Set as active template
+      </label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-green" onclick="saveNewTemplate()">Save Template</button>
+        <button class="btn btn-muted" onclick="cancelNewTemplate()">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function renderTemplateCard(t) {
+  const stats = `${t.timesUsed||0} sent · ${t.reviewsGenerated||0} confirmed`;
+  return `<div class="tpl-card${t.isActive?' active':''}" id="tpl-${t.id}">
+    <div class="tpl-header">
+      <div class="tpl-name">${esc(t.name)}</div>
+      ${t.isActive ? '<span class="tpl-active-badge">★ Active</span>' : ''}
+    </div>
+    <div class="tpl-body">${esc(t.body)}</div>
+    <div class="tpl-stats">${stats}</div>
+    <div class="tpl-btns">
+      ${!t.isActive ? `<button class="btn btn-gold" onclick="setActiveTemplate('${t.id}')">★ Set as active</button>` : ''}
+      <button class="btn btn-muted" onclick="toggleEditTemplate('${t.id}')">✏️ Edit</button>
+      ${!t.isActive ? `<button class="btn btn-danger" onclick="deleteTemplate('${t.id}')">🗑️ Delete</button>` : ''}
+    </div>
+    <div class="tpl-edit-form" id="edit-form-${t.id}">
+      <label class="form-lbl">Template name</label>
+      <input type="text" class="form-input" id="edit-name-${t.id}" value="${esc(t.name)}">
+      <label class="form-lbl">Message body</label>
+      <textarea class="form-textarea" id="edit-body-${t.id}">${esc(t.body)}</textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-green" onclick="saveEditTemplate('${t.id}')">Save changes</button>
+        <button class="btn btn-muted" onclick="toggleEditTemplate('${t.id}')">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleEditTemplate(id) {
+  const el = document.getElementById(`edit-form-${id}`);
+  if (el) el.classList.toggle('open');
+}
+function openNewTemplate() {
+  document.getElementById('new-tpl-form').style.display = 'block';
+  document.getElementById('new-tpl-name').focus();
+}
+function cancelNewTemplate() {
+  document.getElementById('new-tpl-form').style.display = 'none';
+}
+
+async function setActiveTemplate(id) {
+  const tpls = hubData.templates.map(t => ({ ...t, isActive: t.id === id }));
+  const tpl  = tpls.find(t => t.id === id);
+  if (!tpl) return;
+  try {
+    await fetch(`${API}/admin/reviews/template`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ...tpl, isActive: true })
+    });
+    hubData.templates = tpls;
+    showToast(`★ "${tpl.name}" set as active`);
+    renderTemplates();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function saveEditTemplate(id) {
+  const name = document.getElementById(`edit-name-${id}`)?.value.trim();
+  const body = document.getElementById(`edit-body-${id}`)?.value.trim();
+  if (!name || !body) { showToast('⚠️ Name and body required'); return; }
+  const existing = hubData.templates.find(t => t.id === id);
+  if (!existing) return;
+  try {
+    const res  = await fetch(`${API}/admin/reviews/template`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ ...existing, name, body })
+    });
+    const data = await res.json();
+    hubData.templates = data.templates;
+    showToast('✓ Template saved');
+    renderTemplates();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function saveNewTemplate() {
+  const name   = document.getElementById('new-tpl-name')?.value.trim();
+  const body   = document.getElementById('new-tpl-body')?.value.trim();
+  const active = document.getElementById('new-tpl-active')?.checked;
+  if (!name || !body) { showToast('⚠️ Name and body required'); return; }
+  try {
+    const res  = await fetch(`${API}/admin/reviews/template`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, body, isActive: active })
+    });
+    const data = await res.json();
+    hubData.templates = data.templates;
+    showToast('✓ Template created');
+    renderTemplates();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function deleteTemplate(id) {
+  const tpl = hubData.templates.find(t => t.id === id);
+  if (!tpl) return;
+  if (!confirm(`Delete template "${tpl.name}"?`)) return;
+  try {
+    const res = await fetch(`${API}/admin/reviews/template/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) { showToast('⚠️ ' + (data.error || 'Delete failed')); return; }
+    hubData.templates = hubData.templates.filter(t => t.id !== id);
+    showToast('🗑️ Template deleted');
+    renderTemplates();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+loadHub();
+</script>
+</body>
+</html>

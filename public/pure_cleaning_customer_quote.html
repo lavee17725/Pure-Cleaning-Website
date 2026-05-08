@@ -701,20 +701,52 @@ function updateQuoteApproved(phone, approvedTotal) {
   const svcStr = quoteData && quoteData.services
     ? (Array.isArray(quoteData.services) ? quoteData.services.join(', ') : String(quoteData.services))
     : '';
+  // Normalize to 10-digit — incoming phone may have leading country code
+  const normPhone = (phone || '').replace(/\D/g, '').slice(-10);
+  const now = new Date().toISOString();
+
   fetch(`${PCPC_API_CQ}/customers`)
     .then(r => r.json())
     .then(db => {
-      const c = (db.customers || []).find(x => x.phone === phone);
-      if (!c) return;
+      if (!db.customers) db.customers = [];
+      let c = db.customers.find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
+
+      if (!c) {
+        // New customer — build record from quote data
+        const nameParts = (quoteData.name || '').trim().split(/\s+/);
+        c = {
+          phone: normPhone,
+          firstName: nameParts[0] || '',
+          lastName: nameParts.slice(1).join(' ') || '',
+          address: quoteData.address || '',
+          city: quoteData.city || '',
+          zip: quoteData.zip || '',
+          email: quoteData.email || '',
+          lastService: null, totalJobs: 0, lifetimeSpend: 0,
+          hasSealHistory: false, phoneStatus: 'active',
+          linkCode: null, linkBin: null, lastTextedDate: null,
+          quoteStatus: null, scheduledStatus: null,
+          alerts: [], optOut: null, movedAway: null,
+          createdAt: now, source: 'digital_quote_approval'
+        };
+        db.customers.push(c);
+      }
+
       if (!c.quoteStatus) c.quoteStatus = {};
       c.quoteStatus.state        = 'approved';
-      c.quoteStatus.approvedDate = new Date().toISOString().split('T')[0];
+      c.quoteStatus.approvedDate = now.split('T')[0];
+      c.quoteStatus.approvedAt   = now;
       c.scheduledStatus = {
-        state: 'needs_scheduling', scheduledDate: null, rig: null, crew: [],
+        state: 'scheduled',
+        scheduledDate: selectedDate ? selectedDate.val : null,
+        rig: null, crew: [],
         estimatedDuration: dur, jobNotes: svcStr, startTime: '09:00',
-        customerSelectedDate: selectedDate ? selectedDate.val : null,
-        approvedAmount: approvedTotal || null
+        approvedAmount: approvedTotal || null,
+        autoScheduled: true,
+        source: 'digital_quote_approval',
+        scheduledAt: now
       };
+
       return fetch(`${PCPC_API_CQ}/customers`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -722,7 +754,6 @@ function updateQuoteApproved(phone, approvedTotal) {
       });
     })
     .then(() => {
-      // Bust calendar/quotes cache so Tyler sees the new job within 1 reload
       try { localStorage.setItem('pcpc_db_write_ts', Date.now().toString()); } catch(e) {}
     })
     .catch(e => console.warn('[approval tracking]', e.message));
@@ -790,18 +821,25 @@ function selectTime(el, time) {
 async function submitReschedule() {
   const days = Array.from(_rescheduleSelectedDays);
   const notes = (document.getElementById('rescheduleNotes').value || '').trim();
+  const _rscFullName  = (quoteData && quoteData.name) || '';
+  const _rscNameParts = _rscFullName.trim().split(/\s+/);
   const payload = {
-    id: 'resc_' + Date.now(),
-    status: 'new',
-    customer_name: (quoteData && quoteData.name) || '',
-    phone: (quoteData && quoteData.phone) || '',
-    email: (quoteData && quoteData.email) || '',
-    address: (quoteData && quoteData.address) || '',
-    services: quoteData && Array.isArray(quoteData.services) ? quoteData.services.join(', ') : '',
-    notes: `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. ${notes}`,
-    timeframe: 'Flexible',
-    source: 'quote_reschedule',
-    created_at: new Date().toISOString()
+    id:          'resc_' + Date.now(),
+    status:      'new',
+    customer_name: _rscFullName,
+    submittedAt: new Date().toISOString(),
+    source:      'quote_reschedule',
+    customerData: {
+      firstName:  _rscNameParts[0] || '',
+      lastName:   _rscNameParts.slice(1).join(' ') || '',
+      phone:      (quoteData && quoteData.phone)   || '',
+      email:      (quoteData && quoteData.email)   || '',
+      address:    (quoteData && quoteData.address) || '',
+      city:       (quoteData && quoteData.city)    || '',
+      services:   quoteData && Array.isArray(quoteData.services) ? quoteData.services : [],
+      timeframe:  'Flexible',
+      notes:      `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. ${notes}`,
+    }
   };
 
   if (quoteData && quoteData.phone) {

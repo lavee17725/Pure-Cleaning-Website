@@ -6,9 +6,9 @@
 <title>Pure Cleaning — Bulk Reactivation</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--navy:#0a1628;--navy2:#111f38;--blue:#1a4a8a;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#e53e3e;--white:#fff;--text:#e8edf5;--muted:#7a8aaa;--border:#1e2e4a;--card:#0f1e35;--input-bg:#0a1628;}
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--terra:#c2410c;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;--input-bg:#fff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--text);min-height:100vh;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;}
 .logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--white);letter-spacing:1px;}
 .logo span{color:var(--gold);}
@@ -56,12 +56,15 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .tier-pill{padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid transparent;transition:all .15s;user-select:none;}
 .tier-pill.on{opacity:1;}
 .tier-pill.off{opacity:.35;}
-.tp-hot{background:rgba(229,62,62,.15);color:#fc8181;border-color:rgba(229,62,62,.4);}
-.tp-warm{background:rgba(244,166,32,.15);color:var(--gold);border-color:rgba(244,166,32,.4);}
-.tp-sleeping{background:rgba(29,158,117,.15);color:#5de0b3;border-color:rgba(29,158,117,.4);}
-.tp-cold{background:rgba(45,125,210,.15);color:var(--sky);border-color:rgba(45,125,210,.4);}
-.tp-vip-seal{background:rgba(244,166,32,.2);color:#fbbf24;border-color:rgba(244,166,32,.6);}
-.tp-active{background:rgba(122,138,170,.15);color:var(--muted);border-color:var(--border);}
+.tp-hot{background:rgba(220,38,38,.1);color:#dc2626;border-color:rgba(220,38,38,.35);}
+.tp-warm{background:rgba(249,115,22,.1);color:#f97316;border-color:rgba(249,115,22,.35);}
+.tp-overdue{background:rgba(234,179,8,.1);color:#b45309;border-color:rgba(234,179,8,.35);}
+.tp-loyal{background:rgba(22,163,74,.1);color:#16a34a;border-color:rgba(22,163,74,.35);}
+.tp-new{background:rgba(16,185,129,.1);color:#059669;border-color:rgba(16,185,129,.35);}
+.tp-nohistory{background:rgba(148,163,184,.1);color:#64748b;border-color:rgba(148,163,184,.35);}
+.tp-scheduled{background:rgba(37,99,235,.1);color:#2563eb;border-color:rgba(37,99,235,.35);}
+.tp-dormant{background:rgba(139,92,246,.1);color:#7c3aed;border-color:rgba(139,92,246,.35);}
+.tp-active{background:rgba(107,114,128,.1);color:var(--muted);border-color:var(--border);}
 .filter-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
 .filter-input{width:auto;padding:6px 10px;font-size:13px;}
 
@@ -97,7 +100,11 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .btn-override{background:#dc2626;color:#fff;}
 
 /* table */
-.table-wrap{display:none;margin-top:1rem;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
+.tbl-outer{position:relative;margin-top:1rem;}
+.tbl-fade{position:absolute;top:0;bottom:8px;width:52px;pointer-events:none;z-index:6;transition:opacity .2s;}
+.tbl-fade-r{right:0;background:linear-gradient(to right,transparent,var(--navy));}
+.tbl-fade-l{left:0;background:linear-gradient(to left,transparent,var(--navy));opacity:0;}
+.table-wrap{display:none;overflow-x:auto;border-radius:12px;border:1px solid var(--border);-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:var(--border) var(--navy2);}
 .table-wrap::-webkit-scrollbar{height:8px;}
 .table-wrap::-webkit-scrollbar-track{background:var(--navy2);}
 .table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
@@ -110,8 +117,11 @@ tbody td:nth-child(3){position:sticky;left:0;z-index:2;background:var(--navy);}
 tbody tr:hover td:nth-child(3){background:#0f1e35;}
 thead th:hover{color:var(--sky);}
 thead th.sorted{color:var(--sky);}
-tbody tr{border-top:1px solid var(--border);transition:background .1s;}
-tbody tr:hover{background:rgba(45,125,210,.05);}
+thead th .sort-ind{font-size:9px;color:var(--muted);opacity:.5;margin-left:2px;letter-spacing:-1px;}
+thead th.sorted .sort-ind{opacity:1;color:var(--sky);}
+tbody tr{border-top:1px solid var(--border);transition:background .1s;cursor:pointer;}
+tbody tr:hover{background:rgba(45,125,210,.08);}
+tbody tr:active{background:rgba(45,125,210,.15);}
 td{padding:9px 12px;vertical-align:middle;white-space:nowrap;}
 td.name{font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
 td.phone{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}
@@ -219,9 +229,7 @@ td.money{font-family:'DM Mono',monospace;}
 .text-disconnected-btn{background:rgba(229,62,62,.1);color:#fc8181;border:1px solid rgba(229,62,62,.3);border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:default;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .contact-stats{font-size:12px;color:var(--muted);padding:5px 2px;}
 
-/* dormant / ancient tier pills */
-.tp-dormant{background:rgba(147,197,253,.15);color:#93c5fd;border-color:rgba(147,197,253,.4);}
-.tp-ancient{background:rgba(167,139,250,.15);color:#a78bfa;border-color:rgba(167,139,250,.4);}
+/* tier badge inline-styled — no pill class needed */
 
 /* row ⋯ overflow menu */
 .row-menu-btn{background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:6px;padding:3px 8px;font-size:14px;cursor:pointer;transition:all .15s;font-family:'DM Sans',sans-serif;line-height:1;}
@@ -245,6 +253,136 @@ td.money{font-family:'DM Mono',monospace;}
 .summary-val{font-family:'DM Mono',monospace;font-weight:600;color:var(--text);}
 
 @media(max-width:600px){.stats-bar{grid-template-columns:1fr 1fr;}}
+
+/* timeline view */
+.timeline-view{margin-top:1rem;display:none;}
+.timeline-view.show{display:block;}
+.tl-section{margin-bottom:1.75rem;}
+.tl-section-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;display:flex;align-items:center;gap:8px;}
+.tl-section-hdr::after{content:'';flex:1;height:1px;background:var(--border);}
+.tl-section-hdr .tl-sec-count{background:rgba(0,0,0,.2);border-radius:12px;padding:1px 7px;font-size:11px;margin-left:2px;}
+.tl-cards{display:flex;flex-direction:column;gap:8px;}
+.tl-card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:11px 14px;display:flex;align-items:center;gap:12px;transition:border-color .15s;}
+.tl-card.tl-overdue{border-color:rgba(229,62,62,.45);}
+.tl-card.tl-due_now{border-color:rgba(244,166,32,.45);}
+.tl-card.tl-due_soon{border-color:rgba(45,125,210,.35);}
+.tl-card.tl-sent{opacity:.6;}
+.tl-info{flex:1;min-width:0;}
+.tl-name{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tl-meta{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5;}
+.tl-badges{margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;}
+.tl-chip{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;}
+.tl-chip-overdue{background:rgba(229,62,62,.18);color:#fc8181;}
+.tl-chip-due_now{background:rgba(244,166,32,.18);color:var(--gold);}
+.tl-chip-due_soon{background:rgba(45,125,210,.18);color:var(--sky);}
+.tl-chip-not_due{background:rgba(122,138,170,.12);color:var(--muted);}
+.tl-chip-sent{background:rgba(29,158,117,.18);color:#5de0b3;}
+.tl-action{flex-shrink:0;}
+.tl-empty{text-align:center;padding:2rem;color:var(--muted);font-size:14px;}
+
+/* exclusion modal */
+.excl-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem;}
+.excl-modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;max-width:440px;width:100%;max-height:90vh;overflow-y:auto;}
+.excl-radio-group{display:flex;flex-direction:column;gap:7px;margin:.875rem 0;}
+.excl-radio-label{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s,background .15s;}
+.excl-radio-label:hover{border-color:var(--sky);background:rgba(45,125,210,.06);}
+.excl-radio-label input{accent-color:var(--sky);flex-shrink:0;cursor:pointer;}
+.excl-radio-label span{font-size:13px;color:var(--text);}
+.excl-notes{width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;resize:none;margin-top:.75rem;}
+.excl-notes:focus{outline:none;border-color:var(--sky);}
+.excl-btn-row{display:flex;gap:10px;margin-top:1.25rem;}
+.excl-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s;}
+.excl-cancel:hover{border-color:var(--sky);color:var(--text);}
+.excl-confirm-red{flex:2;padding:11px;border:none;border-radius:10px;background:#dc2626;color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;transition:background .15s;}
+.excl-confirm-red:hover{background:#b91c1c;}
+.excl-confirm-green{flex:2;padding:11px;border:none;border-radius:10px;background:var(--green);color:#fff;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1.5px;cursor:pointer;transition:background .15s;}
+.excl-confirm-green:hover{background:#0d7a5a;}
+/* excluded row in table */
+.excl-reason-badge{display:inline-block;padding:3px 9px;border-radius:8px;font-size:11px;font-weight:700;background:rgba(229,62,62,.15);border:1px solid rgba(229,62,62,.3);color:#fc8181;white-space:nowrap;}
+.excl-restore-btn{background:none;border:1px solid rgba(45,125,210,.4);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--sky);cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.excl-restore-btn:hover{background:rgba(45,125,210,.12);}
+/* TCPA warning */
+.tcpa-warn{background:rgba(245,158,11,.1);border-left:3px solid #f59e0b;padding:.75rem 1rem;border-radius:8px;font-size:12px;color:#92400e;margin:.875rem 0;line-height:1.6;}
+
+/* ── Light-theme overrides ────────────────────────────────────────────────── */
+.header{background:var(--navy);border-bottom:1px solid rgba(255,255,255,.08);}
+.logo{color:#fff;}
+.logo span{color:var(--gold);}
+.wrap{padding:1.25rem;max-width:960px;margin:0 auto;}
+.section-title{color:var(--muted);}
+.section-title::after{background:var(--border);}
+.stat-card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.05);}
+.stat-val{font-size:28px;font-weight:800;color:var(--navy);font-family:'DM Sans',sans-serif;letter-spacing:-.5px;}
+.stat-label{font-size:11px;color:var(--muted);}
+.filter-bar{background:var(--card);border:1.5px solid var(--border);box-shadow:0 1px 4px rgba(0,0,0,.04);}
+.pool-tab{background:var(--card);border:1.5px solid var(--border);color:var(--muted);}
+.pool-tab.active{background:#eff6ff;border-color:var(--sky);color:var(--sky);}
+.pool-badge{background:rgba(0,0,0,.06);color:var(--muted);}
+.pool-tab.active .pool-badge{background:rgba(45,125,210,.1);color:var(--sky);}
+.table-wrap{border:1.5px solid var(--border);box-shadow:0 1px 6px rgba(0,0,0,.06);}
+.table-wrap::-webkit-scrollbar-track{background:var(--bg);}
+.table-wrap::-webkit-scrollbar-thumb{background:var(--border);}
+thead th{background:var(--navy);color:rgba(255,255,255,.6);}
+thead th:hover{color:#fff;}
+thead th.sorted{color:var(--gold);}
+thead th .sort-ind{color:rgba(255,255,255,.3);}
+thead th.sorted .sort-ind{color:var(--gold);}
+tbody tr{border-top:1px solid var(--border);}
+tbody tr:hover{background:#f0f7ff;}
+tbody tr:active{background:#dbeafe;}
+tbody td:nth-child(3){background:var(--card);}
+tbody tr:hover td:nth-child(3){background:#f0f7ff;}
+.tbl-fade-r{background:linear-gradient(to right,transparent,var(--bg));}
+.tbl-fade-l{background:linear-gradient(to left,transparent,var(--bg));}
+td{color:var(--text);}
+td.phone{color:var(--muted);}
+td.money{color:var(--terra);font-weight:700;}
+.gen-bar{background:var(--card);border-top:1.5px solid var(--border);}
+.code-block{background:#1a1f2e;border:1px solid #2d3a52;color:#e2e8f0;}
+.excluded-list{background:#f8fafc;border:1px solid var(--border);color:var(--muted);}
+.exc-item{border-bottom:1px solid var(--border);}
+.tier-tooltip{background:#fff;border:1.5px solid var(--border);color:var(--text);box-shadow:0 6px 28px rgba(0,0,0,.12);}
+.tier-tooltip::after{border-top-color:var(--border);}
+.tier-tooltip::before{border-top-color:#fff;}
+.tt-title{color:var(--navy);}
+.tt-body{color:var(--muted);}
+.compliance-modal{background:var(--card);border:1.5px solid var(--border);}
+.modal-card{background:var(--card);border:1.5px solid var(--border);}
+.modal-title{color:var(--navy);}
+.mfield label{color:var(--muted);}
+.mcheck label{color:var(--text);}
+.mbtn-cancel{border-color:var(--border);color:var(--muted);}
+.info-banner{background:rgba(45,125,210,.07);border:1.5px solid rgba(45,125,210,.2);color:var(--sky);}
+.db-banner{background:rgba(29,158,117,.07);border:1.5px solid var(--green);color:#065f46;}
+.db-update-btn{background:rgba(29,158,117,.1);border:1px solid var(--green);color:var(--green);}
+.summary-key{color:var(--muted);}
+.summary-val{color:var(--text);}
+.summary-row{border-bottom:1px solid var(--border);}
+.hours-banner{background:#fef3c7;border:1px solid #f59e0b;color:#92400e;}
+.row-menu-btn{border-color:var(--border);color:var(--muted);}
+.row-menu-btn:hover,.row-menu-btn.menu-open{border-color:var(--sky);color:var(--sky);}
+.row-menu-item{color:var(--muted);}
+.row-menu-item:hover{background:rgba(45,125,210,.06);color:var(--text);}
+.search-clear{color:var(--muted);}
+.search-clear:hover{color:var(--text);}
+.add-customer-btn{border-color:var(--border);color:var(--muted);}
+.add-customer-btn:hover{border-color:var(--sky);color:var(--sky);}
+.filter-label{color:var(--muted);}
+input,select,textarea{background:var(--card);border-color:var(--border);color:var(--text);}
+input::placeholder,textarea::placeholder{color:var(--muted);}
+.text-now-btn{background:var(--sky);color:#fff;}
+.texted-badge{background:rgba(29,158,117,.1);color:#065f46;border-color:var(--green);}
+.test-send-btn{color:var(--muted);border-color:var(--border);}
+.test-send-btn:hover{border-color:var(--sky);color:var(--sky);}
+.sel-info{color:var(--muted);}
+.sel-info strong{color:var(--text);}
+.undo-btn{color:var(--muted);border-color:var(--border);}
+.contact-info{color:var(--muted);}
+.tab-summary{background:#eff6ff;border:1px solid #bfdbfe;color:var(--navy);}
+.tab-summary.ts-green{background:#dcfce7;border-color:#86efac;color:#14532d;}
+.tab-summary.ts-yellow{background:#fef9c3;border-color:#fde047;color:#713f12;}
+.tab-summary.ts-amber{background:#fed7aa;border-color:#fb923c;color:#7c2d12;}
+.tab-summary.ts-red{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d;}
 </style>
 </head>
 <body>
@@ -297,12 +435,12 @@ td.money{font-family:'DM Mono',monospace;}
 
   <!-- STATS -->
   <div class="stats-bar" id="statsBar">
-    <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-label">Total Rows</div></div>
+    <div class="stat-card"><div class="stat-val" id="sTotal">0</div><div class="stat-label">Total Customers</div></div>
     <div class="stat-card"><div class="stat-val" id="sExcluded">0</div><div class="stat-label">Commercial Excl.</div></div>
     <div class="stat-card"><div class="stat-val" id="sUnique">0</div><div class="stat-label">Unique Customers</div></div>
-    <div class="stat-card"><div class="stat-val" id="sHotWarm" style="color:#fc8181;">0</div><div class="stat-label">🔥 Hot + Warm</div></div>
-    <div class="stat-card"><div class="stat-val" id="sVipSeal" style="color:#fbbf24;">0</div><div class="stat-label">💎 VIP Seal</div></div>
-    <div class="stat-card"><div class="stat-val" id="sSleeping" style="color:#5de0b3;">0</div><div class="stat-label">🟢 Sleeping</div></div>
+    <div class="stat-card"><div class="stat-val" id="sHotWarm" style="color:#dc2626;">0</div><div class="stat-label">🔥 Hot + Warm</div></div>
+    <div class="stat-card"><div class="stat-val" id="sVipSeal" style="color:#7c3aed;">0</div><div class="stat-label">💎 VIP (overlay)</div></div>
+    <div class="stat-card"><div class="stat-val" id="sSleeping" style="color:#eab308;">0</div><div class="stat-label">⏰ Overdue</div></div>
   </div>
 
   <!-- EXCLUDED ACCOUNTS -->
@@ -322,11 +460,14 @@ td.money{font-family:'DM Mono',monospace;}
   <!-- POOL TABS -->
   <div class="pool-tabs" id="poolTabs">
     <button class="pool-tab active" onclick="setPoolTab('active')">🎯 Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('booked')" style="border-color:rgba(244,166,32,.5);color:#f4a620;">📦 Booked Jobs <span class="pool-badge" id="tabBookedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('today')">📲 Today <span class="pool-badge" id="tabTodayCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('week')">📅 This Week <span class="pool-badge" id="tabWeekCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('contacted')">🚫 All Contacted <span class="pool-badge" id="tabContactedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('opted_out')" style="border-color:rgba(229,62,62,.35);color:#fc8181;">🚫 Opted Out <span class="pool-badge" id="tabOptedOutCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('moved_away')" style="border-color:rgba(20,184,166,.35);color:#2dd4bf;">🏠 Moved Away <span class="pool-badge" id="tabMovedAwayCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('excluded')" style="border-color:rgba(229,62,62,.5);color:#fca5a5;">⛔ Excluded <span class="pool-badge" id="tabExcludedCount">0</span></button>
+    <button class="pool-tab" onclick="setPoolTab('timeline')">📅 Timeline <span class="pool-badge" id="tabTimelineCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
   </div>
 
@@ -342,14 +483,15 @@ td.money{font-family:'DM Mono',monospace;}
     <div class="filter-row">
       <span class="filter-label">Tier:</span>
       <button id="tierInfoBtn" class="tier-info-btn" title="How tiers work">ⓘ</button>
-      <span class="tier-pill tp-vip-seal on" data-tier="VIP_SEAL" onclick="toggleTier(this)">💎 VIP Seal</span>
-      <span class="tier-pill tp-hot on" data-tier="HOT" onclick="toggleTier(this)">🔥 Hot</span>
-      <span class="tier-pill tp-warm on" data-tier="WARM" onclick="toggleTier(this)">🟡 Warm</span>
-      <span class="tier-pill tp-sleeping on" data-tier="SLEEPING" onclick="toggleTier(this)">🟢 Sleeping</span>
-      <span class="tier-pill tp-cold on" data-tier="COLD" onclick="toggleTier(this)">❄️ Cold</span>
-      <span class="tier-pill tp-dormant on" data-tier="DORMANT" onclick="toggleTier(this)">🧊 Dormant</span>
-      <span class="tier-pill tp-ancient on" data-tier="ANCIENT" onclick="toggleTier(this)">👻 Ancient</span>
-      <span class="tier-pill tp-active off" data-tier="ACTIVE" onclick="toggleTier(this)">⏸️ Active</span>
+      <span class="tier-pill tp-hot on"       data-tier="HOT"        onclick="toggleTier(this)">🔥 Hot</span>
+      <span class="tier-pill tp-warm on"      data-tier="WARM"       onclick="toggleTier(this)">🌡️ Warm</span>
+      <span class="tier-pill tp-overdue on"   data-tier="OVERDUE"    onclick="toggleTier(this)">⏰ Overdue</span>
+      <span class="tier-pill tp-loyal on"     data-tier="LOYAL"      onclick="toggleTier(this)">💚 Loyal</span>
+      <span class="tier-pill tp-new on"       data-tier="NEW"        onclick="toggleTier(this)">🌱 New</span>
+      <span class="tier-pill tp-nohistory on" data-tier="NO HISTORY" onclick="toggleTier(this)">❄️ No History</span>
+      <span class="tier-pill tp-dormant on"   data-tier="DORMANT"    onclick="toggleTier(this)">💤 Dormant</span>
+      <span class="tier-pill tp-scheduled off" data-tier="SCHEDULED" onclick="toggleTier(this)">📋 Scheduled</span>
+      <span class="tier-pill tp-active off"   data-tier="OPT-OUT"    onclick="toggleTier(this)">⛔ Opt-out</span>
     </div>
     <div class="filter-row">
       <span class="filter-label">Phones:</span>
@@ -392,27 +534,34 @@ td.money{font-family:'DM Mono',monospace;}
   <div id="tabSummaryBar" style="display:none;"></div>
 
   <!-- TABLE -->
+  <div class="tbl-outer" id="tblOuter">
   <div class="table-wrap" id="tableWrap">
     <table id="mainTable">
       <thead>
         <tr>
           <th style="width:32px;cursor:default;"></th>
           <th style="width:120px;cursor:default;">Text Now</th>
-          <th onclick="clickSort('name')">Name</th>
-          <th onclick="clickSort('phone')">Phone</th>
-          <th onclick="clickSort('city')">City</th>
-          <th onclick="clickSort('lastService')">Last Service</th>
-          <th onclick="clickSort('totalJobs')">Jobs</th>
-          <th onclick="clickSort('lifetimeSpend')">Lifetime $</th>
-          <th onclick="clickSort('avgTicket')">Avg Ticket</th>
-          <th onclick="clickSort('monthsSince')">Months Since</th>
-          <th onclick="clickSort('tier')">Tier</th>
+          <th data-sort="name" onclick="clickSort('name')">Name <span class="sort-ind">▲▼</span></th>
+          <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sort-ind">▲▼</span></th>
+          <th data-sort="city" onclick="clickSort('city')">City <span class="sort-ind">▲▼</span></th>
+          <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sort-ind">▲▼</span></th>
+          <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sort-ind">▲▼</span></th>
+          <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sort-ind">▲▼</span></th>
+          <th data-sort="avgTicket" onclick="clickSort('avgTicket')">Avg Ticket <span class="sort-ind">▲▼</span></th>
+          <th data-sort="monthsSince" onclick="clickSort('monthsSince')">Months Since <span class="sort-ind">▲▼</span></th>
+          <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sort-ind">▲▼</span></th>
           <th style="width:70px;cursor:default;"></th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
     </table>
   </div>
+  <div class="tbl-fade tbl-fade-r" id="fadeTblR"></div>
+  <div class="tbl-fade tbl-fade-l" id="fadeTblL"></div>
+  </div><!-- end .tbl-outer -->
+
+  <!-- TIMELINE VIEW -->
+  <div id="timelineView" class="timeline-view"></div>
 
 </div><!-- end .wrap -->
 
@@ -421,7 +570,9 @@ td.money{font-family:'DM Mono',monospace;}
   <span style="font-size:14px;color:var(--muted);">
     <strong id="genCount" style="color:var(--text);">0</strong> customers selected
   </span>
-  <div style="display:flex;gap:8px;">
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn-sm" id="bulkExclBtn" style="display:none;background:rgba(229,62,62,.18);border:1.5px solid rgba(229,62,62,.4);color:#fc8181;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptBulkExclude()">🚫 Exclude Selected (<span id="bulkExclCount">0</span>)</button>
+    <button class="btn-sm" id="bulkDelBtn" style="display:none;background:rgba(229,62,62,.25);border:1.5px solid rgba(229,62,62,.55);color:#fca5a5;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptBulkDeleteBR()">🗑️ Delete Selected (<span id="bulkDelCount">0</span>)</button>
     <button class="btn btn-gold" style="font-size:16px;padding:10px 20px;" onclick="generateLinks()" id="genBtn">Generate Links →</button>
   </div>
 </div>
@@ -441,6 +592,7 @@ td.money{font-family:'DM Mono',monospace;}
   <div style="height:80px;"></div>
 </div>
 
+<script src="/pure_cleaning_tier_utils.js"></script>
 <script>
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const PCPC_API_BR = 'https://purecleaning-api.tylerfumero.workers.dev';
@@ -478,18 +630,86 @@ function shortenUrl(longUrl) {
 // Tyler: set to your 10-digit phone number before first test run (digits only)
 const TEST_PHONE = '';
 
+// ═══════════════════════════════════════════════════
+// SEASONAL HOOKS — edit hooks here to update seasonal messaging
+// South Florida seasons:
+//   Pre-rainy  Apr 15 – May 31   → anticipate rainy season
+//   Rainy      Jun  1 – Aug 31   → mildew / damage angle
+//   Post-storm Sep  1 – Oct 15   → refresh / enjoy the weather
+//   Snowbird   Oct 16 – Dec 31   → holiday prep / guests
+//   Dry season Jan  1 – Apr 14   → results last longer
+// ═══════════════════════════════════════════════════
+function getSeasonalHook(date) {
+  const d = date || new Date();
+  const m = d.getMonth() + 1; // 1–12
+  const day = d.getDate();
+
+  if ((m === 4 && day >= 15) || m === 5)
+    return "figured I'd reach out before rainy season hits";
+  if (m >= 6 && m <= 8)
+    return "rainy season's been brutal on driveways and roofs";
+  if (m === 9 || (m === 10 && day <= 15))
+    return "clean off that summer mildew and enjoy the beautiful weather outside again";
+  if ((m === 10 && day >= 16) || m === 11 || m === 12)
+    return "good time to get the property looking sharp before holidays and guests";
+  // Jan 1 – Apr 14
+  return "dry season's perfect — results last longer with no rain";
+}
+
+// ── Template variable helpers ─────────────────────────────────────────────────
+
+function parseFirstName(fn) {
+  if (!fn) return null;
+  const cleaned = fn.replace(/\s*\(.*?\)/g, '').trim();
+  return cleaned.split(/\s*&\s*/)[0].split(/\s+/)[0] || null;
+}
+
+function buildTimeSince(dateObj) {
+  if (!dateObj) return null;
+  const days = Math.floor((Date.now() - dateObj.getTime()) / 86400000);
+  if (days < 30) return `${days} day${days !== 1 ? 's' : ''}`;
+  const months = Math.round(days / 30.4);
+  if (months < 24) return `${months} month${months !== 1 ? 's' : ''}`;
+  const years = Math.round(months / 12);
+  return `${years} year${years !== 1 ? 's' : ''}`;
+}
+
+function buildServiceDescription(jobHistory, quoteStatus, scheduledStatus) {
+  const jh = (jobHistory || []).slice().sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
+  const raw = jh[0]?.services ||
+    (quoteStatus || {}).mainServices ||
+    (scheduledStatus || {}).jobNotes || '';
+  const s = raw.toLowerCase();
+
+  if (!s) return null;
+  if (/seal/i.test(s)) return 'sealing job';
+
+  const hasRoof     = /\broof\b/i.test(s);
+  const hasDriveway = /driveway/i.test(s);
+  const hasPatio    = /patio/i.test(s);
+  const hasWalkway  = /walkway|sidewalk|entranceway/i.test(s);
+  const hasWalls    = /\bwall/i.test(s);
+  const hasSurface  = hasDriveway || hasPatio || hasWalkway;
+
+  if (hasRoof && hasSurface)          return 'exterior';
+  if (hasRoof)                        return 'roof';
+  if (hasSurface && hasWalls)         return 'exterior';
+  if (hasDriveway)                    return 'driveway';
+  if (hasWalls || hasPatio || hasWalkway) return 'exterior surfaces';
+  return null;
+}
+
 const ACTIVE_VARIANT = {
   label: 'B',
-  template: `Hey {firstName}! It's Tyler — Darla and Tony's son with Pure Cleaning. I've been working on something to make booking easier for our customers and built a new way to send quotes. Many of you know me personally, so I figured I'd reach out and see what you think.
+  template: `Hi {firstName}, Tyler from Pure Cleaning. It's been about {timeSinceLastService} since we cleaned your {lastServiceDescription} — {seasonalHook}.
 
-Take a look — your info's already filled in:
+Try out our new quote system, your info's already filled in:
+{quoteLink}
 
-{link}
+Or call/text me at 954-389-2642 — happy to talk it through.
 
-Would love your honest feedback either way. And if you don't want to use the link but need our services, just give us a call at 954-389-2642 — always happy to hear from you.
-
-— Tyler (Pure Cleaning Family)
-Reply STOP to opt out.`
+— The Pure Cleaning Family
+Reply STOP to opt out`
 };
 
 /* HIDDEN_VARIANTS — stored for future activation, not currently sent
@@ -584,7 +804,7 @@ async function getCachedCustomerDB() {
 let allCustomers = [];
 let filteredCustomers = [];
 let selectedPhones = new Set();
-let activeTiers = new Set(['VIP_SEAL','HOT','WARM','SLEEPING','COLD','DORMANT','ANCIENT']);
+let activeTiers = new Set(['HOT','WARM','OVERDUE','LOYAL','NEW','NO HISTORY','DORMANT']);
 let uploadedFiles = [];
 let generatedLinks = []; // [{customer, code, link, sms}]
 let fileRowCounts = {}; // filename → data row count (set after processing)
@@ -622,7 +842,7 @@ function customerToDbRecord(c) {
     city: c.city || '',
     lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
     totalJobs: c.totalJobs,
-    lifetimeSpend: Math.round(c.lifetimeSpend),
+    lifetimeSpend: Math.round(c.lifetimeSpend || 0),
     hasSealHistory: c.hasSeal || false,
     phoneStatus: c.phoneStatus || 'active',
     linkCode: c.linkCode || null,
@@ -632,21 +852,36 @@ function customerToDbRecord(c) {
     scheduledStatus: c.scheduledStatus || null,
     alerts: c.alerts || [],
     optOut: c.optOut || null,
-    movedAway: c.movedAway || null
+    movedAway: c.movedAway || null,
+    reactivationExcluded: c.reactivationExcluded || null,
+    jobHistory: c.jobHistory || [],
+    legacyStats: c.legacyStats || null,
   };
 }
 
 function dbRecordToCustomer(r) {
-  const lastDateObj = r.lastService ? new Date(r.lastService) : null;
+  // Use same effective stats as getTier() — jobHistory takes priority over stale aggregate fields
+  const jh = r.jobHistory || [];
+  const effectiveLastService = jh.length > 0
+    ? (jh.map(j => j.date).filter(Boolean).sort().slice(-1)[0] || null)
+    : (r.lastService || null);
+  const effectiveTotalJobs    = jh.length > 0 ? jh.length    : (r.totalJobs     ?? 0);
+  const effectiveSpend        = jh.length > 0
+    ? jh.reduce((s, j) => s + (Number(j.amount) || 0), 0)
+    : (r.lifetimeSpend ?? 0);
+
+  const lastDateObj = effectiveLastService ? new Date(effectiveLastService) : null;
   const ms = monthsSince(lastDateObj);
-  const avgTicket = r.totalJobs ? r.lifetimeSpend / r.totalJobs : 0;
+  const totalJobs    = effectiveTotalJobs;
+  const lifetimeSpend = effectiveSpend;
+  const avgTicket = totalJobs ? lifetimeSpend / totalJobs : 0;
   const hasSeal = r.hasSealHistory || false;
-  const tier = calcTier({ monthsSince: ms, totalJobs: r.totalJobs, avgTicket, lifetimeSpend: r.lifetimeSpend, hasSeal });
+  const t = getTier(r);
   return {
-    fn: r.firstName, ln: r.lastName, phone: r.phone,
+    fn: r.firstName || r.fn || '', ln: r.lastName || r.ln || '', phone: r.phone,
     address: r.address || '', city: r.city || '',
-    lastDateObj, totalJobs: r.totalJobs, lifetimeSpend: r.lifetimeSpend,
-    avgTicket, maxTicket: 0, hasSeal, tier, monthsSince: ms,
+    lastDateObj, totalJobs, lifetimeSpend,
+    avgTicket, maxTicket: 0, hasSeal, tier: t.label, tierColor: t.color, tierEmoji: t.emoji, tierVip: t.vip, monthsSince: ms,
     addresses: new Set(),
     lastServiceStr: lastDateObj ? lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—',
     phoneStatus: r.phoneStatus || 'active',
@@ -655,7 +890,12 @@ function dbRecordToCustomer(r) {
     scheduledStatus: r.scheduledStatus || null,
     alerts: r.alerts || [],
     optOut: r.optOut || null,
-    movedAway: r.movedAway || null
+    movedAway: r.movedAway || null,
+    reactivationExcluded: r.reactivationExcluded || null,
+    deleted: r.deleted || false,
+    deletedAt: r.deletedAt || null,
+    jobHistory: r.jobHistory || [],
+    legacyStats: r.legacyStats || null,
   };
 }
 
@@ -668,14 +908,14 @@ async function saveDatabase() {
       totalRows: lastTotalRows,
       uniqueCustomers: allCustomers.length,
       commercialExcluded: excludedRecords.length,
-      vipSeal: tierCounts['VIP_SEAL'] || 0,
-      hot: tierCounts['HOT'] || 0,
-      warm: tierCounts['WARM'] || 0,
-      sleeping: tierCounts['SLEEPING'] || 0,
-      cold: tierCounts['COLD'] || 0,
-      dormant: tierCounts['DORMANT'] || 0,
-      ancient: tierCounts['ANCIENT'] || 0,
-      active: tierCounts['ACTIVE'] || 0
+      hot:       tierCounts['HOT']        || 0,
+      warm:      tierCounts['WARM']       || 0,
+      overdue:   tierCounts['OVERDUE']    || 0,
+      loyal:     tierCounts['LOYAL']      || 0,
+      newCust:   tierCounts['NEW']        || 0,
+      noHistory: tierCounts['NO HISTORY'] || 0,
+      scheduled: tierCounts['SCHEDULED']  || 0,
+      dormant:   tierCounts['DORMANT']    || 0,
     },
     customers: allCustomers.map(customerToDbRecord),
     excluded: excludedRecords.map(e => ({ name: e.displayName, reason: e.reason, phone: e.phone || null }))
@@ -696,7 +936,7 @@ async function saveDatabase() {
 function populateFromDatabase(db) {
   if (!db || !db.customers || !db.customers.length) return false;
   sealPhones = new Set(db.customers.filter(r => r.hasSealHistory).map(r => r.phone));
-  allCustomers = db.customers.map(dbRecordToCustomer);
+  allCustomers = db.customers.filter(r => !r.deleted).map(dbRecordToCustomer);
   excludedRecords = (db.excluded || []).map(e => ({ displayName: e.name, phone: e.phone, reason: e.reason, customerData: null }));
   return true;
 }
@@ -740,19 +980,22 @@ async function tryLoadDatabase() {
     renderExcludedList();
     document.getElementById('excludedWrap').style.display = 'block';
 
-    const s = db.stats || {};
-    document.getElementById('sTotal').textContent = s.totalRows || allCustomers.length;
+    // Always compute tier counts fresh from allCustomers — db.stats may be stale or absent
+    const freshTierCounts = {};
+    for (const c of allCustomers) freshTierCounts[c.tier] = (freshTierCounts[c.tier] || 0) + 1;
+    document.getElementById('sTotal').textContent    = allCustomers.length;
     document.getElementById('sExcluded').textContent = excludedRecords.length;
-    document.getElementById('sUnique').textContent = allCustomers.length;
-    document.getElementById('sHotWarm').textContent = (s.hot || 0) + (s.warm || 0);
-    document.getElementById('sVipSeal').textContent = s.vipSeal || 0;
-    document.getElementById('sSleeping').textContent = s.sleeping || 0;
+    document.getElementById('sUnique').textContent   = allCustomers.length;
+    document.getElementById('sHotWarm').textContent  = (freshTierCounts['HOT'] || 0) + (freshTierCounts['WARM'] || 0);
+    document.getElementById('sVipSeal').textContent  = allCustomers.filter(c => c.tierVip).length;
+    document.getElementById('sSleeping').textContent = freshTierCounts['OVERDUE'] || 0;
     document.getElementById('statsBar').style.display = 'grid';
 
     document.getElementById('filterBar').style.display = 'block';
     document.getElementById('poolTabs').classList.add('show');
     document.getElementById('tableWrap').style.display = 'block';
     document.getElementById('tableControls').classList.add('show');
+    initTblFades();
 
     showDbBanner(db);
     applyFilters();
@@ -876,27 +1119,75 @@ function monthsSince(dateObj) {
   return ((now - dateObj) / (1000 * 60 * 60 * 24 * 30.44));
 }
 
-function calcTier(c) {
-  const m = c.monthsSince;
-  // VIP Seal: has seal history, premium spend, in the 6mo–3yr engagement window
-  if (c.hasSeal && c.lifetimeSpend >= 1000 && m >= 6 && m <= 36) return 'VIP_SEAL';
-  const quality = c.totalJobs >= 2 || c.avgTicket >= 400;
-  if (m <  6)  return 'ACTIVE';
-  if (m < 12)  return quality ? 'HOT' : 'WARM';
-  if (m < 18)  return quality ? 'WARM' : 'SLEEPING';
-  if (m < 24)  return 'SLEEPING';
-  if (m < 48)  return 'COLD';    // 2–4 years
-  if (m < 96)  return 'DORMANT'; // 4–8 years
-  return 'ANCIENT';              // 8+ years
+function calcTier(synthRec) {
+  // Bridge: creates a minimal record compatible with getTier() from the shared utils file.
+  // Used by the CSV processFiles() path where full KV structure isn't available.
+  const rec = {
+    jobHistory:      [],
+    totalJobs:       synthRec.totalJobs      || 0,
+    lifetimeSpend:   synthRec.lifetimeSpend  || 0,
+    lastService:     synthRec.lastService    || null,
+    scheduledStatus: null,
+    quoteStatus:     null,
+    optOut:          synthRec.optOut         || null,
+    movedAway:       synthRec.movedAway      || null,
+  };
+  return getTier(rec);
+}
+
+function getLastServiceType(c) {
+  const text = [
+    (c.quoteStatus && c.quoteStatus.mainServices) || '',
+    (c.scheduledStatus && c.scheduledStatus.jobNotes) || '',
+    (c.quoteStatus && c.quoteStatus.notes) || '',
+    c.lastServiceStr || ''
+  ].join(' ').toLowerCase();
+  if (/roof|soft.?wash|tile|shingle/.test(text)) return 'roof';
+  return 'standard';
+}
+
+function reactivationMonths(c) {
+  return getLastServiceType(c) === 'roof' ? 18 : 6;
+}
+
+function reactivationDueDate(c) {
+  if (!c.lastDateObj) return null;
+  const due = new Date(c.lastDateObj);
+  due.setMonth(due.getMonth() + reactivationMonths(c));
+  return due;
+}
+
+function reactivationStatus(c) {
+  if (isInCooldown(c.phone)) return 'sent';
+  const due = reactivationDueDate(c);
+  if (!due) return 'not_due';
+  const now = new Date();
+  const monthsUntilDue = (due - now) / (1000 * 60 * 60 * 24 * 30.44);
+  if (monthsUntilDue < -1) return 'overdue';
+  if (monthsUntilDue <= 1) return 'due_now';
+  if (monthsUntilDue <= 2) return 'due_soon';
+  return 'not_due';
 }
 
 function tierLabel(t) {
-  return {VIP_SEAL:'💎 VIP Seal',HOT:'🔥 Hot',WARM:'🟡 Warm',SLEEPING:'🟢 Sleeping',COLD:'❄️ Cold',DORMANT:'🧊 Dormant',ANCIENT:'👻 Ancient',ACTIVE:'⏸️ Active'}[t] || t;
+  const map = {
+    'HOT':'🔥 Hot','WARM':'🌡️ Warm','OVERDUE':'⏰ Overdue','LOYAL':'💚 Loyal',
+    'NEW':'🌱 New','NO HISTORY':'❄️ No History','SCHEDULED':'📋 Scheduled',
+    'DORMANT':'💤 Dormant','OPT-OUT':'⛔ Opt-out','MOVED':'🏠 Moved',
+  };
+  return map[t] || t;
 }
 
-function tierClass(t) {
-  return {VIP_SEAL:'tp-vip-seal',HOT:'tp-hot',WARM:'tp-warm',SLEEPING:'tp-sleeping',COLD:'tp-cold',DORMANT:'tp-dormant',ANCIENT:'tp-ancient',ACTIVE:'tp-active'}[t] || '';
+function tierColorFromLabel(t) {
+  const map = {
+    'HOT':'#dc2626','WARM':'#f97316','OVERDUE':'#eab308','LOYAL':'#16a34a',
+    'NEW':'#10b981','NO HISTORY':'#94a3b8','SCHEDULED':'#2563eb',
+    'DORMANT':'#8b5cf6','OPT-OUT':'#dc2626','MOVED':'#64748b',
+  };
+  return map[t] || '#6b7280';
 }
+
+function tierClass(t) { return ''; }
 
 // ─── MAIN PROCESSING ─────────────────────────────────────────────────────────
 async function processFiles() {
@@ -1024,8 +1315,13 @@ async function processFiles() {
     const ms = monthsSince(c.lastDateObj);
     const avgTicket = c.totalJobs ? c.lifetimeSpend / c.totalJobs : 0;
     const hasSeal = sealPhones.has(c.phone);
-    const tier = calcTier({ monthsSince: ms, totalJobs: c.totalJobs, avgTicket, lifetimeSpend: c.lifetimeSpend, hasSeal });
-    return { ...c, monthsSince: ms, avgTicket, hasSeal, tier,
+    const synRec = {
+      totalJobs: c.totalJobs, lifetimeSpend: c.lifetimeSpend,
+      lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+      optOut: c.optOut || null, movedAway: c.movedAway || null,
+    };
+    const t = calcTier(synRec); // uses getTier() bridge
+    return { ...c, monthsSince: ms, avgTicket, hasSeal, tier: t.label, tierColor: t.color, tierEmoji: t.emoji, tierVip: t.vip,
       lastServiceStr: c.lastDateObj ? c.lastDateObj.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—' };
   });
 
@@ -1066,16 +1362,15 @@ async function processFiles() {
   document.getElementById('excludedWrap').style.display = 'block';
 
   // Stats
-  const vipSeal = allCustomers.filter(c => c.tier === 'VIP_SEAL').length;
   const hot = allCustomers.filter(c => c.tier === 'HOT').length;
   const warm = allCustomers.filter(c => c.tier === 'WARM').length;
-  const sleeping = allCustomers.filter(c => c.tier === 'SLEEPING').length;
+  const overdue = allCustomers.filter(c => c.tier === 'OVERDUE').length;
   document.getElementById('sTotal').textContent = totalRows;
   document.getElementById('sExcluded').textContent = excludedRecords.length;
   document.getElementById('sUnique').textContent = allCustomers.length;
   document.getElementById('sHotWarm').textContent = hot + warm;
-  document.getElementById('sVipSeal').textContent = vipSeal;
-  document.getElementById('sSleeping').textContent = sleeping;
+  document.getElementById('sVipSeal').textContent = allCustomers.filter(c => c.tierVip).length;
+  document.getElementById('sSleeping').textContent = overdue;
   document.getElementById('statsBar').style.display = 'grid';
 
   applyFilters();
@@ -1130,9 +1425,44 @@ function applyFilters() {
   const q = searchQuery.toLowerCase();
   const qDigits = q.replace(/\D/g, '');
 
+  if (poolTab === 'timeline') {
+    filteredCustomers = allCustomers.filter(c => {
+      if (c.reactivationExcluded?.excluded || c.optOut || c.movedAway) return false;
+      if (!activeTiers.has(c.tier)) return false;
+      if (city && c.city !== city) return false;
+      if (c.lifetimeSpend < minSpend) return false;
+      if (q) {
+        const fullName = (c.fn + ' ' + c.ln).toLowerCase();
+        const matches = fullName.includes(q) || (c.fn||'').toLowerCase().includes(q) ||
+          (c.ln||'').toLowerCase().includes(q) || (c.city||'').toLowerCase().includes(q) ||
+          (c.address||'').toLowerCase().includes(q) || (qDigits && c.phone && c.phone.includes(qDigits));
+        if (!matches) return false;
+      }
+      return true;
+    });
+    updateTabCounts();
+    renderTimelineView();
+    return;
+  }
+
   filteredCustomers = allCustomers.filter(c => {
+    if (poolTab === 'excluded')   return c.reactivationExcluded?.excluded === true;
     if (poolTab === 'opted_out')   return !!c.optOut;
     if (poolTab === 'moved_away')  return !!c.movedAway;
+    if (poolTab === 'booked') {
+      const ss = c.scheduledStatus;
+      const qs = c.quoteStatus;
+      const isBooked = (ss && ss.state === 'scheduled' && c.totalJobs === 0) ||
+                       (qs && (qs.state === 'confirmed' || qs.state === 'approved') && c.totalJobs === 0);
+      if (!isBooked) return false;
+      if (q) {
+        const full = ((c.fn||'') + ' ' + (c.ln||'')).toLowerCase();
+        return full.includes(q) || (c.city||'').toLowerCase().includes(q) ||
+               (qDigits && c.phone && c.phone.includes(qDigits));
+      }
+      return true;
+    }
+    if (c.reactivationExcluded?.excluded) return false;
     if (c.optOut)    return false;
     if (c.movedAway) return false;
     if (!activeTiers.has(c.tier)) return false;
@@ -1181,7 +1511,14 @@ function clearSearch() {
   applyFilters();
 }
 
+// ─── SORT STATE ──────────────────────────────────────────────────────────────
+// Primary direction: true=asc is default for these, false=desc is default for others
+const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:true, monthsSince:true, totalJobs:false, lifetimeSpend:false, avgTicket:false };
+let _sortCol = null;
+let _sortAsc = true;
+
 function applySort() {
+  if (poolTab === 'timeline') { renderTimelineView(); return; }
   if (poolTab === 'contacted' || poolTab === 'today' || poolTab === 'week') {
     filteredCustomers.sort((a, b) => {
       const ta = (loadContactRecord(a.phone) || {}).contactedAt || '';
@@ -1190,22 +1527,43 @@ function applySort() {
     });
     renderTable(); return;
   }
-  const key = document.getElementById('sortSel').value;
-  const numericAsc = ['monthsSince'];
+  const col = _sortCol || document.getElementById('sortSel').value || 'monthsSince';
   filteredCustomers.sort((a, b) => {
-    let av = a[key] ?? 0, bv = b[key] ?? 0;
+    let av = a[col] ?? (typeof a[col] === 'string' ? '' : 0);
+    let bv = b[col] ?? (typeof b[col] === 'string' ? '' : 0);
     if (typeof av === 'string') av = av.toLowerCase();
     if (typeof bv === 'string') bv = bv.toLowerCase();
-    if (numericAsc.includes(key)) return av - bv; // ascending for months
-    if (typeof av === 'number') return bv - av;   // descending for money/jobs
-    return av < bv ? -1 : av > bv ? 1 : 0;
+    const cmp = typeof av === 'number' ? av - bv : (av < bv ? -1 : av > bv ? 1 : 0);
+    return _sortAsc ? cmp : -cmp;
   });
+  updateSortIndicators();
   renderTable();
 }
 
 function clickSort(col) {
+  if (_sortCol === col) {
+    _sortAsc = !_sortAsc;
+  } else {
+    _sortCol = col;
+    _sortAsc = _sortPrimaryAsc[col] !== false;
+  }
   document.getElementById('sortSel').value = col;
   applySort();
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('thead th[data-sort]').forEach(th => {
+    th.classList.remove('sorted');
+    const ind = th.querySelector('.sort-ind');
+    if (ind) ind.textContent = '▲▼';
+  });
+  if (!_sortCol) return;
+  const th = document.querySelector(`thead th[data-sort="${_sortCol}"]`);
+  if (th) {
+    th.classList.add('sorted');
+    const ind = th.querySelector('.sort-ind');
+    if (ind) ind.textContent = _sortAsc ? '▲' : '▼';
+  }
 }
 
 function toggleTier(el) {
@@ -1223,12 +1581,21 @@ const OPT_OUT_LABELS = {
   do_not_contact: 'Do not contact'
 };
 
+const EXCL_REASON_LABELS = {
+  opted_out:      '🚫 Opted out',
+  moved_away:     '🏠 Moved away',
+  deceased:       '⚰️ Deceased',
+  friend_family:  '👨‍👩‍👧 Friend / family',
+  do_not_contact: '🚷 Do not contact',
+  commercial:     '🏢 Commercial',
+};
+
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
-  const emptyTabs = ['today','week','opted_out','moved_away'];
+  const emptyTabs = ['today','week','opted_out','moved_away','excluded'];
   if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
-    const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.'};
+    const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.',excluded:'No excluded customers — looking good!'};
     tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msgs[poolTab]}</td></tr>`;
     updateSelInfo();
     document.getElementById('selectAll').checked = false;
@@ -1237,7 +1604,9 @@ function renderTable() {
   tbody.innerHTML = filteredCustomers.map(c => {
     const checked = selectedPhones.has(c.phone);
     const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
-    const tc = tierClass(c.tier);
+    const tCol = c.tierColor || tierColorFromLabel(c.tier);
+    const tBadgeStyle = `background:${tCol}18;color:${tCol};border:1px solid ${tCol}44;`;
+    const tBadgeHtml = `<span class="tier-chip" style="${tBadgeStyle};display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">${tierLabel(c.tier)}${c.tierVip?' ★':''}</span>`;
     const sealIcon   = c.hasSeal ? '🛡️ ' : '';
     const alertBadge = renderAlertIcons(c.alerts);
 
@@ -1246,9 +1615,9 @@ function renderTable() {
       const atStr = c.movedAway.at ? new Date(c.movedAway.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
       const loc = c.movedAway.location ? ` → ${c.movedAway.location}` : '';
       const textBtn = `<div class="contact-info">🏠 Moved away${atStr ? ' · ' + atStr : ''}${loc}</div><button class="restore-moved-btn" onclick="restoreMovedAway('${c.phone}')">↩ Restore</button>`;
-      return `<tr style="opacity:.7;">
-        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
-        <td>${textBtn}</td>
+      return `<tr style="opacity:.7;" onclick="goToProfile('${c.phone}')">
+        <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td onclick="event.stopPropagation()">${textBtn}</td>
         <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
         <td class="phone">${formatPhone(c.phone)}</td>
         <td>${c.city || '—'}</td>
@@ -1257,8 +1626,31 @@ function renderTable() {
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
         <td class="money">$${Math.round(c.avgTicket)}</td>
         <td class="money">${mo}</td>
-        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
-        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+        <td>${tBadgeHtml}</td>
+        <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }
+
+    // Excluded tab: show reason badge + Restore button
+    if (poolTab === 'excluded') {
+      const ex = c.reactivationExcluded || {};
+      const reasonLabel = EXCL_REASON_LABELS[ex.reason] || ex.reason || 'Excluded';
+      const atStr = ex.excludedAt ? new Date(ex.excludedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const notesStr = ex.reasonNotes ? ` · "${ex.reasonNotes}"` : '';
+      const textBtn = `<div class="contact-info"><span class="excl-reason-badge">${reasonLabel}</span><br><span style="font-size:10px;color:var(--muted);">${atStr}${notesStr}</span></div><button class="excl-restore-btn" onclick="event.stopPropagation();promptRestore('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.65;" onclick="goToProfile('${c.phone}')">
+        <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td onclick="event.stopPropagation()">${textBtn}</td>
+        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${c.city || '—'}</td>
+        <td>${c.lastServiceStr}</td>
+        <td class="money">${c.totalJobs}</td>
+        <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+        <td class="money">$${Math.round(c.avgTicket)}</td>
+        <td class="money">${mo}</td>
+        <td>${tBadgeHtml}</td>
+        <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
       </tr>`;
     }
 
@@ -1266,10 +1658,10 @@ function renderTable() {
     if (poolTab === 'opted_out') {
       const reasonLabel = OPT_OUT_LABELS[c.optOut && c.optOut.reason] || c.optOut.reason || 'Unknown';
       const atStr = c.optOut.at ? new Date(c.optOut.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
-      const textBtn = `<div class="contact-info">🚫 Opted out<br><span style="font-size:10px;">${reasonLabel}${atStr ? ' · ' + atStr : ''}</span></div><button class="restore-btn" onclick="restoreOptOut('${c.phone}')">↩ Restore</button>`;
-      return `<tr style="opacity:.7;">
-        <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
-        <td>${textBtn}</td>
+      const textBtn = `<div class="contact-info">🚫 Opted out<br><span style="font-size:10px;">${reasonLabel}${atStr ? ' · ' + atStr : ''}</span></div><button class="restore-btn" onclick="event.stopPropagation();restoreOptOut('${c.phone}')">↩ Restore</button>`;
+      return `<tr style="opacity:.7;" onclick="goToProfile('${c.phone}')">
+        <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+        <td onclick="event.stopPropagation()">${textBtn}</td>
         <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
         <td class="phone">${formatPhone(c.phone)}</td>
         <td>${c.city || '—'}</td>
@@ -1278,8 +1670,8 @@ function renderTable() {
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
         <td class="money">$${Math.round(c.avgTicket)}</td>
         <td class="money">${mo}</td>
-        <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
-        <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+        <td>${tBadgeHtml}</td>
+        <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
       </tr>`;
     }
 
@@ -1300,24 +1692,111 @@ function renderTable() {
     } else {
       textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
     }
-    return `<tr>
-      <td><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
-      <td>${textBtn}</td>
+    return `<tr onclick="goToProfile('${c.phone}')">
+      <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
+      <td onclick="event.stopPropagation()">${textBtn}</td>
       <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
       <td class="phone">${formatPhone(c.phone)}</td>
       <td>${c.city || '—'}</td>
-      <td>${c.lastServiceStr}</td>
+      <td>${(() => {
+        if (poolTab === 'booked' && c.scheduledStatus?.scheduledDate) {
+          const d = new Date(c.scheduledStatus.scheduledDate + 'T12:00:00');
+          return '📅 ' + d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+        }
+        return c.lastServiceStr;
+      })()}</td>
       <td class="money">${c.totalJobs}</td>
-      <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
+      <td class="money">$${poolTab === 'booked' && c.scheduledStatus?.approvedAmount ? c.scheduledStatus.approvedAmount.toLocaleString('en-US') : c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
-      <td><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
+      <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
     </tr>`;
   }).join('');
   updateSelInfo();
   document.getElementById('selectAll').checked =
     filteredCustomers.length > 0 && filteredCustomers.every(c => selectedPhones.has(c.phone));
+}
+
+// ─── TIMELINE VIEW ───────────────────────────────────────────────────────────
+function renderTimelineView() {
+  const el = document.getElementById('timelineView');
+  if (!el) return;
+
+  const buckets = { overdue: [], due_now: [], due_soon: [], not_due: [], sent: [] };
+  filteredCustomers.forEach(c => {
+    const s = reactivationStatus(c);
+    buckets[s].push(c);
+  });
+
+  // Sort each bucket
+  const sortByDue = (a, b) => {
+    const da = reactivationDueDate(a), db = reactivationDueDate(b);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da - db;
+  };
+  buckets.overdue.sort(sortByDue);
+  buckets.due_now.sort(sortByDue);
+  buckets.due_soon.sort(sortByDue);
+  buckets.not_due.sort(sortByDue);
+  buckets.sent.sort(sortByDue);
+
+  const sections = [
+    { key: 'overdue',  label: '🔴 Overdue',  desc: 'Past their reactivation date' },
+    { key: 'due_now',  label: '🟡 Due Now',   desc: 'Ready to reach out this month' },
+    { key: 'due_soon', label: '🔵 Due Soon',  desc: 'Coming up in 1–2 months' },
+    { key: 'not_due',  label: '⏸️ Not Due',   desc: 'Not due for reactivation yet' },
+    { key: 'sent',     label: '✅ Sent',       desc: 'Already contacted (in cooldown)' },
+  ];
+
+  if (filteredCustomers.length === 0) {
+    el.innerHTML = '<div class="tl-empty">No customers match current filters.</div>';
+    return;
+  }
+
+  el.innerHTML = sections.map(sec => {
+    const list = buckets[sec.key];
+    if (!list.length) return '';
+    return `<div class="tl-section">
+      <div class="tl-section-hdr">${sec.label} <span class="tl-sec-count">${list.length}</span></div>
+      <div class="tl-cards">${list.map(c => renderTimelineCard(c, sec.key)).join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimelineCard(c, status) {
+  const due = reactivationDueDate(c);
+  const svcType = getLastServiceType(c);
+  const svcLabel = svcType === 'roof' ? '🏠 Roof (18 mo)' : '🚿 Standard (6 mo)';
+  const dueStr = due ? due.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+  const lastStr = c.lastServiceStr || '—';
+  const chipClass = `tl-chip tl-chip-${status}`;
+  const chipLabels = { overdue: '⚠️ Overdue', due_now: '📅 Due Now', due_soon: '🔜 Due Soon', not_due: 'Not Due', sent: '✅ Sent' };
+  const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo ago' : '—';
+
+  const rec = loadContactRecord(c.phone);
+  const cooldown = isInCooldown(c.phone);
+  let actionBtn = '';
+  if (status === 'sent' && rec) {
+    actionBtn = `<div style="font-size:11px;color:#5de0b3;text-align:right;">📲 Texted<br>${formatContactDate(rec.contactedAt)}</div>`;
+  } else if (status !== 'not_due') {
+    actionBtn = `<button class="text-now-btn" onclick="textNow('${c.phone}')" style="font-size:12px;padding:6px 12px;">Text Now</button>`;
+  }
+
+  return `<div class="tl-card tl-${status}">
+    <div class="tl-info">
+      <div class="tl-name">${c.fn} ${c.ln}${c.city ? ' · ' + c.city : ''}</div>
+      <div class="tl-meta">Last service: ${lastStr} (${mo}) · Due: ${dueStr}</div>
+      <div class="tl-badges">
+        <span class="${chipClass}">${chipLabels[status]}</span>
+        <span class="tl-chip tl-chip-not_due">${svcLabel}</span>
+        <span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${(c.tierColor||tierColorFromLabel(c.tier))}18;color:${(c.tierColor||tierColorFromLabel(c.tier))};border:1px solid ${(c.tierColor||tierColorFromLabel(c.tier))}44;">${tierLabel(c.tier)}${c.tierVip?' ★':''}</span>
+      </div>
+    </div>
+    <div class="tl-action">${actionBtn}</div>
+  </div>`;
 }
 
 function toggleRow(cb) {
@@ -1337,6 +1816,18 @@ function updateSelInfo() {
   document.getElementById('genCount').textContent = n;
   const bar = document.getElementById('genBar');
   if (n > 0) bar.classList.add('show'); else bar.classList.remove('show');
+  const exclBtn = document.getElementById('bulkExclBtn');
+  if (exclBtn) {
+    exclBtn.style.display = n > 0 ? '' : 'none';
+    const span = document.getElementById('bulkExclCount');
+    if (span) span.textContent = n;
+  }
+  const delBtn = document.getElementById('bulkDelBtn');
+  if (delBtn) {
+    delBtn.style.display = n > 0 ? '' : 'none';
+    const span = document.getElementById('bulkDelCount');
+    if (span) span.textContent = n;
+  }
 }
 
 function renderAlertIcons(alerts) {
@@ -1543,12 +2034,33 @@ function getNextVariant() {
   return ACTIVE_VARIANT; // always Variant B — to re-enable rotation, restore cycling logic here
 }
 
+function resolveTemplateVars(customer, link) {
+  const firstName      = parseFirstName(customer.fn) || 'there';
+  const timeSince      = buildTimeSince(customer.lastDateObj) || 'a while';
+  const svcDesc        = buildServiceDescription(customer.jobHistory, customer.quoteStatus, customer.scheduledStatus) || 'place';
+  const seasonalHook   = getSeasonalHook();
+  const months         = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  return { firstName, timeSince, svcDesc, seasonalHook, months, link };
+}
+
+function resolveTemplateFallbacks(customer) {
+  const missing = [];
+  if (!customer.lastDateObj) missing.push('last service date');
+  if (!parseFirstName(customer.fn)) missing.push('first name');
+  if (!buildServiceDescription(customer.jobHistory, customer.quoteStatus, customer.scheduledStatus)) missing.push('service description');
+  return missing;
+}
+
 function buildVariantBody(variant, customer, link) {
-  const months = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  const { firstName, timeSince, svcDesc, seasonalHook, months } = resolveTemplateVars(customer, link);
   return variant.template
-    .replace(/{firstName}/g, customer.fn || 'there')
-    .replace(/{months}/g, months)
-    .replace(/{link}/g, link);
+    .replace(/{firstName}/g, firstName)
+    .replace(/{timeSinceLastService}/g, timeSince)
+    .replace(/{lastServiceDescription}/g, svcDesc)
+    .replace(/{seasonalHook}/g, seasonalHook)
+    .replace(/{quoteLink}/g, link)
+    .replace(/{link}/g, link)
+    .replace(/{months}/g, months);
 }
 
 function showVariantToast(label) {
@@ -1595,9 +2107,15 @@ async function testSendToMe(phone) {
   const c = allCustomers.find(a => a.phone === phone);
   if (!c) return;
 
+  // Validation — warn if fallbacks will be used
+  const missing = resolveTemplateFallbacks(c);
+  if (missing.length) {
+    const ok = confirm(`⚠ This customer is missing: ${missing.join(', ')}.\nMessage will use safe fallbacks. Send anyway?`);
+    if (!ok) return;
+  }
+
   let code = c.linkCode;
   if (!code) {
-    // Generate a real link so the URL works, but don't stamp the customer record
     code = generateCode();
     const customerRecord = {
       fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
@@ -1612,7 +2130,7 @@ async function testSendToMe(phone) {
   const longUrl = `${QUOTE_BASE}?c=${code}&v=B_TEST`;
   const shortLink = shortenUrl(longUrl);
   const body = buildVariantBody(ACTIVE_VARIANT, c, shortLink);
-  const testBody = `[TEST — would have gone to ${c.fn}]\n\n${body}`;
+  const testBody = `[TEST — would have gone to ${parseFirstName(c.fn) || c.fn}]\n\n${body}`;
 
   // No customer record update, no event log, no cap counting
   window.location.href = `sms:${TEST_PHONE}&body=${encodeURIComponent(testBody)}`;
@@ -1666,18 +2184,29 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','today','week','contacted','opted_out','moved_away','all'][i] === tab);
+    el.classList.toggle('active', ['active','booked','today','week','contacted','opted_out','moved_away','excluded','timeline','all'][i] === tab);
   });
+  const isTimeline = tab === 'timeline';
+  const tw = document.getElementById('tableWrap');
+  const tv = document.getElementById('timelineView');
+  if (tw) tw.style.display = isTimeline ? 'none' : (allCustomers.length ? 'block' : 'none');
+  if (tv) tv.classList.toggle('show', isTimeline);
   renderTabSummary(tab);
   applyFilters();
 }
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0;
+  let active = 0, booked = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0;
   allCustomers.forEach(c => {
+    if (c.reactivationExcluded?.excluded) { excludedCt++; return; }
     if (c.optOut)    { optedOutCt++;   return; }
     if (c.movedAway) { movedAwayCt++;  return; }
+    const ss = c.scheduledStatus, qs = c.quoteStatus;
+    if ((ss && ss.state === 'scheduled' && c.totalJobs === 0) ||
+        (qs && (qs.state === 'confirmed' || qs.state === 'approved') && c.totalJobs === 0)) {
+      booked++;
+    }
     const rec = loadContactRecord(c.phone);
     if (isInCooldown(c.phone)) {
       contacted++;
@@ -1688,14 +2217,19 @@ function updateTabCounts() {
     } else {
       active++;
     }
+    const rs = reactivationStatus(c);
+    if (rs === 'overdue' || rs === 'due_now') timelineUrgent++;
   });
   document.getElementById('tabActiveCount').textContent    = active;
+  document.getElementById('tabBookedCount').textContent    = booked;
   document.getElementById('tabTodayCount').textContent     = todayCt;
   document.getElementById('tabWeekCount').textContent      = weekCt;
   document.getElementById('tabContactedCount').textContent = contacted;
   document.getElementById('tabAllCount').textContent       = allCustomers.length;
   document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
   document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
+  document.getElementById('tabExcludedCount').textContent  = excludedCt;
+  document.getElementById('tabTimelineCount').textContent  = timelineUrgent;
 }
 function textNow(phone) {
   const compliance = checkCompliance();
@@ -1711,6 +2245,12 @@ async function executeTextNow(phone) {
   const btn = document.querySelector(`[data-contact-phone="${phone}"]`);
   const c = allCustomers.find(a => a.phone === phone);
   if (!c) return;
+
+  // TCPA enforcement: never send SMS to opted-out customers
+  if (c.optOut) {
+    alert(`Cannot send SMS — ${c.fn} ${c.ln} has opted out of text messages (TCPA compliance). Contact by phone only: ${formatPhone(c.phone)}`);
+    return;
+  }
 
   let code = c.linkCode;
 
@@ -2037,6 +2577,178 @@ function markCommercial(phone) {
   applyFilters();
 }
 
+// ─── EXCLUSION SYSTEM ────────────────────────────────────────────────────────
+let _exclPhones = [];
+
+const EXCL_REASONS = [
+  { value: 'opted_out',      label: 'Customer asked to stop (opted out)' },
+  { value: 'moved_away',     label: 'Moved away' },
+  { value: 'deceased',       label: 'Deceased' },
+  { value: 'friend_family',  label: 'Friend or family' },
+  { value: 'do_not_contact', label: 'Do not contact (my call)' },
+  { value: 'commercial',     label: 'Commercial account (wrong list)' },
+];
+
+function _renderExclReasons() {
+  document.getElementById('exclReasons').innerHTML = EXCL_REASONS.map((r, i) =>
+    `<label class="excl-radio-label">
+      <input type="radio" name="exclReason" value="${r.value}"${i === 0 ? ' checked' : ''}>
+      <span>${r.label}</span>
+    </label>`
+  ).join('');
+}
+
+function promptExclude(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  _exclPhones = [phone];
+  document.getElementById('exclModalTitle').textContent = `Don't Reactivate ${c.fn} ${c.ln}?`;
+  document.getElementById('exclModalSub').textContent = formatPhone(phone);
+  _renderExclReasons();
+  document.getElementById('exclNotes').value = '';
+  document.getElementById('exclModalOverlay').style.display = 'flex';
+}
+
+function promptBulkExclude() {
+  const phones = [...selectedPhones];
+  if (!phones.length) return;
+  _exclPhones = phones;
+  document.getElementById('exclModalTitle').textContent = `Exclude ${phones.length} Customer${phones.length > 1 ? 's' : ''}?`;
+  document.getElementById('exclModalSub').textContent = 'Select a reason to apply to all selected customers.';
+  _renderExclReasons();
+  document.getElementById('exclNotes').value = '';
+  document.getElementById('exclModalOverlay').style.display = 'flex';
+}
+
+function closeExclModal() {
+  document.getElementById('exclModalOverlay').style.display = 'none';
+  _exclPhones = [];
+}
+
+function confirmExclusion() {
+  const selected = document.querySelector('input[name="exclReason"]:checked');
+  if (!selected) return;
+  const reason = selected.value;
+  const notes = document.getElementById('exclNotes').value.trim();
+  const now = new Date().toISOString();
+  let firstName = null;
+
+  for (const phone of _exclPhones) {
+    const c = allCustomers.find(x => x.phone === phone);
+    if (!c) continue;
+    if (!firstName) firstName = c.fn;
+    c.reactivationExcluded = { excluded: true, reason, reasonNotes: notes, excludedAt: now, excludedBy: 'tyler', restoredAt: null, restoredBy: null };
+    if (reason === 'opted_out')  c.optOut    = { reason: 'customer_request', at: now };
+    if (reason === 'moved_away') c.movedAway = { at: now, location: null };
+    selectedPhones.delete(phone);
+  }
+
+  const n = _exclPhones.length;
+  closeExclModal();
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+  updateContactStats();
+  showExclToast(n === 1 ? `Excluded ${firstName} from reactivation` : `Excluded ${n} customers from reactivation`);
+}
+
+let _restorePhone = null;
+function promptRestore(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c || !c.reactivationExcluded?.excluded) return;
+  _restorePhone = phone;
+  const ex = c.reactivationExcluded;
+  const dateStr = ex.excludedAt ? new Date(ex.excludedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+  document.getElementById('restoreExclTitle').textContent = `Restore ${c.fn} ${c.ln}?`;
+  document.getElementById('restoreExclBody').textContent = `Excluded${dateStr ? ' on ' + dateStr : ''} · Reason: ${EXCL_REASON_LABELS[ex.reason] || ex.reason}${ex.reasonNotes ? ' · "' + ex.reasonNotes + '"' : ''}`;
+  const isOptedOut = ex.reason === 'opted_out';
+  document.getElementById('restoreExclTcpaWarn').style.display = isOptedOut ? 'block' : 'none';
+  document.getElementById('restoreExclConfirmBtn').onclick = () => confirmRestore(phone);
+  document.getElementById('restoreExclModal').style.display = 'flex';
+}
+
+function closeRestoreModal() {
+  document.getElementById('restoreExclModal').style.display = 'none';
+  _restorePhone = null;
+}
+
+function confirmRestore(phone) {
+  closeRestoreModal();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c || !c.reactivationExcluded) return;
+  const wasReason = c.reactivationExcluded.reason;
+  c.reactivationExcluded = { ...c.reactivationExcluded, excluded: false, restoredAt: new Date().toISOString(), restoredBy: 'tyler' };
+  // Clear side-effect flags EXCEPT optOut (TCPA: stays set regardless)
+  if (wasReason === 'moved_away') c.movedAway = null;
+  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
+  applyFilters();
+  updateContactStats();
+  showExclToast(`Restored ${c.fn} ${c.ln} to reactivation pool`);
+}
+
+function showExclToast(msg) {
+  let t = document.getElementById('exclToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'exclToast';
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--navy2);border:1.5px solid var(--border);color:var(--text);padding:10px 22px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;pointer-events:none;transition:opacity .4s;box-shadow:0 4px 24px rgba(0,0,0,.5);white-space:nowrap;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+}
+
+// ─── CUSTOMER DELETE (SOFT) ──────────────────────────────────────────────────
+const PROTECTED_PHONE_BR = '9546843614'; // Keith Wolf
+
+function promptDeleteCustomerBR(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  if (!c) return;
+  if (phone === PROTECTED_PHONE_BR) { showExclToast('Keith Wolf is protected — cannot be deleted.'); return; }
+  const name = `${c.fn} ${c.ln}`;
+  if (!confirm(`Delete ${name}?\n\nThis soft-deletes the record — recoverable from Recently Deleted within 30 days.`)) return;
+  executeSoftDeleteBR([phone]);
+}
+
+function promptBulkDeleteBR() {
+  const phones = [...selectedPhones];
+  if (!phones.length) return;
+  const blocked = phones.filter(p => p === PROTECTED_PHONE_BR);
+  if (blocked.length) { showExclToast('Cannot delete Keith Wolf — protected record.'); return; }
+  if (!confirm(`Soft-delete ${phones.length} customer${phones.length>1?'s':''}?\n\nRecoverable from Recently Deleted within 30 days.`)) return;
+  executeSoftDeleteBR(phones);
+}
+
+async function executeSoftDeleteBR(phones) {
+  let failed = 0;
+  for (const phone of phones) {
+    try {
+      const res = await fetch(`${PCPC_API_BR}/customer/${phone}/delete`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ reason: 'deleted_from_bulk_reactivation', deletedBy: 'tyler' })
+      });
+      if (!res.ok) { failed++; continue; }
+      // Remove from local allCustomers
+      const idx = allCustomers.findIndex(c => c.phone === phone);
+      if (idx !== -1) allCustomers.splice(idx, 1);
+      selectedPhones.delete(phone);
+    } catch(e) { failed++; }
+  }
+  const n = phones.length - failed;
+  if (n > 0) showExclToast(`🗑️ Deleted ${n} customer${n>1?'s':''} — recover at Recently Deleted`);
+  if (failed > 0) showExclToast(`⚠️ ${failed} record${failed>1?'s':''} failed to delete`);
+  applyFilters();
+  updateContactStats();
+  // Update total count
+  document.getElementById('sTotal').textContent = allCustomers.length;
+  document.getElementById('sUnique').textContent = allCustomers.length;
+}
+
 // ─── FILE HANDLING ───────────────────────────────────────────────────────────
 const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
@@ -2342,17 +3054,25 @@ function toggleRowMenu(phone, btn) {
   const isDisc = c && c.phoneStatus === 'disconnected';
   const isOptedOut = c && !!c.optOut;
   const isMovedAway = c && !!c.movedAway;
+  const isExcluded = c && c.reactivationExcluded?.excluded === true;
   const menu = document.getElementById('rowMenuDropdown');
   menu.innerHTML =
-    (isOptedOut
+    `<button class="row-menu-item" onclick="window.location.href='/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(phone)}'">👤 View customer →</button>` +
+    `<button class="row-menu-item" onclick="contactCustomerCall('${phone}')">📞 Call</button>` +
+    `<button class="row-menu-item" onclick="contactCustomerText('${phone}')">💬 Text</button>` +
+    (isExcluded
+      ? `<button class="row-menu-item" onclick="promptRestore('${phone}')">↩ Restore from exclusion</button>`
+      : `<button class="row-menu-item danger" onclick="promptExclude('${phone}')">🚫 Don't Reactivate</button>`
+    ) +
+    `<button class="row-menu-item danger" onclick="promptDeleteCustomerBR('${phone}')">🗑️ Delete customer</button>` +
+    (isOptedOut && !isExcluded
       ? `<button class="row-menu-item" onclick="restoreOptOut('${phone}')">↩ Restore from opt-out</button>`
-      : `<button class="row-menu-item danger" onclick="promptOptOut('${phone}')">🚫 Mark opted out</button>`
+      : ''
     ) +
-    (isMovedAway
+    (isMovedAway && !isExcluded
       ? `<button class="row-menu-item moved-act" onclick="restoreMovedAway('${phone}')">↩ Restore (un-mark moved)</button>`
-      : `<button class="row-menu-item moved-act" onclick="promptMovedAway('${phone}')">🏠 Mark as moved away</button>`
+      : ''
     ) +
-    `<button class="row-menu-item danger" onclick="markCommercial('${phone}')">⊘ Exclude (commercial)</button>` +
     (isDisc
       ? `<button class="row-menu-item phone-act" onclick="markPhoneActive('${phone}')">📞 Mark phone active</button>`
       : `<button class="row-menu-item phone-act" onclick="markPhoneDisconnected('${phone}')">📵 Mark phone disconnected</button>`
@@ -2372,6 +3092,68 @@ function closeRowMenus() {
   const menu = document.getElementById('rowMenuDropdown');
   if (menu) menu.style.display = 'none';
   document.querySelectorAll('.row-menu-btn.menu-open').forEach(b => b.classList.remove('menu-open'));
+}
+
+// ─── SWIPE-SAFE NAVIGATION + TABLE FADE ──────────────────────────────────────
+let _swipeX = 0, _swipeDx = 0;
+document.addEventListener('pointerdown', e => { _swipeX = e.clientX; _swipeDx = 0; }, { passive: true });
+document.addEventListener('pointermove', e => { if (e.buttons) _swipeDx = Math.abs(e.clientX - _swipeX); }, { passive: true });
+
+function goToProfile(phone) {
+  if (_swipeDx > 8) { _swipeDx = 0; return; }
+  window.location.href = '/pure_cleaning_customer_profile.html?phone=' + encodeURIComponent(phone);
+}
+
+function initTblFades() {
+  const wrap = document.getElementById('tableWrap');
+  const fR   = document.getElementById('fadeTblR');
+  const fL   = document.getElementById('fadeTblL');
+  if (!wrap) return;
+  const upd = () => {
+    const sl = wrap.scrollLeft, max = wrap.scrollWidth - wrap.clientWidth;
+    if (fR) fR.style.opacity = sl >= max - 2 ? '0' : '1';
+    if (fL) fL.style.opacity = sl >  2       ? '1' : '0';
+  };
+  wrap.addEventListener('scroll', upd, { passive: true });
+  new ResizeObserver(upd).observe(wrap);
+  upd();
+}
+
+function contactCustomerCall(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  const dialPhone = '+1' + phone.replace(/\D/g,'');
+  window.location.href = `tel:${dialPhone}`;
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      eventType: 'customer_called_from_reactivation',
+      customer: { fn: c?.fn||'', ln: c?.ln||'', ph: phone },
+      phone,
+      calledAt: new Date().toISOString(),
+      calledBy: 'operator',
+    })
+  }).catch(() => {});
+}
+
+function contactCustomerText(phone) {
+  closeRowMenus();
+  const c = allCustomers.find(x => x.phone === phone);
+  const firstName = c?.fn || '';
+  const body = `Hi ${firstName || 'there'}! This is Pure Cleaning Pressure Cleaning. Reaching out to see if you'd like to schedule service. Reply here or call us at 954-389-2642!`;
+  window.location.href = `sms:+1${phone.replace(/\D/g,'')}&body=${encodeURIComponent(body)}`;
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      eventType: 'customer_texted_from_reactivation',
+      customer: { fn: c?.fn||'', ln: c?.ln||'', ph: phone },
+      phone,
+      textedAt: new Date().toISOString(),
+      textedBy: 'operator',
+    })
+  }).catch(() => {});
 }
 
 // ─── UPLOAD SUMMARY MODAL ────────────────────────────────────────────────────
@@ -2402,10 +3184,43 @@ document.addEventListener('DOMContentLoaded', () => {
   tryLoadDatabase();
   initTooltips();
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); }
+    if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); closeExclModal(); closeRestoreModal(); }
   });
 });
 </script>
+
+<!-- EXCLUSION MODAL -->
+<div id="exclModalOverlay" class="excl-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeExclModal()">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">🚫</div>
+    <h3 id="exclModalTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:.25rem;"></h3>
+    <p id="exclModalSub" style="font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 .25rem;"></p>
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:.75rem;display:block;">Why?</label>
+    <div class="excl-radio-group" id="exclReasons"></div>
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Notes <span style="font-weight:400;text-transform:none;font-size:10px;">(optional)</span></label>
+    <textarea id="exclNotes" class="excl-notes" rows="2" placeholder="My cousin's house, called and asked to stop, etc."></textarea>
+    <div class="excl-btn-row">
+      <button class="excl-cancel" onclick="closeExclModal()">Cancel</button>
+      <button class="excl-confirm-red" onclick="confirmExclusion()">Confirm Exclusion</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESTORE EXCLUSION MODAL -->
+<div id="restoreExclModal" class="excl-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeRestoreModal()">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">↩️</div>
+    <h3 id="restoreExclTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:.25rem;"></h3>
+    <p id="restoreExclBody" style="font-size:13px;color:var(--muted);line-height:1.5;margin:0;"></p>
+    <div id="restoreExclTcpaWarn" class="tcpa-warn" style="display:none;">
+      <strong>TCPA Notice:</strong> This customer opted out of SMS. Restoring removes them from the Excluded tab, but the Opted Out flag stays set — they won't appear in the active pool and SMS is still blocked unless they explicitly ask to be re-added to your list.
+    </div>
+    <div class="excl-btn-row">
+      <button class="excl-cancel" onclick="closeRestoreModal()">Cancel</button>
+      <button id="restoreExclConfirmBtn" class="excl-confirm-green">Yes, Restore</button>
+    </div>
+  </div>
+</div>
 
 <!-- ADD CUSTOMER MODAL -->
 <div class="modal-overlay hidden" id="addCustomerModal" onclick="if(event.target===this)closeAddCustomerModal()">

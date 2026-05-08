@@ -134,6 +134,64 @@ export default {
         return jsonResponse({ error: 'Method not allowed' }, corsHeaders, 405);
       }
 
+      // ── TASKS ─────────────────────────────────────────────────────────────────
+      const TASKS_CORS = { ...corsHeaders, 'Cache-Control': 'no-store' };
+      if (path === 'api/tasks' && request.method === 'GET') {
+        const db = await env.DATA.get('tasks_db', 'json') || { tasks: [] };
+        return jsonResponse(db, TASKS_CORS);
+      }
+      if (path === 'api/tasks/bulk' && request.method === 'POST') {
+        const { tasks: newTasks } = await request.json();
+        const db = await env.DATA.get('tasks_db', 'json') || { tasks: [] };
+        const created = newTasks.map(t => ({
+          id: crypto.randomUUID(),
+          title: t.title, description: t.description || '',
+          owner: t.owner || 'unassigned', category: t.category || 'action',
+          priority: t.priority || 'medium', status: t.status || 'open',
+          dueDate: t.dueDate || null, createdAt: new Date().toISOString(),
+          doneAt: null, notes: t.notes || '',
+        }));
+        db.tasks.push(...created);
+        await env.DATA.put('tasks_db', JSON.stringify(db));
+        return jsonResponse({ success: true, created: created.length }, TASKS_CORS);
+      }
+      if (path === 'api/tasks' && request.method === 'POST') {
+        const t = await request.json();
+        const db = await env.DATA.get('tasks_db', 'json') || { tasks: [] };
+        const task = {
+          id: crypto.randomUUID(),
+          title: t.title, description: t.description || '',
+          owner: t.owner || 'unassigned', category: t.category || 'action',
+          priority: t.priority || 'medium', status: t.status || 'open',
+          dueDate: t.dueDate || null, createdAt: new Date().toISOString(),
+          doneAt: null, notes: t.notes || '',
+        };
+        db.tasks.push(task);
+        await env.DATA.put('tasks_db', JSON.stringify(db));
+        return jsonResponse({ success: true, task }, TASKS_CORS);
+      }
+      if (path.startsWith('api/tasks/') && request.method === 'PUT') {
+        const id = path.slice('api/tasks/'.length);
+        const body = await request.json();
+        const db = await env.DATA.get('tasks_db', 'json') || { tasks: [] };
+        const i = db.tasks.findIndex(t => t.id === id);
+        if (i === -1) return jsonResponse({ error: 'not found' }, TASKS_CORS, 404);
+        db.tasks[i] = { ...db.tasks[i], ...body };
+        if (body.status === 'done' && !db.tasks[i].doneAt) db.tasks[i].doneAt = new Date().toISOString();
+        await env.DATA.put('tasks_db', JSON.stringify(db));
+        return jsonResponse({ success: true, task: db.tasks[i] }, TASKS_CORS);
+      }
+      if (path.startsWith('api/tasks/') && request.method === 'DELETE') {
+        const id = path.slice('api/tasks/'.length);
+        const db = await env.DATA.get('tasks_db', 'json') || { tasks: [] };
+        const i = db.tasks.findIndex(t => t.id === id);
+        if (i === -1) return jsonResponse({ error: 'not found' }, TASKS_CORS, 404);
+        db.tasks[i].status = 'killed';
+        await env.DATA.put('tasks_db', JSON.stringify(db));
+        return jsonResponse({ success: true }, TASKS_CORS);
+      }
+      // ── END TASKS ─────────────────────────────────────────────────────────────
+
       if (path === 'service-frequency') {
         if (request.method === 'GET') {
           const data = await env.DATA.get('service_frequency', 'json') || DEFAULT_SERVICE_FREQUENCY;
@@ -185,9 +243,7 @@ export default {
         if (action === ''      && request.method === 'GET')   return await handleGetReceipt(env, rPhone, corsHeaders);
       }
 
-      if (path === 'nudge-queue' && request.method === 'GET') {
-        return await handleNudgeQueue(env, corsHeaders);
-      }
+
 
       if (path.startsWith('agreement/') && path.endsWith('/edit-services') && request.method === 'PUT') {
         const phone = path.slice('agreement/'.length, -('/edit-services'.length));
@@ -212,6 +268,20 @@ export default {
       if (path.startsWith('agreement/') && path.endsWith('/confirm') && request.method === 'PUT') {
         const phone = path.slice('agreement/'.length, -(('/confirm').length));
         return await handleAgreementConfirm(request, env, phone, corsHeaders);
+      }
+
+      if (path.startsWith('appointment/') && (path.endsWith('/date-change') || path.endsWith('/changes')) && request.method === 'POST') {
+        const isDateChange = path.endsWith('/date-change');
+        const phone = path.slice('appointment/'.length, -(isDateChange ? '/date-change' : '/changes').length);
+        const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        const c  = (db.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === (phone||'').replace(/\D/g,'').slice(-10));
+        if (!c) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
+        if (!c.scheduledStatus) c.scheduledStatus = {};
+        if (isDateChange) c.scheduledStatus.dateChangeRequested = true;
+        else              c.scheduledStatus.changesRequested    = true;
+        c.scheduledStatus.requestedAt = new Date().toISOString();
+        await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+        return jsonResponse({ success: true }, corsHeaders);
       }
 
       // ── Customer delete / restore / hard-delete ───────────────────────────────
@@ -330,18 +400,54 @@ export default {
         }
       }
 
+      // ── Geocode (single address → coordinates, optionally saved to customer) ────
+      if (path === 'api/geocode' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const { address, phone } = body;
+        if (!address) return jsonResponse({ error: 'address required' }, corsHeaders, 400);
+        const geo = await geocodeAddress(address, env);
+        if (!geo) return jsonResponse({ error: 'geocode_failed', address }, corsHeaders, 422);
+        // If phone provided, save coordinates to customer record
+        if (phone) {
+          const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+          const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+          const c  = (db.customers||[]).find(x => norm(x.phone) === norm(phone));
+          if (c) {
+            c.coordinates = { ...geo };
+            // Keep c.geocoded in sync for backward-compat with calendar's getJobCoords()
+            c.geocoded = { lat: geo.lat, lng: geo.lng, formattedAddress: geo.formattedAddress || '',
+                           accuracy: geo.confidence === 'high' ? 'ROOFTOP' : 'RANGE_INTERPOLATED',
+                           geocodedAt: geo.geocodedAt };
+            if (geo.confidence === 'low') c.needsAddressVerification = true;
+            await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+          }
+        }
+        return jsonResponse({ success: true, ...geo }, corsHeaders);
+      }
+
       // ── Geocode test ─────────────────────────────────────────────────────────
       if (path === 'api/debug/geocode' && request.method === 'GET') {
         const addr = url.searchParams.get('addr') || '1255 Fairfax Court, Weston, FL';
-        const geo = await geocodeAddress(addr);
-        const nominatimRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`,
-          { headers: { 'User-Agent': 'PureCleaning/1.0 contact:tyler@purecleaningfl.com' } }
-        ).then(r => r.json()).catch(e => ({ error: e.message }));
-        const nominatim = Array.isArray(nominatimRes) && nominatimRes[0]
-          ? { lat: nominatimRes[0].lat, lon: nominatimRes[0].lon, display: nominatimRes[0].display_name }
-          : { raw: nominatimRes };
-        return jsonResponse({ addr, census: geo, nominatim }, corsHeaders);
+        const geo = await geocodeAddress(addr, env);
+        return jsonResponse({ addr, result: geo, keySet: !!env.GOOGLE_MAPS_API_KEY }, corsHeaders);
+      }
+
+      // ── Bouncie morning stop results ─────────────────────────────────────────
+      if (path === 'api/bouncie/morning-stops' && request.method === 'GET') {
+        const date = url.searchParams.get('date');
+        if (!date) return jsonResponse({ error: 'date param required' }, corsHeaders, 400);
+        const stored = (await env.DATA.get(`bouncie:morning_stops:${date}`, 'json')) || null;
+        const poiStats = {};
+        for (const poi of MORNING_STOP_POIS) {
+          poiStats[poi.key] = await env.DATA.get(`bouncie:poi_stats:${poi.key}`, 'json');
+        }
+        return jsonResponse({
+          date,
+          morningStops: stored?.morningStops || null,
+          updatedAt:    stored?.updatedAt    || null,
+          poiStats,
+          pois: MORNING_STOP_POIS.map(p => ({ key: p.key, label: p.label, emoji: p.emoji, lat: p.lat, lon: p.lon })),
+        }, corsHeaders);
       }
 
       // ── Bouncie raw trips debug (read-only) ───────────────────────────────────
@@ -770,52 +876,6 @@ async function handleEditServices(request, env, phone, corsHeaders) {
   return jsonResponse({ success: true, totalAmount }, corsHeaders);
 }
 
-// ── Nudge queue + manual confirm + skip reminder + log reminder ───────────────
-async function handleNudgeQueue(env, corsHeaders) {
-  const db  = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-  const now = Date.now();
-  const PENDING = new Set(['phone_quoted_mini_quote_sent', 'sent', 'viewed', 'pending', 'quote_sent']);
-
-  const needsNudge = [], secondNudge = [], agreedVerbally = [], stale = [];
-
-  (db.customers || []).forEach(c => {
-    const qs = c.quoteStatus || {};
-    if (qs.deleted) return;
-
-    if (qs.state === 'confirmed' && qs.confirmedBy === 'verbal') {
-      agreedVerbally.push(c); return;
-    }
-    if (!PENDING.has(qs.state || '')) return;
-
-    const ts = qs.sentAt || qs.sentDate;
-    if (!ts) return;
-    if (qs.reminderSkipped) return;
-
-    const hrs  = (now - new Date(ts).getTime()) / 3600000;
-    if (hrs < 0) return;
-
-    const reminders  = qs.remindersSent || [];
-    const firstSent  = reminders.find(r => r.type === 'first');
-
-    if      (hrs >= 14 * 24)              stale.push(c);
-    else if (firstSent && hrs >= 7 * 24)  secondNudge.push(c);
-    else if (!firstSent && hrs >= 48)     needsNudge.push(c);
-  });
-
-  const byAge = arr => arr.sort((a, b) => {
-    const tA = new Date(a.quoteStatus?.sentAt || a.quoteStatus?.sentDate || 0).getTime();
-    const tB = new Date(b.quoteStatus?.sentAt || b.quoteStatus?.sentDate || 0).getTime();
-    return tA - tB;
-  });
-
-  return jsonResponse({
-    needsNudge:     byAge(needsNudge),
-    secondNudge:    byAge(secondNudge),
-    agreedVerbally: byAge(agreedVerbally),
-    stale:          byAge(stale),
-    totalCount: needsNudge.length + secondNudge.length + stale.length,
-  }, corsHeaders);
-}
 
 async function handleManualConfirm(request, env, phone, corsHeaders) {
   const body = await request.json().catch(() => ({}));
@@ -977,10 +1037,10 @@ const REVIEW_LINK = 'https://share.google/ChFC1uAe9Xdveb8XN';
 
 const DEFAULT_TEMPLATES = [
   {
-    id: 'tpl_friendly',
-    name: 'Friendly thank you',
-    body: `Hi {firstName}! Tony just finished your {service} — hope it looks great! 🌴\n\nIf you're happy, would you mind leaving us a quick Google review? It really helps a small family business like ours.\n\n⭐ {reviewLink}\n\nThanks so much! — The Pure Cleaning Family`,
-    isActive: true, createdAt: '2026-01-01T00:00:00.000Z', timesUsed: 0, reviewsGenerated: 0
+    id: 'tpl_fumero_family',
+    name: 'Fumero Family (default)',
+    body: `Hi {firstName}! It was a pleasure servicing your home. If you have a moment, a quick 5-star Google review would mean the world to our family business 🙏\n\nClick here: {reviewLink}\n\nMentioning the service (like soft wash or driveway) and your city helps us grow.\n\nThanks so much for your support!\n\n— The Fumero Family\nPure Cleaning Pressure Cleaning`,
+    isActive: true, createdAt: '2026-05-07T00:00:00.000Z', timesUsed: 0, reviewsGenerated: 0
   },
   {
     id: 'tpl_direct',
@@ -1002,6 +1062,8 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
+const REVIEW_ELIGIBLE_CUTOFF = '2026-05-01';
+
 function reviewIsReadyToRequest(c, nowIso, sevenDaysAgo, thirtyDaysAgo) {
   if (c.deleted) return false;
   const gr = c.googleReview || {};
@@ -1011,11 +1073,22 @@ function reviewIsReadyToRequest(c, nowIso, sevenDaysAgo, thirtyDaysAgo) {
   if (st === 'declined' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) return false;
   if (gr.lastRequestSentAt && gr.lastRequestSentAt > thirtyDaysAgo) return false;
 
+  // Must have a completed job on or after the cutoff date.
+  // Require completedAt (calendar completions always set this).
+  // Exclude csv_backfill entries — they're historical records, not recent completions.
+  const jh = c.jobHistory || [];
+  const hasQualifyingJH = jh.some(j =>
+    j.status === 'completed' &&
+    j.source !== 'csv_backfill' &&
+    j.completedAt &&
+    j.completedAt >= REVIEW_ELIGIBLE_CUTOFF
+  );
+  if (hasQualifyingJH) return true;
+
+  // Calendar completions write completedAt on scheduledStatus
   const ss = c.scheduledStatus || {};
-  if (ss.state === 'completed' && ss.completedDate && ss.completedDate <= sevenDaysAgo) return true;
-  if (c.lastService && c.lastService <= sevenDaysAgo && (c.totalJobs || 0) > 0) return true;
-  // Also surface customers with explicit reviewQueue.status = 'pending' and 4+ days elapsed
-  if (c.reviewQueue?.status === 'pending' && c.reviewQueue.queuedAt <= sevenDaysAgo) return true;
+  if (ss.state === 'completed' && ss.completedAt && ss.completedAt >= REVIEW_ELIGIBLE_CUTOFF) return true;
+
   return false;
 }
 
@@ -1026,8 +1099,15 @@ function reviewJobService(c) {
 }
 
 function reviewJobDate(c) {
+  const jh = c.jobHistory || [];
+  const qualifying = jh
+    .filter(j => j.status === 'completed' && j.source !== 'csv_backfill' && j.completedAt && j.completedAt >= REVIEW_ELIGIBLE_CUTOFF)
+    .sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+  if (qualifying.length) return qualifying[0].completedAt;
   const ss = c.scheduledStatus || {};
-  return ss.completedDate || ss.scheduledDate || c.lastService || null;
+  if (ss.state === 'completed' && ss.completedAt && ss.completedAt >= REVIEW_ELIGIBLE_CUTOFF)
+    return ss.completedAt;
+  return null;
 }
 
 async function handleReviewsHub(env, corsHeaders) {
@@ -1539,6 +1619,78 @@ async function handleBouncieVehicles(env, corsHeaders) {
 
 // ── Bouncie Phase 2 — Job Duration Matcher ────────────────────────────────────
 
+// Morning route stop POIs — update coordinates to match exact locations.
+// Verify via Google Maps: search the address and drop a pin to get lat/lon.
+const MORNING_STOP_POIS = [
+  {
+    key:           'gas',
+    label:         '7-Eleven',
+    emoji:         '⛽',
+    lat:           26.0852,   // TODO: verify exact 7-Eleven on Weston Rd
+    lon:           -80.3740,
+    thresholdKm:   0.10,      // 100 m
+    avgExpectedMin: 5,
+  },
+  {
+    key:           'chlorine',
+    label:         'Pro-Line',
+    emoji:         '🧪',
+    lat:           26.0712,   // TODO: verify exact Pro-Line on Weston Rd
+    lon:           -80.3680,
+    thresholdKm:   0.10,
+    avgExpectedMin: 8,
+  },
+];
+
+// Scan a rig's trip array for POI dwell stops.
+// Uses same arrival/departure pattern as job matching: trip ending near POI = arrival;
+// next trip starting near POI = departure; gap between = dwell duration.
+function checkMorningStopsForRig(trips, pois, tripFirstCoord, tripLastCoord) {
+  const results = {};
+  for (const poi of pois) {
+    let arrivalTrip = null, closestDist = Infinity;
+    for (const trip of trips) {
+      const last = tripLastCoord(trip);
+      if (!last) continue;
+      const d = haversineKm(last[1], last[0], poi.lat, poi.lon);
+      if (d < closestDist) closestDist = d;
+      if (d <= poi.thresholdKm) {
+        if (!arrivalTrip || trip.endTime > arrivalTrip.endTime) arrivalTrip = trip;
+      }
+    }
+    if (!arrivalTrip) {
+      results[poi.key] = {
+        found:         false,
+        label:         poi.label,
+        emoji:         poi.emoji,
+        closestMeters: Math.round(closestDist * 1000),
+      };
+      continue;
+    }
+    let departureTrip = null;
+    for (const trip of trips) {
+      if (trip.startTime <= arrivalTrip.endTime) continue;
+      const first = tripFirstCoord(trip);
+      if (!first) continue;
+      if (haversineKm(first[1], first[0], poi.lat, poi.lon) <= poi.thresholdKm) {
+        if (!departureTrip || trip.startTime < departureTrip.startTime) departureTrip = trip;
+      }
+    }
+    const durationMin = departureTrip
+      ? Math.round((new Date(departureTrip.startTime) - new Date(arrivalTrip.endTime)) / 60000)
+      : null;
+    results[poi.key] = {
+      found:       true,
+      label:       poi.label,
+      emoji:       poi.emoji,
+      arrivedAt:   arrivalTrip.endTime,
+      departedAt:  departureTrip?.startTime || null,
+      durationMin,
+    };
+  }
+  return results;
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1547,8 +1699,42 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-async function geocodeAddress(address) {
+async function geocodeAddress(address, env = null) {
   if (!address) return null;
+
+  // ── Google Maps Geocoding (preferred — requires GOOGLE_MAPS_API_KEY secret) ──
+  const apiKey = env?.GOOGLE_MAPS_API_KEY;
+  if (apiKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&components=country:US&key=${apiKey}`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (data.status === 'OK' && data.results?.[0]) {
+        const r    = data.results[0];
+        const loc  = r.geometry.location;
+        const lt   = r.geometry.location_type;
+        const conf = lt === 'ROOFTOP' ? 'high'
+                   : (lt === 'RANGE_INTERPOLATED' || lt === 'GEOMETRIC_CENTER') ? 'medium'
+                   : 'low';
+        return {
+          lat:              loc.lat,
+          lng:              loc.lng,
+          lon:              loc.lng, // backward compat alias
+          formattedAddress: r.formatted_address,
+          placeId:          r.place_id,
+          confidence:       conf,
+          locationType:     lt,
+          geocodedAt:       new Date().toISOString(),
+          source:           'google_maps',
+        };
+      }
+      if (data.status !== 'ZERO_RESULTS') {
+        console.warn('Google geocode status:', data.status, address);
+      }
+    } catch (e) { console.warn('Google geocode error:', e.message); }
+  }
+
+  // ── Census fallback (no key needed, lower accuracy on FL addresses) ──────────
   try {
     const res = await fetch(
       `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(address)}&benchmark=2020&format=json`,
@@ -1557,7 +1743,15 @@ async function geocodeAddress(address) {
     const data = await res.json();
     const match = data?.result?.addressMatches?.[0];
     if (!match) return null;
-    return { lat: parseFloat(match.coordinates.y), lon: parseFloat(match.coordinates.x) };
+    return {
+      lat:    parseFloat(match.coordinates.y),
+      lng:    parseFloat(match.coordinates.x),
+      lon:    parseFloat(match.coordinates.x),
+      formattedAddress: match.matchedAddress || '',
+      confidence: 'medium',
+      geocodedAt: new Date().toISOString(),
+      source: 'census',
+    };
   } catch { return null; }
 }
 
@@ -1669,8 +1863,8 @@ async function bouncieJobDurationMatcher(date, env) {
     if (!jobLat || !jobLon) {
       const addrParts = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean);
       const fullAddr  = addrParts.join(', ');
-      const geo = await geocodeAddress(fullAddr);
-      if (geo) { jobLat = geo.lat; jobLon = geo.lon; }
+      const geo = await geocodeAddress(fullAddr, env);
+      if (geo) { jobLat = geo.lat; jobLon = geo.lon || geo.lng; }
     }
     if (!jobLat || !jobLon) {
       const addrTried = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean).join(', ');
@@ -1791,7 +1985,34 @@ async function bouncieJobDurationMatcher(date, env) {
 
   if (matched > 0) await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
 
-  return { date, total: completedToday.length, matched, results };
+  // ── Morning stop validation ────────────────────────────────────────────────
+  const morningStops = {};
+  for (const [rig, trips] of Object.entries(rigTripsMap)) {
+    if (!trips.length) continue;
+    morningStops[rig] = checkMorningStopsForRig(trips, MORNING_STOP_POIS, tripFirstCoord, tripLastCoord);
+  }
+
+  // Update running POI average stop durations
+  for (const stops of Object.values(morningStops)) {
+    for (const [poiKey, stop] of Object.entries(stops)) {
+      if (!stop.found || stop.durationMin == null || stop.durationMin <= 0) continue;
+      const statsKey = `bouncie:poi_stats:${poiKey}`;
+      const stats = (await env.DATA.get(statsKey, 'json')) || { count: 0, totalMin: 0 };
+      stats.count++;
+      stats.totalMin += stop.durationMin;
+      stats.avgMin = Math.round(stats.totalMin / stats.count);
+      await env.DATA.put(statsKey, JSON.stringify(stats));
+    }
+  }
+
+  // Persist for later retrieval (90-day TTL)
+  await env.DATA.put(
+    `bouncie:morning_stops:${date}`,
+    JSON.stringify({ date, morningStops, updatedAt: new Date().toISOString() }),
+    { expirationTtl: 90 * 86400 },
+  );
+
+  return { date, total: completedToday.length, matched, results, morningStops };
 }
 
 function fullName(c) { return `${c.firstName || ''} ${c.lastName || ''}`.trim(); }

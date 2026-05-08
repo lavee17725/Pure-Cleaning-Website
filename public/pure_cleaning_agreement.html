@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Your Quote — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:   #0a1628;
+  --navy2:  #111f38;
+  --gold:   #f4a620;
+  --terra:  #c2410c;
+  --green:  #1d9e75;
+  --bg:     #fafaf7;
+  --white:  #fff;
+  --text:   #1a1f2e;
+  --muted:  #6b7280;
+  --border: #e8e2d8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+/* ── Header ── */
+.site-header { background: var(--navy); padding: .875rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+.hdr-logo { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: .5px; }
+.hdr-logo span { color: var(--gold); }
+.hdr-phone a { font-size: 13px; font-weight: 700; color: var(--gold); text-decoration: none; display: flex; align-items: center; gap: 5px; }
+
+/* ── Hero ── */
+.hero-gradient { background: linear-gradient(160deg, #1a3a6b 0%, #0e4d92 100%); padding: 2.25rem 1.5rem 3rem; text-align: center; }
+.hero-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 2.5px; color: var(--gold); margin-bottom: .875rem; }
+.hero-name { font-size: 44px; font-weight: 800; color: #fff; letter-spacing: -1.5px; line-height: 1.05; margin-bottom: .5rem; }
+.hero-addr { font-size: 14px; color: rgba(255,255,255,.7); font-weight: 500; }
+
+/* ── Layout ── */
+.wrap { max-width: 480px; margin: 0 auto; padding: 0 1.25rem 4rem; }
+#state-loading, #state-error, #state-main { display: none; }
+
+/* ── Loading / Error ── */
+.loading-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: 1rem; }
+.spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--navy); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); font-weight: 500; }
+.error-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: .75rem; text-align: center; }
+.error-icon { font-size: 40px; }
+.error-title { font-size: 17px; font-weight: 600; }
+.error-sub { font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+/* ── New total card ── */
+.ntc { background: var(--white); border-radius: 20px; border: 1.5px solid var(--border); box-shadow: 0 4px 24px rgba(10,22,40,.12); padding: 1.5rem 1.25rem 1.25rem; margin-bottom: 1.5rem; text-align: center; margin-top: -1.5rem; position: relative; z-index: 1; }
+.ntc-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: .375rem; }
+.ntc-amount { font-size: 56px; font-weight: 800; color: var(--navy); letter-spacing: -2.5px; line-height: 1; margin-bottom: .5rem; transition: color .25s; }
+.ntc-services { font-size: 13px; color: var(--muted); margin-bottom: 1rem; line-height: 1.5; }
+.ntc-divider { height: 1px; background: var(--border); margin-bottom: .75rem; }
+.ntc-expiry { font-size: 12px; color: var(--muted); }
+
+/* ── Included card ── */
+.incl-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+.incl-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: .75rem; }
+.incl-list { list-style: none; padding: 0; margin: 0; }
+.incl-list li { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; color: var(--text); padding: 5px 0; }
+.incl-list li::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; flex-shrink: 0; }
+
+/* ── Addon rows ── */
+.ar-section { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; overflow: hidden; margin-bottom: 1.5rem; }
+.ar-section-hdr { padding: 1rem 1.125rem .75rem; }
+.ar-section-title { font-size: 14px; font-weight: 700; color: var(--navy); }
+.ar-section-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.addon-row { display: flex; align-items: center; gap: 10px; padding: .875rem 1.125rem; border-top: 1px solid var(--border); cursor: pointer; transition: background .12s; -webkit-tap-highlight-color: transparent; user-select: none; }
+.addon-row:hover { background: #fafaf7; }
+.addon-row.ar-selected { background: #f0fdf4; }
+.ar-icon { font-size: 22px; flex-shrink: 0; }
+.ar-body { flex: 1; min-width: 0; }
+.ar-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.ar-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.ar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.ar-price { font-size: 14px; font-weight: 700; color: var(--terra); }
+.ar-cb { width: 22px; height: 22px; border: 2px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; transition: all .12s; flex-shrink: 0; background: var(--white); color: transparent; }
+.addon-row.ar-selected .ar-cb { background: var(--green); border-color: var(--green); color: #fff; }
+
+/* ── Sealing / Rust ── */
+.offering-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1.125rem; }
+.offering-sub { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: .75rem; }
+.offering-list { list-style: none; padding: 0; margin-bottom: .75rem; }
+.offering-list li { font-size: 13px; color: var(--text); padding: 4px 0; display: flex; gap: 8px; align-items: flex-start; }
+.offering-list li::before { content: '✓'; color: var(--green); font-weight: 700; font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+.offering-request-btn { display: block; width: 100%; padding: .75rem; background: var(--navy); color: #fff; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; text-align: center; border: none; border-radius: 11px; cursor: pointer; transition: background .15s; }
+.offering-request-btn:hover { background: #1a2f58; }
+.offering-request-btn:disabled { background: #e8e2d8; color: #b0a99a; cursor: not-allowed; }
+.offering-done { display: flex; align-items: center; gap: 8px; padding: .75rem; background: #f0fdf4; border-radius: 11px; font-size: 14px; font-weight: 700; color: var(--green); border: 1.5px solid #86efac; }
+
+/* ── Rust form ── */
+.rust-toggle-lbl { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: .5rem 0; -webkit-tap-highlight-color: transparent; }
+.rust-cb-el { width: 22px; height: 22px; border: 2px solid #f4a620; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; transition: all .12s; flex-shrink: 0; background: var(--white); color: transparent; }
+.rust-cb-el.checked { background: var(--terra); border-color: var(--terra); color: #fff; }
+.rust-surf-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: .75rem 0 .875rem; }
+.rust-surf-opt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: .75rem .5rem; border: 1.5px solid var(--border); border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; text-align: center; transition: all .12s; -webkit-tap-highlight-color: transparent; }
+.rust-surf-opt:hover { border-color: var(--terra); }
+.rust-surf-opt.selected { border-color: var(--green); background: #f0fdf4; color: var(--green); }
+.rust-surf-icon { font-size: 20px; }
+.rust-upload-zone { border: 2px dashed var(--border); border-radius: 12px; padding: 1rem 1.25rem; text-align: center; cursor: pointer; transition: border-color .15s; margin-top: .5rem; }
+.rust-upload-zone:hover { border-color: var(--navy); }
+
+/* ── Date options ── */
+.date-option { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: .875rem 1.125rem; margin-bottom: .625rem; cursor: pointer; display: flex; align-items: center; gap: 1rem; transition: border-color .15s; -webkit-tap-highlight-color: transparent; }
+.date-option:hover { border-color: var(--navy); }
+.date-option.selected { border-color: var(--green); background: #f0fdf4; }
+.date-radio { width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s; background: var(--white); }
+.date-option.selected .date-radio { border-color: var(--green); background: var(--green); }
+.date-radio-dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; opacity: 0; transition: opacity .15s; }
+.date-option.selected .date-radio-dot { opacity: 1; }
+.date-info-block { flex: 1; }
+.date-option-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 3px; }
+.date-option-lbl.best { color: #166534; }
+.date-option-lbl.alt { color: #1d4ed8; }
+.date-option-display { font-size: 15px; font-weight: 700; color: var(--navy); }
+.date-confirmed-block { background: var(--white); border: 1.5px solid var(--border); border-radius: 14px; padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+.date-confirmed-icon { font-size: 32px; }
+.date-confirmed-info { flex: 1; }
+.date-confirmed-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 4px; }
+.date-confirmed-display { font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 3px; }
+.date-confirmed-sub { font-size: 12px; color: var(--muted); }
+
+/* ── CTA button (green) ── */
+.confirm-btn { display: block; width: 100%; min-height: 54px; background: var(--green); color: #fff; font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; border: none; border-radius: 14px; cursor: pointer; transition: background .15s; margin-bottom: .875rem; padding: .875rem 1.25rem; }
+.confirm-btn:hover:not(:disabled) { background: #178a65; }
+.confirm-btn:disabled, .confirm-btn.faded { background: #e8e2d8; color: #b0a99a; cursor: not-allowed; }
+.confirm-legal { font-size: 11.5px; color: var(--muted); line-height: 1.6; text-align: center; padding: 0 .5rem; }
+
+/* ── Confirmed state ── */
+.confirmed-banner { background: #f0fdf4; border: 2px solid #86efac; border-radius: 16px; padding: 1.5rem 1.25rem; margin-bottom: 1.5rem; text-align: center; }
+.confirmed-icon { font-size: 44px; margin-bottom: .375rem; }
+.confirmed-headline { font-size: 22px; font-weight: 700; color: var(--green); margin-bottom: .25rem; }
+.confirmed-date { font-size: 17px; font-weight: 700; color: var(--navy); margin-bottom: .5rem; }
+.confirmed-sub { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 1.25rem; }
+.action-btns { display: flex; flex-direction: column; gap: .625rem; }
+.action-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: .875rem; background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; transition: border-color .15s; width: 100%; }
+.action-btn:hover { border-color: var(--navy); }
+
+/* ── Info cards ── */
+.section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: .75rem; padding: 0 2px; }
+.info-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: .75rem; }
+.info-card-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 6px; }
+.info-card-body { font-size: 14px; color: var(--text); line-height: 1.6; }
+.info-card-body strong { color: var(--navy); }
+.pay-method { display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--text); background: #f8f9fb; border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; margin: 3px 3px 3px 0; }
+
+/* ── Custom note ── */
+.custom-note { background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: 12px; padding: .875rem 1.125rem; margin-bottom: 1rem; font-size: 14px; color: #78350f; line-height: 1.6; }
+
+/* ── Update banner ── */
+.update-banner { background: #fff7ed; border: 1.5px solid #fed7aa; border-radius: 10px; padding: .625rem 1rem; margin-top: 1rem; margin-bottom: 1rem; font-size: 13px; font-weight: 600; color: #92400e; display: none; align-items: center; gap: 8px; }
+
+/* ── Toast ── */
+.toast { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%) translateY(-80px); background: var(--navy); color: #fff; font-size: 13.5px; font-weight: 600; padding: .625rem 1.25rem; border-radius: 100px; white-space: nowrap; z-index: 9999; transition: transform .3s cubic-bezier(0.34,1.56,0.64,1), opacity .3s; opacity: 0; pointer-events: none; box-shadow: 0 4px 20px rgba(10,22,40,.25); }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* ── Modal / Bottom Sheet ── */
+.modal-overlay { position: fixed; inset: 0; background: rgba(10,22,40,.55); z-index: 1000; display: none; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.sheet { background: var(--white); border-radius: 20px 20px 0 0; padding: 1.5rem 1.5rem 2.5rem; width: 100%; max-width: 480px; margin: 0 auto; transform: translateY(100%); transition: transform .3s cubic-bezier(0.32,0.72,0,1); }
+.modal-overlay.open .sheet { transform: translateY(0); }
+.sheet-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 1.25rem; }
+.sheet-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: .5rem; }
+.sheet-body { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 1.5rem; }
+.sheet-body strong { font-size: 17px; font-weight: 700; color: var(--navy); }
+.sheet-actions { display: flex; gap: .75rem; }
+.btn-cancel { flex: 1; padding: .875rem; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; border: 1.5px solid var(--border); border-radius: 12px; cursor: pointer; }
+.btn-confirm { flex: 2; padding: .875rem; background: var(--navy); color: var(--gold); font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; border: none; border-radius: 12px; cursor: pointer; }
+
+/* ── Footer ── */
+.site-footer { background: var(--navy); padding: 1.5rem 1.25rem 2rem; text-align: center; margin-top: 2rem; }
+.footer-logo { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+.footer-logo span { color: var(--gold); }
+.footer-contact { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+.footer-contact a { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: #fff; text-decoration: none; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 14px; }
+
+/* ── Orange toggle cards (matching original quote form) ── */
+.sc-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px; cursor: pointer; transition: all .15s; background: var(--white); user-select: none; -webkit-tap-highlight-color: transparent; margin-bottom: 0; }
+.sc-card:hover { border-color: #c2410c; background: #fff5f0; }
+.sc-card.sc-open { border-color: #c2410c; background: #fff5f0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sc-cb { width: 22px; height: 22px; border: 2px solid #cbd5e1; border-radius: 6px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: all .15s; font-size: 12px; font-weight: 700; color: transparent; background: #f8fafc; margin-top: 1px; }
+.sc-card.sc-open .sc-cb { background: #c2410c; border-color: #c2410c; color: #fff; transform: scale(1.1); }
+.sc-body { flex: 1; }
+.sc-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.sc-sub { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.sc-expand { border: 1.5px solid #c2410c; border-top: none; border-radius: 0 0 10px 10px; padding: 14px 16px; background: var(--white); margin-bottom: 1.5rem; }
+.sc-section-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #7a4f00; margin-bottom: 8px; }
+.sc-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.sc-check { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px; cursor: pointer; transition: all .12s; font-size: 13px; font-weight: 500; -webkit-tap-highlight-color: transparent; }
+.sc-check:hover { border-color: #c2410c; background: #fff5f0; }
+.sc-check.sc-checked { border-color: #c2410c; background: #fff5f0; }
+.sc-check .sc-cb-sm { width: 18px; height: 18px; border: 2px solid #cbd5e1; border-radius: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: transparent; background: #f8fafc; transition: all .12s; }
+.sc-check.sc-checked .sc-cb-sm { background: #c2410c; border-color: #c2410c; color: #fff; }
+.sc-sand-wrap { background: #fdf6ee; border: 1.5px solid var(--border); border-radius: 8px; padding: 10px; margin-top: 2px; }
+.sc-confirm { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 8px 10px; background: #f0fdf4; border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--green); }
+/* Date stage expand link */
+.date-expand-link { display: block; font-size: 13px; font-weight: 600; color: #1d4ed8; text-decoration: none; cursor: pointer; margin-top: 6px; padding: 2px 0; -webkit-tap-highlight-color: transparent; }
+.date-expand-link:hover { text-decoration: underline; }
+/* ── Terms & Conditions ── */
+.terms-section { background: #f8f9fb; border: 1.5px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; }
+.terms-company { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 2px; }
+.terms-tagline { font-size: 11px; color: var(--muted); margin-bottom: 1rem; }
+.terms-brief p { font-size: 12px; color: #555; line-height: 1.65; margin-bottom: .5rem; }
+.terms-brief p:last-child { margin-bottom: 0; }
+details.terms-expand { margin-top: .875rem; }
+summary.terms-expand-btn { font-size: 12px; font-weight: 700; color: var(--navy); cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 4px; -webkit-tap-highlight-color: transparent; }
+summary.terms-expand-btn::-webkit-details-marker { display: none; }
+.terms-expand-arrow { font-size: 12px; display: inline-block; transition: transform .2s; }
+details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
+.terms-full-body { margin-top: .875rem; padding-top: .875rem; border-top: 1px solid var(--border); }
+.terms-full-body h2 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--navy); margin-bottom: .625rem; }
+.terms-full-body ol { padding-left: 1.25rem; }
+.terms-full-body ol li { font-size: 11.5px; color: var(--text); line-height: 1.65; margin-bottom: .625rem; }
+.terms-full-body ol li strong { color: var(--navy); }
+.terms-full-body ul { list-style: disc; padding-left: 1.375rem; margin: .25rem 0; }
+.terms-full-body ul li { font-size: 11px; margin-bottom: .125rem; }
+
+/* ── Print ── */
+#print-header { display: none; }
+@page { margin: 10mm 14mm; size: letter; }
+@media print {
+  .site-header, .site-footer, .toast, .modal-overlay,
+  #state-loading, #state-error { display: none !important; }
+  #state-main .wrap > *:not(#print-header) { display: none !important; }
+  #print-header { display: block !important; }
+  body { background: #fff !important; }
+  .wrap { padding: 0 !important; max-width: 100% !important; margin: 0 !important; }
+  .ph-co { font-size: 16px; font-weight: 700; color: #000; margin-bottom: 2px; }
+  .ph-tagline { font-size: 9.5px; color: #555; margin-bottom: 14px; letter-spacing: .2px; }
+  .ph-rule { height: 1.5px; background: #0a1628; margin: 8px 0; }
+  .ph-doc-title { font-size: 21px; font-weight: 800; color: #0a1628; margin-bottom: 12px; }
+  .ph-confirmed-badge { font-size: 11px; font-weight: 700; color: #1d9e75; border: 1.5px solid #1d9e75; border-radius: 20px; padding: 2px 10px; display: inline-block; margin-left: 10px; vertical-align: middle; }
+  .ph-meta-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  .ph-meta-table td { padding: 2px 0; vertical-align: top; line-height: 1.4; }
+  .ph-meta-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #666; width: 90px; padding-right: 10px; padding-top: 4px; }
+  .ph-meta-val { font-size: 13px; color: #1a1f2e; font-weight: 500; }
+  .ph-meta-val.highlight { font-weight: 700; color: #0a1628; }
+  .ph-section-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; display: block; }
+  .ph-line-items { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 6px; }
+  .ph-line-items td { padding: 6px 0; border-bottom: 1px solid #e8e2d8; }
+  .ph-li-name { color: #1a1f2e; font-weight: 500; }
+  .ph-li-tag { font-size: 10px; color: #888; margin-left: 5px; }
+  .ph-li-price { text-align: right; font-weight: 600; color: #1a1f2e; white-space: nowrap; }
+  .ph-total-row td { padding: 10px 0 4px !important; border-top: 2px solid #0a1628 !important; border-bottom: none !important; font-size: 15px !important; font-weight: 800 !important; color: #0a1628 !important; }
+  .ph-terms { font-size: 10.5px; color: #555; line-height: 1.5; margin: 0 0 5px; }
+  .ph-footer-area { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; align-items: flex-end; }
+  .ph-footer-co { font-size: 11px; font-weight: 700; color: #0a1628; }
+  .ph-footer-tagline { font-size: 9.5px; color: #777; }
+  .ph-sig-area { text-align: right; }
+  .ph-sig-line { display: block; width: 150px; height: 1px; background: #999; margin-bottom: 4px; margin-left: auto; }
+  .ph-sig-label { font-size: 9.5px; color: #777; display: block; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="hdr-logo">🌴 Pure <span>Cleaning</span></div>
+  <div><a href="tel:9543892642" style="font-size:13px;font-weight:700;color:var(--gold);text-decoration:none;">📞 954-389-2642</a></div>
+</header>
+
+<!-- Loading -->
+<div id="state-loading">
+  <div class="loading-center">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading your quote…</div>
+  </div>
+</div>
+
+<!-- Error -->
+<div id="state-error">
+  <div class="error-center">
+    <div class="error-icon">📋</div>
+    <div class="error-title">We're having trouble loading your quote</div>
+    <div class="error-sub">The link may have expired or there was a connection issue.<br>Give us a call or text and we'll sort it out right away.</div>
+    <a href="tel:9543892642" style="margin-top:1rem;display:inline-block;font-size:15px;font-weight:700;color:#fff;background:#c2410c;padding:.75rem 1.5rem;border-radius:12px;text-decoration:none;">📞 Call or Text 954-389-2642</a>
+  </div>
+</div>
+
+<!-- Main -->
+<div id="state-main">
+
+  <!-- Full-width hero (populated by renderHero()) -->
+  <div id="hero-section"></div>
+
+  <div class="wrap">
+
+    <!-- Update banner (shown when edited post-confirmation) -->
+    <div id="update-banner" class="update-banner"></div>
+
+    <!-- YOUR TOTAL card -->
+    <div id="total-card-new"></div>
+
+    <!-- WHAT'S INCLUDED -->
+    <div id="included-section" style="display:none;"></div>
+
+    <!-- WANT TO ADD ANYTHING — toggle rows -->
+    <div id="addons-section" style="display:none;margin-bottom:1.5rem;"></div>
+
+    <!-- Sealing offering -->
+    <div id="sealing-offering-section" style="display:none;margin-bottom:1.5rem;"></div>
+
+    <!-- Rust removal offering -->
+    <div id="rust-offering-section" style="display:none;margin-bottom:1.5rem;"></div>
+
+    <!-- Date picker -->
+    <div id="date-section" style="display:none;margin-bottom:1.5rem;"></div>
+
+    <!-- CTA -->
+    <div id="action-section" style="margin-bottom:1.5rem;"></div>
+
+    <!-- Arrival time -->
+    <div class="info-card" style="margin-bottom:.75rem;">
+      <div class="info-card-title">Arrival Time</div>
+      <div class="info-card-body">We'll <strong>text or call the night before</strong> your service with a rough arrival window. If anything changes, we'll let you know as early as possible.</div>
+    </div>
+
+    <!-- Payment -->
+    <div class="info-card" style="margin-bottom:1.75rem;">
+      <div class="info-card-title">Payment</div>
+      <div class="info-card-body">We accept: <span class="pay-method">Zelle</span><span class="pay-method">Cash</span><span class="pay-method">Check</span><span class="pay-method">Venmo</span><br><br>Payment is due day of service.</div>
+    </div>
+
+    <!-- Terms & Conditions (untouched) -->
+    <div class="terms-section">
+      <div class="terms-company">Pure Cleaning Pressure Cleaning, LLC</div>
+      <div class="terms-tagline">Family-owned · South Florida · Since 1995 · Licensed &amp; Insured · 954-389-2642</div>
+      <div class="terms-brief">
+        <p>This quote is valid for 30 days from the quoted date.</p>
+        <p>Payment due day of service. We accept Zelle, check, cash, and Venmo.</p>
+        <p>Pure Cleaning is not responsible for damage to loose siding, paint, wood trim, or pre-existing conditions. Damages caused by gross negligence will be addressed within 30 days of written notice.</p>
+        <p>We may take before/after photos for documentation and marketing purposes.</p>
+        <p>Service may be rescheduled due to weather. We'll text you to coordinate.</p>
+      </div>
+      <details class="terms-expand">
+        <summary class="terms-expand-btn">Read full terms <span class="terms-expand-arrow">›</span></summary>
+        <div class="terms-full-body">
+          <h2>Terms &amp; Conditions</h2>
+          <ol>
+            <li><strong>Service Agreement.</strong> By confirming services, customer agrees to allow Pure Cleaning Pressure Cleaning, LLC and its employees on the property for the purposes specified in this agreement.</li>
+            <li><strong>Quote Validity.</strong> This quote is valid for 30 days from the quoted date. Pricing is subject to change after this period.</li>
+            <li><strong>Payment Terms.</strong> Payment is due upon completion of services. We accept Zelle, check, cash, and Venmo. Returned checks are subject to a $50 processing fee.</li>
+            <li><strong>Property Access.</strong> Customer agrees to provide outdoor water spigot access on the day of service and to move outdoor furniture, secure pets, and close windows prior to service.</li>
+            <li><strong>Liability Limitations.</strong> Pure Cleaning Pressure Cleaning, LLC is not responsible for damage to:
+              <ul>
+                <li>Loose siding, paint, wood trim, or fascia</li>
+                <li>Pre-existing structural conditions, cracks, or wear</li>
+                <li>Loose roof tiles or already-damaged shingles</li>
+                <li>Plants or landscaping where customer was warned of risk</li>
+              </ul>
+              Liability for damages caused by gross negligence is limited to the total cost of the service. Damages must be reported in writing within 30 days of service completion.
+            </li>
+            <li><strong>Weather Policy.</strong> Service may be rescheduled due to thunderstorms, sustained rain, or unsafe temperatures. Pure Cleaning will text or call to coordinate the next available date.</li>
+            <li><strong>Photo Documentation.</strong> Pure Cleaning may take before-and-after photographs for documentation, quality assurance, and marketing purposes. Customer may opt out by notifying Pure Cleaning in writing prior to the service date.</li>
+            <li><strong>Metal Roofs.</strong> Pure Cleaning does not service metal roofs.</li>
+            <li><strong>Insurance &amp; Licensing.</strong> Pure Cleaning Pressure Cleaning, LLC is fully licensed and insured for residential and commercial pressure washing services in South Florida.</li>
+            <li><strong>Contact.</strong> Pure Cleaning Pressure Cleaning, LLC · South Florida · 954-389-2642. Customer accepts these terms by confirming the service agreement.</li>
+          </ol>
+        </div>
+      </details>
+    </div>
+
+  </div><!-- /.wrap -->
+</div><!-- /#state-main -->
+
+<footer class="site-footer">
+  <div class="footer-logo">🌴 Pure <span>Cleaning</span></div>
+  <div class="footer-contact">
+    <a href="tel:9543892642">📞 954-389-2642</a>
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<!-- Confirm Booking Modal -->
+<div class="modal-overlay" id="confirm-modal" onclick="onModalOverlayClick(event,'confirm-modal')">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Confirm your booking?</div>
+    <div class="sheet-body" id="confirm-modal-body"></div>
+    <div class="sheet-actions">
+      <button class="btn-cancel" onclick="closeModal('confirm-modal')">Go back</button>
+      <button class="btn-confirm" onclick="submitConfirm()">Confirm &amp; Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- Print header (hidden on screen) -->
+<div id="print-header"></div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let quoteCode        = null;
+let quoteData        = null;
+let customer         = null;
+let pageState        = 'pre_confirm';
+let addedAddons      = [];
+let _offerableAddons = [];
+let availableAddons  = []; // kept for legacy compat
+let selectedDate     = null;
+let rustChecked      = false;
+let rustSurface      = null;
+let sealingChecked   = false;
+let sealingSurfaces  = new Set(); // 'driveway', 'patio'
+let sealingPaverSand = false;
+let _dateStage       = 1; // 1=best-only, 2=alternatives visible, 3=picker visible
+let _blockedDates    = new Set(); // YYYY-MM-DD strings blocked by operator
+const _pageLoadTime  = Date.now(); // for timeOnPage calculations
+let _lastInteraction = 'page_load'; // tracks last notable action for abandoned event
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  showState('loading');
+
+  const params = new URLSearchParams(window.location.search);
+  const id     = params.get('id') || params.get('c');
+  const phone  = params.get('phone');
+
+  if (!id && !phone) { showState('error'); return; }
+
+  try {
+    const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+
+    const [quoteRes, dbRes] = await Promise.all([
+      id ? fetch(`${PCPC_API}/quote/${id}`) : Promise.resolve(null),
+      fetch(`${PCPC_API}/customers`),
+    ]);
+
+    const db = await dbRes.json();
+
+    if (id) {
+      quoteCode = id;
+      if (!quoteRes || !quoteRes.ok) { showState('error'); return; }
+      quoteData = await quoteRes.json();
+      customer  = (db.customers||[]).find(c => norm(c.phone) === norm(quoteData.ph||''));
+    } else {
+      const normPhone = norm(phone);
+      customer = (db.customers||[]).find(c => norm(c.phone) === normPhone);
+      if (!customer) { showState('error'); return; }
+      const qs = customer.quoteStatus || {};
+      const ss = customer.scheduledStatus || {};
+      quoteData = {
+        fn: customer.firstName, ln: customer.lastName, ph: customer.phone,
+        address: customer.address || '', city: customer.city || '',
+        services: qs.mainServices || '', mainServices: qs.mainServices || '',
+        approvedAmount: ss.approvedAmount || qs.approvedAmount || 0,
+        mainAmount:     ss.approvedAmount || qs.approvedAmount || 0,
+        addOns: [], miniQuoteCustomData: qs.miniQuoteCustomData || null,
+        dateSuggestions: qs.miniQuoteCustomData?.dateSuggestions || [],
+        created: qs.sentAt || customer.submittedAt || new Date().toISOString(),
+        confirmedAt: qs.state === 'confirmed' ? qs.confirmedAt : null,
+        confirmedDate: qs.confirmedDate || null,
+        confirmedDateDisplay: qs.confirmedDateDisplay || null,
+      };
+    }
+
+    if (quoteData.confirmedAt || customer?.quoteStatus?.state === 'confirmed') {
+      pageState = 'confirmed';
+      const cd      = quoteData.confirmedDate || customer?.quoteStatus?.confirmedDate;
+      const cd_disp = quoteData.confirmedDateDisplay || customer?.quoteStatus?.confirmedDateDisplay;
+      if (cd) selectedDate = { date: cd, display: cd_disp || cd, label: 'Confirmed', rig: null, rigLabel: null };
+    }
+
+    if (!selectedDate && quoteData.datePreference) {
+      selectedDate = quoteData.datePreference;
+    }
+
+    // Build offerable addons from miniQuoteCustomData
+    const cd = quoteData.miniQuoteCustomData;
+    if (cd) {
+      _offerableAddons = [
+        ...(cd.addOns       || []).filter(a => a.enabled),
+        ...(cd.customAddOns || []).filter(a => a.enabled),
+      ];
+      availableAddons = [..._offerableAddons];
+    }
+
+    // Add-ons always start unchecked in pre-confirm state.
+    // (quoteData.addOns may contain previously-confirmed add-ons from a prior session
+    //  but since the add-ons panel is hidden once confirmed, we never need to restore them.)
+    addedAddons = [];
+
+    // Fetch operator-blocked dates (stub — falls back to empty set gracefully)
+    fetch(`${PCPC_API}/calendar/blocked-dates`)
+      .then(r => r.ok ? r.json() : {blockedDates:[]})
+      .then(d => { _blockedDates = new Set(d.blockedDates || []); })
+      .catch(() => {});
+
+    renderPage();
+    showState('main');
+
+    // agreement_viewed — fires on every successful load
+    const viewSource = document.referrer ? 'link' : 'direct';
+    logEvent('agreement_viewed', {
+      quoteId:    quoteCode || '',
+      viewedAt:   new Date().toISOString(),
+      viewSource,
+      userAgent:  navigator.userAgent,
+    });
+
+    // agreement_abandoned — fires if user leaves without approving
+    window.addEventListener('beforeunload', () => {
+      if (pageState !== 'confirmed') {
+        logEvent('agreement_abandoned', {
+          quoteId:         quoteCode || '',
+          abandonedAt:     new Date().toISOString(),
+          lastInteraction: _lastInteraction,
+          timeOnPage:      Math.round((Date.now() - _pageLoadTime) / 1000),
+        });
+      }
+    });
+
+  } catch(e) {
+    console.error(e);
+    showState('error');
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderPage() {
+  // Update banner
+  const bannerEl = document.getElementById('update-banner');
+  if (bannerEl && quoteData.lastEditedAt) {
+    const editDate = new Date(quoteData.lastEditedAt).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+    bannerEl.innerHTML = `🔄 <span>Services updated ${editDate}</span>`;
+    bannerEl.style.display = 'flex';
+  } else if (bannerEl) {
+    bannerEl.style.display = 'none';
+  }
+
+  renderHero();
+  renderNewTotalCard();
+  renderIncluded();
+  renderAvailableAddons();
+  renderSealingSection();
+  renderRustSection();
+  renderDateSection(); // auto-selects Best Fit if no date chosen
+  renderActionSection();
+}
+
+function renderHero() {
+  const el = document.getElementById('hero-section');
+  if (!el) return;
+  const fn   = quoteData.fn || customer?.firstName || '';
+  const addr = quoteData.address || customer?.address || '';
+  const city = quoteData.city || customer?.city || '';
+  const addrLine = [addr, city ? city + ' FL' : ''].filter(Boolean).join(', ');
+  el.innerHTML = `
+    <div class="hero-gradient">
+      <div class="hero-label">YOUR QUOTE IS READY</div>
+      <div class="hero-name">HEY ${escHtml((fn || 'THERE').toUpperCase())}!</div>
+      ${addrLine ? `<div class="hero-addr">${escHtml(addrLine)}</div>` : ''}
+    </div>`;
+}
+
+function renderNewTotalCard() {
+  const el = document.getElementById('total-card-new');
+  if (!el) return;
+  const base    = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total   = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const services = quoteData.mainServices || quoteData.services || '';
+  const addOnNames = addedAddons.map(a => a.name).join(' · ');
+  const svcLine = [services, addOnNames].filter(Boolean).join(' · ');
+  const created = quoteData.created ? new Date(quoteData.created) : new Date();
+  const expiry  = new Date(created.getTime() + 30 * 86400000);
+  const expiryStr = expiry.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
+  el.innerHTML = `
+    <div class="ntc">
+      <div class="ntc-label">YOUR TOTAL</div>
+      <div class="ntc-amount" id="ntc-amount">$${total}</div>
+      <div class="ntc-services" id="ntc-services">${escHtml(svcLine)}</div>
+      <div class="ntc-divider"></div>
+      <div class="ntc-expiry">⏱ Quote valid until ${expiryStr}</div>
+    </div>`;
+}
+
+function renderIncluded() {
+  const el = document.getElementById('included-section');
+  if (!el) return;
+  const services = quoteData.mainServices || quoteData.services || '';
+  const baseItems = services ? services.split(/[,·•\n]+/).map(s => s.trim()).filter(Boolean) : [];
+  const addOnItems = addedAddons.map(a => a.name);
+  const allItems = [...baseItems, ...addOnItems];
+  if (!allItems.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="incl-card">
+      <div class="incl-title">WHAT'S INCLUDED</div>
+      <ul class="incl-list">
+        ${allItems.map(item => `<li>${escHtml(item)}</li>`).join('')}
+      </ul>
+    </div>`;
+}
+
+function refreshTotal() {
+  const base  = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const amtEl = document.getElementById('ntc-amount');
+  if (amtEl) {
+    amtEl.textContent = `$${total}`;
+    amtEl.style.color = 'var(--green)';
+    setTimeout(() => { if (amtEl) amtEl.style.color = 'var(--navy)'; }, 500);
+  }
+  const services   = quoteData.mainServices || quoteData.services || '';
+  const addOnNames = addedAddons.map(a => a.name).join(' · ');
+  const svcLine    = [services, addOnNames].filter(Boolean).join(' · ');
+  const svcEl = document.getElementById('ntc-services');
+  if (svcEl) svcEl.textContent = svcLine;
+}
+
+function renderAvailableAddons() {
+  const secEl = document.getElementById('addons-section');
+  if (!secEl) return;
+  if (pageState === 'confirmed' || _offerableAddons.length === 0) {
+    secEl.style.display = 'none';
+    return;
+  }
+  secEl.style.display = 'block';
+
+  const ICONS = {rinse_walls:'🧱', entranceway:'🚪', driveway:'🛣️', roof_cleaning:'🏠', patio:'🪨', walkway:'🚶', walkways:'🚶', fence:'🚧', rust_removal:'🔧', rust:'🔧', sealing:'💎', gutters:'🌧️', pool_deck:'🏊', windows:'🪟', paver_sand:'🧱', garage:'🏚️', balcony:'🏡'};
+  const DESCS = {rinse_walls:'Rinse all exterior walls', entranceway:'Pressure clean the front entranceway', driveway:'Pressure clean the driveway', patio:'Pressure clean the patio area', walkway:'Clean all walkways and sidewalks', fence:'Clean fence panels and posts', gutters:'Clean exterior gutters', pool_deck:'Pressure clean the pool deck'};
+
+  const rows = _offerableAddons.map(a => {
+    const icon    = a.icon || ICONS[a.id] || '✨';
+    const desc    = a.note || DESCS[a.id] || '';
+    const isAdded = !!addedAddons.find(x => x.id === a.id);
+    return `<div class="addon-row${isAdded ? ' ar-selected' : ''}" id="ar-${a.id}" onclick="toggleAddonRow('${a.id}')">
+      <span class="ar-icon">${icon}</span>
+      <div class="ar-body">
+        <div class="ar-name">${escHtml(a.name)}</div>
+        ${desc ? `<div class="ar-desc">${escHtml(desc)}</div>` : ''}
+      </div>
+      <div class="ar-right">
+        <span class="ar-price">+$${a.bundle}</span>
+        <div class="ar-cb">${isAdded ? '✓' : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  secEl.innerHTML = `
+    <div class="ar-section">
+      <div class="ar-section-hdr">
+        <div class="ar-section-title">WANT TO ADD ANYTHING?</div>
+        <div class="ar-section-sub">Tap to include — your total updates instantly.</div>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function toggleAddonRow(addonId) {
+  const existingIdx = addedAddons.findIndex(a => a.id === addonId);
+  if (existingIdx >= 0) {
+    addedAddons.splice(existingIdx, 1);
+  } else {
+    const addon = _offerableAddons.find(a => a.id === addonId);
+    if (addon) addedAddons.push(addon);
+  }
+  const isNowAdded = !!addedAddons.find(a => a.id === addonId);
+  const row = document.getElementById(`ar-${addonId}`);
+  if (row) {
+    row.classList.toggle('ar-selected', isNowAdded);
+    const cb = row.querySelector('.ar-cb');
+    if (cb) cb.textContent = isNowAdded ? '✓' : '';
+  }
+  refreshTotal();
+  renderIncluded();
+  const base = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const totalBefore = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0) + (isNowAdded ? 0 : (addon?.bundle||0));
+  const total       = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  showToast(isNowAdded ? `✓ Added! Total is now $${total}` : `Removed. Total is $${total}`);
+  _lastInteraction = isNowAdded ? 'added_addon' : 'removed_addon';
+  logEvent(isNowAdded ? 'addon_confirmed' : 'addon_removed', {
+    quoteId:           quoteCode || '',
+    addonId,
+    addonName:         addon?.name || addonId,
+    bundlePrice:       addon?.bundle,
+    totalBefore,
+    totalAfter:        total,
+    dateSelectedAlready: !!selectedDate,
+  });
+}
+
+function renderSealingSection() {
+  const secEl = document.getElementById('sealing-offering-section');
+  if (!secEl) return;
+  const cd = quoteData.miniQuoteCustomData;
+  const offered = cd?.sealingOffered;
+  const legacyOffered = cd && ['sealing_only','sealing_plus_sand'].includes(cd.sealingInterest);
+  if (!offered && !legacyOffered) { secEl.style.display = 'none'; return; }
+  secEl.style.display = 'block';
+
+  const dvChecked = sealingSurfaces.has('driveway');
+  const ptChecked = sealingSurfaces.has('patio');
+
+  secEl.innerHTML = `
+    <div class="sc-card${sealingChecked ? ' sc-open' : ''}" onclick="toggleSealingCard()">
+      <div class="sc-cb">✓</div>
+      <div class="sc-body">
+        <div class="sc-title">💎 Bring It Back to Life — Sealing</div>
+        <div class="sc-sub">✓ Restores the color &nbsp;·&nbsp; ✓ Protects the surface<br><em>Optional — we discuss pricing in person</em></div>
+      </div>
+    </div>
+    ${sealingChecked ? `
+    <div class="sc-expand">
+      <div class="sc-section-lbl">Which surface(s)?</div>
+      <div class="sc-check-grid">
+        <div class="sc-check${dvChecked ? ' sc-checked' : ''}" onclick="toggleSealSurface('driveway')">
+          <div class="sc-cb-sm">✓</div><span>Driveway</span>
+        </div>
+        <div class="sc-check${ptChecked ? ' sc-checked' : ''}" onclick="toggleSealSurface('patio')">
+          <div class="sc-cb-sm">✓</div><span>Patio</span>
+        </div>
+      </div>
+      <div class="sc-sand-wrap">
+        <div class="sc-check${sealingPaverSand ? ' sc-checked' : ''}" onclick="toggleSealPaverSand()" style="background:transparent;border:none;padding:0;">
+          <div class="sc-cb-sm">✓</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Add paver joint sand replacement</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Refills gaps between pavers — gives a cleaner finish and longer-lasting seal</div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-confirm">✓ Great! We'll assess your property and give you a quote in person.</div>
+    </div>` : ''}`;
+}
+
+function renderRustSection() {
+  const secEl = document.getElementById('rust-offering-section');
+  if (!secEl) return;
+  const cd = quoteData.miniQuoteCustomData;
+  if (!cd?.rustOffered) { secEl.style.display = 'none'; return; }
+  secEl.style.display = 'block';
+
+  secEl.innerHTML = `
+    <div class="sc-card${rustChecked ? ' sc-open' : ''}" onclick="toggleRustCard()">
+      <div class="sc-cb">✓</div>
+      <div class="sc-body">
+        <div class="sc-title">🔧 Rust Removal</div>
+        <div class="sc-sub">Sprinkler stains, fertilizer marks, metal furniture rust<br><em>Optional — we assess and quote in person</em></div>
+      </div>
+    </div>
+    ${rustChecked ? `
+    <div class="sc-expand">
+      <div class="sc-section-lbl">What surfaces need rust removal?</div>
+      <div class="rust-surf-row" style="margin:0 0 .875rem;">
+        <div class="rust-surf-opt${rustSurface==='walls'?' selected':''}" onclick="selectRustSurface('walls')"><div class="rust-surf-icon">🧱</div><div>Walls</div></div>
+        <div class="rust-surf-opt${rustSurface==='floors'?' selected':''}" onclick="selectRustSurface('floors')"><div class="rust-surf-icon">⬛</div><div>Floors</div></div>
+        <div class="rust-surf-opt${rustSurface==='both'?' selected':''}" onclick="selectRustSurface('both')"><div class="rust-surf-icon">🔄</div><div>Both</div></div>
+      </div>
+      <div class="rust-upload-zone" onclick="document.getElementById('rustPhotoInput').click()">
+        <div style="font-size:22px;margin-bottom:4px;">📷</div>
+        <div style="font-size:13px;font-weight:600;color:var(--muted);">Upload photos of rust areas</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Helps us assess severity — customers who upload often get more accurate pricing</div>
+        <input type="file" id="rustPhotoInput" accept="image/*" multiple style="display:none;" onchange="onRustPhotoUpload(this)">
+      </div>
+      <div id="rustPhotoPreview" style="display:none;font-size:12px;color:var(--green);margin-top:.5rem;font-weight:600;padding:0 2px;"></div>
+      <textarea id="rustNotesTa" placeholder="Anything else not listed above? e.g. wall, basketball court, walkways, stepping stones, landscaping border…" style="width:100%;margin-top:.75rem;padding:.75rem;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);resize:vertical;min-height:70px;outline:none;background:var(--white);" onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+      <div class="sc-confirm">✓ Great! We'll assess and quote rust removal in person.</div>
+    </div>` : ''}`;
+}
+
+// ── Sealing card toggles ──────────────────────────────────────────────────────
+function toggleSealingCard() {
+  sealingChecked = !sealingChecked;
+  if (!sealingChecked) { sealingSurfaces.clear(); sealingPaverSand = false; }
+  renderSealingSection();
+  _lastInteraction = sealingChecked ? 'sealing_interest_expressed' : 'sealing_interest_removed';
+  if (sealingChecked) {
+    logEvent('sealing_interest_expressed', {
+      quoteId:       quoteCode || '',
+      surfaces:      [...sealingSurfaces],
+      paverJointSand: sealingPaverSand,
+      expressedAt:   new Date().toISOString(),
+    });
+  } else {
+    logEvent('sealing_interest_removed', { quoteId: quoteCode || '', removedAt: new Date().toISOString() });
+  }
+}
+function toggleSealSurface(val) {
+  event.stopPropagation();
+  if (sealingSurfaces.has(val)) sealingSurfaces.delete(val); else sealingSurfaces.add(val);
+  renderSealingSection();
+}
+function toggleSealPaverSand() {
+  event.stopPropagation();
+  sealingPaverSand = !sealingPaverSand;
+  renderSealingSection();
+}
+
+// ── Rust card toggles ─────────────────────────────────────────────────────────
+function toggleRustCard() {
+  rustChecked = !rustChecked;
+  if (!rustChecked) { rustSurface = null; }
+  renderRustSection();
+  _lastInteraction = rustChecked ? 'rust_interest_expressed' : 'rust_interest_removed';
+  if (rustChecked) {
+    const photos = document.getElementById('rustPhotoInput')?.files?.length || 0;
+    const notes  = document.getElementById('rustNotesTa')?.value?.trim()   || '';
+    logEvent('rust_interest_expressed', {
+      quoteId:    quoteCode || '',
+      surface:    rustSurface,
+      photoCount: photos,
+      hasNotes:   notes.length > 0,
+      expressedAt: new Date().toISOString(),
+    });
+  } else {
+    logEvent('rust_interest_removed', { quoteId: quoteCode || '', removedAt: new Date().toISOString() });
+  }
+}
+
+function selectRustSurface(val) {
+  event.stopPropagation();
+  rustSurface = val;
+  renderRustSection();
+}
+
+function onRustPhotoUpload(input) {
+  const preview = document.getElementById('rustPhotoPreview');
+  if (preview) {
+    preview.style.display = input.files.length > 0 ? 'block' : 'none';
+    preview.textContent = input.files.length > 0
+      ? `✓ ${input.files.length} photo${input.files.length > 1 ? 's' : ''} attached — Tony will review before arrival`
+      : '';
+  }
+}
+
+function renderDateSection() {
+  const secEl = document.getElementById('date-section');
+  if (!secEl) return;
+
+  if (pageState === 'confirmed') {
+    if (selectedDate) {
+      secEl.style.display = 'block';
+      secEl.innerHTML = `
+        <div class="section-title">Scheduled Date</div>
+        <div class="date-confirmed-block">
+          <div class="date-confirmed-icon">📅</div>
+          <div class="date-confirmed-info">
+            <div class="date-confirmed-label">Your confirmed date</div>
+            <div class="date-confirmed-display">${escHtml(selectedDate.display)}</div>
+            <div class="date-confirmed-sub">We'll text you the night before with your arrival window.</div>
+          </div>
+        </div>`;
+    } else {
+      secEl.style.display = 'none';
+    }
+    return;
+  }
+
+  const suggestions = ((quoteData.dateSuggestions || []).length
+    ? quoteData.dateSuggestions
+    : quoteData.miniQuoteCustomData?.dateSuggestions || []
+  ).filter(s => s.date && s.enabled !== false);
+
+  if (!suggestions.length) { secEl.style.display = 'none'; return; }
+
+  const bestFit = suggestions[0];
+  const alts    = suggestions.slice(1, 3);
+
+  // Auto-preselect Best Fit on initial load
+  if (!selectedDate) {
+    selectedDate = {...bestFit};
+    // renderActionSection() called after this; button will be enabled
+  }
+
+  secEl.style.display = 'block';
+
+  const note = quoteData.miniQuoteCustomData?.customNote || '';
+  const noteHtml = note
+    ? `<div class="custom-note" style="margin-bottom:1rem;">📋 <strong>Note from Tony:</strong> ${escHtml(note)}</div>`
+    : '';
+
+  const customDateSelected = selectedDate && !suggestions.find(s => s.date === selectedDate.date);
+  const bestSelected = selectedDate && selectedDate.date === bestFit.date;
+
+  let html = `<div class="section-title">CHOOSE YOUR DATE</div>`;
+
+  // Stage 1 subtitle changes between stages
+  if (_dateStage === 1) {
+    html += `<div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">We're holding this for you. Confirm to lock it in.</div>`;
+  } else {
+    html += `<div style="font-size:13px;color:var(--muted);margin-bottom:.875rem;padding:0 2px;">We're holding all three for you. Pick the one that works best.</div>`;
+  }
+
+  html += noteHtml;
+
+  // Best Fit card — always visible
+  html += `<div class="date-option${bestSelected ? ' selected' : ''}" id="date-opt-0" onclick="onDateSelect(0)">
+    <div class="date-radio"><div class="date-radio-dot"></div></div>
+    <div class="date-info-block">
+      <div class="date-option-lbl best">BEST FIT</div>
+      <div class="date-option-display">${escHtml(bestFit.display)}</div>
+    </div>
+  </div>`;
+
+  if (_dateStage >= 2) {
+    // Show alternatives
+    alts.forEach((s, i) => {
+      const isSelected = selectedDate && selectedDate.date === s.date;
+      html += `<div class="date-option${isSelected ? ' selected' : ''}" id="date-opt-${i+1}" onclick="onDateSelect(${i+1})">
+        <div class="date-radio"><div class="date-radio-dot"></div></div>
+        <div class="date-info-block">
+          <div class="date-option-lbl alt">ALTERNATIVE</div>
+          <div class="date-option-display">${escHtml(s.display)}</div>
+        </div>
+      </div>`;
+    });
+  }
+
+  if (_dateStage === 3) {
+    // Custom date picker
+    const minDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    html += `<div style="padding:2px 0 0;">
+      <input type="date" id="custom-date-input"
+        value="${customDateSelected && selectedDate ? selectedDate.date : ''}"
+        min="${minDate}"
+        style="width:100%;padding:.75rem 1rem;border:1.5px solid var(--border);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;background:var(--white);margin-top:4px;"
+        onfocus="this.style.borderColor='var(--green)'" onblur="this.style.borderColor='var(--border)'"
+        onchange="onCustomDateChange(this.value)">
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Past dates and booked-out days are disabled.</div>
+    </div>`;
+    // "Back" link
+    html += `<a class="date-expand-link" onclick="setDateStage(2)" style="color:var(--muted);font-size:12px;margin-top:4px;">← Back to suggested dates</a>`;
+  }
+
+  // Expand links
+  if (_dateStage === 1) {
+    html += `<a class="date-expand-link" onclick="setDateStage(2)">This day doesn't work for me →</a>`;
+  } else if (_dateStage === 2 && alts.length > 0) {
+    html += `<a class="date-expand-link" onclick="setDateStage(3)">None of these work — pick a different date →</a>`;
+  }
+
+  secEl.innerHTML = html;
+}
+
+function setDateStage(stage) {
+  const prevStage = _dateStage;
+  _dateStage = stage;
+  if (stage < 3) {
+    const suggestions = ((quoteData.dateSuggestions || []).length
+      ? quoteData.dateSuggestions
+      : quoteData.miniQuoteCustomData?.dateSuggestions || []
+    ).filter(s => s.date && s.enabled !== false);
+    const isCustom = selectedDate && !suggestions.find(s => s.date === selectedDate.date);
+    if (isCustom && suggestions.length) selectedDate = {...suggestions[0]};
+  }
+  renderDateSection();
+  updateConfirmButton();
+  // Track stage transitions
+  if (stage === 2 && prevStage === 1) {
+    _lastInteraction = 'date_alternative_requested';
+    logEvent('date_alternative_requested', {
+      quoteId:     quoteCode || '',
+      requestedAt: new Date().toISOString(),
+      bestFitDate: (((quoteData.dateSuggestions||[]).length ? quoteData.dateSuggestions : quoteData.miniQuoteCustomData?.dateSuggestions||[]).filter(s=>s.date&&s.enabled!==false)[0]?.date || null),
+    });
+  } else if (stage === 3 && prevStage === 2) {
+    _lastInteraction = 'date_custom_requested';
+    logEvent('date_custom_requested', { quoteId: quoteCode || '', requestedAt: new Date().toISOString() });
+  }
+}
+
+function renderActionSection() {
+  const el = document.getElementById('action-section');
+  if (!el) return;
+
+  if (pageState === 'confirmed') {
+    el.innerHTML = `
+      <div class="confirmed-banner">
+        <div class="confirmed-icon">✓</div>
+        <div class="confirmed-headline">Booking Confirmed!</div>
+        <div class="confirmed-date">${escHtml(selectedDate?.display || '')}</div>
+        <div class="confirmed-sub">We'll text or call you the night before with your arrival window.</div>
+      </div>
+      <div class="action-btns">
+        <button class="action-btn" onclick="onPdfClick()">📥 Download as PDF</button>
+        <button class="action-btn" onclick="onPrintClick()">🖨️ Print Agreement</button>
+        <button class="action-btn" onclick="onEmailClick()">✉️ Email me a copy</button>
+      </div>`;
+    return;
+  }
+
+  const dateChosen = !!selectedDate;
+  el.innerHTML = `
+    <button class="confirm-btn${!dateChosen ? ' faded' : ''}" id="confirmBtn"
+      onclick="onConfirmClick()" ${dateChosen ? '' : 'disabled'}>
+      ${dateChosen ? `APPROVE QUOTE — ${escHtml(selectedDate.display)} →` : 'SELECT A DATE TO APPROVE'}
+    </button>
+    <div class="confirm-legal">By confirming, you agree to the services and price above. We'll text you the night before with your arrival window.</div>`;
+}
+
+// ── Date selection ────────────────────────────────────────────────────────────
+function onDateSelect(index) {
+  const suggestions = ((quoteData.dateSuggestions || []).length
+    ? quoteData.dateSuggestions
+    : quoteData.miniQuoteCustomData?.dateSuggestions || []
+  ).filter(s => s.date && s.enabled !== false);
+  const s = suggestions[index];
+  if (!s) return;
+  selectedDate = {...s};
+  // If in stage 3 (picker open), collapse back to stage 2 when they re-pick a card
+  if (_dateStage === 3) { _dateStage = index === 0 ? 1 : 2; renderDateSection(); return; }
+  document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
+  const opt = document.getElementById(`date-opt-${index}`);
+  if (opt) opt.classList.add('selected');
+  updateConfirmButton();
+  _lastInteraction = 'selected_date';
+  logEvent('date_option_tapped', {quoteId: quoteCode || '', date: s.date, label: s.label});
+}
+
+function onCustomDateChange(val) {
+  if (!val) return;
+  if (_blockedDates.has(val)) { showToast('That date is not available — please pick another.'); return; }
+  const d  = new Date(val + 'T12:00:00');
+  const DN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  selectedDate = { date: val, display: `${DN[d.getDay()]}, ${MN[d.getMonth()]} ${d.getDate()}`, label: 'Customer preferred', rig: null, rigLabel: null };
+  // Clear radio selections
+  document.querySelectorAll('.date-option').forEach(el => el.classList.remove('selected'));
+  updateConfirmButton();
+  _lastInteraction = 'date_custom_selected';
+  logEvent('date_custom_selected', { quoteId: quoteCode || '', selectedDate: val, selectedAt: new Date().toISOString() });
+}
+
+function updateConfirmButton() {
+  const btn = document.getElementById('confirmBtn');
+  if (!btn) { renderActionSection(); return; }
+  if (selectedDate) {
+    btn.disabled  = false;
+    btn.className = 'confirm-btn';
+    btn.innerHTML = `APPROVE QUOTE — ${escHtml(selectedDate.display)} →`;
+  } else {
+    btn.disabled  = true;
+    btn.className = 'confirm-btn faded';
+    btn.innerHTML = 'SELECT A DATE TO APPROVE';
+  }
+}
+
+// ── Confirm flow ──────────────────────────────────────────────────────────────
+function onConfirmClick() {
+  if (!selectedDate) return;
+  const base     = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total    = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const services = quoteData.mainServices || quoteData.services || '';
+  let bodyHtml = `<div style="margin-bottom:.625rem;font-size:17px;font-weight:700;color:var(--navy);">${escHtml(selectedDate.display)}</div>`;
+  bodyHtml += `<div style="font-size:13px;color:#6b7280;margin-bottom:.375rem;">${escHtml(services)}</div>`;
+  addedAddons.forEach(ao => {
+    bodyHtml += `<div style="font-size:13px;color:#6b7280;margin-bottom:.25rem;">+ ${escHtml(ao.name)} ($${ao.bundle})</div>`;
+  });
+  bodyHtml += `<div style="font-size:17px;font-weight:700;color:var(--navy);margin-top:.75rem;">Total: $${total}</div>`;
+  document.getElementById('confirm-modal-body').innerHTML = bodyHtml;
+  openModal('confirm-modal');
+}
+
+async function submitConfirm() {
+  closeModal('confirm-modal');
+  const btn = document.getElementById('confirmBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Confirming…'; }
+
+  const phone    = quoteData.ph || customer?.phone || '';
+  const base     = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total    = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const services = quoteData.mainServices || quoteData.services || '';
+
+  try {
+    const res = await fetch(`${PCPC_API}/agreement/${phone}/confirm`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        date:           selectedDate.date,
+        display:        selectedDate.display,
+        rig:            selectedDate.rig || null,
+        rigLabel:       selectedDate.rigLabel || null,
+        approvedAmount: total,
+        services,
+        addOns:   addedAddons,
+        quoteCode,
+        city:     quoteData.city    || customer?.city    || '',
+        address:  quoteData.address || customer?.address || '',
+        email:    quoteData.em      || quoteData.email   || customer?.email || '',
+      })
+    });
+
+    if (!res.ok) throw new Error('Confirmation failed — please try again');
+
+    pageState                      = 'confirmed';
+    quoteData.confirmedAt          = new Date().toISOString();
+    quoteData.confirmedDate        = selectedDate.date;
+    quoteData.confirmedDateDisplay = selectedDate.display;
+    if (!quoteData._baseAmount) quoteData._baseAmount = base;
+    quoteData.approvedAmount = total;
+    quoteData.addOns         = [...addedAddons];
+
+    // Save sealing + rust interest alongside booking
+    if (sealingChecked || rustChecked) saveOfferingInterest().catch(() => {});
+
+    renderPage();
+    showToast('✓ Booking confirmed!');
+    window.scrollTo({top: 0, behavior: 'smooth'});
+    try { localStorage.setItem('pcpc_db_changed_at', Date.now().toString()); } catch {}
+    const suggestions = ((quoteData.dateSuggestions||[]).length ? quoteData.dateSuggestions : quoteData.miniQuoteCustomData?.dateSuggestions||[]).filter(s=>s.date&&s.enabled!==false);
+    const dateChoiceType = suggestions.findIndex(s=>s.date===selectedDate.date) === 0 ? 'best_fit'
+      : suggestions.findIndex(s=>s.date===selectedDate.date) > 0 ? `alternative_${suggestions.findIndex(s=>s.date===selectedDate.date)}`
+      : 'custom';
+    logEvent('quote_approved', {
+      quoteId:          quoteCode || '',
+      approvedDate:     selectedDate.date,
+      dateDisplay:      selectedDate.display,
+      dateChoiceType,
+      approvedAt:       new Date().toISOString(),
+      finalTotal:       total,
+      baseAmount:       base,
+      addonsIncluded:   addedAddons.map(a=>({id:a.id,name:a.name,price:a.bundle})),
+      addOnsCount:      addedAddons.length,
+      sealingExpressed: sealingChecked,
+      rustExpressed:    rustChecked,
+      timeOnPage:       Math.round((Date.now() - _pageLoadTime) / 1000),
+    });
+
+  } catch(e) {
+    alert('Error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = `APPROVE QUOTE — ${escHtml(selectedDate.display)} →`; }
+  }
+}
+
+async function saveOfferingInterest() {
+  const phone = quoteData.ph || customer?.phone || '';
+  if (!phone) return;
+  const now   = new Date().toISOString();
+  const notes = document.getElementById('rustNotesTa')?.value?.trim() || '';
+  const dbRes = await fetch(`${PCPC_API}/customers`);
+  const db    = await dbRes.json();
+  const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
+  const cust  = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
+  if (!cust) return;
+  if (sealingChecked) {
+    cust.sealingInterestRequested = { at: now };
+    cust.sealingInterest = { expressed: true, surfaces: [...sealingSurfaces], paverJointSand: sealingPaverSand, expressedAt: now };
+  }
+  if (rustChecked) {
+    cust.rustInterestRequested = { at: now, surface: rustSurface, notes };
+    cust.rustInterest = { expressed: true, surface: rustSurface, notes, expressedAt: now };
+  }
+  await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
+}
+
+
+// ── PDF / Print / Email ───────────────────────────────────────────────────────
+function getCurrentTotal() {
+  const base = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  return base + addedAddons.reduce((s, ao) => s + (ao.bundle || 0), 0);
+}
+
+function buildPrintFilename() {
+  const fn = (quoteData.fn || '').replace(/\s+/g, '');
+  const ln = (quoteData.ln || '').replace(/\s+/g, '');
+  const d  = selectedDate ? selectedDate.date.replace(/-/g, '') : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `PureCleaning_Agreement_${fn}_${ln}_${d}`;
+}
+
+function buildPrintContent() {
+  const base       = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total      = getCurrentTotal();
+  const services   = quoteData.mainServices || quoteData.services || '—';
+  const fullName   = [quoteData.fn || '', quoteData.ln || ''].filter(Boolean).join(' ');
+  const addr       = [quoteData.address || customer?.address, quoteData.city || customer?.city].filter(Boolean).join(', ');
+  const quotedDate = quoteData.created
+    ? new Date(quoteData.created).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+    : '';
+  const confDisp      = selectedDate?.display || 'TBD';
+  const confTimestamp = quoteData.confirmedAt
+    ? new Date(quoteData.confirmedAt).toLocaleString('en-US', {month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit'})
+    : '';
+  const aoRows = addedAddons.map(ao =>
+    `<tr><td class="ph-li-name">+ ${escHtml(ao.name)} <span class="ph-li-tag">bundled</span></td><td class="ph-li-price">$${ao.bundle}</td></tr>`
+  ).join('');
+  const savingsTotal = addedAddons.reduce((s, ao) => s + (ao.savings || 0), 0);
+  const savingsNote  = savingsTotal > 0
+    ? `<p class="ph-terms" style="color:#1d9e75;font-weight:600;">Bundle savings: $${savingsTotal} off standalone pricing.</p>`
+    : '';
+  return `
+    <div class="ph-co">🌴 Pure Cleaning Pressure Cleaning, LLC</div>
+    <div class="ph-tagline">Family-owned since 1995 &nbsp;·&nbsp; 954-389-2642 &nbsp;·&nbsp; purecleaningpressurecleaning.com</div>
+    <div class="ph-rule"></div>
+    <div class="ph-doc-title">Service Agreement<span class="ph-confirmed-badge">✓ Confirmed</span></div>
+    <table class="ph-meta-table">
+      <tr><td class="ph-meta-lbl">Customer</td><td class="ph-meta-val">${escHtml(fullName)}</td></tr>
+      ${addr       ? `<tr><td class="ph-meta-lbl">Address</td><td class="ph-meta-val">${escHtml(addr)}</td></tr>` : ''}
+      ${quotedDate ? `<tr><td class="ph-meta-lbl">Quoted</td><td class="ph-meta-val">${quotedDate}</td></tr>` : ''}
+      <tr><td class="ph-meta-lbl">Scheduled</td><td class="ph-meta-val highlight">${escHtml(confDisp)}</td></tr>
+      <tr><td class="ph-meta-lbl">Quoted by</td><td class="ph-meta-val">Tony Fumero, Pure Cleaning</td></tr>
+    </table>
+    <div class="ph-rule"></div>
+    <span class="ph-section-lbl">Services</span>
+    <table class="ph-line-items">
+      <tr><td class="ph-li-name">${escHtml(services)}</td><td class="ph-li-price">$${base}</td></tr>
+      ${aoRows}
+      <tr class="ph-total-row"><td>Total Today</td><td style="text-align:right;">$${total}</td></tr>
+    </table>
+    ${savingsNote}
+    <div class="ph-rule"></div>
+    <span class="ph-section-lbl" style="margin-bottom:6px;">Terms</span>
+    <p class="ph-terms">This quote is valid for 30 days from the quoted date. Payment is due day of service. We accept Zelle, check, cash, and Venmo.</p>
+    <p class="ph-terms">Pure Cleaning is not responsible for damage to loose siding, paint, wood trim, or pre-existing conditions. Liability for damages caused by gross negligence is limited to the total cost of the service and must be reported within 30 days in writing.</p>
+    <p class="ph-terms">Service may be rescheduled due to weather. We'll call or text the night before with your arrival window. We may take before/after photos for documentation and marketing purposes.</p>
+    <div class="ph-footer-area">
+      <div>
+        <div class="ph-footer-co">Pure Cleaning Pressure Cleaning, LLC</div>
+        <div class="ph-footer-tagline">Licensed &amp; Insured · South Florida · Since 1995 · 954-389-2642</div>
+      </div>
+      <div class="ph-sig-area">
+        <div class="ph-sig-line"></div>
+        <div class="ph-sig-label">Confirmed by ${escHtml(quoteData.fn || 'Customer')}${confTimestamp ? ' · ' + confTimestamp : ''}</div>
+      </div>
+    </div>`;
+}
+
+function _doPrint(eventName) {
+  if (pageState !== 'confirmed') return;
+  const ph = document.createElement('div');
+  ph.id = 'print-header';
+  ph.innerHTML = buildPrintContent();
+  const wrap = document.querySelector('#state-main .wrap');
+  if (wrap) wrap.insertBefore(ph, wrap.firstChild);
+  const prevTitle = document.title;
+  document.title  = buildPrintFilename();
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return; cleaned = true;
+    document.title = prevTitle;
+    const el = document.getElementById('print-header');
+    if (el) el.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 12000);
+  requestAnimationFrame(() => window.print());
+  logEvent(eventName, {date: selectedDate?.date, total: getCurrentTotal()});
+}
+
+function onPdfClick()   { _doPrint('agreement_pdf_downloaded'); }
+function onPrintClick() { _doPrint('agreement_printed'); }
+
+function onEmailClick() {
+  if (pageState !== 'confirmed') return;
+  const fn       = quoteData.fn || 'there';
+  const services = quoteData.mainServices || quoteData.services || 'your scheduled services';
+  const total    = getCurrentTotal();
+  const dateDisp = selectedDate?.display || 'TBD';
+  const url      = window.location.href;
+  const email    = customer?.email || '';
+  const subject  = encodeURIComponent('Your Pure Cleaning Service Agreement');
+  const body     = encodeURIComponent(`Hi ${fn},\n\nHere's your Pure Cleaning service agreement:\n\nService: ${services}\nTotal: $${total}\nScheduled: ${dateDisp}\n\nView your agreement here:\n${url}\n\nQuestions? Call us at 954-389-2642.\n\n— The Pure Cleaning Family`);
+  const a = document.createElement('a');
+  a.href = `mailto:${email}?subject=${subject}&body=${body}`;
+  a.click();
+  logEvent('agreement_emailed_self', {date: selectedDate?.date, total});
+}
+
+// ── Event logging ─────────────────────────────────────────────────────────────
+function logEvent(eventType, extra = {}) {
+  const d = quoteData || {};
+  fetch(`${PCPC_API}/events`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({eventType, customer: {fn: d.fn, ln: d.ln, ph: d.ph}, ...extra, loggedAt: new Date().toISOString()})
+  }).catch(() => {});
+}
+
+// ── Modals ────────────────────────────────────────────────────────────────────
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) { el.style.display = 'flex'; el.getBoundingClientRect(); el.classList.add('open'); }
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) { el.classList.remove('open'); setTimeout(() => { el.style.display = 'none'; }, 280); }
+}
+function onModalOverlayClick(e, id) {
+  if (e.target === document.getElementById(id)) closeModal(id);
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── State display ─────────────────────────────────────────────────────────────
+function showState(name) {
+  ['loading','error','main'].forEach(s => {
+    const el = document.getElementById(`state-${s}`);
+    if (el) el.style.display = s === name ? 'block' : 'none';
+  });
+}
+
+// ── HTML escape ───────────────────────────────────────────────────────────────
+function escHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str || '');
+  return d.innerHTML;
+}
+
+init();
+</script>
+</body>
+</html>
