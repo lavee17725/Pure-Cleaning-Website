@@ -59,7 +59,22 @@ export default {
   async scheduled(event, env, ctx) {
     // Nightly Bouncie job duration matcher — 11pm ET = 3am UTC
     const today = new Date().toISOString().split('T')[0];
-    ctx.waitUntil(bouncieJobDurationMatcher(today, env).catch(e => console.error('duration cron error:', e.message)));
+    ctx.waitUntil((async () => {
+      const startMs = Date.now();
+      const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
+      try {
+        const result = await bouncieJobDurationMatcher(today, env);
+        heartbeat.status = 'success';
+        heartbeat.jobsMatched = result?.matched ?? result?.jobsMatched ?? 0;
+        heartbeat.jobsTotal   = result?.total ?? 0;
+      } catch (e) {
+        console.error('duration cron error:', e.message);
+        heartbeat.errors.push(e.message);
+      } finally {
+        heartbeat.durationMs = Date.now() - startMs;
+        await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
+      }
+    })());
   },
 
   async fetch(request, env, ctx) {
@@ -297,6 +312,11 @@ export default {
           return await handleCustomerRestore(request, env, cPhone, corsHeaders);
         if (action === 'permanent-delete' && request.method === 'POST')
           return await handleCustomerHardDelete(request, env, cPhone, corsHeaders);
+      }
+
+      if (path === 'admin/cron-heartbeat' && request.method === 'GET') {
+        const hb = await env.DATA.get('bouncie:last_cron_run', 'json');
+        return jsonResponse(hb || { status: 'never_run' }, corsHeaders);
       }
 
       if (path === 'admin/recently-deleted' && request.method === 'GET')

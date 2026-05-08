@@ -210,6 +210,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | `scripts/verify-deploy.js` with 32 checks runs post-deploy | Catches: wrong deploy target, CSS contrast regressions, missing code markers, API health |
 | May 8, 2026 | API worker deploys from `cloudflare-worker/src/` only | Root `wrangler.jsonc` is static assets; running `wrangler deploy --name purecleaning-api` from root overwrote the API worker with static-assets config → all routes 404 |
 
+| May 8, 2026 | Cron heartbeat: `bouncie:last_cron_run` KV key written after every nightly run | Silent cron failures were undetectable — no signal if Bouncie matcher had been broken for weeks; heartbeat + 26h staleness check in verify-deploy.js closes the gap |
+
 *Append future decisions below this line.*
 
 ---
@@ -251,6 +253,15 @@ After any fix that meets one of the triggers below, **before closing the session
 
 **4. Tell Tyler:**
 > "Logged to CLAUDE.md Section 8. Added [N] checks to verify-deploy.js."
+
+### Cron heartbeat
+
+The Bouncie nightly matcher writes `bouncie:last_cron_run` to KV after every run:
+```json
+{ "ranAt": "ISO", "date": "YYYY-MM-DD", "status": "success|error",
+  "jobsMatched": N, "jobsTotal": N, "errors": [], "durationMs": N }
+```
+`verify-deploy.js` checks `/admin/cron-heartbeat` and fails if `ranAt` is older than 26 hours.
 
 ### What "mechanically checkable" means
 

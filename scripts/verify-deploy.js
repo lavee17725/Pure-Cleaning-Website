@@ -242,6 +242,40 @@ async function checkRenderSimulation() {
   }
 }
 
+// ── CHECK 4: Cron heartbeat ───────────────────────────────────────────────
+async function checkCronHeartbeat() {
+  let hb;
+  try {
+    hb = await fetchJson(`${WORKERS_API}/admin/cron-heartbeat`);
+  } catch (e) {
+    fail('Cron heartbeat — fetch', e.message);
+    return;
+  }
+
+  if (!hb || hb.status === 'never_run') {
+    warn('Cron heartbeat', 'No heartbeat on record — cron has not run yet (expected after first 3 AM ET)');
+    return;
+  }
+
+  const ranAt = new Date(hb.ranAt);
+  const ageHours = (Date.now() - ranAt) / 3600000;
+  const ageLabel = ageHours < 1 ? `${Math.round(ageHours * 60)}m ago` : `${ageHours.toFixed(1)}h ago`;
+
+  if (ageHours > 26) {
+    fail('Cron heartbeat — staleness', `Last run ${ageLabel} — expected within 26h. Cron may be silently failing.`);
+  } else if (hb.status === 'error') {
+    warn(
+      'Cron heartbeat — status',
+      `Ran ${ageLabel} with status:error — errors: ${(hb.errors || []).join('; ') || 'none recorded'}`
+    );
+  } else {
+    pass(
+      'Cron heartbeat',
+      `${ageLabel} · ${hb.jobsMatched}/${hb.jobsTotal ?? '?'} matched · ${hb.durationMs}ms · status:${hb.status}`
+    );
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n🔍  Pure Cleaning — Deploy Verification');
@@ -253,6 +287,7 @@ async function main() {
   await Promise.all(HTML_FILES.map(checkHtmlFile));
   await Promise.all(API_ENDPOINTS.map(checkApiEndpoint));
   await checkRenderSimulation();
+  await checkCronHeartbeat();
 
   // Print results
   console.log('');
