@@ -55,6 +55,30 @@ const DEFAULT_ADDONS_CONFIG = {
   },
 };
 
+// ── Auth helpers ──────────────────────────────────────────────────────────
+
+function constantTimeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return result === 0;
+}
+
+function generateSessionToken() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifySession(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  if (!auth.startsWith('Bearer ')) return false;
+  const token = auth.slice(7).trim();
+  if (!token || token.length < 32) return false;
+  const session = await env.DATA.get(`session:${token}`, 'json');
+  return !!session;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     // Nightly Bouncie job duration matcher — 11pm ET = 3am UTC
@@ -94,8 +118,61 @@ export default {
       const path = url.pathname.replace(/^\/+|\/+$/g, '');
 
       if (path === 'health') {
-        return jsonResponse({ status: 'ok', timestamp: Date.now() }, corsHeaders);
+        const db = await env.DATA.get(KV_KEYS.customers, 'json');
+        const customerCount = (db?.customers || []).length;
+        return jsonResponse({ status: 'ok', timestamp: Date.now(), customerCount }, corsHeaders);
       }
+
+      // ── Auth: login ───────────────────────────────────────────────────────────
+      if (path === 'auth/login' && request.method === 'POST') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateKey = `rate:login:${ip}`;
+        const attempts = (await env.DATA.get(rateKey, 'json')) || 0;
+        if (attempts >= 5) {
+          return jsonResponse({ error: 'rate_limited', message: 'Too many attempts. Wait 1 minute.' }, corsHeaders, 429);
+        }
+        const body = await request.json().catch(() => ({}));
+        if (!env.ADMIN_PASSWORD || !constantTimeEqual(body.password || '', env.ADMIN_PASSWORD)) {
+          await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
+          return jsonResponse({ error: 'invalid_password' }, corsHeaders, 401);
+        }
+        const token = generateSessionToken();
+        const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+        await env.DATA.put(`session:${token}`, JSON.stringify({ createdAt: new Date().toISOString() }), { expirationTtl: 86400 });
+        return jsonResponse({ token, expiresAt }, corsHeaders);
+      }
+
+      // ── Auth: logout ──────────────────────────────────────────────────────────
+      if (path === 'auth/logout' && request.method === 'POST') {
+        const auth = request.headers.get('Authorization') || '';
+        if (auth.startsWith('Bearer ')) {
+          const token = auth.slice(7).trim();
+          if (token) await env.DATA.delete(`session:${token}`).catch(() => {});
+        }
+        return jsonResponse({ success: true }, corsHeaders);
+      }
+
+      // ── Auth gate — all routes below require a valid session ──────────────────
+      // Public routes (no auth required): health (above), auth/*, customer-facing
+      const isPublic =
+        (path === 'incoming'        && request.method === 'POST') ||
+        (path === 'dates/suggest'   && request.method === 'GET')  ||
+        (path === 'service-frequency' && request.method === 'GET') ||
+        (path === 'addons-config'   && request.method === 'GET')  ||
+        path.startsWith('quote/')   ||
+        (path.startsWith('agreement/') && (
+          path.endsWith('/confirm')       ||
+          path.endsWith('/skip-reminder') ||
+          path.endsWith('/log-reminder')
+        )) ||
+        (path.startsWith('appointment/') && request.method === 'POST') ||
+        (path.startsWith('receipt/')     && (request.method === 'GET' || request.method === 'PATCH'));
+
+      if (!isPublic) {
+        const authed = await verifySession(request, env);
+        if (!authed) return jsonResponse({ error: 'Unauthorized', message: 'Authentication required' }, corsHeaders, 401);
+      }
+      // ── End auth gate ─────────────────────────────────────────────────────────
 
       if (path === 'customers') {
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);

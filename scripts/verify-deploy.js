@@ -54,10 +54,13 @@ const HTML_FILES = [
 ];
 
 // ── API endpoints to verify ────────────────────────────────────────────────
+// After admin auth: protected endpoints return 401 without a token.
+// We verify auth is enforced (expect 401), and use /health for DB sanity.
 const API_ENDPOINTS = [
-  { path: '/incoming',        expectKey: 'requests' },
-  { path: '/customers',       expectKey: null },   // returns array or object
-  { path: '/admin/reviews-hub', expectKey: null }, // may return empty array
+  { path: '/health',              expectKey: 'customerCount', expectPublic: true },
+  { path: '/incoming',            expect401: true },   // protected — no token in verify script
+  { path: '/customers',           expect401: true },   // protected
+  { path: '/admin/reviews-hub',   expect401: true },   // protected
 ];
 
 // ── CSS variable resolution ────────────────────────────────────────────────
@@ -167,8 +170,26 @@ async function checkHtmlFile({ file, markers = [], cssChecks = [] }) {
 }
 
 // ── CHECK 2: API endpoints ────────────────────────────────────────────────
-async function checkApiEndpoint({ path, expectKey }) {
+async function checkApiEndpoint({ path, expectKey, expect401, expectPublic }) {
   const url = `${WORKERS_API}${path}`;
+
+  if (expect401) {
+    // Verify auth is enforced — no token, expect 401
+    let r;
+    try {
+      r = await fetch(url);
+    } catch (e) {
+      fail(`API ${path} — auth check fetch`, e.message);
+      return;
+    }
+    if (r.status === 401) {
+      pass(`API ${path} — auth enforced (401 without token)`);
+    } else {
+      fail(`API ${path} — auth NOT enforced`, `Got HTTP ${r.status}, expected 401`);
+    }
+    return;
+  }
+
   let data;
   try {
     data = await fetchJson(url);
@@ -184,7 +205,7 @@ async function checkApiEndpoint({ path, expectKey }) {
 
   if (expectKey && typeof data === 'object' && !Array.isArray(data)) {
     if (expectKey in data) {
-      pass(`API ${path} — has key "${expectKey}"`, `${JSON.stringify(data[expectKey]).length} chars`);
+      pass(`API ${path} — has key "${expectKey}"`, `value: ${JSON.stringify(data[expectKey])}`);
     } else {
       fail(`API ${path} — missing key "${expectKey}"`, `Keys: ${Object.keys(data).join(', ')}`);
     }
@@ -194,10 +215,19 @@ async function checkApiEndpoint({ path, expectKey }) {
 }
 
 // ── CHECK 3: Render simulation for most recent incoming request ───────────
+// NOTE: After admin auth ships, this check requires a valid session token.
+// Until VERIFY_TOKEN env var is set, this check is skipped gracefully.
 async function checkRenderSimulation() {
+  const verifyToken = process.env.VERIFY_TOKEN;
   let data;
   try {
-    data = await fetchJson(`${WORKERS_API}/incoming`);
+    const headers = verifyToken ? { 'Authorization': `Bearer ${verifyToken}` } : {};
+    const r = await fetch(`${WORKERS_API}/incoming`, { headers });
+    if (r.status === 401) {
+      warn('Render simulation', 'Skipped — set VERIFY_TOKEN env var for authenticated checks');
+      return;
+    }
+    data = await r.json();
   } catch (e) {
     fail('Render simulation — API fetch', e.message);
     return;
@@ -242,24 +272,32 @@ async function checkRenderSimulation() {
   }
 }
 
-// ── CHECK 4: DB sanity (lightweight — full check via npm run integrity) ──
+// ── CHECK 4: DB sanity via public /health endpoint ────────────────────────
 async function checkDbSanity() {
   let data;
   try {
-    data = await fetchJson(`${WORKERS_API}/customers`);
+    data = await fetchJson(`${WORKERS_API}/health`);
   } catch (e) {
-    fail('DB sanity — fetch', e.message);
+    fail('DB sanity — health fetch', e.message);
     return;
   }
 
-  const custs = Array.isArray(data) ? data : (data.customers || []);
-  if (custs.length < 1000) {
-    fail('DB sanity — customer count', `Only ${custs.length} customers — expected 1,000+. DB may be truncated or wiped.`);
+  const count = data.customerCount ?? 0;
+  if (count < 1000) {
+    fail('DB sanity — customer count', `Only ${count} customers via /health — expected 1,000+`);
+  } else {
+    pass('DB sanity — customer count', `${count.toLocaleString()} customers (from /health)`);
+  }
+
+  // Duplicate phone check requires auth — skip gracefully
+  const verifyToken = process.env.VERIFY_TOKEN;
+  if (!verifyToken) {
+    warn('DB sanity — duplicate phones', 'Set VERIFY_TOKEN to enable authenticated DB checks');
     return;
   }
-  pass('DB sanity — customer count', `${custs.length.toLocaleString()} customers`);
-
-  // Check for duplicate phones (quick scan)
+  const r2 = await fetch(`${WORKERS_API}/customers`, { headers: { 'Authorization': `Bearer ${verifyToken}` } });
+  if (!r2.ok) { warn('DB sanity — customers fetch', `HTTP ${r2.status}`); return; }
+  const custs = (await r2.json()).customers || [];
   const seen = new Set();
   let dupes = 0;
   for (const c of custs) {
@@ -270,11 +308,6 @@ async function checkDbSanity() {
   }
   if (dupes > 0) warn('DB sanity — duplicate phones', `${dupes} duplicate phone(s) — run npm run integrity for details`);
   else pass('DB sanity — duplicate phones', 'none');
-
-  // Check required fields on a sample
-  const missingName = custs.filter(c => !c.firstName && !c.lastName).length;
-  if (missingName > 0) warn('DB sanity — name fields', `${missingName} customer(s) missing both firstName and lastName`);
-  else pass('DB sanity — name fields', 'all have at least one name field');
 }
 
 // ── CHECK 5: Cron heartbeat ───────────────────────────────────────────────

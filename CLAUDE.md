@@ -175,6 +175,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 **Before/after on data repairs.** Print the before state, get confirmation, apply, print after state, run assertions.
 
+**Admin auth uses KV-stored session tokens.** Worker secrets `ADMIN_PASSWORD` and (optionally) `SESSION_SECRET` set via `wrangler secret put`. Login endpoint: `POST /auth/login`. Tokens stored as `session:{token}` in KV with 86400s TTL. Auth gate is a 20-line IIFE at the top of every admin HTML file. Public routes: health, auth/login, auth/logout, POST /incoming, quote/*, agreement/confirm, appointment/*, receipt GET/PATCH, service-frequency GET, addons-config GET. The verify-deploy.js script now checks auth is enforced (expects 401 on protected endpoints without token). Set `VERIFY_TOKEN` env var for authenticated checks.
+
 **Never hardcode secrets in source files.** Worker secrets (`GOOGLE_MAPS_API_KEY`, `BOUNCIE_CLIENT_SECRET`) are set via `wrangler secret put`, not in code. The pre-commit hook (`scripts/secret-scan.js`) will block commits containing Bearer tokens, AWS keys, GitHub PATs, Google API keys, Stripe keys, and similar patterns. Bypass with `SKIP_SECRET_SCAN=1 git commit` only for confirmed false positives.
 
 **Do not edit `csv_backfill` jobHistory entries.** They are the historical record. Remove or exclude them with guards; do not rewrite them.
@@ -215,6 +217,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Cron heartbeat: `bouncie:last_cron_run` KV key written after every nightly run | Silent cron failures were undetectable — no signal if Bouncie matcher had been broken for weeks; heartbeat + 26h staleness check in verify-deploy.js closes the gap |
 | May 8, 2026 | DB integrity check: `scripts/integrity-check.js` with schema, uniqueness, referential, and type assertions | 1,243 customer single-blob KV; malformed record can crash calendar/directory/review hub silently; found 6 duplicate phone entries (Brian Osteen + 5x Tyler test records) on first run |
 | May 8, 2026 | Pre-commit secret scanning via husky + `scripts/secret-scan.js` | No previous protection against accidental API key commits; git history is permanent — once pushed, key must be rotated even after deletion; bypass: `SKIP_SECRET_SCAN=1 git commit` |
+| May 8, 2026 | Admin auth: KV-stored session tokens, single shared password, auth gate on all admin pages | Customer DB (1,243 records) was publicly accessible to anyone who knew the URL; branch: feature/admin-auth; requires `wrangler secret put ADMIN_PASSWORD` + `VERIFY_TOKEN` env for verify-deploy.js to run authenticated checks |
 
 *Append future decisions below this line.*
 
