@@ -44,7 +44,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 .req-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.5rem;gap:8px;}
 .req-name-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:6px;}
-.req-name{font-size:16px;font-weight:700;color:var(--white);}
+.req-name{font-size:16px;font-weight:700;color:var(--text);}
 .stale-badge{font-size:10px;font-weight:700;background:rgba(229,62,62,.15);color:var(--red);padding:2px 7px;border-radius:8px;letter-spacing:.5px;text-transform:uppercase;}
 .req-time{font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;font-family:'DM Mono',monospace;}
 
@@ -422,6 +422,7 @@ function buildCard(req) {
   const isStale = req.status === 'new' && age > 48 * 3600 * 1000;
   const phone   = d.phone   || req.phone   || '';
   const city    = d.city    || req.city    || '';
+  const address = d.address || req.address || '';
 
   // Services chips
   const svcs = (d.services || []);
@@ -493,7 +494,11 @@ function buildCard(req) {
     </div>
     <div class="req-meta">
       ${phone ? `<span class="meta-item">📞 <strong>${esc(phone)}</strong></span>` : ''}
-      ${city  ? `<span class="meta-item">📍 <strong>${esc(city)}</strong></span>`  : ''}
+      ${address && city
+        ? `<span class="meta-item">📍 <strong>${esc(address)}, ${esc(city)}</strong></span>`
+        : city
+        ? `<span class="meta-item">📍 <strong>${esc(city)}</strong></span>`
+        : ''}
       ${d.timeframe        ? `<span class="meta-item">⏰ <strong>${esc(d.timeframe)}</strong></span>` : ''}
       ${d.reminderFrequency? `<span class="meta-item">🔄 ${esc(d.reminderFrequency)}</span>` : ''}
     </div>
