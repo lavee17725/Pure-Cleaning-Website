@@ -310,6 +310,104 @@ async function checkDbSanity() {
   else pass('DB sanity — duplicate phones', 'none');
 }
 
+// ── CHECK 6: Mobile compatibility ─────────────────────────────────────────
+const MOBILE_UAS = [
+  {
+    name: 'iPhone Safari',
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  },
+  {
+    name: 'Android Chrome',
+    ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  },
+];
+
+async function checkOneMobileFile(file) {
+  const url = `${GITHUB_PAGES}/${file}`;
+
+  // Fetch once with desktop UA — reuse content for all checks
+  let html = '';
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { fail(`${file} — mobile/desktop fetch`, `HTTP ${r.status}`); return; }
+    html = await r.text();
+  } catch (e) {
+    fail(`${file} — mobile/desktop fetch`, e.message);
+    return;
+  }
+
+  // 1. Viewport meta — FAIL if missing (page zooms out to desktop width on mobile)
+  if (!/meta[^>]+name=["']viewport["'][^>]*>/i.test(html) && !/meta[^>]+content=["'][^"']*width=device-width/i.test(html)) {
+    fail(`${file} — viewport meta`, 'MISSING — page will render as zoomed-out desktop on mobile');
+  } else {
+    pass(`${file} — viewport meta`);
+  }
+
+  // 2. UA availability — confirm CDN serves same content to mobile UAs (status + content-type)
+  for (const { name, ua } of MOBILE_UAS) {
+    try {
+      const r = await fetch(url, { headers: { 'User-Agent': ua } });
+      const ct = r.headers.get('content-type') || '';
+      if (!r.ok) {
+        fail(`${file} — ${name}`, `HTTP ${r.status}`);
+      } else if (!ct.includes('text/html')) {
+        warn(`${file} — ${name}`, `Unexpected content-type: ${ct}`);
+      } else {
+        pass(`${file} — ${name}`, `HTTP ${r.status} text/html`);
+      }
+      await r.body?.cancel().catch(() => {});
+    } catch (e) {
+      fail(`${file} — ${name} fetch`, e.message);
+    }
+  }
+
+  // CSS analysis — extract inline <style> blocks
+  const styleContent = (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || []).join('\n');
+
+  // 3. Fixed widths > 400px without a max-width companion (warn — may cause horizontal scroll)
+  const wideRules = [];
+  const widthRe = /(\.[a-zA-Z][^{]*)\{[^}]*\bwidth\s*:\s*(\d+)px\b[^}]*\}/g;
+  let m;
+  while ((m = widthRe.exec(styleContent)) !== null) {
+    const px = parseInt(m[2]);
+    if (px > 400 && !m[0].includes('max-width')) wideRules.push(`${m[1].trim()}: ${px}px`);
+  }
+  if (wideRules.length > 0) {
+    warn(`${file} — fixed wide elements`, `${wideRules.length} class(es) with width >${400}px and no max-width: ${wideRules.slice(0, 3).join('; ')}`);
+  }
+
+  // 4. Tap target size — button/input height < 36px
+  const smallTargets = [];
+  const tapRe = /(?:\.btn|button|input|\.tab)[^{]*\{([^}]*)\}/gi;
+  while ((m = tapRe.exec(styleContent)) !== null) {
+    const block = m[1];
+    const hMatch = block.match(/\bheight\s*:\s*(\d+(?:\.\d+)?)(px|rem)/);
+    if (hMatch) {
+      const px = hMatch[2] === 'rem' ? parseFloat(hMatch[1]) * 16 : parseFloat(hMatch[1]);
+      if (px < 36) smallTargets.push(`${Math.round(px)}px`);
+    }
+  }
+  if (smallTargets.length > 0) {
+    warn(`${file} — tap targets`, `${smallTargets.length} element(s) with height < 36px: ${[...new Set(smallTargets)].join(', ')} (Apple HIG recommends 44px min)`);
+  }
+
+  // 5. position: fixed without max-width (can break layout on narrow screens)
+  const fixedNoMax = [];
+  const fixedRe = /(\.[a-zA-Z][^{]*)\{([^}]*position\s*:\s*fixed[^}]*)\}/gi;
+  while ((m = fixedRe.exec(styleContent)) !== null) {
+    if (!m[2].includes('max-width') && !m[0].includes('max-width')) {
+      fixedNoMax.push(m[1].trim().split(/[,\s]/)[0]);
+    }
+  }
+  if (fixedNoMax.length > 0) {
+    warn(`${file} — fixed positioning`, `${fixedNoMax.length} class(es) use position:fixed without max-width: ${fixedNoMax.slice(0, 3).join(', ')}`);
+  }
+}
+
+async function checkMobileCompatibility() {
+  await Promise.all(HTML_FILES.map(({ file }) => checkOneMobileFile(file)));
+}
+
 // ── CHECK 5: Cron heartbeat ───────────────────────────────────────────────
 async function checkCronHeartbeat() {
   let hb;
@@ -357,6 +455,7 @@ async function main() {
   await checkRenderSimulation();
   await checkDbSanity();
   await checkCronHeartbeat();
+  await checkMobileCompatibility();
 
   // Print results
   console.log('');

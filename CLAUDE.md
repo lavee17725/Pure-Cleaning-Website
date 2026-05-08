@@ -218,6 +218,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | DB integrity check: `scripts/integrity-check.js` with schema, uniqueness, referential, and type assertions | 1,243 customer single-blob KV; malformed record can crash calendar/directory/review hub silently; found 6 duplicate phone entries (Brian Osteen + 5x Tyler test records) on first run |
 | May 8, 2026 | Pre-commit secret scanning via husky + `scripts/secret-scan.js` | No previous protection against accidental API key commits; git history is permanent — once pushed, key must be rotated even after deletion; bypass: `SKIP_SECRET_SCAN=1 git commit` |
 | May 8, 2026 | Admin auth: KV-stored session tokens, single shared password, auth gate on all admin pages | Customer DB (1,243 records) was publicly accessible to anyone who knew the URL; branch: feature/admin-auth; requires `wrangler secret put ADMIN_PASSWORD` + `VERIFY_TOKEN` env for verify-deploy.js to run authenticated checks |
+| May 8, 2026 | Mobile UA verification in verify-deploy.js | Tyler builds on Mac; Mom and drivers use mobile — viewport meta, iPhone/Android UA 200 checks, tap target size scan (< 36px), fixed-width overflow scan (> 400px), position:fixed without max-width scan; first run found calendar .cal-grid at 1225px (intentional) and 8/18px tap targets in bulk reactivation |
 
 *Append future decisions below this line.*
 
