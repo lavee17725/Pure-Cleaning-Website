@@ -479,19 +479,16 @@ async function checkCustomerFlows() {
   }
 
   // Live endpoint smoke test for the critical customer path
-  const criticalEndpoints = [
-    { path: '/links',          method: 'GET',  desc: 'q.html link resolver' },
-    { path: '/incoming',       method: 'POST', desc: 'quote + reschedule submission', body: '{"id":"smoke_test","status":"new","source":"smoke_test"}' },
-    { path: '/service-frequency', method: 'GET', desc: 'quote form services list' },
-    { path: '/addons-config',  method: 'GET',  desc: 'quote form add-ons' },
-    { path: '/dates/suggest',  method: 'GET',  desc: 'quote form date suggestions' },
+  const criticalGetEndpoints = [
+    { path: '/links',             desc: 'q.html link resolver' },
+    { path: '/service-frequency', desc: 'quote form services list' },
+    { path: '/addons-config',     desc: 'quote form add-ons' },
+    { path: '/dates/suggest',     desc: 'quote form date suggestions' },
   ];
 
-  for (const { path, method, desc, body } of criticalEndpoints) {
+  for (const { path, desc } of criticalGetEndpoints) {
     try {
-      const opts = { method, headers: method === 'POST' ? { 'Content-Type': 'application/json' } : {} };
-      if (body) opts.body = body;
-      const r = await fetch(`${WORKERS_API}${path}`, opts);
+      const r = await fetch(`${WORKERS_API}${path}`);
       if (r.status === 401) {
         fail(`Customer API — ${path}`, `Returns 401 without auth — ${desc} is broken for customers`);
       } else {
@@ -501,6 +498,42 @@ async function checkCustomerFlows() {
     } catch (e) {
       fail(`Customer API — ${path} fetch`, e.message);
     }
+  }
+
+  // POST /incoming — validation check (invalid data → 400, does NOT save to KV)
+  try {
+    const r = await fetch(`${WORKERS_API}/incoming`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerData: { firstName: 'X', lastName: 'Y', phone: '123', city: '' } }),
+    });
+    if (r.status === 400) {
+      pass('Customer API — POST /incoming validation', 'Invalid submission correctly rejected (400)');
+    } else if (r.status === 401) {
+      fail('Customer API — POST /incoming validation', 'Returns 401 — public endpoint is broken for customers');
+    } else {
+      warn('Customer API — POST /incoming validation', `Expected 400 for invalid data, got ${r.status}`);
+    }
+    await r.body?.cancel().catch(() => {});
+  } catch (e) {
+    fail('Customer API — POST /incoming validation fetch', e.message);
+  }
+
+  // POST /incoming — honeypot check (honeypot filled → 200 silently, does NOT save to KV)
+  try {
+    const r = await fetch(`${WORKERS_API}/incoming`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ website: 'http://example.com', customerData: { firstName: 'Bot', lastName: 'Test', phone: '9543891234', city: 'Weston' } }),
+    });
+    if (r.status === 200) {
+      pass('Customer API — POST /incoming honeypot', 'Honeypot-filled submission silently accepted (200, not saved)');
+    } else {
+      warn('Customer API — POST /incoming honeypot', `Expected 200 for honeypot, got ${r.status}`);
+    }
+    await r.body?.cancel().catch(() => {});
+  } catch (e) {
+    fail('Customer API — POST /incoming honeypot fetch', e.message);
   }
 }
 

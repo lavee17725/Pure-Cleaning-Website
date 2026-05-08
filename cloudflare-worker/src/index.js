@@ -273,6 +273,9 @@ export default {
       }
 
       if (path === 'incoming') {
+        if (request.method === 'POST') {
+          return await handleIncomingSubmit(request, env, corsHeaders);
+        }
         return await handleResource(request, env, KV_KEYS.incoming, corsHeaders);
       }
 
@@ -1031,6 +1034,50 @@ async function handleImportRollback(request, env, corsHeaders) {
   if (!backup) return jsonResponse({ error: 'Backup not found' }, corsHeaders, 404);
   await env.DATA.put('customer_db', JSON.stringify(backup));
   return jsonResponse({ success: true, restoredFrom: key, customerCount: (backup.customers||[]).length }, corsHeaders);
+}
+
+// ── POST /incoming — rate limit + honeypot + validation ──────────────────────
+async function handleIncomingSubmit(request, env, corsHeaders) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, corsHeaders, 400); }
+
+  // Honeypot: bots fill the hidden "website" field; humans don't. Return 200 silently — don't tell the bot it failed.
+  if (body.website) return jsonResponse({ success: true }, corsHeaders);
+
+  // Rate limit: 5 submissions per IP per 10 minutes
+  const rk = `rate:incoming:${ip}`;
+  const count = (await env.DATA.get(rk, 'json')) || 0;
+  if (count >= 5) {
+    return jsonResponse({ error: 'Too many quote requests. Please wait 10 minutes or call us at (954) 389-2642.' }, corsHeaders, 429);
+  }
+  await env.DATA.put(rk, JSON.stringify(count + 1), { expirationTtl: 600 });
+
+  // Structural validation
+  const cd = body.customerData || {};
+  const phone = (cd.phone || body.phone || '').replace(/\D/g, '');
+  const firstName = (cd.firstName || body.name || '').trim();
+  const lastName  = (cd.lastName  || '').trim();
+  const city      = (cd.city      || body.city || '').trim();
+
+  // Reschedule and waitlist submissions have partial data — skip strict validation for those
+  const skipValidation = body.source === 'reschedule' || body.source === 'quote_reschedule' || body.source === 'waitlist';
+  if (!skipValidation) {
+    if (phone.length < 10)     return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
+    if (firstName.length < 2)  return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
+    if (lastName.length  < 2)  return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
+    if (!city)                 return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
+  }
+
+  // Save
+  if (!body.id)        body.id        = generateId();
+  if (!body.createdAt) body.createdAt = new Date().toISOString();
+  const existing = await env.DATA.get(KV_KEYS.incoming, 'json') || {};
+  if (!existing.requests) existing.requests = [];
+  existing.requests.push(body);
+  await env.DATA.put(KV_KEYS.incoming, JSON.stringify(existing));
+  return jsonResponse({ success: true, entry: body }, corsHeaders);
 }
 
 async function handleResource(request, env, kvKey, corsHeaders) {

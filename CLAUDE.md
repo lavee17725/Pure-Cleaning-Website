@@ -226,6 +226,9 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | agreement.html + receipt.html also broken post-auth; GET /customer/{phone} scoped endpoint added | Both pages called GET /customers on page load; new scoped endpoint returns only one customer's record; /customers (full DB) still 401 |
 | May 8, 2026 | AUTH_BOUNDARIES.md created; verify-deploy.js CHECK 8 auto-audits customer pages for protected endpoint calls | Systematic prevention of same bug class: any customer HTML fetch() to a non-public path = deploy failure |
 
+| May 8, 2026 | Spam protection on POST /incoming: 5/IP/10min rate limit, honeypot field, structural validation | Friendly pen-test by Alex (Tyler's friend) flooded POST /incoming with 102 entries in <10min; auth held (GET /customers correctly 401); fixed with rate limit (KV counter, 600s TTL), honeypot input (bots fill "website" field → silent 200), structural validation (phone 10 digits, firstName/lastName ≥ 2 chars, city non-empty; reschedule/waitlist sources exempt); verify-deploy.js CHECK 8 updated to test validation + honeypot instead of sending polluting smoke_test entries |
+| May 8, 2026 | verify-deploy.js smoke test was polluting incoming_requests KV (5 "smoke_test" source entries) | Old CHECK 8 sent `POST /incoming` with smoke_test body on every verify run; replaced with validation test (expects 400) and honeypot test (expects 200) — neither saves to KV |
+
 *Append future decisions below this line.*
 
 ---
