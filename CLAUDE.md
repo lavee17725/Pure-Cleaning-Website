@@ -175,6 +175,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 **Before/after on data repairs.** Print the before state, get confirmation, apply, print after state, run assertions.
 
+**Never hardcode secrets in source files.** Worker secrets (`GOOGLE_MAPS_API_KEY`, `BOUNCIE_CLIENT_SECRET`) are set via `wrangler secret put`, not in code. The pre-commit hook (`scripts/secret-scan.js`) will block commits containing Bearer tokens, AWS keys, GitHub PATs, Google API keys, Stripe keys, and similar patterns. Bypass with `SKIP_SECRET_SCAN=1 git commit` only for confirmed false positives.
+
 **Do not edit `csv_backfill` jobHistory entries.** They are the historical record. Remove or exclude them with guards; do not rewrite them.
 
 **Field naming** — the schema uses `firstName`/`lastName` (camelCase), not `first_name`/`fn`. When in doubt, grep the customer record before writing a new accessor.
@@ -212,6 +214,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 8, 2026 | Cron heartbeat: `bouncie:last_cron_run` KV key written after every nightly run | Silent cron failures were undetectable — no signal if Bouncie matcher had been broken for weeks; heartbeat + 26h staleness check in verify-deploy.js closes the gap |
 | May 8, 2026 | DB integrity check: `scripts/integrity-check.js` with schema, uniqueness, referential, and type assertions | 1,243 customer single-blob KV; malformed record can crash calendar/directory/review hub silently; found 6 duplicate phone entries (Brian Osteen + 5x Tyler test records) on first run |
+| May 8, 2026 | Pre-commit secret scanning via husky + `scripts/secret-scan.js` | No previous protection against accidental API key commits; git history is permanent — once pushed, key must be rotated even after deletion; bypass: `SKIP_SECRET_SCAN=1 git commit` |
 
 *Append future decisions below this line.*
 
