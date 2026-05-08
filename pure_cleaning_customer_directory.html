@@ -171,9 +171,35 @@ let filtered = [];
 let displayed = 0;
 let activeFilters = new Set(['all']);
 let searchVal = '';
-let _sortCol = null;
-let _sortAsc = true;
-const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:true, totalJobs:false, lifetimeSpend:false };
+
+// Tier rank: 1 = highest value (LOYAL/VIP), higher number = lower value
+const TIER_RANK = {
+  'SCHEDULED':  1,
+  'LOYAL':      2,
+  'HOT':        3,
+  'WARM':       4,
+  'NEW':        5,
+  'OVERDUE':    6,
+  'DORMANT':    7,
+  'NO HISTORY': 8,
+  'MOVED':      9,
+  'OPT-OUT':    10,
+};
+
+// ── Sort state (persisted in localStorage) ────────────────────────────────────
+function _loadSortState() {
+  try {
+    const s = JSON.parse(localStorage.getItem('pcpc_dir_sort') || 'null');
+    return s && s.col ? s : { col: null, asc: true };
+  } catch { return { col: null, asc: true }; }
+}
+function _saveSortState() {
+  localStorage.setItem('pcpc_dir_sort', JSON.stringify({ col: _sortCol, asc: _sortAsc }));
+}
+const _sortInit = _loadSortState();
+let _sortCol = _sortInit.col;
+let _sortAsc = _sortInit.asc;
+const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:false, totalJobs:false, lifetimeSpend:false };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
@@ -209,13 +235,17 @@ async function init(){
     const raw=(data.customers||[]).filter(c=>!c.deleted);
     allCustomers=raw.map(c=>{
       const tier=getTier(c);
+      const baseRank = TIER_RANK[tier.label] ?? 99;
+      // VIP customers float above non-VIP within same tier (subtract 0.5)
+      const vip = tier.vip || false;
       return{
         ...c,
         _name:((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase(),
         _tier:tier.label,
         _tierColor:tier.color,
         _tierEmoji:tier.emoji||'',
-        _vip:tier.vip||false,
+        _vip:vip,
+        _tierRank: vip ? baseRank - 0.5 : baseRank,
         _due:isDueForReactivation(c),
         _sealProspect:isSealingProspect(c),
         totalJobs:c.totalJobs||0,
@@ -349,10 +379,18 @@ function applyAll(){
   if(_sortCol){
     const col=_sortCol;
     data=[...data].sort((a,b)=>{
-      let av=a[col]??'', bv=b[col]??'';
-      if(col==='lastService'){ av=av||''; bv=bv||''; }
-      if(typeof av==='string')av=av.toLowerCase();
-      if(typeof bv==='string')bv=bv.toLowerCase();
+      let av, bv;
+      if(col==='tier'){
+        // Rank-based: 1=highest (LOYAL), 10=lowest (OPT-OUT)
+        av = a._tierRank ?? 99;
+        bv = b._tierRank ?? 99;
+      } else {
+        av=a[col]??''; bv=b[col]??'';
+        // Treat missing dates as oldest (empty string sorts before any date)
+        if(col==='lastService'){ av=av||'0000'; bv=bv||'0000'; }
+        if(typeof av==='string')av=av.toLowerCase();
+        if(typeof bv==='string')bv=bv.toLowerCase();
+      }
       const cmp=typeof av==='number'?av-bv:(av<bv?-1:av>bv?1:0);
       return _sortAsc?cmp:-cmp;
     });
@@ -367,6 +405,13 @@ function applyAll(){
 function clickSort(col){
   if(_sortCol===col){_sortAsc=!_sortAsc;}
   else{_sortCol=col;_sortAsc=_sortPrimaryAsc[col]!==false;}
+  _saveSortState();
+  applyAll();
+}
+
+function resetSort(){
+  _sortCol=null; _sortAsc=true;
+  _saveSortState();
   applyAll();
 }
 
@@ -376,9 +421,28 @@ function updateSortIndicators(){
     const ind=th.querySelector('.sind');
     if(ind)ind.textContent='▲▼';
   });
-  if(!_sortCol)return;
+  // Reset-sort pill in the count bar
+  const bar = document.getElementById('barCount');
+  const resetPill = document.getElementById('sortResetPill');
+  if(!_sortCol){
+    if(resetPill) resetPill.remove();
+    return;
+  }
   const th=document.querySelector(`thead th[data-sort="${_sortCol}"]`);
-  if(th){th.classList.add('sorted');const ind=th.querySelector('.sind');if(ind)ind.textContent=_sortAsc?'▲':'▼';}
+  if(th){
+    th.classList.add('sorted');
+    const ind=th.querySelector('.sind');
+    if(ind)ind.textContent=_sortAsc?'▲':'▼';
+  }
+  // Show reset pill if not already present
+  if(!resetPill && bar){
+    const pill=document.createElement('button');
+    pill.id='sortResetPill';
+    pill.textContent='× Clear sort';
+    pill.onclick=resetSort;
+    pill.style.cssText='margin-left:8px;padding:2px 9px;border:1px solid var(--border);border-radius:10px;background:#fff;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;font-family:"DM Sans",sans-serif;';
+    bar.insertAdjacentElement('afterend',pill);
+  }
 }
 
 function renderResults(){
