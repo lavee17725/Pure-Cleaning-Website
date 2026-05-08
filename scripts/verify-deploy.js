@@ -242,7 +242,42 @@ async function checkRenderSimulation() {
   }
 }
 
-// ── CHECK 4: Cron heartbeat ───────────────────────────────────────────────
+// ── CHECK 4: DB sanity (lightweight — full check via npm run integrity) ──
+async function checkDbSanity() {
+  let data;
+  try {
+    data = await fetchJson(`${WORKERS_API}/customers`);
+  } catch (e) {
+    fail('DB sanity — fetch', e.message);
+    return;
+  }
+
+  const custs = Array.isArray(data) ? data : (data.customers || []);
+  if (custs.length < 1000) {
+    fail('DB sanity — customer count', `Only ${custs.length} customers — expected 1,000+. DB may be truncated or wiped.`);
+    return;
+  }
+  pass('DB sanity — customer count', `${custs.length.toLocaleString()} customers`);
+
+  // Check for duplicate phones (quick scan)
+  const seen = new Set();
+  let dupes = 0;
+  for (const c of custs) {
+    const ph = (c.phone || '').replace(/\D/g, '');
+    if (!ph || /^REFERRAL_/.test(c.phone || '')) continue;
+    if (seen.has(ph)) dupes++;
+    else seen.add(ph);
+  }
+  if (dupes > 0) warn('DB sanity — duplicate phones', `${dupes} duplicate phone(s) — run npm run integrity for details`);
+  else pass('DB sanity — duplicate phones', 'none');
+
+  // Check required fields on a sample
+  const missingName = custs.filter(c => !c.firstName && !c.lastName).length;
+  if (missingName > 0) warn('DB sanity — name fields', `${missingName} customer(s) missing both firstName and lastName`);
+  else pass('DB sanity — name fields', 'all have at least one name field');
+}
+
+// ── CHECK 5: Cron heartbeat ───────────────────────────────────────────────
 async function checkCronHeartbeat() {
   let hb;
   try {
@@ -287,6 +322,7 @@ async function main() {
   await Promise.all(HTML_FILES.map(checkHtmlFile));
   await Promise.all(API_ENDPOINTS.map(checkApiEndpoint));
   await checkRenderSimulation();
+  await checkDbSanity();
   await checkCronHeartbeat();
 
   // Print results

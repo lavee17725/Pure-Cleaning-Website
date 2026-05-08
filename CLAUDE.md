@@ -211,6 +211,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | API worker deploys from `cloudflare-worker/src/` only | Root `wrangler.jsonc` is static assets; running `wrangler deploy --name purecleaning-api` from root overwrote the API worker with static-assets config → all routes 404 |
 
 | May 8, 2026 | Cron heartbeat: `bouncie:last_cron_run` KV key written after every nightly run | Silent cron failures were undetectable — no signal if Bouncie matcher had been broken for weeks; heartbeat + 26h staleness check in verify-deploy.js closes the gap |
+| May 8, 2026 | DB integrity check: `scripts/integrity-check.js` with schema, uniqueness, referential, and type assertions | 1,243 customer single-blob KV; malformed record can crash calendar/directory/review hub silently; found 6 duplicate phone entries (Brian Osteen + 5x Tyler test records) on first run |
 
 *Append future decisions below this line.*
 
