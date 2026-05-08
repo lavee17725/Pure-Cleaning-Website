@@ -821,18 +821,25 @@ function selectTime(el, time) {
 async function submitReschedule() {
   const days = Array.from(_rescheduleSelectedDays);
   const notes = (document.getElementById('rescheduleNotes').value || '').trim();
+  const _rscFullName  = (quoteData && quoteData.name) || '';
+  const _rscNameParts = _rscFullName.trim().split(/\s+/);
   const payload = {
-    id: 'resc_' + Date.now(),
-    status: 'new',
-    customer_name: (quoteData && quoteData.name) || '',
-    phone: (quoteData && quoteData.phone) || '',
-    email: (quoteData && quoteData.email) || '',
-    address: (quoteData && quoteData.address) || '',
-    services: quoteData && Array.isArray(quoteData.services) ? quoteData.services.join(', ') : '',
-    notes: `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. ${notes}`,
-    timeframe: 'Flexible',
-    source: 'quote_reschedule',
-    created_at: new Date().toISOString()
+    id:          'resc_' + Date.now(),
+    status:      'new',
+    customer_name: _rscFullName,
+    submittedAt: new Date().toISOString(),
+    source:      'quote_reschedule',
+    customerData: {
+      firstName:  _rscNameParts[0] || '',
+      lastName:   _rscNameParts.slice(1).join(' ') || '',
+      phone:      (quoteData && quoteData.phone)   || '',
+      email:      (quoteData && quoteData.email)   || '',
+      address:    (quoteData && quoteData.address) || '',
+      city:       (quoteData && quoteData.city)    || '',
+      services:   quoteData && Array.isArray(quoteData.services) ? quoteData.services : [],
+      timeframe:  'Flexible',
+      notes:      `RESCHEDULE NEEDED — original: ${_primaryDateFull || 'N/A'}. Days: ${days.join(', ') || 'Any'}. ${notes}`,
+    }
   };
 
   if (quoteData && quoteData.phone) {

@@ -418,10 +418,10 @@ async function loadKnownPhones() {
 function buildCard(req) {
   const d       = req.customerData || {};
   const now     = Date.now();
-  const age     = now - new Date(req.submittedAt);
+  const age     = now - new Date(req.submittedAt || req.created_at);
   const isStale = req.status === 'new' && age > 48 * 3600 * 1000;
-  const phone   = d.phone   || '';
-  const city    = d.city    || '';
+  const phone   = d.phone   || req.phone   || '';
+  const city    = d.city    || req.city    || '';
 
   // Services chips
   const svcs = (d.services || []);
@@ -449,11 +449,11 @@ function buildCard(req) {
   const delBtn = `<button class="btn-delete" onclick="deleteRequest('${req.id}')">✕ Delete</button>`;
   if (req.status === 'new') {
     const qUrl = buildQuoteUrl(req);
-    const name = esc((d.firstName||'')+' '+(d.lastName||'')).trim();
+    const name = esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || req.customer_name || '');
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
-      <button class="btn-build" style="background:#1d9e75;" onclick="initCall('${phone}','${esc(d.firstName||'')}')">📞 Call</button>
-      <button class="btn-build" style="background:#1d9e75;" onclick="initText('${phone}','${esc(d.firstName||'')}')">💬 Text</button>
+      <button class="btn-build" style="background:#1d9e75;" onclick="initCall('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">📞 Call</button>
+      <button class="btn-build" style="background:#1d9e75;" onclick="initText('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">💬 Text</button>
       <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
       ${delBtn}
       ${viewCxBtn(phone)}`;
@@ -486,7 +486,7 @@ function buildCard(req) {
     <div class="req-header">
       <div class="req-name-wrap">
         <input class="bulk-cb" type="checkbox" ${isSel?'checked':''} onchange="toggleBulkSelect('${req.id}')" style="margin-right:6px;">
-        <span class="req-name">${esc(d.firstName||'')} ${esc(d.lastName||'')}</span>
+        <span class="req-name">${esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || req.customer_name || '—')}</span>
         ${isStale ? '<span class="stale-badge">⚠ Stale</span>' : ''}
       </div>
       <span class="req-time">${timeAgo(req.submittedAt)}</span>
