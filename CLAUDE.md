@@ -219,6 +219,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Pre-commit secret scanning via husky + `scripts/secret-scan.js` | No previous protection against accidental API key commits; git history is permanent — once pushed, key must be rotated even after deletion; bypass: `SKIP_SECRET_SCAN=1 git commit` |
 | May 8, 2026 | Admin auth: KV-stored session tokens, single shared password, auth gate on all admin pages | Customer DB (1,243 records) was publicly accessible to anyone who knew the URL; branch: feature/admin-auth; requires `wrangler secret put ADMIN_PASSWORD` + `VERIFY_TOKEN` env for verify-deploy.js to run authenticated checks |
 | May 8, 2026 | Mobile UA verification in verify-deploy.js | Tyler builds on Mac; Mom and drivers use mobile — viewport meta, iPhone/Android UA 200 checks, tap target size scan (< 36px), fixed-width overflow scan (> 400px), position:fixed without max-width scan; first run found calendar .cal-grid at 1225px (intentional) and 8/18px tap targets in bulk reactivation |
+| May 8, 2026 | Centralized error monitoring: POST /errors/log (public, rate-limited), GET /admin/errors (protected), appendErrorLog KV helper, window.onerror + unhandledrejection on every HTML page | Client-side JS errors and worker exceptions were previously invisible — only visible in user's browser console or Cloudflare logs; pure_cleaning_errors.html dashboard with 30s auto-refresh; verify-deploy.js fails if >200 errors/24h |
 
 *Append future decisions below this line.*
 

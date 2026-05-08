@@ -310,7 +310,39 @@ async function checkDbSanity() {
   else pass('DB sanity — duplicate phones', 'none');
 }
 
-// ── CHECK 6: Mobile compatibility ─────────────────────────────────────────
+// ── CHECK 6: Error monitoring — spike detection ───────────────────────────
+async function checkErrorSpike() {
+  // Requires auth (admin/errors is a protected endpoint)
+  const verifyToken = process.env.VERIFY_TOKEN;
+  if (!verifyToken) {
+    warn('Error spike check', 'Set VERIFY_TOKEN to enable error monitoring checks');
+    return;
+  }
+  let data;
+  try {
+    const r = await fetch(`${WORKERS_API}/admin/errors?since=24h`, {
+      headers: { 'Authorization': `Bearer ${verifyToken}` },
+    });
+    if (!r.ok) { warn('Error spike check', `HTTP ${r.status}`); return; }
+    data = await r.json();
+  } catch (e) {
+    warn('Error spike check — fetch', e.message);
+    return;
+  }
+  const total  = data.total  || 0;
+  const errors = data.errors || [];
+  const client = errors.filter(e => e.source === 'client').length;
+  const worker = errors.filter(e => e.source === 'worker').length;
+  if (total > 200) {
+    fail('Error spike', `${total} errors in last 24h (${client} client, ${worker} worker) — something is seriously broken`);
+  } else if (total > 50) {
+    warn('Error spike', `${total} errors in last 24h (${client} client, ${worker} worker) — investigate`);
+  } else {
+    pass('Error monitoring', `${total} errors in last 24h (${client} client, ${worker} worker)`);
+  }
+}
+
+// ── CHECK 7: Mobile compatibility ─────────────────────────────────────────
 const MOBILE_UAS = [
   {
     name: 'iPhone Safari',
@@ -455,6 +487,7 @@ async function main() {
   await checkRenderSimulation();
   await checkDbSanity();
   await checkCronHeartbeat();
+  await checkErrorSpike();
   await checkMobileCompatibility();
 
   // Print results

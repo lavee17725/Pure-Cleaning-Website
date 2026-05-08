@@ -55,6 +55,16 @@ const DEFAULT_ADDONS_CONFIG = {
   },
 };
 
+// ── Error log helper ─────────────────────────────────────────────────────
+async function appendErrorLog(env, entry) {
+  const date = entry.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0];
+  const key  = `errors:log:${date}`;
+  const log  = (await env.DATA.get(key, 'json')) || [];
+  log.push(entry);
+  if (log.length > 500) log.splice(0, log.length - 500); // cap per day
+  await env.DATA.put(key, JSON.stringify(log), { expirationTtl: 30 * 86400 }); // 30-day TTL
+}
+
 // ── Auth helpers ──────────────────────────────────────────────────────────
 
 function constantTimeEqual(a, b) {
@@ -156,6 +166,7 @@ export default {
       // Public routes (no auth required): health (above), auth/*, customer-facing
       const isPublic =
         (path === 'incoming'        && request.method === 'POST') ||
+        (path === 'errors/log'      && request.method === 'POST') ||  // public — clients must report errors without auth
         (path === 'dates/suggest'   && request.method === 'GET')  ||
         (path === 'service-frequency' && request.method === 'GET') ||
         (path === 'addons-config'   && request.method === 'GET')  ||
@@ -603,10 +614,68 @@ export default {
         return await handleBackfillStats(env, corsHeaders);
       }
 
+      // ── Error log: ingest (public) ────────────────────────────────────────────
+      if (path === 'errors/log' && request.method === 'POST') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateKey = `rate:errors:${ip}`;
+        const attempts = (await env.DATA.get(rateKey, 'json')) || 0;
+        if (attempts >= 20) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
+
+        const body = await request.json().catch(() => ({}));
+        await appendErrorLog(env, {
+          id:        crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          source:    (body.source    || 'client').slice(0, 20),
+          page:      (body.page      || '').slice(0, 200),
+          errorType: (body.errorType || 'Error').slice(0, 100),
+          message:   (body.message   || '').slice(0, 500),
+          stack:     (body.stack     || '').slice(0, 2000),
+          url:       (body.url       || '').slice(0, 500),
+          userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
+          ip:        ip.slice(0, 50),
+        });
+        return jsonResponse({ ok: true }, corsHeaders);
+      }
+
+      // ── Error log: admin view (protected) ─────────────────────────────────────
+      if (path === 'admin/errors' && request.method === 'GET') {
+        const since = url.searchParams.get('since'); // e.g. '24h', '7d', or ISO
+        const days  = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(Date.now() - i * 86400000);
+          days.push(d.toISOString().split('T')[0]);
+        }
+        const logs = await Promise.all(days.map(d => env.DATA.get(`errors:log:${d}`, 'json').then(v => v || [])));
+        let errors = logs.flat().sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        if (since) {
+          const ms  = since.endsWith('h') ? parseInt(since) * 3600000
+                    : since.endsWith('d') ? parseInt(since) * 86400000 : null;
+          const cut = ms ? new Date(Date.now() - ms).toISOString() : since;
+          errors = errors.filter(e => e.timestamp >= cut);
+        }
+        return jsonResponse({ errors: errors.slice(0, 200), total: errors.length }, corsHeaders);
+      }
+
       return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
     } catch (err) {
-      console.error('Worker error', err);
-      return jsonResponse({ error: err.message }, corsHeaders, 500);
+      console.error('Worker error:', err.message);
+      // Log uncaught worker exceptions to error monitoring
+      try {
+        await appendErrorLog(env, {
+          id:        crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          source:    'worker',
+          page:      url?.pathname || 'unknown',
+          errorType: err.name || 'Error',
+          message:   (err.message || String(err)).slice(0, 500),
+          stack:     (err.stack || '').slice(0, 2000),
+          url:       request?.url || '',
+          userAgent: (request?.headers?.get('User-Agent') || '').slice(0, 300),
+          ip:        (request?.headers?.get('CF-Connecting-IP') || 'unknown').slice(0, 50),
+        });
+      } catch {} // never let logging mask the real error
+      return jsonResponse({ error: 'Internal server error' }, corsHeaders, 500);
     }
   },
 };

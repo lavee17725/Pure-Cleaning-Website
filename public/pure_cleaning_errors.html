@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Error Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.back-nav{background:var(--navy2);padding:6px 1.25rem;}
+.back-nav a{color:var(--muted);text-decoration:none;font-size:12px;}
+.header{background:var(--navy);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--white);}
+.logo span{color:var(--gold);}
+.stat-row{display:flex;gap:1rem;flex-wrap:wrap;}
+.stat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.5rem .875rem;text-align:center;}
+.stat-n{font-size:22px;font-weight:700;color:var(--white);font-family:'DM Mono',monospace;}
+.stat-l{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:2px;}
+.stat.red .stat-n{color:#f87171;}
+.controls{background:var(--card);border-bottom:1px solid var(--border);padding:.75rem 1.25rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;}
+select,input{padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;color:var(--text);}
+.refresh-btn{font-size:12px;color:var(--sky);background:none;border:none;cursor:pointer;font-weight:600;padding:4px 8px;border-radius:6px;}
+.refresh-info{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-left:auto;}
+.wrap{padding:1rem 1.25rem;}
+.empty{text-align:center;padding:3rem;color:var(--muted);}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;font-size:12px;}
+th{background:var(--navy2);color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:.5rem .75rem;text-align:left;font-size:10px;}
+td{padding:.6rem .75rem;border-bottom:1px solid var(--border);vertical-align:top;max-width:0;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:rgba(45,125,210,.04);cursor:pointer;}
+tr.dismissed td{opacity:.35;}
+.src-client{background:rgba(45,125,210,.1);color:var(--sky);}
+.src-worker{background:rgba(244,166,32,.1);color:var(--gold);}
+.badge{border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+.et{font-family:'DM Mono',monospace;font-size:11px;color:var(--red);}
+.msg{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;}
+.ts{font-family:'DM Mono',monospace;color:var(--muted);white-space:nowrap;}
+.page-cell{color:var(--muted);font-family:'DM Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;}
+.ua-cell{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;}
+.expand-row{display:none;}
+.expand-row td{background:var(--navy);padding:.75rem 1rem;font-family:'DM Mono',monospace;font-size:11px;line-height:1.6;}
+.expand-row.open{display:table-row;}
+.stack{color:#94d2bd;white-space:pre-wrap;word-break:break-all;}
+.dismiss-btn{float:right;background:none;border:1px solid rgba(255,255,255,.15);color:var(--muted);border-radius:5px;padding:2px 8px;font-size:11px;cursor:pointer;}
+.dismiss-btn:hover{background:rgba(255,255,255,.08);}
+</style>
+</head>
+<body>
+<div class="back-nav"><a href="/pure_cleaning_calendar.html">← Calendar</a></div>
+
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span> · Error Monitor</div>
+  <div class="stat-row" id="stats">
+    <div class="stat"><div class="stat-n" id="s24">—</div><div class="stat-l">Last 24h</div></div>
+    <div class="stat"><div class="stat-n" id="s7d">—</div><div class="stat-l">Last 7 days</div></div>
+    <div class="stat" id="clientStat"><div class="stat-n" id="sClient">—</div><div class="stat-l">Client</div></div>
+    <div class="stat" id="workerStat"><div class="stat-n" id="sWorker">—</div><div class="stat-l">Worker</div></div>
+  </div>
+</div>
+
+<div class="controls">
+  <select id="srcFilter" onchange="applyFilter()">
+    <option value="">All sources</option>
+    <option value="client">Client only</option>
+    <option value="worker">Worker only</option>
+  </select>
+  <select id="sinceFilter" onchange="applyFilter()">
+    <option value="24h">Last 24h</option>
+    <option value="48h">Last 48h</option>
+    <option value="7d">Last 7 days</option>
+  </select>
+  <input type="text" id="pageFilter" placeholder="Filter by page…" oninput="applyFilter()">
+  <input type="text" id="msgFilter" placeholder="Filter by message…" oninput="applyFilter()">
+  <button class="refresh-btn" onclick="loadErrors()">↻ Refresh</button>
+  <span class="refresh-info" id="refreshInfo"></span>
+</div>
+
+<div class="wrap">
+  <div id="tableWrap"><div class="empty">Loading…</div></div>
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let allErrors = [];
+let dismissed = new Set(JSON.parse(localStorage.getItem('pc_dismissed_errors') || '[]'));
+
+async function loadErrors() {
+  const since = document.getElementById('sinceFilter').value || '24h';
+  const res = await fetch(`${API}/admin/errors?since=${since}`);
+  if (!res.ok) { document.getElementById('tableWrap').innerHTML = '<div class="empty">❌ Failed to load errors</div>'; return; }
+  const data = await res.json();
+  allErrors = data.errors || [];
+  document.getElementById('refreshInfo').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
+  updateStats();
+  applyFilter();
+}
+
+function updateStats() {
+  const now = Date.now();
+  const h24 = allErrors.filter(e => new Date(e.timestamp) > now - 86400000).length;
+  const h7d = allErrors.length;
+  const client = allErrors.filter(e => e.source === 'client').length;
+  const worker = allErrors.filter(e => e.source === 'worker').length;
+  document.getElementById('s24').textContent = h24;
+  document.getElementById('s7d').textContent = h7d;
+  document.getElementById('sClient').textContent = client;
+  document.getElementById('sWorker').textContent = worker;
+  document.getElementById('clientStat').className = 'stat' + (client > 10 ? ' red' : '');
+  document.getElementById('workerStat').className = 'stat' + (worker > 0 ? ' red' : '');
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtTs(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' +
+         d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit'});
+}
+
+function applyFilter() {
+  const src  = document.getElementById('srcFilter').value;
+  const page = document.getElementById('pageFilter').value.toLowerCase();
+  const msg  = document.getElementById('msgFilter').value.toLowerCase();
+  let filtered = allErrors;
+  if (src)  filtered = filtered.filter(e => e.source === src);
+  if (page) filtered = filtered.filter(e => (e.page || '').toLowerCase().includes(page));
+  if (msg)  filtered = filtered.filter(e => (e.message || '').toLowerCase().includes(msg));
+  renderTable(filtered);
+}
+
+function renderTable(errors) {
+  if (!errors.length) {
+    document.getElementById('tableWrap').innerHTML = '<div class="empty">✅ No errors in this range</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Time</th><th>Src</th><th>Type</th><th>Message</th><th>Page</th><th>UA</th></tr></thead><tbody>';
+  errors.forEach(function(e, i) {
+    const dis = dismissed.has(e.id);
+    html += `<tr class="${dis ? 'dismissed' : ''}" onclick="toggleExpand(${i}, '${esc(e.id)}')">
+      <td class="ts">${fmtTs(e.timestamp)}</td>
+      <td><span class="badge src-${esc(e.source)}">${esc(e.source)}</span></td>
+      <td class="et">${esc(e.errorType)}</td>
+      <td class="msg" title="${esc(e.message)}">${esc(e.message)}</td>
+      <td class="page-cell" title="${esc(e.page)}">${esc(e.page)}</td>
+      <td class="ua-cell" title="${esc(e.userAgent)}">${esc((e.userAgent||'').replace(/Mozilla\/5\.0\s*/,''))}</td>
+    </tr>
+    <tr class="expand-row" id="exp-${i}">
+      <td colspan="6">
+        <button class="dismiss-btn" onclick="event.stopPropagation();dismissError('${esc(e.id)}',${i})">${dismissed.has(e.id) ? '↩ Restore' : '✓ Dismiss'}</button>
+        <strong style="color:var(--gold)">Message:</strong> ${esc(e.message)}<br>
+        <strong style="color:var(--gold)">URL:</strong> ${esc(e.url)}<br>
+        <strong style="color:var(--gold)">UA:</strong> ${esc(e.userAgent)}<br>
+        <strong style="color:var(--gold)">IP:</strong> ${esc(e.ip)}<br>
+        ${e.stack ? `<strong style="color:var(--gold)">Stack:</strong><br><div class="stack">${esc(e.stack)}</div>` : ''}
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('tableWrap').innerHTML = html;
+}
+
+function toggleExpand(i) {
+  const row = document.getElementById('exp-' + i);
+  if (!row) return;
+  row.classList.toggle('open');
+}
+
+function dismissError(id, i) {
+  if (dismissed.has(id)) { dismissed.delete(id); }
+  else { dismissed.add(id); }
+  localStorage.setItem('pc_dismissed_errors', JSON.stringify([...dismissed]));
+  applyFilter();
+}
+
+// Auto-refresh every 30s
+loadErrors();
+setInterval(function() {
+  loadErrors();
+}, 30000);
+
+// Re-load when since filter changes
+document.getElementById('sinceFilter').addEventListener('change', loadErrors);
+</script>
+</body>
+</html>
