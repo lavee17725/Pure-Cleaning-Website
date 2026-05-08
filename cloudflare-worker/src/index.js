@@ -244,6 +244,7 @@ export default {
       const isPublic =
         (path === 'incoming'        && request.method === 'POST') ||
         (path === 'errors/log'      && request.method === 'POST') ||  // public — clients must report errors without auth
+        (path === 'links'           && request.method === 'GET')  ||  // public — q.html needs this to resolve short links
         (path === 'dates/suggest'   && request.method === 'GET')  ||
         (path === 'service-frequency' && request.method === 'GET') ||
         (path === 'addons-config'   && request.method === 'GET')  ||
@@ -396,6 +397,73 @@ export default {
           return jsonResponse({ success: true }, corsHeaders);
         }
         return jsonResponse({ error: 'Method not allowed' }, corsHeaders, 405);
+      }
+
+      // ── Public: customer approves their quote ──────────────────────────────────
+      // Path: POST /quote/{code}/approve
+      // Scoped update — reads full DB server-side but never exposes other customers.
+      // Phone-validated: body.phone must match the customer record being updated.
+      if (path.match(/^quote\/[^/]+\/approve$/) && request.method === 'POST') {
+        const code = path.split('/')[1];
+
+        // Rate limit: 10 approvals per IP per minute
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rateKey = `rate:approve:${ip}`;
+        const attempts = (await env.DATA.get(rateKey, 'json')) || 0;
+        if (attempts >= 10) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
+
+        const body = await request.json().catch(() => ({}));
+        const { phone, approvedAmount, selectedDate, name, services } = body;
+        if (!phone) return jsonResponse({ error: 'phone required' }, corsHeaders, 400);
+
+        const normPhone = phone.replace(/\D/g, '').slice(-10);
+        const now = new Date().toISOString();
+        const svcStr = Array.isArray(services) ? services.join(', ') : (services || '');
+
+        // Load DB, find or create customer, update ONLY their record
+        const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        let c = (db.customers || []).find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
+
+        if (!c) {
+          const parts = (name || '').trim().split(/\s+/);
+          c = {
+            phone: normPhone,
+            firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '',
+            address: body.address || '', city: body.city || '',
+            lastService: null, totalJobs: 0, lifetimeSpend: 0,
+            hasSealHistory: false, phoneStatus: 'active',
+            quoteStatus: null, scheduledStatus: null,
+            alerts: [], optOut: null, movedAway: null,
+            createdAt: now, source: 'digital_quote_approval',
+          };
+          db.customers.push(c);
+        }
+
+        c.quoteStatus = {
+          state: 'approved', approvedDate: now.split('T')[0], approvedAt: now,
+          approvedAmount: approvedAmount || null, quoteCode: code,
+        };
+        c.scheduledStatus = {
+          state: 'scheduled', scheduledDate: selectedDate || null,
+          rig: null, crew: [], jobNotes: svcStr, startTime: '09:00',
+          approvedAmount: approvedAmount || null,
+          autoScheduled: true, source: 'digital_quote_approval', scheduledAt: now,
+        };
+
+        await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+
+        await appendErrorLog(env, {
+          id: crypto.randomUUID(), timestamp: now,
+          source: 'customer', page: `quote/${code}/approve`,
+          errorType: 'QUOTE_APPROVED',
+          message: `Quote ${code} approved · phone …${normPhone.slice(-4)} · $${approvedAmount || '?'} · ${selectedDate || 'no date'}`,
+          url: request.url,
+          userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
+          ip: ip.slice(0, 50),
+        });
+
+        return jsonResponse({ success: true, scheduled: selectedDate || null }, corsHeaders);
       }
 
       if (path.startsWith('quote/')) {

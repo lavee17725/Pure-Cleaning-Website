@@ -222,6 +222,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Centralized error monitoring: POST /errors/log (public, rate-limited), GET /admin/errors (protected), appendErrorLog KV helper, window.onerror + unhandledrejection on every HTML page | Client-side JS errors and worker exceptions were previously invisible — only visible in user's browser console or Cloudflare logs; pure_cleaning_errors.html dashboard with 30s auto-refresh; verify-deploy.js fails if >200 errors/24h |
 | May 8, 2026 | R2 offsite backup: nightly cron at 4 AM UTC writes customer_db + 7 other KV keys to pure-cleaning-backups R2 bucket; restore takes pre-restore KV snapshot for safety | KV-only backup strategy had single point of failure; retention: 30d daily, 90d weekly, 1y monthly; cost $0/month at current scale; R2 binding commented in wrangler.toml until bucket created |
 
+| May 8, 2026 | Customer quote flow refactored for auth: GET /links public, POST /quote/{code}/approve (scoped), reschedule via POST /incoming | Auth deploy broke q.html (GET /links returned 401) and approval/reschedule flows — customer_quote.html was architected like an admin page using GET+PUT /customers and GET+PUT /incoming; refactored to scoped public endpoints; GET /customers still 401 |
+
 *Append future decisions below this line.*
 
 ---
