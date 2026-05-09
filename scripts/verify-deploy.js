@@ -52,7 +52,13 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_bulk_reactivation.html',
-    markers: ['function dbRecordToCustomer', 'effectiveLastService'],
+    markers: [
+      'function dbRecordToCustomer',
+      'effectiveLastService',
+      // Law 8 guard: const tc must exist in renderTable .map() callback.
+      // If dropped again, ${tc} causes ReferenceError → silent empty list.
+      'const tc         = tierClass(c.tier)',
+    ],
   },
 ];
 

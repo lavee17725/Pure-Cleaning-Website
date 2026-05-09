@@ -256,6 +256,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Review Hub: `isReferralOnly` customers (e.g. Hart's Painting Referral) appearing in Google Review queue | `reviewIsReadyToRequest()` only checked `c.deleted`; added guards for `isReferralOnly`, `optOut`, and `REFERRAL_` phone prefix; rule: every "find eligible customers" function must explicitly check all three exclusion conditions |
 | May 8, 2026 | ML data pipeline foundation: `JOB_HISTORY_SCHEMA.md` created | Documents current jobHistory schema (3 write paths: calendar_completion, Bouncie GPS, csv_backfill), gap analysis vs ML feature set, and 6-tier migration plan; key gaps: sqFt not captured on new jobs, morning stops not linked to job entries, no propertyType, no weather snapshot; see `cloudflare-worker/src/JOB_HISTORY_SCHEMA.md` |
 
+| May 9, 2026 | Bulk Reactivation rendering silent ReferenceError fixed | `const tc = tierClass(c.tier)` was dropped from `renderTable()` `.map()` callback in aaf1232 restructure; `${tc}` at line 1733 threw ReferenceError, tbody.innerHTML assignment failed silently; stats unaffected (set before renderTable runs); symptom: "stats show, list empty"; fix: 1-line restore; Law 8 added + marker check in verify-deploy.js |
 | May 9, 2026 | Tier 2 ML fields shipped: morningStops linked to job entries at completion time | `_doCompleteJob` reads `_morningStopsData[completedDate][rig]` (already in memory from day view load) and snapshots gas/chlorine stop times into the jobHistory entry; null if Bouncie cron hasn't run for that date yet; Option B backfill (post-hoc enrichment in Bouncie cron) deferred to future session |
 | May 9, 2026 | Tier 1 ML fields shipped: crewSize, jobNumber, customerTier, sqFt, geocodedCoords on every new completion | `_doCompleteJob` in calendar.html now captures full ML context at completion time; crewSize defaults by rig (rig_3=1/Tony solo, others=2); jobNumber scans dbRecord.customers for same-rig same-date completions; customerTier is inline simplified snapshot without full getTier dependency; sqFt reads from c.sqFt → ss.sqFt → quoteStatus.sqFt → null; existing csv_backfill entries unchanged |
 
@@ -466,6 +467,22 @@ if (c.optOut) return false;
 **Established:** May 8, 2026, after `cat ~/.wrangler/config/default.toml` printed an OAuth token into the conversation. Law 6 first written. May 9, 2026: tightened after `TOKEN=$(grep oauth_token ~/.wrangler/...)` pattern used for KV inspection — the extraction is the violation, not just the output.
 
 **Status:** ✅ Policy enforced via discipline + explicit prohibited patterns documented
+
+---
+
+### LAW 8: TEMPLATE LITERAL VARIABLES MUST BE IN SCOPE
+
+**Rule:** Every `${variable}` reference in a template literal must have the variable declared in accessible scope. An undeclared variable in a template literal throws `ReferenceError` at runtime, silently breaking any code that depended on the expression's result — with no error visible to the operator.
+
+**Symptom signature:** "stats render but list is empty" — data loaded correctly, counts show, but the rendered container is empty. Means JS threw during the render step, not during fetch.
+
+**Enforcement:** `verify-deploy.js` marker check — key variables in `renderTable()` that were previously dropped are added as required markers. Pre-commit lint (PENDING).
+
+**Established:** May 9, 2026, after `const tc = tierClass(c.tier)` was dropped from the `.map()` callback in `renderTable()` during commit `aaf1232` ("Day 10-11 feature work"). `${tc}` on line 1733 caused a `ReferenceError` on every call to `renderTable()` for the `active` tab. Silent failure for 36+ hours — stats showed correctly (set before `renderTable()` runs), list was empty.
+
+**Fix pattern:** When restructuring a `.map()` or `.forEach()` callback, ensure ALL `${variable}` references in the template literal return value have corresponding `const`/`let` declarations at the top of the callback.
+
+**Status:** ✅ Marker check added for `const tc` · ⏳ Generic pre-commit lint PENDING
 
 ---
 
