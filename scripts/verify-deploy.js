@@ -46,6 +46,9 @@ const HTML_FILES = [
   {
     file: 'pure_cleaning_review_hub.html',
     markers: ['function loadHub', 'function daysBadge', 'CUTOFF'],
+    cssChecks: [
+      { selector: '.card-name', prop: 'color', forbidden: '#fff' },
+    ],
   },
   {
     file: 'pure_cleaning_bulk_reactivation.html',

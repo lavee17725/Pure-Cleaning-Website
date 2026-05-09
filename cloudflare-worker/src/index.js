@@ -1529,6 +1529,9 @@ const REVIEW_ELIGIBLE_CUTOFF = '2026-05-01';
 
 function reviewIsReadyToRequest(c, nowIso, sevenDaysAgo, thirtyDaysAgo) {
   if (c.deleted) return false;
+  if (c.isReferralOnly) return false;                              // referral source markers, not real customers
+  if (c.optOut) return false;                                      // customer opted out of outreach
+  if ((c.phone || '').startsWith('REFERRAL_')) return false;       // placeholder phone = referral-only record
   const gr = c.googleReview || {};
   const st = gr.status || 'never_asked';
   if (st === 'left' || st === 'do_not_ask') return false;

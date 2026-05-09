@@ -137,6 +137,7 @@ Text on cards must use `--text`, `--navy`, or `--muted`. Never `--white` or `--c
 - **Review eligibility** — requires `j.source !== 'csv_backfill' && j.completedAt && j.completedAt >= REVIEW_ELIGIBLE_CUTOFF`. Never use `j.date + 'T12:00:00'` as a proxy for completedAt.
 - **Completed date** — `scheduledStatus.completedAt`. The field `completedDate` does not exist.
 - **CSV backfill entries** — `source: 'csv_backfill'`, `completedAt: null`. Exclude from review queue, payment history, and any calculation that requires a real completion.
+- **Referral-only customers** — `isReferralOnly: true` OR `phone.startsWith('REFERRAL_')`. These are referral source markers, not real customers. Must be excluded from ALL outreach: review requests, reactivation campaigns, any "find eligible customers" query. Add explicit guard in every new filtering function.
 
 ### Incoming Requests Schema
 
@@ -251,6 +252,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | csv_backfill collision fix: Bouncie GPS times not rendering in calendar cards | `jobCardScheduled` line 2537 uses `.slice().reverse().find()` to get last-appended jh entry for scheduled date; after CSV backfill appended entries AFTER existing GPS-matched entries, reverse returned the csv_backfill entry (no GPS data) masking the real Bouncie entry; fixed by skipping `source==='csv_backfill'` entries in the GPS lookup with fallback to any entry if no non-backfill entry exists |
 | May 8, 2026 | csv_backfill guard rule: csv_backfill entries need explicit guards in any "find most recent entry" code path | By definition they are synthetic historical records with `completedAt: null` and no GPS data; any `.find()` or `.reverse().find()` pattern on jobHistory must exclude them when real calendar-completion entries exist for the same date |
 
+| May 8, 2026 | Review Hub white-on-white CSS bug: `.card-name { color: var(--white) }` on white card | Same pattern as incoming requests `.req-name` fix; copy-pasted dark-background CSS into a light-background page; added `.card-name` contrast check to verify-deploy.js so this class can never regress |
+| May 8, 2026 | Review Hub: `isReferralOnly` customers (e.g. Hart's Painting Referral) appearing in Google Review queue | `reviewIsReadyToRequest()` only checked `c.deleted`; added guards for `isReferralOnly`, `optOut`, and `REFERRAL_` phone prefix; rule: every "find eligible customers" function must explicitly check all three exclusion conditions |
 | May 8, 2026 | ML data pipeline foundation: `JOB_HISTORY_SCHEMA.md` created | Documents current jobHistory schema (3 write paths: calendar_completion, Bouncie GPS, csv_backfill), gap analysis vs ML feature set, and 6-tier migration plan; key gaps: sqFt not captured on new jobs, morning stops not linked to job entries, no propertyType, no weather snapshot; see `cloudflare-worker/src/JOB_HISTORY_SCHEMA.md` |
 
 *Append future decisions below this line.*
