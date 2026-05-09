@@ -302,6 +302,20 @@ td.money{font-family:'DM Mono',monospace;}
 .tl-empty{text-align:center;padding:2rem;color:var(--muted);font-size:14px;}
 .render-error{text-align:center;padding:1.5rem;background:rgba(234,88,12,.08);color:#c2410c;font-size:13px;font-weight:600;border-radius:8px;}
 
+/* service section sub-tabs */
+.svc-tabs{display:none;padding:.5rem 1.25rem;gap:.5rem;flex-wrap:wrap;align-items:center;background:var(--bg);border-bottom:1px solid var(--border);}
+.svc-tabs.show{display:flex;}
+.svc-tab{padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:none;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;color:var(--muted);transition:all .15s;line-height:1.4;}
+.svc-tab:hover{border-color:var(--sky);color:var(--sky);}
+.svc-tab.svc-ground.active{background:rgba(45,125,210,.12);border-color:var(--sky);color:var(--sky);}
+.svc-tab.svc-roof.active{background:rgba(124,58,237,.1);border-color:#a78bfa;color:#a78bfa;}
+.svc-tab.svc-both.active{background:rgba(229,62,62,.12);border-color:#fc8181;color:#fc8181;}
+/* urgency badges in table */
+.urg-badge{display:inline-block;border-radius:5px;padding:1px 6px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;vertical-align:middle;}
+.urg-due{background:rgba(29,158,117,.12);color:#1d9e75;}
+.urg-overdue{background:rgba(244,166,32,.12);color:#b45309;}
+.urg-stale{background:rgba(229,62,62,.12);color:#fc8181;}
+
 /* exclusion modal */
 .excl-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem;}
 .excl-modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;max-width:440px;width:100%;max-height:90vh;overflow-y:auto;}
@@ -491,6 +505,14 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
     <button class="pool-tab" onclick="setPoolTab('excluded')" style="border-color:rgba(229,62,62,.5);color:#fca5a5;">⛔ Excluded <span class="pool-badge" id="tabExcludedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('timeline')">📅 Timeline <span class="pool-badge" id="tabTimelineCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
+  </div>
+
+  <!-- SERVICE SECTION TABS (active pool only) -->
+  <div class="svc-tabs" id="svcTabs">
+    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-right:2px;">Service due:</span>
+    <button class="svc-tab svc-both" id="svcTabBoth" onclick="setSvcSection('both')">⚡ Both Due <span class="pool-badge" id="svcCountBoth">0</span></button>
+    <button class="svc-tab svc-ground" id="svcTabGround" onclick="setSvcSection('ground')">💧 Ground <span class="pool-badge" id="svcCountGround">0</span></button>
+    <button class="svc-tab svc-roof" id="svcTabRoof" onclick="setSvcSection('roof')">🏠 Roof <span class="pool-badge" id="svcCountRoof">0</span></button>
   </div>
 
   <!-- FILTERS -->
@@ -897,6 +919,59 @@ function customerToDbRecord(c) {
   };
 }
 
+// ─── SERVICE CATEGORIZATION (Law 11) ─────────────────────────────────────────
+// Shared categorizer for all reactivation/outreach features. Returns:
+//   'roof'    — roof clean, soft wash, softwash variants
+//   'ground'  — driveway, patio, sidewalk, walkway, concrete, paver, pool deck, deck, pressure wash
+//   'both'    — matches both roof and ground keywords
+//   'unknown' — no match
+function categorizeService(text) {
+  const t = (text || '').toLowerCase();
+  const isRoof   = /roof|soft\s*wash|softwash|softwash/.test(t);
+  const isGround = /driveway|patio|sidewalk|walkway|concrete|pressure|paver|pool\s*deck|\bdeck\b|entranceway|entrance|flat\s*work|flatwork|pool area/.test(t);
+  if (isRoof && isGround) return 'both';
+  if (isRoof)   return 'roof';
+  if (isGround) return 'ground';
+  return 'unknown';
+}
+
+let activeSvcSection = null; // set by updateTabCounts on first load
+
+function setSvcSection(section) {
+  activeSvcSection = section;
+  updateSvcTabHighlight();
+  applyFilters();
+}
+
+function updateSvcTabHighlight() {
+  ['both','ground','roof'].forEach(s => {
+    const btn = document.getElementById('svcTab' + s.charAt(0).toUpperCase() + s.slice(1));
+    if (btn) btn.classList.toggle('active', activeSvcSection === s);
+  });
+}
+
+function svcMoCell(c) {
+  if (!activeSvcSection) return c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
+  if (activeSvcSection === 'ground') {
+    const ms = c.monthsSinceGround;
+    const u  = c.groundUrgency;
+    return ms !== null ? `${ms.toFixed(1)} mo${u ? ' <span class="urg-badge urg-' + u + '">' + u + '</span>' : ''}` : '—';
+  }
+  if (activeSvcSection === 'roof') {
+    const ms = c.monthsSinceRoof;
+    const u  = c.roofUrgency;
+    return ms !== null ? `${ms.toFixed(1)} mo${u ? ' <span class="urg-badge urg-' + u + '">' + u + '</span>' : ''}` : '—';
+  }
+  if (activeSvcSection === 'both') {
+    const gms = c.monthsSinceGround !== null ? c.monthsSinceGround.toFixed(1) : '—';
+    const rms = c.monthsSinceRoof   !== null ? c.monthsSinceRoof.toFixed(1)   : '—';
+    const gu  = c.groundUrgency ? `<span class="urg-badge urg-${c.groundUrgency}">${c.groundUrgency}</span>` : '';
+    const ru  = c.roofUrgency   ? `<span class="urg-badge urg-${c.roofUrgency}">${c.roofUrgency}</span>`     : '';
+    return `💧${gms} ${gu} 🏠${rms} ${ru}`;
+  }
+  return c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
+}
+
 function dbRecordToCustomer(r) {
   // Use same effective stats as getTier() — jobHistory takes priority over stale aggregate fields
   const jh = r.jobHistory || [];
@@ -915,6 +990,40 @@ function dbRecordToCustomer(r) {
   const avgTicket = totalJobs ? lifetimeSpend / totalJobs : 0;
   const hasSeal = r.hasSealHistory || false;
   const t = getTier(r);
+
+  // Per-service-type date tracking (Law 11: uses shared categorizeService)
+  let lastGroundTs = 0, lastRoofTs = 0;
+  for (const j of jh) {
+    if (!j.date) continue;
+    const ts  = new Date(j.date + 'T12:00:00').getTime();
+    const cat = categorizeService(j.services || '');
+    if (cat === 'ground' || cat === 'both') lastGroundTs = Math.max(lastGroundTs, ts);
+    if (cat === 'roof'   || cat === 'both') lastRoofTs   = Math.max(lastRoofTs,   ts);
+  }
+  // Fall back to scheduledStatus / quoteStatus text when jobHistory entries lack service labels
+  if ((!lastGroundTs || !lastRoofTs) && effectiveLastService) {
+    const svcText = [
+      (r.scheduledStatus && r.scheduledStatus.jobNotes) || '',
+      (r.quoteStatus && r.quoteStatus.mainServices)     || '',
+      (r.quoteStatus && r.quoteStatus.notes)             || '',
+    ].join(' ');
+    const fallbackCat = categorizeService(svcText);
+    const fallbackTs  = new Date(effectiveLastService + 'T12:00:00').getTime();
+    if ((fallbackCat === 'ground' || fallbackCat === 'both') && !lastGroundTs) lastGroundTs = fallbackTs;
+    if ((fallbackCat === 'roof'   || fallbackCat === 'both') && !lastRoofTs)   lastRoofTs   = fallbackTs;
+  }
+  const lastGroundDateObj    = lastGroundTs ? new Date(lastGroundTs) : null;
+  const lastRoofDateObj      = lastRoofTs   ? new Date(lastRoofTs)   : null;
+  const monthsSinceGround    = monthsSince(lastGroundDateObj);
+  const monthsSinceRoof      = monthsSince(lastRoofDateObj);
+  const groundDue = monthsSinceGround !== null && monthsSinceGround >= 6;
+  const roofDue   = monthsSinceRoof   !== null && monthsSinceRoof   >= 18;
+  const svcSection = (groundDue && roofDue) ? 'both' : groundDue ? 'ground' : roofDue ? 'roof' : null;
+  const groundUrgency = groundDue
+    ? (monthsSinceGround >= 18 ? 'stale' : monthsSinceGround >= 12 ? 'overdue' : 'due') : null;
+  const roofUrgency   = roofDue
+    ? (monthsSinceRoof   >= 36 ? 'stale' : monthsSinceRoof   >= 30 ? 'overdue' : 'due')   : null;
+
   return {
     fn: r.firstName || r.fn || '', ln: r.lastName || r.ln || '', phone: r.phone,
     address: r.address || '', city: r.city || '',
@@ -934,6 +1043,9 @@ function dbRecordToCustomer(r) {
     deletedAt: r.deletedAt || null,
     jobHistory: r.jobHistory || [],
     legacyStats: r.legacyStats || null,
+    // Per-service-type reactivation fields
+    lastGroundDateObj, lastRoofDateObj, monthsSinceGround, monthsSinceRoof,
+    svcSection, groundUrgency, roofUrgency,
   };
 }
 
@@ -1421,6 +1533,7 @@ async function processFiles() {
   document.getElementById('filterBar').style.display = 'block';
   document.getElementById('tableWrap').style.display = 'block';
   document.getElementById('tableControls').classList.add('show');
+  document.getElementById('svcTabs').classList.add('show'); // active pool is default tab
 
   renderFilePills();
 
@@ -1513,6 +1626,11 @@ function applyFilters() {
     if (phoneFilter === 'active'       && c.phoneStatus === 'disconnected') return false;
     if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
     if (poolTab === 'active'    && isInCooldown(c.phone))  return false;
+    // Service section filter: exclude customers not due for any service
+    if (poolTab === 'active') {
+      if (!c.svcSection) return false;
+      if (activeSvcSection && c.svcSection !== activeSvcSection) return false;
+    }
     if (poolTab === 'contacted' && !isInCooldown(c.phone)) return false;
     if (poolTab === 'today') {
       const rec = loadContactRecord(c.phone);
@@ -1646,7 +1764,7 @@ function renderTable() {
   }
   tbody.innerHTML = filteredCustomers.map(c => {
     const checked = selectedPhones.has(c.phone);
-    const mo = c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—';
+    const mo = poolTab === 'active' ? svcMoCell(c) : (c.monthsSince < 999 ? c.monthsSince.toFixed(1) + ' mo' : '—');
     const tCol = c.tierColor || tierColorFromLabel(c.tier);
     const tBadgeStyle = `background:${tCol}18;color:${tCol};border:1px solid ${tCol}44;`;
     const tBadgeHtml = `<span class="tier-chip" style="${tBadgeStyle};display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">${tierLabel(c.tier)}${c.tierVip?' ★':''}</span>`;
@@ -1773,6 +1891,7 @@ function renderTable() {
 function renderTimelineView() {
   const el = document.getElementById('timelineView');
   if (!el) return;
+  try {
 
   const buckets = { overdue: [], due_now: [], due_soon: [], not_due: [], sent: [] };
   filteredCustomers.forEach(c => {
@@ -1815,6 +1934,11 @@ function renderTimelineView() {
       <div class="tl-cards">${list.map(c => renderTimelineCard(c, sec.key)).join('')}</div>
     </div>`;
   }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="tl-empty">⚠️ Timeline unavailable — check error monitor for details.</div>';
+    _fwdError('bulk_reactivation_renderTimelineView', e);
+    console.error('[renderTimelineView]', e);
+  }
 }
 
 function renderTimelineCard(c, status) {
@@ -1927,6 +2051,7 @@ function etDayTimeStr(iso) {
 function renderTabSummary(tab) {
   const bar = document.getElementById('tabSummaryBar');
   if (!bar) return;
+  try {
   if (tab !== 'today' && tab !== 'week') { bar.style.display = 'none'; return; }
   const records = Object.entries(loadContacts())
     .map(([phone, v]) => ({phone, iso: typeof v === 'string' ? v : (v && v.contactedAt)}))
@@ -1954,6 +2079,10 @@ function renderTabSummary(tab) {
     `<span class="day-chip${counts[d] > 0 ? ' has-sends' : ''}">${d}: ${counts[d]}</span>`).join('');
   bar.style.display = 'block';
   bar.innerHTML = `<div class="tab-summary ${wcls}">${wIcon} This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem >= 0 ? rem : 0}</strong> remaining<div class="day-chips">${chips}</div></div>`;
+  } catch(e) {
+    _fwdError('bulk_reactivation_renderTabSummary', e);
+    console.error('[renderTabSummary]', e);
+  }
 }
 // ─── COMPLIANCE ENFORCEMENT ──────────────────────────────────────────────────
 function isWithinSendingHours() {
@@ -2240,8 +2369,10 @@ function setPoolTab(tab) {
   const isTimeline = tab === 'timeline';
   const tw = document.getElementById('tableWrap');
   const tv = document.getElementById('timelineView');
+  const st = document.getElementById('svcTabs');
   if (tw) tw.style.display = isTimeline ? 'none' : (allCustomers.length ? 'block' : 'none');
   if (tv) tv.classList.toggle('show', isTimeline);
+  if (st) st.classList.toggle('show', tab === 'active');
   renderTabSummary(tab);
   applyFilters();
 }
@@ -2249,6 +2380,7 @@ function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
   let active = 0, booked = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0;
+  let groundCt = 0, roofCt = 0, bothCt = 0;
   allCustomers.forEach(c => {
     if (c.reactivationExcluded?.excluded) { excludedCt++; return; }
     if (c.optOut)    { optedOutCt++;   return; }
@@ -2267,6 +2399,9 @@ function updateTabCounts() {
       }
     } else {
       active++;
+      if (c.svcSection === 'ground') groundCt++;
+      else if (c.svcSection === 'roof')  roofCt++;
+      else if (c.svcSection === 'both')  bothCt++;
     }
     const rs = reactivationStatus(c);
     if (rs === 'overdue' || rs === 'due_now') timelineUrgent++;
@@ -2281,6 +2416,17 @@ function updateTabCounts() {
   document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
   document.getElementById('tabExcludedCount').textContent  = excludedCt;
   document.getElementById('tabTimelineCount').textContent  = timelineUrgent;
+  const svcG = document.getElementById('svcCountGround');
+  const svcR = document.getElementById('svcCountRoof');
+  const svcB = document.getElementById('svcCountBoth');
+  if (svcG) svcG.textContent = groundCt;
+  if (svcR) svcR.textContent = roofCt;
+  if (svcB) svcB.textContent = bothCt;
+  // Auto-default section on first load or if current section is empty
+  if (!activeSvcSection || (activeSvcSection === 'both' && bothCt === 0)) {
+    activeSvcSection = bothCt > 0 ? 'both' : groundCt > 0 ? 'ground' : roofCt > 0 ? 'roof' : 'ground';
+    updateSvcTabHighlight();
+  }
 }
 function textNow(phone) {
   const compliance = checkCompliance();

@@ -794,7 +794,7 @@ export default {
         await env.DATA.put(rateKey, JSON.stringify(attempts + 1), { expirationTtl: 60 });
 
         const body = await request.json().catch(() => ({}));
-        await appendErrorLog(env, {
+        const entry = {
           id:        crypto.randomUUID(),
           timestamp: new Date().toISOString(),
           source:    (body.source    || 'client').slice(0, 20),
@@ -805,7 +805,29 @@ export default {
           url:       (body.url       || '').slice(0, 500),
           userAgent: (request.headers.get('User-Agent') || '').slice(0, 300),
           ip:        ip.slice(0, 50),
+        };
+        await appendErrorLog(env, entry);
+
+        // ── Spike detection: 5-min sliding window ────────────────────────────
+        const nowMs   = Date.now();
+        const buckets = [0, 1, 2].map(i => {
+          const ts   = nowMs - i * 300000;
+          const date = new Date(ts).toISOString().split('T')[0];
+          return `errors:count:${date}:${Math.floor(ts / 300000)}`;
         });
+        const curBucketKey = buckets[0];
+        const curBucketVal = (await env.DATA.get(curBucketKey, 'json')) || 0;
+        await env.DATA.put(curBucketKey, JSON.stringify(curBucketVal + 1), { expirationTtl: 1800 });
+        const windowCounts = await Promise.all(buckets.map(k => env.DATA.get(k, 'json').then(v => v || 0)));
+        const windowTotal  = windowCounts.reduce((a, b) => a + b, 0);
+        if (windowTotal >= 10) {
+          await env.DATA.put('alerts:active', JSON.stringify({
+            spikeAt:  entry.timestamp,
+            count:    windowTotal,
+            sample:   { source: entry.source, page: entry.page, message: entry.message },
+          }), { expirationTtl: 1800 });
+        }
+
         return jsonResponse({ ok: true }, corsHeaders);
       }
 
@@ -826,6 +848,12 @@ export default {
           errors = errors.filter(e => e.timestamp >= cut);
         }
         return jsonResponse({ errors: errors.slice(0, 200), total: errors.length }, corsHeaders);
+      }
+
+      // ── Alert spike flag: read (protected) ────────────────────────────────────
+      if (path === 'admin/alerts-active' && request.method === 'GET') {
+        const alert = await env.DATA.get('alerts:active', 'json');
+        return jsonResponse({ active: !!alert, alert: alert || null }, corsHeaders);
       }
 
       // ── Backup: on-demand trigger (protected) ─────────────────────────────────

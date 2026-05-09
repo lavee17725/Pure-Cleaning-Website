@@ -260,6 +260,10 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 9, 2026 | Bulk Reactivation rendering silent ReferenceError fixed | `const tc = tierClass(c.tier)` was dropped from `renderTable()` `.map()` callback in aaf1232 restructure; `${tc}` at line 1733 threw ReferenceError, tbody.innerHTML assignment failed silently; stats unaffected (set before renderTable runs); symptom: "stats show, list empty"; fix: 1-line restore; Law 8 added + marker check in verify-deploy.js |
 | May 9, 2026 | Tier 2 ML fields shipped: morningStops linked to job entries at completion time | `_doCompleteJob` reads `_morningStopsData[completedDate][rig]` (already in memory from day view load) and snapshots gas/chlorine stop times into the jobHistory entry; null if Bouncie cron hasn't run for that date yet; Option B backfill (post-hoc enrichment in Bouncie cron) deferred to future session |
 | May 9, 2026 | Tier 1 ML fields shipped: crewSize, jobNumber, customerTier, sqFt, geocodedCoords on every new completion | `_doCompleteJob` in calendar.html now captures full ML context at completion time; crewSize defaults by rig (rig_3=1/Tony solo, others=2); jobNumber scans dbRecord.customers for same-rig same-date completions; customerTier is inline simplified snapshot without full getTier dependency; sqFt reads from c.sqFt → ss.sqFt → quoteStatus.sqFt → null; existing csv_backfill entries unchanged |
+| May 9, 2026 | Law 9 applied to panel renders (graceful degradation): renderTimelineView, renderTabSummary, renderCurrentTab (all tabs), renderProfile, calendar render sub-calls | One broken panel no longer takes down the whole page; each panel catch shows "⚠️ section unavailable" and forwards to /errors/log via sendBeacon |
+| May 9, 2026 | Auto-alert spike detection (Law 10 Phase 1): POST /errors/log increments 5-min KV buckets; ≥10 errors in 15-min window sets alerts:active KV key (30-min TTL); errors.html checks GET /admin/alerts-active on load and shows red banner | Passive monitoring is not monitoring — push beats pull; operator learns of spikes without opening the dashboard |
+| May 9, 2026 | Bulk Reactivation service-type logic rewrote with per-job categorization | Old logic used quoteStatus/scheduledStatus text for a single service type; new logic scans jobHistory[j].services per entry to find lastGroundDate and lastRoofDate separately; customers not due for any service (< 6mo ground, < 18mo roof) are excluded from queue; new three-tab UI: Both Due / Ground / Roof |
+| May 9, 2026 | `categorizeService(text)` shared function added (Law 11) | Keyword matcher for roof vs ground service; single source of truth prevents drift across features |
 
 *Append future decisions below this line.*
 
@@ -517,6 +521,54 @@ if (c.optOut) return false;
 **Established:** May 9, 2026, after the `const tc` ReferenceError in Bulk Reactivation was caught by `tryLoadDatabase()` and never reached `window.onerror`. Error dashboard empty for 36+ hours. See Law 8 for the companion Law.
 
 **Status:** ✅ Enforced on key page-init catches · verify-deploy.js marker checks present · ⏳ Full lint scan PENDING
+
+---
+
+---
+
+### LAW 11: SERVICE CATEGORIZATION IS SHARED
+
+**Rule:** Any feature that filters customers by service type (reactivation, review requests, marketing campaigns) MUST use the shared `categorizeService()` function. Keyword matching is defined in one place.
+
+**Returns:** `'roof'` | `'ground'` | `'both'` | `'unknown'`
+
+**Roof keywords:** `roof`, `soft wash`, `softwash`
+
+**Ground keywords:** `driveway`, `patio`, `sidewalk`, `walkway`, `concrete`, `pressure`, `paver`, `pool deck`, `deck`, `entranceway`, `entrance`, `flatwork`, `pool area`
+
+**Thresholds:** Ground reactivation = 6 months. Roof reactivation = 18 months.
+
+**Urgency tiers:**
+- Ground: 6–12 mo = `due`, 12–18 mo = `overdue`, 18+ mo = `stale`
+- Roof: 18–30 mo = `due`, 30–36 mo = `overdue`, 36+ mo = `stale`
+
+**Current location:** `pure_cleaning_bulk_reactivation.html` (inline). Future: extract to `public/js/pc-utils.js` when a second page needs it.
+
+**Established:** May 9, 2026, after Bulk Reactivation was found showing Keith Wolf (0.1 months since roof clean) because the old logic used a single `lastDateObj` with a single service type guess, with no per-job service tracking.
+
+**Status:** ✅ Enforced in bulk_reactivation · ⏳ Review Hub and other outreach features not yet updated
+
+---
+
+### LAW 10: SYSTEM SELF-MONITORS — OPERATOR DOES NOT
+
+**Rule:** The system must detect its own error spikes and surface them to the operator automatically. Tyler must not need to open the error dashboard to know something is wrong.
+
+**Phase 1 (done):** KV alert flag. When `POST /errors/log` receives 10+ errors in a 15-minute sliding window, the worker writes `alerts:active` to KV (30-min auto-expiry TTL). `pure_cleaning_errors.html` reads `GET /admin/alerts-active` on every load and shows a prominent red banner if the flag is set.
+
+**Phase 2 (deferred):** Outbound notification via Twilio/SendGrid — SMS or email to Tyler when a spike is detected. Deferred until Phase 1 is validated.
+
+**Enforcement:** No automated check in verify-deploy.js (requires live error injection to test). Manual: confirm `alerts:active` key appears in KV after 10 test errors in 15 minutes.
+
+**Spike detection algorithm:**
+- 5-minute buckets: `errors:count:{date}:{floor(epochMs / 300000)}`
+- Sliding window: sum buckets for now, now−5min, now−10min (3 buckets = 15-min window)
+- Threshold: ≥ 10 errors → set `alerts:active = { spikeAt, count, sample }` with `expirationTtl: 1800`
+- Auto-snooze: KV TTL means the banner disappears in 30 min without operator action
+
+**Established:** May 9, 2026. Motivation: error dashboard is useless if Tyler only checks it when he already suspects a problem. The system must push — operator pull is not a monitoring strategy.
+
+**Status:** ✅ Enforced — Phase 1 shipped · Phase 2 (SMS/email) deferred
 
 ---
 

@@ -41,7 +41,7 @@ Key protected resources:
 - `PUT /customers` — replaces entire customer DB (destructive)
 - `GET /incoming` — all quote requests
 - `PUT /incoming` — replaces incoming list
-- `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat)
+- `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active)
 - `GET /events` — audit/event log
 - `PUT /agreement/{phone}/edit-services` — admin edits services
 - `POST /agreement/{phone}/manual-confirm` — admin confirms

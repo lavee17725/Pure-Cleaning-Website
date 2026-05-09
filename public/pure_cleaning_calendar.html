@@ -1727,20 +1727,27 @@ function getWeekDates() {
 }
 function isoToday() { return new Date().toISOString().split('T')[0]; }
 
+function _calPanelErr(containerId, sourceName, e) {
+  const el = document.getElementById(containerId);
+  if (el) el.innerHTML = '<div style="padding:1rem;color:#c2410c;font-size:13px;font-weight:600;">⚠️ This panel is temporarily unavailable.</div>';
+  try { navigator.sendBeacon(PCPC_API + '/errors/log', JSON.stringify({ source: 'calendar_' + sourceName, page: 'pure_cleaning_calendar.html', errorType: (e && e.name) || 'Error', message: ((e && e.message) || String(e)).slice(0, 500), stack: ((e && e.stack) || '').slice(0, 2000), url: location.href, timestamp: new Date().toISOString() })); } catch {}
+  console.error('[' + sourceName + ']', e);
+}
+
 // ── RENDER ────────────────────────────────────────────────────────────────────
 function render() {
   const dates = getWeekDates();
-  renderSidebar();
-  renderCrewPanel(dates);
+  try { renderSidebar(); } catch(e) { _calPanelErr('sidebarContent', 'renderSidebar', e); }
+  try { renderCrewPanel(dates); } catch(e) { _calPanelErr('crewPanel', 'renderCrewPanel', e); }
   updateReviewAlertBanner();
   if (currentView === 'week') {
     const fmt1 = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
     document.getElementById('weekLabel').textContent = `${fmt1(dates[0])} – ${fmt1(dates[6])}`;
-    renderCalGrid(dates);
+    try { renderCalGrid(dates); } catch(e) { _calPanelErr('calGrid', 'renderCalGrid', e); }
   } else if (currentView === 'day') {
-    renderDayView(dayViewDate || isoToday());
+    try { renderDayView(dayViewDate || isoToday()); } catch(e) { _calPanelErr('dayViewWrap', 'renderDayView', e); }
   } else if (currentView === 'month') {
-    renderMonthView();
+    try { renderMonthView(); } catch(e) { _calPanelErr('monthOuter', 'renderMonthView', e); }
   }
 }
 
