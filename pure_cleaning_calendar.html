@@ -216,6 +216,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-inv-btns{display:flex;gap:5px;margin-top:4px;}
 /* Week grid drag-to-scroll */
 #weekViewWrap{position:relative;}
+#calGrid{cursor:grab;}
 .cal-grid.wv-dragging{cursor:grabbing !important;user-select:none;}
 .wv-fade{position:absolute;top:0;bottom:0;width:48px;pointer-events:none;z-index:10;opacity:0;transition:opacity .2s;}
 .wv-fade-l{left:0;background:linear-gradient(to right,rgba(250,250,247,.9),transparent);}
@@ -5852,9 +5853,11 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ── WEEK VIEW — drag-to-scroll + touch swipe + edge fades ─────────────────────
+// ── WEEK VIEW — drag-to-navigate + touch swipe + edge fades ──────────────────
+// _weekNavDrag: mouse drag ≥ 100px left/right navigates weeks with fly-out animation
 (function() {
-  let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false;
+  const WEEK_NAV_THRESHOLD = 100; // px to commit week navigation
+  let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false, _totalDx = 0;
   const scroller = () => document.querySelector('.main-col');
   const grid     = () => document.getElementById('calGrid');
 
@@ -5867,22 +5870,17 @@ document.addEventListener('keydown', e => {
     if (fR) fR.style.opacity = sc.scrollLeft < (sc.scrollWidth - sc.clientWidth - 8) ? '1' : '0';
   }
 
-  // Update fades on scroll
   document.addEventListener('scroll', updateFades, { passive: true, capture: true });
-
-  // Kick off fade check after every render
-  const _origRender = window.render;
-  // (patched below, after render is defined)
 
   document.addEventListener('mousedown', e => {
     if (currentView !== 'week') return;
     if (wasDragging) return; // SortableJS already active
-    // Skip clicks on interactive targets
     if (e.target.closest('.job-scheduled,.win-lane-hdr,.rig-hdr,.day-hdr,button,a,input,select,textarea,.modal')) return;
     const sc = scroller();
     if (!sc) return;
     _dragging = true;
     _isH      = false;
+    _totalDx  = 0;
     _startX   = e.clientX;
     _startY   = e.clientY;
     _scrollX0 = sc.scrollLeft;
@@ -5893,23 +5891,51 @@ document.addEventListener('keydown', e => {
     if (!_dragging) return;
     const dx = e.clientX - _startX;
     const dy = e.clientY - _startY;
-    if (!_isH && Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // haven't moved enough to decide
+    if (!_isH && Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
     if (!_isH) {
-      if (Math.abs(dx) < Math.abs(dy) * 0.8) { _dragging = false; return; } // vertical intent — cancel
+      if (Math.abs(dx) < Math.abs(dy) * 0.8) { _dragging = false; return; }
       _isH = true;
       const g = grid(); if (g) g.classList.add('wv-dragging');
     }
+    _totalDx = dx;
     const sc = scroller();
     if (sc) sc.scrollLeft = _scrollX0 - dx;
+    // Parallax transform feedback — hints at week navigation direction
+    const g = grid();
+    if (g) g.style.transform = 'translateX(' + (dx * 0.18) + 'px)';
     updateFades();
   });
 
   function stopDrag() {
     if (!_dragging) return;
     _dragging = false;
-    const g = grid(); if (g) g.classList.remove('wv-dragging');
+    const g = grid();
+    if (g) g.classList.remove('wv-dragging');
     if (!_isH) return;
-    // Snap to nearest column
+    const dx = _totalDx;
+    _totalDx = 0;
+
+    if (Math.abs(dx) >= WEEK_NAV_THRESHOLD) {
+      // Fly grid off-screen in drag direction, then navigate to new week
+      if (g) {
+        g.style.transition = 'transform 0.15s ease';
+        g.style.transform  = 'translateX(' + (dx > 0 ? 340 : -340) + 'px)';
+        setTimeout(() => {
+          if (g) { g.style.transition = ''; g.style.transform = ''; }
+          changeWeek(dx < 0 ? 1 : -1);
+        }, 140);
+      } else {
+        changeWeek(dx < 0 ? 1 : -1);
+      }
+      return;
+    }
+
+    // Threshold not met — snap transform back and snap scroll to nearest column
+    if (g) {
+      g.style.transition = 'transform 0.2s ease';
+      g.style.transform  = '';
+      setTimeout(() => { if (g) g.style.transition = ''; }, 220);
+    }
     const sc = scroller();
     if (!sc) return;
     const col = document.querySelector('.day-col');
@@ -5921,7 +5947,7 @@ document.addEventListener('keydown', e => {
   document.addEventListener('mouseup',    stopDrag);
   document.addEventListener('mouseleave', stopDrag);
 
-  // Touch swipe for week view (changes week, doesn't smooth-scroll)
+  // Touch swipe — changes week (left = forward, right = back)
   let _wvTouchX = null;
   document.addEventListener('touchstart', e => {
     if (currentView !== 'week') return;
@@ -5935,7 +5961,7 @@ document.addEventListener('keydown', e => {
     changeWeek(dx < 0 ? 1 : -1);
   }, { passive: true });
 
-  // Update fades after any render by patching changeWeek / render
+  // Patch changeWeek to refresh fades after navigation
   const _tickFades = () => setTimeout(updateFades, 80);
   const _cw = window.changeWeek;
   if (_cw) window.changeWeek = function(d) { _cw(d); _tickFades(); };
