@@ -574,3 +574,29 @@ if (c.optOut) return false;
 ---
 
 *New Laws are added here when a bug class recurs. Date + rationale required.*
+
+---
+
+## Section 11: Strategic Deferred Projects
+
+Projects that are scoped, justified, and ready to execute — but intentionally deferred for the right window. When a new session starts and Tyler references one of these, read this section first.
+
+---
+
+### PROJECT: Migrate HTML Serving from GitHub Pages to Cloudflare Workers
+
+**Current state:** Hybrid deploy — HTML files served from GitHub Pages, API from Workers (`purecleaning-api.tylerfumero.workers.dev`). Two separate deploy targets; `npm run deploy` runs both.
+
+**Pain point:** GitHub Pages propagation takes 1–12 minutes from commit to user-visible change. Every deploy session ends with "wait for CDN to catch up." Workers static assets are instant (<30 seconds).
+
+**Goal:** Single Cloudflare Workers pipeline serving both HTML and API. One deploy command, <30 second propagation.
+
+**Infrastructure:** Tyler already pays for Cloudflare Workers Paid plan + R2. The Workers static assets binding (`fumero-pressure-washing.tylerfumero.workers.dev`) is already configured in `wrangler.jsonc` — it just isn't the primary serving target yet.
+
+**Estimated scope:** 2–4 hours focused work. Steps: point `purecleaningpressurecleaning.com` DNS to Workers, update `wrangler.jsonc` routes, verify all 55 assets serve correctly, remove `gh-pages` deploy step, update `npm run deploy` and `verify-deploy.js`.
+
+**Risk:** DNS/SSL cutover requires a maintenance window. If something goes wrong mid-switch, the site is briefly unreachable. Rollback: re-point DNS to GitHub Pages.
+
+**Recommended trigger:** Sunday 9–11 AM window or similar low-traffic time. Do not attempt mid-week during active job days.
+
+**Deferred:** May 9, 2026
