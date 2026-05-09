@@ -95,7 +95,7 @@ The goal is a pricing/duration prediction ML model trained on completed job data
 
 Text on cards must use `--text`, `--navy`, or `--muted`. Never `--white` or `--card` for text color.
 
-`scripts/verify-deploy.js` checks CSS contrast on `.req-name` automatically. If you add a new class with a color declaration, resolve it mentally before shipping.
+`scripts/verify-deploy.js` runs a **universal CSS contrast scanner** (`scanUniversalContrast`) on every HTML file — no per-class configuration needed. Same-rule white-on-white → FAIL. White text with no explicit background → WARN. To suppress a known-safe false positive, add `/* contrast-ok */` inside the CSS rule.
 
 ---
 
@@ -428,6 +428,26 @@ if (c.optOut) return false;
 **Reference:** `cloudflare-worker/src/AUTH_BOUNDARIES.md` — update before adding any new endpoint.
 
 **Status:** ✅ Fully enforced
+
+---
+
+### LAW 6: NO CREDENTIALS IN COMMAND OUTPUT OR LOGS
+
+**Rule:** Never run a command whose output contains a credential (OAuth token, API key, session token, password) in a way that prints it to the conversation. Credentials visible in session output must be rotated immediately, even if the session is private — they can appear in logs, summaries, and memory files.
+
+**Enforcement:** Manual discipline. The pre-commit secret scanner (`scripts/secret-scan.js`) catches secrets in committed files. This Law covers runtime output.
+
+**Specific violations to avoid:**
+- `cat ~/.wrangler/config/default.toml` — prints OAuth token
+- `curl -s "https://api.cloudflare.com/..."` with a hardcoded token in the command — token visible in shell history and conversation
+- Printing KV values that may contain session tokens
+- Using `env | grep TOKEN` or similar — prints all env secrets
+
+**Safe pattern:** Store tokens as shell variables from files/env; never echo them. Use `wrangler kv key get` (reads KV without printing the auth token). For CF API calls needed in scripts, store the token in a variable assigned from the file at the start of the shell session.
+
+**Established:** May 8–9, 2026, after `cat ~/.wrangler/config/default.toml` printed an OAuth token into the conversation context during a diagnostic session. Token had already expired when discovered the next morning (wrangler auto-rotates on use), but the principle stands — expired tokens are still a rotation event.
+
+**Status:** ✅ Policy only (no automated enforcement possible for runtime output)
 
 ---
 
