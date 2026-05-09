@@ -600,3 +600,32 @@ Projects that are scoped, justified, and ready to execute — but intentionally 
 **Recommended trigger:** Sunday 9–11 AM window or similar low-traffic time. Do not attempt mid-week during active job days.
 
 **Deferred:** May 9, 2026
+
+---
+
+### PROJECT: Property Attribute Capture for Upsell Intelligence
+
+**Goal:** Know what's on a customer's property before suggesting a service. Without this, upsells are guesses — recommending a roof clean to a customer with a metal roof or a flat commercial roof is embarrassing and erodes trust.
+
+**What it enables:**
+- Targeted upsell campaigns (only suggest driveway seal to customers who have driveways)
+- Accurate reactivation suggestions (only flag roof-due customers who actually have a cleanable roof)
+- ML quote pricing improvements (property size, material, complexity as features)
+- Confident crew briefings before arrival
+
+**Data sources to evaluate (in order of effort):**
+
+| Source | What it gives | Effort | Notes |
+|--------|--------------|--------|-------|
+| Quote form additions | Customer self-report: roof type, driveway material, patio? | Low | Add 2-3 fields to quote form; customers filling it out are already engaged |
+| Broward County parcel records | Property type, year built, sometimes materials — public data | Medium | API or bulk download; covers most of the service area |
+| Crew photo capture during job | Ground truth — crew sees what's there | Medium | Needs UX in calendar job completion flow |
+| Satellite imagery / property AI | Driveway detection, roof type estimation | High | Google Earth API, Nearmap, or similar; likely overkill until other sources exhausted |
+
+**Dependency:** ML Tier 3 fields infrastructure already documented in `cloudflare-worker/src/JOB_HISTORY_SCHEMA.md`. This project populates those fields.
+
+**Estimated scope:** 8–15 hours across multiple sessions. Quote form changes are 1–2 hours standalone. Parcel data integration is 4–6 hours. Full pipeline including ML feature use is 8–15 hours total.
+
+**Priority:** Medium. Enables many future features but not blocking current operations. Good candidate for a rainy-day HQ session.
+
+**Deferred:** May 9, 2026
