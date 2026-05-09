@@ -216,7 +216,16 @@ function switchTab(tab) {
 function renderCurrentTab() {
   if (!hubData) return;
   const fns = { ready: renderReady, requested: renderRequested, reviewed: renderReviewed, wontask: renderWontAsk, insights: renderInsights, templates: renderTemplates };
-  (fns[_currentTab] || renderReady)();
+  const containers = { ready: 'ready-content', requested: 'requested-content', reviewed: 'reviewed-content', wontask: 'wontask-content', insights: 'insights-content', templates: 'templates-content' };
+  try {
+    (fns[_currentTab] || renderReady)();
+  } catch(e) {
+    const cid = containers[_currentTab] || 'ready-content';
+    const el = document.getElementById(cid);
+    if (el) el.innerHTML = '<div class="empty-state" style="color:#c2410c;">⚠️ This section is temporarily unavailable.</div>';
+    try { navigator.sendBeacon(API + '/errors/log', JSON.stringify({ source: 'review_hub_' + (_currentTab || 'tab'), page: 'pure_cleaning_review_hub.html', errorType: (e && e.name) || 'Error', message: ((e && e.message) || String(e)).slice(0, 500), stack: ((e && e.stack) || '').slice(0, 2000), url: location.href, timestamp: new Date().toISOString() })); } catch {}
+    console.error('[renderCurrentTab:' + _currentTab + ']', e);
+  }
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

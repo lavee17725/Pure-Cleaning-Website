@@ -1773,6 +1773,7 @@ function renderTable() {
 function renderTimelineView() {
   const el = document.getElementById('timelineView');
   if (!el) return;
+  try {
 
   const buckets = { overdue: [], due_now: [], due_soon: [], not_due: [], sent: [] };
   filteredCustomers.forEach(c => {
@@ -1815,6 +1816,11 @@ function renderTimelineView() {
       <div class="tl-cards">${list.map(c => renderTimelineCard(c, sec.key)).join('')}</div>
     </div>`;
   }).join('');
+  } catch(e) {
+    el.innerHTML = '<div class="tl-empty">⚠️ Timeline unavailable — check error monitor for details.</div>';
+    _fwdError('bulk_reactivation_renderTimelineView', e);
+    console.error('[renderTimelineView]', e);
+  }
 }
 
 function renderTimelineCard(c, status) {
@@ -1927,6 +1933,7 @@ function etDayTimeStr(iso) {
 function renderTabSummary(tab) {
   const bar = document.getElementById('tabSummaryBar');
   if (!bar) return;
+  try {
   if (tab !== 'today' && tab !== 'week') { bar.style.display = 'none'; return; }
   const records = Object.entries(loadContacts())
     .map(([phone, v]) => ({phone, iso: typeof v === 'string' ? v : (v && v.contactedAt)}))
@@ -1954,6 +1961,10 @@ function renderTabSummary(tab) {
     `<span class="day-chip${counts[d] > 0 ? ' has-sends' : ''}">${d}: ${counts[d]}</span>`).join('');
   bar.style.display = 'block';
   bar.innerHTML = `<div class="tab-summary ${wcls}">${wIcon} This week: <strong>${n}</strong> &nbsp;·&nbsp; Weekly cap: ${cap} &nbsp;·&nbsp; <strong>${rem >= 0 ? rem : 0}</strong> remaining<div class="day-chips">${chips}</div></div>`;
+  } catch(e) {
+    _fwdError('bulk_reactivation_renderTabSummary', e);
+    console.error('[renderTabSummary]', e);
+  }
 }
 // ─── COMPLIANCE ENFORCEMENT ──────────────────────────────────────────────────
 function isWithinSendingHours() {

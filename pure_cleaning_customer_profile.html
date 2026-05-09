@@ -1400,6 +1400,7 @@ function renderProfile(customer, events){
   const c=customer;
   _customer=c;
   _allEvents=events;
+  try {
 
   // ── Hero ──
   renderHeroBanner(c);
@@ -1523,6 +1524,12 @@ function renderProfile(customer, events){
   renderExtendedSections(c, events);
   // Init lazy-load for photo gallery if present
   requestAnimationFrame(initPhotoGallery);
+  } catch(err) {
+    const pc = document.getElementById('profileContent');
+    if (pc) pc.innerHTML = '<div style="padding:2rem;text-align:center;color:#c2410c;font-size:14px;font-weight:600;">⚠️ Profile render failed — check error monitor for details.</div>';
+    try { navigator.sendBeacon(API + '/errors/log', JSON.stringify({ source: 'profile_renderProfile', page: 'pure_cleaning_customer_profile.html', errorType: (err && err.name) || 'Error', message: ((err && err.message) || String(err)).slice(0, 500), stack: ((err && err.stack) || '').slice(0, 2000), url: location.href, timestamp: new Date().toISOString() })); } catch {}
+    console.error('[renderProfile]', err);
+  }
 }
 
 function setTlFilter(key){
