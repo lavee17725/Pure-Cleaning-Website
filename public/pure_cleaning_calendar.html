@@ -2534,7 +2534,9 @@ function jobCardScheduled(c) {
   })() : '';
 
   // GPS time-on-site row (populated after Bouncie sync)
-  const _gpsEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === ss.scheduledDate);
+  // Skip csv_backfill entries — they never have GPS data and mask real Bouncie-matched entries
+  const _gpsEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill')
+                 || (c.jobHistory || []).slice().reverse().find(j => j.date === ss.scheduledDate);
   const _gpsSrc   = _gpsEntry?.actualArrival ? _gpsEntry : (ss.actualArrival ? ss : null);
   let gpsHtml = '';
   if (_gpsSrc) {
@@ -2882,14 +2884,18 @@ function getExtraCompletedJobsForRig(date, rig) {
   for (const c of (dbRecord.customers || [])) {
     const jh = c.jobHistory || [];
     const ssRig = _normalizeRig(c.scheduledStatus?.rig);
+    const ss = c.scheduledStatus;
+    const ssActiveOnDate = ss && ss.scheduledDate === date;
     const matching = jh.filter(j => {
       if (j.date !== date || j.status !== 'completed') return false;
+      // csv_backfill entries are synthetic historical records — never show as "extra completed"
+      // when the customer already has an active scheduled entry for the same date (would duplicate)
+      if (j.source === 'csv_backfill' && ssActiveOnDate) return false;
       const jhRig = _normalizeRig(j.rig) || ssRig || 'rig_1';
       return jhRig === rig;
     });
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
-    const ss = c.scheduledStatus;
     const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
     const startIdx = ssCovers ? 1 : 0;
     for (let i = startIdx; i < matching.length; i++) {
