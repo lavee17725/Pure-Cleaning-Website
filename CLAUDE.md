@@ -433,23 +433,38 @@ if (c.optOut) return false;
 
 ---
 
-### LAW 6: NO CREDENTIALS IN COMMAND OUTPUT OR LOGS
+### LAW 6: NO CREDENTIALS IN COMMAND OUTPUT OR LOGS — AND NO OAUTH EXTRACTION PATTERNS
 
-**Rule:** Never run a command whose output contains a credential (OAuth token, API key, session token, password) in a way that prints it to the conversation. Credentials visible in session output must be rotated immediately, even if the session is private — they can appear in logs, summaries, and memory files.
+**Rule:** Never expose credentials through command output, and never extract OAuth tokens from local credential files to call Cloudflare APIs directly. Both the visible leak AND the extraction pattern are violations — even if the token never appears in chat output.
 
-**Enforcement:** Manual discipline. The pre-commit secret scanner (`scripts/secret-scan.js`) catches secrets in committed files. This Law covers runtime output.
+**Enforcement:** Manual discipline. The pre-commit secret scanner (`scripts/secret-scan.js`) catches secrets in committed files. This Law covers runtime behavior.
 
-**Specific violations to avoid:**
-- `cat ~/.wrangler/config/default.toml` — prints OAuth token
-- `curl -s "https://api.cloudflare.com/..."` with a hardcoded token in the command — token visible in shell history and conversation
-- Printing KV values that may contain session tokens
-- Using `env | grep TOKEN` or similar — prints all env secrets
+**Prohibited patterns — all of these are violations:**
+- `cat ~/.wrangler/config/default.toml` — prints OAuth token directly
+- `TOKEN=$(grep oauth_token ~/.wrangler/config/default.toml | cut -d'"' -f2)` — extracts token to variable; the variable assignment is itself the prohibited act even though the token never prints
+- Any `grep`/`awk`/`sed` on `~/.wrangler/config/` or similar credential files
+- `curl https://api.cloudflare.com/...` with a bearer token extracted from local files
+- `env | grep TOKEN`, `printenv | grep KEY` — prints all env secrets
+- Printing KV values that may contain session tokens (e.g., `session:{token}` keys)
 
-**Safe pattern:** Store tokens as shell variables from files/env; never echo them. Use `wrangler kv key get` (reads KV without printing the auth token). For CF API calls needed in scripts, store the token in a variable assigned from the file at the start of the shell session.
+**Why the extraction pattern matters:** Reading the token file and assigning to a variable normalizes direct Cloudflare API calls. It bypasses the wrangler auth abstraction, embeds the pattern in shell history, risks accidental `echo $TOKEN` in debugging, and creates a habit that eventually causes a real leak.
 
-**Established:** May 8–9, 2026, after `cat ~/.wrangler/config/default.toml` printed an OAuth token into the conversation context during a diagnostic session. Token had already expired when discovered the next morning (wrangler auto-rotates on use), but the principle stands — expired tokens are still a rotation event.
+**Safe alternatives — use these instead:**
 
-**Status:** ✅ Policy only (no automated enforcement possible for runtime output)
+| Need | Safe command |
+|------|-------------|
+| Read a KV key | `npx wrangler kv key get "<key>" --namespace-id <id>` |
+| Write a KV key | `npx wrangler kv key put "<key>" "<value>" --namespace-id <id>` |
+| List KV keys | `npx wrangler kv key list --namespace-id <id>` |
+| Read customer data | Hit `GET /customers` via admin auth token from `/auth/login` |
+| Read incoming data | Hit `GET /incoming` via admin auth token |
+| Any admin API call | Get session token from `POST /auth/login`, use `Authorization: Bearer <token>` in curl — token comes from user input, not a credential file |
+
+**Never** read `~/.wrangler/config/default.toml` or any local OAuth/credential file directly.
+
+**Established:** May 8, 2026, after `cat ~/.wrangler/config/default.toml` printed an OAuth token into the conversation. Law 6 first written. May 9, 2026: tightened after `TOKEN=$(grep oauth_token ~/.wrangler/...)` pattern used for KV inspection — the extraction is the violation, not just the output.
+
+**Status:** ✅ Policy enforced via discipline + explicit prohibited patterns documented
 
 ---
 
