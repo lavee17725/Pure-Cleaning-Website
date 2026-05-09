@@ -2898,18 +2898,25 @@ function getExtraCompletedJobsForRig(date, rig) {
     const ssActiveOnDate = ss && ss.scheduledDate === date;
     const matching = jh.filter(j => {
       if (j.date !== date || j.status !== 'completed') return false;
-      // csv_backfill entries are synthetic historical records — never show as "extra completed"
-      // when the customer already has an active scheduled entry for the same date (would duplicate)
+      // Suppress csv_backfill entries when customer already has an active scheduled entry for this same date
       if (j.source === 'csv_backfill' && ssActiveOnDate) return false;
+      // Suppress csv_backfill entries from the past 60 days when customer has an upcoming scheduled job
+      // (prevents future-dated jobs imported via CSV from appearing as "completed" history cards)
+      if (j.source === 'csv_backfill' && ss && ss.state === 'scheduled') {
+        const dayAge = (Date.now() - new Date(j.date + 'T12:00:00').getTime()) / 86400000;
+        if (dayAge < 60) return false;
+      }
       const jhRig = _normalizeRig(j.rig) || ssRig || 'rig_1';
       return jhRig === rig;
     });
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
+    // If scheduledStatus already covers this customer/date as completed, suppress all extra history cards
+    // (prevents duplicate cards from double-completion entries with undefined source)
     const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
-    const startIdx = ssCovers ? 1 : 0;
-    for (let i = startIdx; i < matching.length; i++) {
-      result.push({ customer: c, jhEntry: matching[i] });
+    if (ssCovers) continue;
+    for (const jhEntry of matching) {
+      result.push({ customer: c, jhEntry });
     }
   }
   return result;
@@ -3578,8 +3585,8 @@ function _doCompleteJob(log) {
       paidAt:        log.paidAt || _jhNow,
     } : {}),
   };
-  // Idempotent: don't double-push if same completion already exists
-  if (!c.jobHistory.some(j => j.date === completedDate && j.source === 'calendar_completion')) {
+  // Idempotent: don't double-push — also guard against source:undefined entries from prior bugs
+  if (!c.jobHistory.some(j => j.date === completedDate && (j.source === 'calendar_completion' || !j.source))) {
     c.jobHistory.push(_jhEntry);
     ss._lastJobId = _jhJobId; // link for payment logging
   }
@@ -5875,7 +5882,9 @@ document.addEventListener('keydown', e => {
   document.addEventListener('mousedown', e => {
     if (currentView !== 'week') return;
     if (wasDragging) return; // SortableJS already active
-    if (e.target.closest('.job-scheduled,.win-lane-hdr,.rig-hdr,.day-hdr,button,a,input,select,textarea,.modal')) return;
+    // .day-hdr intentionally NOT excluded — day headers are the natural grab bar for week navigation.
+    // A successful week-nav drag suppresses the click event so day-view doesn't also open.
+    if (e.target.closest('.job-scheduled,.win-lane-hdr,.rig-hdr,button,a,input,select,textarea,.modal')) return;
     const sc = scroller();
     if (!sc) return;
     _dragging = true;
@@ -5916,6 +5925,11 @@ document.addEventListener('keydown', e => {
     _totalDx = 0;
 
     if (Math.abs(dx) >= WEEK_NAV_THRESHOLD) {
+      // Suppress the synthetic click that fires after mouseup on a day-header, so day-view doesn't open
+      document.addEventListener('click', function suppressClick(e) {
+        e.stopPropagation(); e.preventDefault();
+        document.removeEventListener('click', suppressClick, true);
+      }, { capture: true, once: true });
       // Fly grid off-screen in drag direction, then navigate to new week
       if (g) {
         g.style.transition = 'transform 0.15s ease';

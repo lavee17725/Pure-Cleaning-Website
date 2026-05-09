@@ -267,6 +267,10 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 9, 2026 | Bulk Reactivation roof eligibility bug fixed — `monthsSince(null)` sentinel trap | `monthsSince(null)` returns 999 (sentinel for "never serviced"), but eligibility check was `monthsSinceRoof !== null` which is always true (`999 !== null`); every ground-only customer incorrectly appeared in Roof section; fix: eligibility now checks `lastRoofDateObj !== null` directly — customers with no history of a service type are excluded, not flagged as overdue; lesson: sentinel values must be checked against the condition that produced them, not against the sentinel itself |
 | May 9, 2026 | CDN propagation diagnosed: GitHub Pages `cache-control: max-age=600` (10 min) | `view-source` in Chrome renders the cached version, not a live fetch; Tyler reported "Both Due" missing from view-source — CDN was serving correct HTML, browser had 10-min cached copy; fix: Cmd+Shift+R hard refresh. Tracked as motivation for Section 11 Workers migration project |
 | May 9, 2026 | Calendar week-view drag-to-navigate added (`_weekNavDrag`) | Mouse drag ≥ 100px left/right flies grid off-screen (transform + 0.15s ease) then calls `changeWeek(±1)`; sub-threshold drag snaps back; touch swipe (>55px) already changed weeks — now both input methods navigate; parallax transform (18% of drag distance) gives directional feedback during drag; `cursor: grab` added to `#calGrid` |
+| May 9, 2026 | Calendar drag not firing — `.day-hdr` was in exclusion list | `mousedown` handler excluded `.day-hdr` (day column headers); on a busy week the day header is the only grabbable surface; fix: removed `.day-hdr` from exclusion, added one-time click suppressor so successful drag doesn't also open day view |
+| May 9, 2026 | Tanner Huysman duplicate card: csv_backfill imported future-dated job | CSV imported Tanner's upcoming job as if completed on May 7 (2 days before import); fix: suppress csv_backfill entries < 60 days old when customer has active `state==='scheduled'` job |
+| May 9, 2026 | Seeber duplicate card: `_doCompleteJob` idempotency guard missed `source:undefined` entries | Guard checked `j.source === 'calendar_completion'` but double-completion created entries with `source: undefined`; fix: guard now also covers `!j.source`; render fix: when `ssCovers=true`, suppress ALL extra history cards for that customer/date (not just skip first) |
+| May 9, 2026 | Law 12 + Playwright browser verification added (`scripts/verify-browser.js`) | Curl-based checks confirm presence in DOM but not visibility — tabs in DOM with `display:none` passed the old verifier; Playwright loads each page with real auth, confirms elements are visible, tests click/drag interactions, saves screenshots; wired into `npm run deploy` after verify-deploy.js |
 
 *Append future decisions below this line.*
 
@@ -572,6 +576,46 @@ if (c.optOut) return false;
 **Established:** May 9, 2026. Motivation: error dashboard is useless if Tyler only checks it when he already suspects a problem. The system must push — operator pull is not a monitoring strategy.
 
 **Status:** ✅ Enforced — Phase 1 shipped · Phase 2 (SMS/email) deferred
+
+---
+
+---
+
+### LAW 12: VERIFICATION MUST MIRROR USER REALITY
+
+**Rule:** "Deploy successful" cannot be reported unless browser-level checks confirm visible UI elements work as the user experiences them. Marker presence in DOM is necessary but not sufficient.
+
+**What curl/markers catch:** file is on CDN, expected strings are in the HTML source.
+
+**What curl/markers miss:**
+- Elements in DOM but hidden via `display:none` or CSS (the svcTabs bug: tabs were in DOM for days, curl said ✅, Tyler saw nothing)
+- JS that doesn't run because of an uncaught error (the renderTable ReferenceError bug)
+- Interactive elements that exist but don't respond (drag handler attached but excluded list blocked all natural grab surfaces)
+
+**Verification tiers (all must pass):**
+1. **curl-based** (`verify-deploy.js`): file reachable, key markers in source, CSS contrast, API endpoints — runs on every deploy
+2. **Browser-based** (`verify-browser.js`): Playwright headless Chromium loads each page with real admin auth, confirms elements are VISIBLE, tests tab clicks and drag interactions, saves screenshots — runs on every deploy
+3. **CDN propagation**: `verify-deploy.js` now sends `Cache-Control: no-cache` headers to bypass CDN/Fastly edge cache
+
+**Regression test principle:** Every bug Tyler personally reports becomes a permanent automated test. It fails forever if the same bug class returns. The bug is the test case specification.
+
+**Regression tests added as of May 9, 2026:**
+- `pure_cleaning_bulk_reactivation.html` markers: `svcTabs`, `svcTabBoth/Ground/Roof`, `monthsSince:false`, `getVal(a, col)`, `categorizeService`, `lastGroundDateObj !== null`, `lastRoofDateObj !== null`
+- `pure_cleaning_calendar.html` markers: `_weekNavDrag`, `day-hdr` not in exclusion, `suppressClick`, idempotency guard covers undefined source, `dayAge < 60` guard
+- `verify-browser.js`: svcTabs visible (not just present), tab click sets active class, drag navigates week
+
+**Established:** May 9, 2026, after a pattern of "ship → still broken" loops where verify-deploy.js said 🟢 but Tyler's experience said broken. Root cause: DOM presence ≠ user visibility. Tyler's principle: when something is asked for more than once, find a way to never let it happen again.
+
+**Deploy pipeline (in order):**
+```
+npm run build
+npx gh-pages -d build
+wrangler deploy --config wrangler.jsonc
+node scripts/verify-deploy.js    ← curl/marker/API checks
+node scripts/verify-browser.js  ← Playwright visibility/interaction checks
+```
+
+**Status:** ✅ Both tiers enforced · screenshots saved to `verify-screenshots/` on each run
 
 ---
 

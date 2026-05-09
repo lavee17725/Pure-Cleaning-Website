@@ -33,7 +33,14 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_calendar.html',
-    markers: ['function renderDayView', 'PCPC_API', 'function promptRevertJob', '_weekNavDrag'],
+    markers: [
+      'function renderDayView', 'PCPC_API', 'function promptRevertJob',
+      '_weekNavDrag',                                     // Regression: drag-to-navigate handler
+      'job-scheduled,.win-lane-hdr,.rig-hdr,button',      // Regression: .day-hdr NOT in exclusion (drag from header works)
+      'suppressClick',                                    // Regression: click suppressor after week nav
+      "j.source === 'calendar_completion' || !j.source",  // Regression: idempotency guard covers undefined source
+      'dayAge < 60',                                      // Regression: recent csv_backfill guard for Tanner-class bug
+    ],
   },
   {
     file: 'pure_cleaning_customer_directory.html',
@@ -61,6 +68,22 @@ const HTML_FILES = [
       // Law 9 guards: page-init catch blocks must forward to error tracker.
       '_fwdError(\'bulk_reactivation_init\'',
       '_fwdError(\'bulk_reactivation_renderTable\'',
+      // Regression: Both Due tab visible on DB-load (not just CSV-load path)
+      'svcTabs',                               // tab HTML must be present
+      'svcTabs\').classList.add(\'show\')',     // must be shown in DB-load path
+      // Regression: svc section tabs rendered
+      'svcTabBoth',
+      'svcTabGround',
+      'svcTabRoof',
+      // Regression: monthsSince sort defaults descending (not ascending)
+      'monthsSince:false,',
+      // Regression: getMonths() helper for section-aware sort
+      'getVal(a, col)',
+      // Regression: categorizeService shared function (Law 11)
+      'function categorizeService',
+      // Regression: eligibility uses date-object null check, not monthsSince !== null
+      'lastGroundDateObj !== null',
+      'lastRoofDateObj   !== null',
     ],
   },
 ];
@@ -208,8 +231,12 @@ function scanUniversalContrast(html, filename) {
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────
-async function fetchText(url) {
-  const r = await fetch(url);
+// Cache-busting timestamp — forces CDN/edge to serve a fresh copy, not a stale cached page.
+// GitHub Pages Fastly CDN respects Cache-Control: no-cache on the request.
+const CACHE_BUST = { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } };
+
+async function fetchText(url, opts = {}) {
+  const r = await fetch(url, { ...CACHE_BUST, ...opts });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.text();
 }
