@@ -1909,6 +1909,8 @@ async function init(){
 
   } catch(err){
     showError('Failed to load data', err.message||'Please check your connection and try again.');
+    // Law 9: forward to error tracker — local catch creates window.onerror blind spot
+    try { navigator.sendBeacon(API + '/errors/log', JSON.stringify({ source: 'profile_init', page: 'pure_cleaning_customer_profile.html', errorType: (err && err.name) || 'Error', message: ((err && err.message) || String(err)).slice(0, 500), stack: ((err && err.stack) || '').slice(0, 2000), url: location.href, timestamp: new Date().toISOString() })); } catch {}
   }
 }
 
