@@ -14,6 +14,17 @@
 const GITHUB_PAGES = 'https://purecleaningpressurecleaning.com';
 const WORKERS_API  = 'https://purecleaning-api.tylerfumero.workers.dev';
 
+const { getVerifyToken } = require('./lib/auto-auth');
+
+// Token is fetched once at startup and reused across all authenticated checks.
+// null = no credentials configured → authenticated checks warn+skip gracefully.
+let _cachedAuth = null; // { token, expiresAt } | null
+async function getToken() {
+  if (_cachedAuth) return _cachedAuth.token;
+  _cachedAuth = await getVerifyToken().catch(e => { throw e; }); // propagate auth errors
+  return _cachedAuth ? _cachedAuth.token : null;
+}
+
 // ── HTML files to verify ───────────────────────────────────────────────────
 // Each entry: { file, markers: [strings that MUST appear], cssChecks: [{selector, prop, forbidden}] }
 const HTML_FILES = [
@@ -38,7 +49,7 @@ const HTML_FILES = [
       '_weekNavDrag',                                     // Regression: drag-to-navigate handler
       'job-scheduled,.win-lane-hdr,.rig-hdr,button',      // Regression: .day-hdr NOT in exclusion (drag from header works)
       'suppressClick',                                    // Regression: click suppressor after week nav
-      "j.source === 'calendar_completion' || !j.source",  // Regression: idempotency guard covers undefined source
+      '_isDuplicate',                                      // Regression: source-agnostic idempotency guard present
       'dayAge < 60',                                      // Regression: recent csv_backfill guard for Tanner-class bug
     ],
   },
@@ -398,7 +409,7 @@ async function checkApiEndpoint({ path, expectKey, expect401, expectPublic }) {
 // NOTE: After admin auth ships, this check requires a valid session token.
 // Until VERIFY_TOKEN env var is set, this check is skipped gracefully.
 async function checkRenderSimulation() {
-  const verifyToken = process.env.VERIFY_TOKEN;
+  const verifyToken = await getToken();
   let data;
   try {
     const headers = verifyToken ? { 'Authorization': `Bearer ${verifyToken}` } : {};
@@ -470,9 +481,9 @@ async function checkDbSanity() {
   }
 
   // Duplicate phone check requires auth — skip gracefully
-  const verifyToken = process.env.VERIFY_TOKEN;
+  const verifyToken = await getToken();
   if (!verifyToken) {
-    warn('DB sanity — duplicate phones', 'Set VERIFY_TOKEN to enable authenticated DB checks');
+    warn('DB sanity — duplicate phones', 'Add ADMIN_PASSWORD to .env.local to enable authenticated DB checks');
     return;
   }
   const r2 = await fetch(`${WORKERS_API}/customers`, { headers: { 'Authorization': `Bearer ${verifyToken}` } });
@@ -493,9 +504,9 @@ async function checkDbSanity() {
 // ── CHECK 6: Backup health ────────────────────────────────────────────────
 async function checkBackupHealth() {
   // /admin/backup/last_run is a protected endpoint; skip if no token
-  const verifyToken = process.env.VERIFY_TOKEN;
+  const verifyToken = await getToken();
   if (!verifyToken) {
-    warn('Backup health', 'Set VERIFY_TOKEN to enable backup health checks');
+    warn('Backup health', 'Add ADMIN_PASSWORD to .env.local to enable backup health checks');
     return;
   }
   let hb;
@@ -535,9 +546,9 @@ async function checkBackupHealth() {
 // ── CHECK 7: Error monitoring — spike detection ───────────────────────────
 async function checkErrorSpike() {
   // Requires auth (admin/errors is a protected endpoint)
-  const verifyToken = process.env.VERIFY_TOKEN;
+  const verifyToken = await getToken();
   if (!verifyToken) {
-    warn('Error spike check', 'Set VERIFY_TOKEN to enable error monitoring checks');
+    warn('Error spike check', 'Add ADMIN_PASSWORD to .env.local to enable error monitoring checks');
     return;
   }
   let data;
@@ -817,9 +828,9 @@ async function checkMobileCompatibility() {
 
 // ── CHECK 5: Cron heartbeat ───────────────────────────────────────────────
 async function checkCronHeartbeat() {
-  const verifyToken = process.env.VERIFY_TOKEN;
+  const verifyToken = await getToken();
   if (!verifyToken) {
-    warn('Cron heartbeat', 'Set VERIFY_TOKEN to enable cron heartbeat check');
+    warn('Cron heartbeat', 'Add ADMIN_PASSWORD to .env.local to enable cron heartbeat check');
     return;
   }
   let hb;
@@ -858,6 +869,127 @@ async function checkCronHeartbeat() {
   }
 }
 
+// ── CHECK 13: Job history integrity (Law 13 — generalized variant detection) ──
+// Scans ALL customers for three bug classes, not just the specific instances fixed.
+async function checkJobHistoryIntegrity() {
+  const verifyToken = await getToken();
+  if (!verifyToken) {
+    warn('Job history integrity', 'Add ADMIN_PASSWORD to .env.local to enable job history checks');
+    return;
+  }
+
+  let custs;
+  try {
+    const r = await fetch(`${WORKERS_API}/customers`, {
+      headers: { Authorization: `Bearer ${verifyToken}`, ...CACHE_BUST.headers },
+    });
+    if (!r.ok) { warn('Job history integrity — fetch', `HTTP ${r.status}`); return; }
+    custs = (await r.json()).customers || [];
+  } catch (e) {
+    warn('Job history integrity — fetch', e.message);
+    return;
+  }
+
+  // Word-overlap Jaccard similarity for service description comparison
+  function descSimilarity(a, b) {
+    const words = s => new Set((s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2));
+    const setA = words(a), setB = words(b);
+    const intersection = [...setA].filter(w => setB.has(w)).length;
+    const union = new Set([...setA, ...setB]).size;
+    return union ? intersection / union : 0;
+  }
+
+  const collisionRisks   = [];
+  const dupCompletions   = [];
+  const undefinedSources = [];
+
+  for (const c of custs) {
+    if (c.deleted) continue;
+    const jh   = c.jobHistory || [];
+    const ss   = c.scheduledStatus;
+    const name = `${c.firstName || ''} ${c.lastName || ''}`.trim() || c.phone;
+
+    // ── Class A: csv_backfill collision risk ───────────────────────────────
+    // Detects: same-date, near-date+similar-service (≤14d, >80% match),
+    //          or same-service-different-date (>95% match any date distance)
+    if (ss && (ss.state === 'scheduled' || ss.state === 'in_progress')) {
+      const backfillEntries = jh.filter(j => j.source === 'csv_backfill' || !j.source);
+      for (const j of backfillEntries) {
+        if (!j.date || !ss.scheduledDate) continue;
+        const dayDiff = Math.abs(
+          (new Date(ss.scheduledDate + 'T12:00:00') - new Date(j.date + 'T12:00:00')) / 86400000
+        );
+        const sim = descSimilarity(ss.jobNotes, j.services);
+        if (dayDiff === 0) {
+          collisionRisks.push({ name, phone: c.phone, type: 'same-date', dayDiff, sim: sim.toFixed(2) });
+        } else if (dayDiff <= 14 && sim >= 0.8) {
+          collisionRisks.push({ name, phone: c.phone, type: 'near-date+similar-svc', dayDiff, sim: sim.toFixed(2) });
+        } else if (sim >= 0.95) {
+          collisionRisks.push({ name, phone: c.phone, type: 'same-svc-diff-date', dayDiff, sim: sim.toFixed(2) });
+        }
+      }
+    }
+
+    // ── Class B: duplicate completion entries ──────────────────────────────
+    // Detects: multiple completed entries on same date with amount within $5
+    const byDate = {};
+    for (const j of jh) {
+      if (j.status === 'completed' && j.date) {
+        (byDate[j.date] = byDate[j.date] || []).push(j);
+      }
+    }
+    for (const [date, entries] of Object.entries(byDate)) {
+      if (entries.length < 2) continue;
+      for (let i = 0; i < entries.length; i++) {
+        for (let k = i + 1; k < entries.length; k++) {
+          if (Math.abs((entries[i].amount || 0) - (entries[k].amount || 0)) <= 5) {
+            dupCompletions.push({
+              name, phone: c.phone, date,
+              sources: [entries[i].source || 'undefined', entries[k].source || 'undefined'],
+            });
+          }
+        }
+      }
+    }
+
+    // ── Class C: source:undefined entries ─────────────────────────────────
+    // Detects legacy pre-schema entries or code paths that forgot to set source
+    for (const j of jh) {
+      if (j.date && j.status === 'completed' && !j.source) {
+        undefinedSources.push({ name, phone: c.phone, date: j.date });
+      }
+    }
+  }
+
+  // Report Class A
+  if (collisionRisks.length === 0) {
+    pass('Job history — csv_backfill collision risk (Class A)', 'No collision risks in active scheduled jobs');
+  } else if (collisionRisks.length <= 5) {
+    warn('Job history — csv_backfill collision risk (Class A)',
+      `${collisionRisks.length} risk(s): ${collisionRisks.map(r => `${r.name}(${r.type},${r.dayDiff}d,sim=${r.sim})`).join('; ')}`);
+  } else {
+    fail('Job history — csv_backfill collision risk (Class A)',
+      `${collisionRisks.length} risks — exceeds threshold of 5. Data may be corrupted. Run npm run integrity.`);
+  }
+
+  // Report Class B
+  if (dupCompletions.length === 0) {
+    pass('Job history — duplicate completions (Class B)', 'No near-duplicate completion entries');
+  } else {
+    const detail = dupCompletions.slice(0, 5).map(d => `${d.name} ${d.date}(src:${d.sources.join('/')})`).join('; ');
+    warn('Job history — duplicate completions (Class B)',
+      `${dupCompletions.length} duplicate(s): ${detail}`);
+  }
+
+  // Report Class C
+  if (undefinedSources.length === 0) {
+    pass('Job history — source field integrity (Class C)', 'All completed entries have source field set');
+  } else {
+    warn('Job history — source field integrity (Class C)',
+      `${undefinedSources.length} entries with source:undefined (likely pre-schema legacy entries)`);
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n🔍  Pure Cleaning — Deploy Verification');
@@ -873,6 +1005,7 @@ async function main() {
   await checkCronHeartbeat();
   await checkBackupHealth();
   await checkErrorSpike();
+  await checkJobHistoryIntegrity(); // Law 13: generalized csv_backfill collision + idempotency scanner
   await checkCustomerFlows();
   await checkMobileCompatibility();
 

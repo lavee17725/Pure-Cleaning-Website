@@ -11,18 +11,20 @@
  *   - JS that never runs because of an uncaught error
  *   - CDN serving cached HTML that doesn't match source
  *
- * Requires: VERIFY_TOKEN env var (admin password — same as verify-deploy.js)
- * Run:      node scripts/verify-browser.js
- *           npm run verify:browser
+ * Auth (auto — no manual token needed):
+ *   - Add ADMIN_PASSWORD=<password> to .env.local (gitignored)
+ *   - Or set ADMIN_PASSWORD / VERIFY_TOKEN env vars
+ *   - See .env.local.example
+ *
+ * Run: npm run verify:browser
  */
 
-const { chromium } = require('playwright');
+const { chromium }     = require('playwright');
+const { getVerifyToken } = require('./lib/auto-auth');
 const path  = require('path');
 const fs    = require('fs');
 
-const API        = 'https://purecleaning-api.tylerfumero.workers.dev';
 const PAGES_BASE = 'https://purecleaningpressurecleaning.com';
-const TOKEN      = process.env.VERIFY_TOKEN || '';
 const SS_DIR     = path.join(__dirname, '..', 'verify-screenshots');
 
 const results = [];
@@ -30,16 +32,6 @@ let failures  = 0;
 const pass = (label, detail = '') => results.push({ status: 'PASS', label, detail });
 const fail = (label, detail = '') => { results.push({ status: 'FAIL', label, detail }); failures++; };
 const warn = (label, detail = '') => results.push({ status: 'WARN', label, detail });
-
-async function getAdminSession() {
-  const res = await fetch(`${API}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Origin': PAGES_BASE },
-    body: JSON.stringify({ password: TOKEN }),
-  });
-  if (!res.ok) return null;
-  return res.json(); // { token, expiresAt }
-}
 
 async function withPage(context, url, label, fn) {
   const page = await context.newPage();
@@ -61,18 +53,19 @@ async function main() {
   console.log(`    Using headless Chromium · ${PAGES_BASE}`);
   console.log('─'.repeat(60));
 
-  if (!TOKEN) {
-    warn('Browser auth', 'VERIFY_TOKEN not set — skipping. Set it to enable browser verification.');
-    console.log('⚠️   VERIFY_TOKEN not set — browser verification skipped');
-    process.exit(0);
-  }
-
-  const session = await getAdminSession();
-  if (!session?.token) {
-    fail('Browser auth', 'POST /auth/login failed — check VERIFY_TOKEN');
+  let session;
+  try {
+    session = await getVerifyToken();
+  } catch (e) {
+    fail('Browser auth', e.message);
     printResults(); process.exit(1);
   }
-  pass('Browser auth', `Session token obtained`);
+  if (!session) {
+    warn('Browser auth', 'No credentials configured. Add ADMIN_PASSWORD to .env.local to enable browser verification.');
+    console.log('⚠️   No auth credentials — browser verification skipped (see .env.local.example)');
+    process.exit(0);
+  }
+  pass('Browser auth', 'Session token obtained via auto-auth');
 
   if (!fs.existsSync(SS_DIR)) fs.mkdirSync(SS_DIR, { recursive: true });
 

@@ -3585,8 +3585,15 @@ function _doCompleteJob(log) {
       paidAt:        log.paidAt || _jhNow,
     } : {}),
   };
-  // Idempotent: don't double-push — also guard against source:undefined entries from prior bugs
-  if (!c.jobHistory.some(j => j.date === completedDate && (j.source === 'calendar_completion' || !j.source))) {
+  // Idempotent — source-agnostic: any completed entry on this date with matching amount is
+  // considered a duplicate regardless of source field value. Catches legacy source:undefined
+  // entries and any future write path. Amount tolerance ±$5 handles rounding variations.
+  const _isDuplicate = c.jobHistory.some(j =>
+    j.date === completedDate &&
+    j.status === 'completed' &&
+    Math.abs((j.amount || 0) - (ss.approvedAmount || 0)) <= 5
+  );
+  if (!_isDuplicate) {
     c.jobHistory.push(_jhEntry);
     ss._lastJobId = _jhJobId; // link for payment logging
   }

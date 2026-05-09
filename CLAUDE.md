@@ -271,6 +271,10 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 9, 2026 | Tanner Huysman duplicate card: csv_backfill imported future-dated job | CSV imported Tanner's upcoming job as if completed on May 7 (2 days before import); fix: suppress csv_backfill entries < 60 days old when customer has active `state==='scheduled'` job |
 | May 9, 2026 | Seeber duplicate card: `_doCompleteJob` idempotency guard missed `source:undefined` entries | Guard checked `j.source === 'calendar_completion'` but double-completion created entries with `source: undefined`; fix: guard now also covers `!j.source`; render fix: when `ssCovers=true`, suppress ALL extra history cards for that customer/date (not just skip first) |
 | May 9, 2026 | Law 12 + Playwright browser verification added (`scripts/verify-browser.js`) | Curl-based checks confirm presence in DOM but not visibility — tabs in DOM with `display:none` passed the old verifier; Playwright loads each page with real auth, confirms elements are visible, tests click/drag interactions, saves screenshots; wired into `npm run deploy` after verify-deploy.js |
+| May 9, 2026 | `_doCompleteJob` idempotency guard made source-agnostic (Law 13) | Previous guard checked `source === 'calendar_completion' \|\| !j.source` — still tied to source field value; new guard: any completed entry on same date with amount within ±$5 is a duplicate regardless of source; catches all future write paths and all legacy entry shapes |
+| May 9, 2026 | `checkJobHistoryIntegrity()` added to verify-deploy.js — three-class generalized scanner | Class A: csv_backfill collision risks (same-date, near-date+similar-service ≥80%, same-service any date ≥95%); Class B: duplicate completions (same date, amount within $5); Class C: source:undefined entries. FAIL if Class A > 5 instances (suggests bulk data corruption) |
+| May 9, 2026 | Auto-auth via `.env.local` — all verification scripts now authenticate automatically | `scripts/lib/auto-auth.js`: resolution order: VERIFY_TOKEN env (CI) → ADMIN_PASSWORD env → `.env.local` file → null (graceful skip). Replaces every `process.env.VERIFY_TOKEN` in verify-deploy.js and verify-browser.js. Wrong password = hard FAIL; no credentials = warn+skip (not silently pass). |
+| May 9, 2026 | First run of full 3-class scanner against production — 16 Class A, 8 Class B, 6 Class C findings | Root cause confirmed: CSV import included upcoming scheduled jobs (May 6–15, 2026) as historical completed entries. All 14 same-date Class A risks are future jobs pre-imported. See cleanup plan in session log. |
 
 *Append future decisions below this line.*
 
@@ -616,6 +620,31 @@ node scripts/verify-browser.js  ← Playwright visibility/interaction checks
 ```
 
 **Status:** ✅ Both tiers enforced · screenshots saved to `verify-screenshots/` on each run
+
+---
+
+### LAW 13: BUG VARIANTS REQUIRE GENERALIZED DETECTION
+
+**Rule:** When a bug class is diagnosed (e.g., csv_backfill collision), the verification system must scan for ALL variants of that class across the entire dataset — not just the specific customer instance that was reported.
+
+**The pattern that motivated this Law:**
+1. May 8: csv_backfill collision on same date → `ssActiveOnDate` guard added, 14 customers fixed
+2. May 9: Tanner Huysman — same bug class, different date, same service description → slipped past the guard
+3. Root cause: the original guard was instance-specific (`ss.scheduledDate === j.date`), not class-level
+
+**Generalized scanner (`checkJobHistoryIntegrity()` in verify-deploy.js) detects three classes:**
+
+| Class | Detection | Threshold |
+|-------|-----------|-----------|
+| A — csv_backfill collision | same-date, or near-date (≤14d) + service similarity ≥80%, or same-service ≥95% | WARN ≤5, FAIL >5 |
+| B — duplicate completions | same date, amount within $5, status=completed | WARN always |
+| C — source:undefined entries | completed entries missing source field | WARN always |
+
+**Idempotency guard principle:** The `_doCompleteJob` guard must be source-agnostic. A duplicate is defined by (date + status=completed + amount ±$5), not by the source field value. Source fields can be missing (legacy entries) or wrong (future bugs) — don't rely on them for correctness guarantees.
+
+**Established:** May 9, 2026, after Tanner Huysman showed that the existing csv_backfill guard was instance-specific and missed a variant of the same pattern (near-date collision with identical service description from CSV import of future-dated job).
+
+**Status:** ✅ Generalized scanner active in verify-deploy.js · source-agnostic idempotency guard in `_doCompleteJob`
 
 ---
 
