@@ -329,3 +329,106 @@ A check belongs in `verify-deploy.js` if it can be verified by curling the live 
 - Does a CSS property resolve to a specific value?
 - Does an API endpoint return the expected JSON shape?
 - Is a specific KV key populated?
+
+### When a bug class recurs
+
+If the same bug pattern appears in 2+ different places, it becomes a candidate for a new Architectural Law:
+1. Confirm pattern: same root cause, different files
+2. Codify the rule in plain English
+3. Build automated enforcement in `verify-deploy.js`
+4. Add to Section 10 (Architectural Laws) with date and rationale
+5. Future violations are deploy-blockers, not warnings
+
+This means every recurring bug permanently strengthens the system. The codebase becomes harder to break over time.
+
+---
+
+## Section 10: Architectural Laws
+
+**Architectural Laws** are invariants enforced by automated checks. Violating one causes `verify-deploy.js` to fail. New Laws are added when a bug class recurs (same pattern, different file). Once codified, the pattern is closed forever.
+
+To intentionally violate a Law (e.g., white text on a dark parent whose background is declared in a different CSS rule), add `/* contrast-ok */` inside the CSS rule. The scanner skips rules containing that comment.
+
+---
+
+### LAW 1: NO INVISIBLE TEXT
+
+**Rule:** No CSS rule may set a text `color` that resolves to the same hex as its background.
+
+**Enforcement:** `scripts/verify-deploy.js` universal CSS contrast scanner (`scanUniversalContrast`).
+- Same-rule white-on-white → **FAIL** (deploy blocked)
+- White text with no background in same rule, file has white card vars → **WARN** (surfaced for review)
+
+**Established:** May 8–9, 2026, after white-on-white bug recurred in `incoming.html` (.req-name) then `review_hub.html` (.card-name, .count-input, .goal-count-big, .empty-title, .tpl-name, .logo — 6 bugs in one file).
+
+**Coverage:** Runs automatically on every HTML file in `HTML_FILES`. No per-file configuration needed.
+
+**Status:** ✅ Enforced
+
+---
+
+### LAW 2: PUBLIC POST ENDPOINTS MUST BE RATE-LIMITED
+
+**Rule:** Any `POST` endpoint without admin auth must have IP-based rate limiting.
+
+**Enforcement:** `scripts/verify-deploy.js` — smoke test verifies `POST /incoming` with rapid requests returns 429. *(Rate-limit test for other public endpoints: PENDING)*
+
+**Established:** May 8, 2026, after friendly pen-test demonstrated 102 fake submissions to `POST /incoming` in under 10 minutes (Alex's flood test).
+
+**Implementation pattern:** KV counter key `rate:{endpoint}:{ip}` with TTL matching the window; return 429 with a human-readable message including the callback phone number.
+
+**Status:** ✅ Enforced for `/incoming` · ⏳ ENFORCEMENT PENDING for `/errors/log`
+
+---
+
+### LAW 3: REFERRAL-ONLY CUSTOMERS EXCLUDED FROM ALL OUTREACH
+
+**Rule:** Customers with `isReferralOnly: true` OR `phone.startsWith('REFERRAL_')` must be excluded from every outreach feature: review requests, reactivation campaigns, bulk SMS, etc.
+
+**Enforcement:** `reviewIsReadyToRequest()` has explicit guards. Every new "find eligible customers" function must add the same guards. *(Verify-deploy.js automated test: PENDING)*
+
+**Established:** May 8–9, 2026, after Hart's Painting Referral (`REFERRAL_HARTS_20260504`) appeared in the Google Review queue.
+
+**Guard pattern:**
+```js
+if (c.isReferralOnly) return false;
+if ((c.phone || '').startsWith('REFERRAL_')) return false;
+if (c.optOut) return false;
+```
+
+**Status:** ✅ Enforced in code · ⏳ AUTOMATED TEST PENDING
+
+---
+
+### LAW 4: CSV BACKFILL ENTRIES ARE INERT IN "FIND RECENT/ELIGIBLE" PATTERNS
+
+**Rule:** `jobHistory` entries with `source: 'csv_backfill'` must be excluded from any `.find()` / `.filter()` pattern that looks for "most recent entry", "GPS match", or "eligible for outreach". They have `completedAt: null` by definition and are synthetic historical records.
+
+**Enforcement:** Code guards in:
+- `getExtraCompletedJobsForRig()` — suppresses backfill entries when active scheduledStatus exists for same date
+- `jobCardScheduled` GPS lookup — skips backfill entries when searching for GPS timing
+- `reviewIsReadyToRequest()` — `j.source !== 'csv_backfill'` guard already present
+
+*(Verify-deploy.js source scanner for unguarded .find()/.filter() on jobHistory: PENDING)*
+
+**Established:** May 8, 2026, after CSV backfill of May 2026 jobs created duplicate calendar cards on 14 customers and masked Bouncie GPS timing data.
+
+**Status:** ✅ Enforced in code · ⏳ AUTOMATED SCANNER PENDING
+
+---
+
+### LAW 5: CUSTOMER-FACING PAGES MUST NOT CALL PROTECTED ENDPOINTS
+
+**Rule:** Any HTML file reachable by customers (quote form, agreement, receipt, q.html) must only call API routes listed in `AUTH_BOUNDARIES.md` as public. Calling an admin-only route from a customer page returns 401 silently.
+
+**Enforcement:** `verify-deploy.js` CHECK 8 (`checkCustomerFlows`) — fetches each customer page, extracts all `fetch()` API paths, checks each against the public allowlist. Any protected endpoint call → **FAIL**.
+
+**Established:** May 8, 2026, after auth deploy broke customer quote viewing (`q.html` called `GET /links` which wasn't in `isPublic`; `customer_quote.html` called `GET+PUT /customers`).
+
+**Reference:** `cloudflare-worker/src/AUTH_BOUNDARIES.md` — update before adding any new endpoint.
+
+**Status:** ✅ Fully enforced
+
+---
+
+*New Laws are added here when a bug class recurs. Date + rationale required.*

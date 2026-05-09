@@ -67,21 +67,135 @@ const API_ENDPOINTS = [
 ];
 
 // ── CSS variable resolution ────────────────────────────────────────────────
+
+// Deep var() resolution with cycle protection.
 function resolveCssVar(value, cssVars) {
   const m = value.match(/var\(--([^)]+)\)/);
   if (!m) return value.trim();
   return (cssVars[m[1]] || value).trim();
 }
 
+function resolveVarDeep(val, vars, depth = 0) {
+  if (!val || depth > 8) return (val || '').trim();
+  const m = val.match(/var\(\s*(--[\w-]+)(?:\s*,\s*([^)]*))?\s*\)/);
+  if (!m) return val.trim();
+  const resolved = (vars[m[1]] || (m[2] && m[2].trim()) || val).trim();
+  return resolveVarDeep(resolved, vars, depth + 1);
+}
+
+// Normalize any CSS color expression to lowercase 6-char hex (or the raw value
+// if it's not a recognizable white variant). Returns '' for nullish input.
+function hexNorm(c) {
+  if (!c) return '';
+  c = c.trim().toLowerCase().replace(/\s+/g, '');
+  if (c === 'white' || c === '#fff') return '#ffffff';
+  const h3 = c.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/);
+  if (h3) return `#${h3[1]}${h3[1]}${h3[2]}${h3[2]}${h3[3]}${h3[3]}`;
+  return c;
+}
+
 function extractCssVars(html) {
   const vars = {};
-  const m = html.match(/:root\{([^}]+)\}/);
+  // Handle both minified (:root{...}) and spaced (:root { ... }) CSS
+  const m = html.match(/:root\s*\{([^}]+)\}/);
   if (!m) return vars;
   for (const pair of m[1].split(';')) {
-    const [k, v] = pair.split(':');
-    if (k && v) vars[k.trim().replace('--', '')] = v.trim();
+    const i = pair.indexOf(':');
+    if (i < 0) continue;
+    const k = pair.slice(0, i).trim();
+    const v = pair.slice(i + 1).trim();
+    if (k.startsWith('--')) {
+      vars[k] = v;            // keyed as --name (with dashes) for resolveVarDeep
+      vars[k.slice(2)] = v;   // also keyed without -- for the old resolveCssVar callers
+    }
   }
   return vars;
+}
+
+// ── Universal CSS contrast scanner ───────────────────────────────────────────
+// Runs on every HTML file. Two tiers:
+//   FAIL  — same CSS rule declares both color and background that both resolve to #fff
+//            (definitively invisible — no context needed)
+//   WARN  — color resolves to #fff but no background in the same rule, AND
+//            the file defines at least one white card/background CSS variable
+//            (likely invisible on a white card; may be a false positive if the
+//            element appears inside a dark parent not expressed in the same rule)
+//
+// Intentional white-on-dark patterns (e.g. buttons, toasts) are excluded via
+// a denylist of selector fragments. To suppress a false positive, add
+//   /* contrast-ok */
+// anywhere in the CSS rule.
+function scanUniversalContrast(html, filename) {
+  const vars = extractCssVars(html);
+  const issues = [];
+
+  // Collect all <style> blocks
+  const css = (html.match(/<style[^>]*>([\s\S]*?)<\/style>/gi) || [])
+    .map(s => s.replace(/<\/?style[^>]*>/gi, '')).join('\n');
+
+  // Does this file define any white card/background variable?
+  const hasWhiteCardBg = Object.entries(vars).some(([k, v]) =>
+    (k.includes('card') || k.includes('bg') || k.includes('white')) &&
+    hexNorm(resolveVarDeep(v, vars)) === '#ffffff'
+  );
+
+  // Parse CSS rules: selector { declarations }
+  // Handles minified and formatted CSS; skips @rules and comments.
+  const seen = new Set();
+  const ruleRe = /([^{}@\n\/][^{}]*?)\{([^{}]*)\}/g;
+  let m;
+  while ((m = ruleRe.exec(css)) !== null) {
+    const sel  = m[1].trim();
+    const decls = m[2];
+    if (!sel || sel.includes('@') || !decls.includes('color')) continue;
+    if (decls.includes('contrast-ok')) continue; // explicit allowlist escape hatch
+
+    const colorRaw = (decls.match(/(?:^|;)\s*color\s*:\s*([^;!]+)/) || [])[1]?.trim();
+    const bgRaw    = (decls.match(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;!]+)/) || [])[1]?.trim();
+
+    if (!colorRaw) continue;
+    if (hexNorm(resolveVarDeep(colorRaw, vars)) !== '#ffffff') continue;
+
+    const key = `${filename}::${sel}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (bgRaw) {
+      const resolvedBg = hexNorm(resolveVarDeep(bgRaw, vars));
+      if (resolvedBg === '#ffffff') {
+        // Definitive: same-rule white text on white background
+        issues.push({ sel, colorRaw, bgRaw, severity: 'critical' });
+      }
+      // Non-white bg in same rule → intentional white-on-dark, skip
+      continue;
+    }
+
+    // White text, no background in this rule.
+    // Exclude known UI chrome that inherently lives on dark backgrounds.
+    const s = sel.toLowerCase();
+    const isDarkChrome =
+      s.includes('btn') || s.includes('button') ||
+      s.includes('badge') || s.includes('toast') ||
+      s.includes('overlay') || s.includes('backdrop') ||
+      s.includes('indicator') || s.includes('dot') ||
+      s.includes('chip') || s.includes('win-heavy') ||
+      s.includes('tier-') || s.includes('tab-badge') ||
+      s.includes(':hover') || s.includes(':active') ||
+      s.includes('::before') || s.includes('::after') ||
+      // Calendar & shared nav elements that appear on dark (--navy / --navy2) backgrounds.
+      // Their parent containers declare the dark background in a different CSS rule.
+      s.includes('topbar') || s.includes('-logo') || s.includes('hdr-logo') ||
+      s.includes('header-logo') || s.includes('week-label') ||
+      s.includes('dh-date') || s.includes('dh-rev') ||
+      s.includes('pf-total') || s.includes('rig-hdr') ||
+      s.includes('day-rig-hdr') || s.includes('modal-title');
+
+    if (!isDarkChrome && hasWhiteCardBg) {
+      issues.push({ sel, colorRaw, bgRaw: null, severity: 'warning' });
+    }
+  }
+
+  return issues;
 }
 
 // ── Fetch helper ──────────────────────────────────────────────────────────
@@ -140,34 +254,40 @@ async function checkHtmlFile({ file, markers = [], cssChecks = [] }) {
     }
   }
 
-  // CSS contrast checks
+  // Per-file regression guards (specific known-bad classes → FAIL if they regress)
   const cssVars = extractCssVars(html);
   for (const { selector, prop, forbidden } of cssChecks) {
-    // Pull the CSS rule for this selector
-    const escaped = selector.replace('.', '\\.').replace('-', '\\-');
     const ruleMatch = html.match(new RegExp(selector.replace('.', '\\.') + '\\{([^}]+)\\}'));
-    if (!ruleMatch) {
-      warn(`${file} — CSS ${selector}`, 'Rule not found');
-      continue;
-    }
+    if (!ruleMatch) { warn(`${file} — CSS ${selector}`, 'Rule not found'); continue; }
     const rule = ruleMatch[1];
     const propMatch = rule.match(new RegExp(prop + ':([^;]+)'));
-    if (!propMatch) {
-      warn(`${file} — CSS ${selector} ${prop}`, 'Property not found');
-      continue;
-    }
+    if (!propMatch) { warn(`${file} — CSS ${selector} ${prop}`, 'Property not found'); continue; }
     const rawValue = propMatch[1].trim();
     const resolved = resolveCssVar(rawValue, cssVars);
     if (resolved === forbidden) {
-      fail(
-        `${file} — CSS contrast: ${selector} { ${prop}: ${rawValue} }`,
-        `Resolves to ${resolved} — matches forbidden value (white-on-white)`
-      );
+      fail(`${file} — CSS contrast: ${selector} { ${prop}: ${rawValue} }`,
+           `Resolves to ${resolved} — matches forbidden value (white-on-white)`);
     } else {
-      pass(
-        `${file} — CSS contrast: ${selector} { ${prop}: ${rawValue} }`,
-        `Resolves to ${resolved} ✓`
-      );
+      pass(`${file} — CSS contrast: ${selector} { ${prop}: ${rawValue} }`,
+           `Resolves to ${resolved} ✓`);
+    }
+  }
+
+  // Universal contrast scan — catches NEW white-on-white bugs across all selectors
+  const contrastIssues = scanUniversalContrast(html, file);
+  const criticals = contrastIssues.filter(i => i.severity === 'critical');
+  const warnings  = contrastIssues.filter(i => i.severity === 'warning');
+  if (criticals.length === 0 && warnings.length === 0) {
+    pass(`${file} — universal contrast scan`, 'No white-on-white issues detected');
+  } else {
+    for (const { sel, colorRaw, bgRaw } of criticals) {
+      fail(`${file} — contrast CRITICAL: ${sel}`,
+           `color:${colorRaw} and background:${bgRaw} both resolve to #ffffff (invisible text)`);
+    }
+    if (warnings.length > 0) {
+      const selList = warnings.map(w => w.sel).join(', ');
+      warn(`${file} — contrast WARN: ${warnings.length} selector(s) use color:#fff with no explicit background`,
+           `Selectors: ${selList} — verify each appears on a dark background or add /* contrast-ok */ to suppress`);
     }
   }
 }
