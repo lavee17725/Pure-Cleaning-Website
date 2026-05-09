@@ -3469,18 +3469,71 @@ function _doCompleteJob(log) {
   if (!c.jobHistory) c.jobHistory = [];
   const _jhNow   = new Date().toISOString();
   const _jhJobId = `${jmPhone}_${completedDate}_${Math.round((ss.approvedAmount||0)*100)}_cal${Date.now().toString(36)}`;
+
+  // ── Tier 1 ML context fields ─────────────────────────────────────────────
+  // crewSize: explicit crew array length, or rig-default (rig_3=Chevy/softwash is Tony solo)
+  const _mlCrew        = ss.crew || [];
+  const _mlRig         = _normalizeRig(ss.rig || '');
+  const _mlCrewDefault = _mlRig === 'rig_3' ? 1 : 2;
+  const _mlCrewSize    = _mlCrew.length > 0 ? _mlCrew.length : _mlCrewDefault;
+
+  // jobNumber: how many calendar_completion entries already exist for this rig+date across all customers
+  const _mlJobNumber = (ss.rig
+    ? (dbRecord.customers || []).reduce((n, cust) =>
+        n + (cust.jobHistory || []).filter(j =>
+          j.date === completedDate &&
+          j.source === 'calendar_completion' &&
+          _normalizeRig(j.rig) === _mlRig
+        ).length, 0)
+    : 0) + 1;  // +1 because this job hasn't been pushed yet
+
+  // customerTier: snapshot at completion time (simplified — no roof-window logic to avoid duplicating getTier)
+  const _mlJh        = c.jobHistory || [];
+  const _mlTotalJobs = _mlJh.length > 0 ? _mlJh.length : (c.totalJobs || 0);
+  const _mlLastSvc   = _mlJh.length > 0
+    ? _mlJh.map(j => j.date).filter(Boolean).sort().slice(-1)[0]
+    : (c.lastService || null);
+  let _mlTier = 'UNKNOWN';
+  if (_mlLastSvc) {
+    const _mlMo      = (Date.now() - new Date(_mlLastSvc + 'T12:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.5);
+    const _mlRepeat  = _mlTotalJobs >= 2;
+    if      (_mlMo <= 6  && _mlRepeat)  _mlTier = 'LOYAL';
+    else if (_mlMo <= 6)                _mlTier = 'NEW';
+    else if (_mlMo <= 18 && _mlRepeat)  _mlTier = 'HOT';
+    else if (_mlMo <= 18)               _mlTier = 'WARM';
+    else                                _mlTier = 'OVERDUE';
+  } else if (_mlTotalJobs === 0) {
+    _mlTier = 'NEW';
+  }
+
+  // sqFt: property size from any available source; null is fine — not all customers have this
+  const _mlSqFt = c.sqFt || ss.sqFt || (c.quoteStatus && c.quoteStatus.sqFt) || null;
+
+  // geocodedCoords: {lat, lng} for drive-time analysis and route optimization
+  const _mlGeo    = c.coordinates || c.geocoded || null;
+  const _mlCoords = (_mlGeo && _mlGeo.lat && _mlGeo.lng)
+    ? { lat: _mlGeo.lat, lng: _mlGeo.lng }
+    : null;
+  // ── End Tier 1 ML fields ─────────────────────────────────────────────────
+
   const _jhEntry = {
-    jobId:       _jhJobId,
-    date:        completedDate,
-    services:    ss.jobNotes || '',
-    amount:      ss.approvedAmount || 0,
-    rig:         ss.rig || null,
-    city:        c.city || null,
-    address:     c.address || null,
-    status:      'completed',
-    completedAt: _jhNow,
-    crew:        (ss.crew || []).slice(),
-    source:      'calendar_completion',
+    jobId:          _jhJobId,
+    date:           completedDate,
+    services:       ss.jobNotes || '',
+    amount:         ss.approvedAmount || 0,
+    rig:            ss.rig || null,
+    city:           c.city || null,
+    address:        c.address || null,
+    status:         'completed',
+    completedAt:    _jhNow,
+    crew:           (ss.crew || []).slice(),
+    source:         'calendar_completion',
+    // Tier 1 ML context
+    crewSize:       _mlCrewSize,
+    jobNumber:      _mlJobNumber,
+    customerTier:   _mlTier,
+    sqFt:           _mlSqFt,
+    geocodedCoords: _mlCoords,
     ...(log.paymentStatus === 'paid' ? {
       payment:       log.paymentMethod || null,
       paymentMethod: log.paymentMethod || null,

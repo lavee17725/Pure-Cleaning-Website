@@ -256,6 +256,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Review Hub: `isReferralOnly` customers (e.g. Hart's Painting Referral) appearing in Google Review queue | `reviewIsReadyToRequest()` only checked `c.deleted`; added guards for `isReferralOnly`, `optOut`, and `REFERRAL_` phone prefix; rule: every "find eligible customers" function must explicitly check all three exclusion conditions |
 | May 8, 2026 | ML data pipeline foundation: `JOB_HISTORY_SCHEMA.md` created | Documents current jobHistory schema (3 write paths: calendar_completion, Bouncie GPS, csv_backfill), gap analysis vs ML feature set, and 6-tier migration plan; key gaps: sqFt not captured on new jobs, morning stops not linked to job entries, no propertyType, no weather snapshot; see `cloudflare-worker/src/JOB_HISTORY_SCHEMA.md` |
 
+| May 9, 2026 | Tier 1 ML fields shipped: crewSize, jobNumber, customerTier, sqFt, geocodedCoords on every new completion | `_doCompleteJob` in calendar.html now captures full ML context at completion time; crewSize defaults by rig (rig_3=1/Tony solo, others=2); jobNumber scans dbRecord.customers for same-rig same-date completions; customerTier is inline simplified snapshot without full getTier dependency; sqFt reads from c.sqFt → ss.sqFt → quoteStatus.sqFt → null; existing csv_backfill entries unchanged |
+
 *Append future decisions below this line.*
 
 ---

@@ -152,20 +152,20 @@ What the pricing/duration ML needs vs what exists today:
 | `crew` IDs | calendar_completion | ✅ captured as array of IDs |
 | `city` / `address` | calendar_completion | ✅ always present |
 | `paymentMethod` | calendar + backfill | ✅ when paid |
-| `sqFt` | **CSV backfill only** | ⚠️ ~40% of records (backfill entries) — **not captured on new jobs** |
-| `crewSize` (count) | derivable from `crew[]` | ⚠️ crew.length, not stored explicitly |
+| `sqFt` | `c.sqFt \|\| ss.sqFt \|\| quoteStatus.sqFt` | ✅ **Tier 1 shipped** — null if not known |
+| `crewSize` (count) | rig default or crew[].length | ✅ **Tier 1 shipped** — rig_3=1, others=2 default |
+| `geocodedCoords` | `c.coordinates \|\| c.geocoded` | ✅ **Tier 1 shipped** — `{lat,lng}` or null |
+| `jobNumber` | count of prior completions on same rig+date + 1 | ✅ **Tier 1 shipped** |
+| `customerTier` | snapshot from jobHistory at completion | ✅ **Tier 1 shipped** — HOT/WARM/LOYAL/NEW/OVERDUE/UNKNOWN |
 | `propertyType` | **nowhere** | ❌ not captured at all |
 | `roofStories` | quote notes (free text) | ❌ not structured |
 | `weatherConditions` | `/api/weather` endpoint exists | ❌ not written to jobHistory |
 | `dayOfWeek` | derivable from `date` | ⚠️ not stored, but trivially computed |
 | `month` / `season` | derivable from `date` | ⚠️ not stored, but trivially computed |
-| `isRepeatCustomer` | customer.totalJobs | ⚠️ not embedded in jh entry |
-| `jobNumberForCustomer` | customer.jobHistory index | ⚠️ not embedded in jh entry |
-| `customerTier` | computed from jobHistory | ⚠️ not embedded in jh entry |
+| `isRepeatCustomer` | `customerTier !== 'NEW'` | ⚠️ derivable from customerTier (now captured) |
 | `driveTimeToJob` | Bouncie trips | ❌ home→job leg not captured per-job |
-| `gasStopDurationMin` | bouncie:morning_stops | ❌ not linked to job entries |
-| `chlorineStopDurationMin` | bouncie:morning_stops | ❌ not linked to job entries |
-| `geocodedLat` / `geocodedLon` | geocoder (ephemeral) | ⚠️ used in GPS matching, not stored in jh |
+| `gasStopDurationMin` | bouncie:morning_stops | ❌ not linked to job entries — Tier 2 |
+| `chlorineStopDurationMin` | bouncie:morning_stops | ❌ not linked to job entries — Tier 2 |
 
 ---
 
@@ -197,17 +197,15 @@ What `_doCompleteJob` should write once all gaps are filled:
   actualRig:          'rig_1',
   autoAttributed:     true,
 
-  // ── Property data (NEEDS CAPTURE) ───────────────────────
-  sqFt:          3133,          // from customer record (if available) or quote data
-  propertyType:  'single_family', // 'single_family' | 'townhouse' | 'condo' | 'commercial'
-  geocodedLat:   26.0852,       // persist so GPS matching can skip geocoding next time
-  geocodedLon:   -80.3740,
+  // ── Tier 1 ML context (✅ shipped May 9, 2026) ─────────────────────────
+  crewSize:       2,            // rig_3→1, others→2 default; overridden by ss.crew.length
+  jobNumber:      3,            // 3rd job of the day on this rig (cross-customer count)
+  customerTier:   'HOT',        // snapshot at completion: HOT/WARM/LOYAL/NEW/OVERDUE/UNKNOWN
+  sqFt:           3133,         // c.sqFt || ss.sqFt || quoteStatus.sqFt || null
+  geocodedCoords: { lat: 26.0852, lng: -80.3740 },  // c.coordinates || c.geocoded || null
 
-  // ── Derived ML context (NEEDS CAPTURE — easy to add at completion time) ─
-  crewSize:           2,          // crew.length
-  jobNumberForCustomer: 7,        // 1 = first ever job, N = Nth job for this customer
-  isRepeatCustomer:   true,       // jobNumberForCustomer > 1
-  customerTier:       'HOT',      // from getEffectiveStats() at completion time
+  // ── Property data (STILL NEEDED) ────────────────────────────────────────
+  propertyType:  'single_family', // ❌ Tier 3 — not yet captured
 
   // ── Day route context (NEEDS LINKING from morning_stops) ────────────────
   dayMorningStops: {              // snapshot from bouncie:morning_stops:{date} for this rig
@@ -230,18 +228,20 @@ What `_doCompleteJob` should write once all gaps are filled:
 
 ## 5. Migration Plan
 
-### Tier 1 — Zero infrastructure, add at completion time (30 min, do first)
+### Tier 1 — ✅ SHIPPED May 9, 2026
 
-These are derivable at the moment `_doCompleteJob` runs. No new endpoints or data sources needed.
+Implemented in `_doCompleteJob` in `public/pure_cleaning_calendar.html`.
+Every new `calendar_completion` entry now includes:
 
-| Field | Where to get it | Change required |
-|-------|-----------------|-----------------|
-| `crewSize` | `crew.length` | 1 line in `_doCompleteJob` |
-| `jobNumberForCustomer` | `(c.jobHistory\|\|[]).filter(j=>j.status==='completed').length + 1` | 1 line |
-| `isRepeatCustomer` | `jobNumberForCustomer > 1` | 1 line |
-| `customerTier` | call `getTier(c)` or `getEffectiveStats(c).tier` | 1 line |
-| `geocodedLat/Lon` | already geocoded in Bouncie matcher — persist it back to jh entry | write in Bouncie cron |
-| `sqFt` | `c.sqFt` (already on some customer records from backfill) | 1 line |
+| Field | Implementation | Notes |
+|-------|----------------|-------|
+| `crewSize` | `ss.crew.length \|\| rigDefault` | rig_3→1, others→2 |
+| `jobNumber` | count of prior same-rig completions today + 1 | cross-customer scan via dbRecord.customers |
+| `customerTier` | inline tier snapshot from jobHistory | simplified (no roof-window); HOT/WARM/LOYAL/NEW/OVERDUE/UNKNOWN |
+| `sqFt` | `c.sqFt \|\| ss.sqFt \|\| quoteStatus.sqFt \|\| null` | null is valid — not all customers have this |
+| `geocodedCoords` | `c.coordinates \|\| c.geocoded` → `{lat,lng}` | null if not geocoded |
+
+**Does NOT affect existing entries** — only new completions get Tier 1 fields.
 
 ### Tier 2 — Link morning stops to job entries (1–2 hours, do Sunday)
 
