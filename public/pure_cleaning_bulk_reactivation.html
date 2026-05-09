@@ -1145,6 +1145,7 @@ async function tryLoadDatabase() {
     document.getElementById('poolTabs').classList.add('show');
     document.getElementById('tableWrap').style.display = 'block';
     document.getElementById('tableControls').classList.add('show');
+    document.getElementById('svcTabs').classList.add('show'); // active pool is default tab
     initTblFades();
 
     showDbBanner(db);
@@ -1673,7 +1674,7 @@ function clearSearch() {
 
 // ─── SORT STATE ──────────────────────────────────────────────────────────────
 // Primary direction: true=asc is default for these, false=desc is default for others
-const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:true, monthsSince:true, totalJobs:false, lifetimeSpend:false, avgTicket:false };
+const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:true, monthsSince:false, totalJobs:false, lifetimeSpend:false, avgTicket:false };
 let _sortCol = null;
 let _sortAsc = true;
 
@@ -1688,9 +1689,18 @@ function applySort() {
     renderTable(); return;
   }
   const col = _sortCol || document.getElementById('sortSel').value || 'monthsSince';
+  // When sorting by monthsSince in the active tab, use the section-specific months field
+  const getVal = (c, k) => {
+    if (k === 'monthsSince' && poolTab === 'active' && activeSvcSection) {
+      if (activeSvcSection === 'ground') return c.monthsSinceGround ?? 999;
+      if (activeSvcSection === 'roof')   return c.monthsSinceRoof   ?? 999;
+      if (activeSvcSection === 'both')   return Math.max(c.monthsSinceGround ?? 0, c.monthsSinceRoof ?? 0);
+    }
+    return c[k] ?? (typeof c[k] === 'string' ? '' : 0);
+  };
   filteredCustomers.sort((a, b) => {
-    let av = a[col] ?? (typeof a[col] === 'string' ? '' : 0);
-    let bv = b[col] ?? (typeof b[col] === 'string' ? '' : 0);
+    let av = getVal(a, col);
+    let bv = getVal(b, col);
     if (typeof av === 'string') av = av.toLowerCase();
     if (typeof bv === 'string') bv = bv.toLowerCase();
     const cmp = typeof av === 'number' ? av - bv : (av < bv ? -1 : av > bv ? 1 : 0);
