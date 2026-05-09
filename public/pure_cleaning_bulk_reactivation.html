@@ -300,6 +300,7 @@ td.money{font-family:'DM Mono',monospace;}
 .tl-chip-sent{background:rgba(29,158,117,.18);color:#5de0b3;}
 .tl-action{flex-shrink:0;}
 .tl-empty{text-align:center;padding:2rem;color:var(--muted);font-size:14px;}
+.render-error{text-align:center;padding:1.5rem;background:rgba(234,88,12,.08);color:#c2410c;font-size:13px;font-weight:600;border-radius:8px;}
 
 /* exclusion modal */
 .excl-modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem;}
@@ -617,6 +618,22 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 <script>
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const PCPC_API_BR = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// Law 9 helper: forward caught errors to the error dashboard.
+// window.onerror only sees UNcaught exceptions — local try/catch creates a blind spot.
+function _fwdError(source, e) {
+  try {
+    navigator.sendBeacon(PCPC_API_BR + '/errors/log', JSON.stringify({
+      source,
+      page:      location.pathname.split('/').pop(),
+      errorType: (e && e.name)    || 'Error',
+      message:   ((e && e.message) || String(e)).slice(0, 500),
+      stack:     ((e && e.stack)   || '').slice(0, 2000),
+      url:       location.href,
+      timestamp: new Date().toISOString(),
+    }));
+  } catch {} // swallow — error reporter must never throw
+}
 const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
 const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const _SL_ALPHA_BR       = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -1023,8 +1040,12 @@ async function tryLoadDatabase() {
     updateContactStats();
     updateHoursBanner();
   } catch(e) {
-    bannerText.textContent = `⚠️ Could not load database — check connection and refresh. (${e.message})`;
+    const isNetworkError = /fetch|network|failed to fetch/i.test(e.message || '');
+    bannerText.textContent = isNetworkError
+      ? `⚠️ Could not load database — check connection and refresh. (${e.message})`
+      : `⚠️ Page render error — Tyler should check the error dashboard. (${e.message})`;
     console.error('DB load error:', e);
+    _fwdError('bulk_reactivation_init', e); // Law 9: forward to error tracker
   }
 }
 
@@ -1614,6 +1635,7 @@ const EXCL_REASON_LABELS = {
 // ─── TABLE RENDERING ─────────────────────────────────────────────────────────
 function renderTable() {
   const tbody = document.getElementById('tableBody');
+  try {
   const emptyTabs = ['today','week','opted_out','moved_away','excluded'];
   if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
     const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.',excluded:'No excluded customers — looking good!'};
@@ -1738,6 +1760,13 @@ function renderTable() {
   updateSelInfo();
   document.getElementById('selectAll').checked =
     filteredCustomers.length > 0 && filteredCustomers.every(c => selectedPhones.has(c.phone));
+  } catch(e) {
+    // Law 9: render errors get a visible in-table message + forwarded to error tracker.
+    // Do NOT rethrow — stats/filter bar stay functional.
+    tbody.innerHTML = `<tr><td colspan="12" class="render-error">⚠️ Render error — check /pure_cleaning_errors.html for details. (${e.message})</td></tr>`;
+    _fwdError('bulk_reactivation_renderTable', e);
+    console.error('[renderTable]', e);
+  }
 }
 
 // ─── TIMELINE VIEW ───────────────────────────────────────────────────────────

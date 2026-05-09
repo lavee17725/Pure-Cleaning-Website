@@ -256,6 +256,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 8, 2026 | Review Hub: `isReferralOnly` customers (e.g. Hart's Painting Referral) appearing in Google Review queue | `reviewIsReadyToRequest()` only checked `c.deleted`; added guards for `isReferralOnly`, `optOut`, and `REFERRAL_` phone prefix; rule: every "find eligible customers" function must explicitly check all three exclusion conditions |
 | May 8, 2026 | ML data pipeline foundation: `JOB_HISTORY_SCHEMA.md` created | Documents current jobHistory schema (3 write paths: calendar_completion, Bouncie GPS, csv_backfill), gap analysis vs ML feature set, and 6-tier migration plan; key gaps: sqFt not captured on new jobs, morning stops not linked to job entries, no propertyType, no weather snapshot; see `cloudflare-worker/src/JOB_HISTORY_SCHEMA.md` |
 
+| May 9, 2026 | Error tracker blind spot closed: Law 9 pattern applied to page-init catch blocks | tryLoadDatabase() in bulk_reactivation caught ReferenceError before window.onerror saw it; banner said "check connection" (misleading); fixed: banner now distinguishes network vs code errors; catch forwards to /errors/log via sendBeacon; renderTable() wrapped in inner try/catch with visible .render-error row; same pattern applied to calendar.html init() and customer_profile.html init(); Law 9 codified |
 | May 9, 2026 | Bulk Reactivation rendering silent ReferenceError fixed | `const tc = tierClass(c.tier)` was dropped from `renderTable()` `.map()` callback in aaf1232 restructure; `${tc}` at line 1733 threw ReferenceError, tbody.innerHTML assignment failed silently; stats unaffected (set before renderTable runs); symptom: "stats show, list empty"; fix: 1-line restore; Law 8 added + marker check in verify-deploy.js |
 | May 9, 2026 | Tier 2 ML fields shipped: morningStops linked to job entries at completion time | `_doCompleteJob` reads `_morningStopsData[completedDate][rig]` (already in memory from day view load) and snapshots gas/chlorine stop times into the jobHistory entry; null if Bouncie cron hasn't run for that date yet; Option B backfill (post-hoc enrichment in Bouncie cron) deferred to future session |
 | May 9, 2026 | Tier 1 ML fields shipped: crewSize, jobNumber, customerTier, sqFt, geocodedCoords on every new completion | `_doCompleteJob` in calendar.html now captures full ML context at completion time; crewSize defaults by rig (rig_3=1/Tony solo, others=2); jobNumber scans dbRecord.customers for same-rig same-date completions; customerTier is inline simplified snapshot without full getTier dependency; sqFt reads from c.sqFt → ss.sqFt → quoteStatus.sqFt → null; existing csv_backfill entries unchanged |
@@ -483,6 +484,39 @@ if (c.optOut) return false;
 **Fix pattern:** When restructuring a `.map()` or `.forEach()` callback, ensure ALL `${variable}` references in the template literal return value have corresponding `const`/`let` declarations at the top of the callback.
 
 **Status:** ✅ Marker check added for `const tc` · ⏳ Generic pre-commit lint PENDING
+
+---
+
+### LAW 9: TRY/CATCH BLOCKS MUST FORWARD TO ERROR TRACKER
+
+**Rule:** Any `catch` block that handles an error locally (updates UI, shows a toast, falls back to a default) MUST also forward the error to `/errors/log` via `navigator.sendBeacon`. Local catches without forwarding create silent blind spots — `error-tracker.js` (`window.addEventListener('error', ...)`) only sees **uncaught** exceptions.
+
+**Symptom signature:** Bug exists in production, error dashboard is empty.
+
+**Pattern:**
+```javascript
+} catch(e) {
+  // ... local handling (toast, banner, fallback) ...
+  try { navigator.sendBeacon(API + '/errors/log', JSON.stringify({
+    source: 'descriptive_source_name', page: location.pathname.split('/').pop(),
+    errorType: (e && e.name) || 'Error',
+    message: ((e && e.message) || String(e)).slice(0, 500),
+    stack: ((e && e.stack) || '').slice(0, 2000),
+    url: location.href, timestamp: new Date().toISOString(),
+  })); } catch {}
+}
+```
+
+**Intentional suppression** (OK to NOT forward): low-level utility catches where swallowing is correct (e.g., `localStorage.getItem`, `sessionStorage`, geocoder, background polling). Mark with `/* err-tracker-ok: reason */` so the lint check skips it.
+
+**Where applied:**
+- `pure_cleaning_bulk_reactivation.html` — `tryLoadDatabase()` catch + `renderTable()` inner catch
+- `pure_cleaning_calendar.html` — `init()` catch
+- `pure_cleaning_customer_profile.html` — `init()` catch
+
+**Established:** May 9, 2026, after the `const tc` ReferenceError in Bulk Reactivation was caught by `tryLoadDatabase()` and never reached `window.onerror`. Error dashboard empty for 36+ hours. See Law 8 for the companion Law.
+
+**Status:** ✅ Enforced on key page-init catches · verify-deploy.js marker checks present · ⏳ Full lint scan PENDING
 
 ---
 

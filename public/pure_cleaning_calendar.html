@@ -1674,6 +1674,8 @@ async function init() {
     dbRecord = {customers:[]};
     render();
     showToast('⚠️ Could not load database — some data may be stale');
+    // Law 9: forward to error tracker — local catch creates window.onerror blind spot
+    try { navigator.sendBeacon(PCPC_API + '/errors/log', JSON.stringify({ source: 'calendar_init', page: 'pure_cleaning_calendar.html', errorType: (e && e.name) || 'Error', message: ((e && e.message) || String(e)).slice(0, 500), stack: ((e && e.stack) || '').slice(0, 2000), url: location.href, timestamp: new Date().toISOString() })); } catch {}
   }
   // URL-based highlight (from toast "View Card" or direct link)
   const hlPhone = new URLSearchParams(window.location.search).get('highlight') ||

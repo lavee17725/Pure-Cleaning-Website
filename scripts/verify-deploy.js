@@ -58,6 +58,9 @@ const HTML_FILES = [
       // Law 8 guard: const tc must exist in renderTable .map() callback.
       // If dropped again, ${tc} causes ReferenceError → silent empty list.
       'const tc         = tierClass(c.tier)',
+      // Law 9 guards: page-init catch blocks must forward to error tracker.
+      '_fwdError(\'bulk_reactivation_init\'',
+      '_fwdError(\'bulk_reactivation_renderTable\'',
     ],
   },
 ];
@@ -277,6 +280,27 @@ async function checkHtmlFile({ file, markers = [], cssChecks = [] }) {
       pass(`${file} — CSS contrast: ${selector} { ${prop}: ${rawValue} }`,
            `Resolves to ${resolved} ✓`);
     }
+  }
+
+  // Law 9 — catch-block forwarding lint
+  // Scan for } catch( blocks that lack sendBeacon or errors/log forwarding.
+  // Skip blocks with /* err-tracker-ok */ suppression comment.
+  const scriptContent = (html.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [])
+    .map(s => s.replace(/<\/?script[^>]*>/gi, '')).join('\n');
+  const catchBlocks = [...scriptContent.matchAll(/\}\s*catch\s*\([^)]*\)\s*\{/g)];
+  let uncoveredCatches = 0;
+  for (const m of catchBlocks) {
+    const after = scriptContent.slice(m.index, m.index + 600);
+    const hasForwarding = /sendBeacon|errors\/log|_fwdError/.test(after);
+    const isSuppressed  = /err-tracker-ok/.test(after);
+    const isTrivial     = /\/\*.*\*\/|console\.(warn|log)|return;/.test(after.slice(0, 80)); // tiny one-liners
+    if (!hasForwarding && !isSuppressed && !isTrivial) uncoveredCatches++;
+  }
+  if (uncoveredCatches === 0) {
+    pass(`${file} — Law 9 catch-block lint`, 'All catch blocks forward errors or are marked /* err-tracker-ok */');
+  } else {
+    warn(`${file} — Law 9 catch-block lint`,
+         `${uncoveredCatches} catch block(s) lack sendBeacon forwarding and /* err-tracker-ok */ suppression`);
   }
 
   // Universal contrast scan — catches NEW white-on-white bugs across all selectors
