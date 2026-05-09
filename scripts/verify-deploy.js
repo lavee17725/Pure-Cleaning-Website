@@ -33,7 +33,7 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_calendar.html',
-    markers: ['function renderDayView', 'PCPC_API', 'function promptRevertJob'],
+    markers: ['function renderDayView', 'PCPC_API', 'function promptRevertJob', '_weekNavDrag'],
   },
   {
     file: 'pure_cleaning_customer_directory.html',
