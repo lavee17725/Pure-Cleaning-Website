@@ -164,8 +164,7 @@ What the pricing/duration ML needs vs what exists today:
 | `month` / `season` | derivable from `date` | ⚠️ not stored, but trivially computed |
 | `isRepeatCustomer` | `customerTier !== 'NEW'` | ⚠️ derivable from customerTier (now captured) |
 | `driveTimeToJob` | Bouncie trips | ❌ home→job leg not captured per-job |
-| `gasStopDurationMin` | bouncie:morning_stops | ❌ not linked to job entries — Tier 2 |
-| `chlorineStopDurationMin` | bouncie:morning_stops | ❌ not linked to job entries — Tier 2 |
+| `morningStops` | `_morningStopsData[date][rig]` in-memory cache | ✅ **Tier 2 shipped** — null if cron hasn't run for that date yet |
 
 ---
 
@@ -207,12 +206,19 @@ What `_doCompleteJob` should write once all gaps are filled:
   // ── Property data (STILL NEEDED) ────────────────────────────────────────
   propertyType:  'single_family', // ❌ Tier 3 — not yet captured
 
-  // ── Day route context (NEEDS LINKING from morning_stops) ────────────────
-  dayMorningStops: {              // snapshot from bouncie:morning_stops:{date} for this rig
-    gas:      { found: true,  durationMin: 6,  arrivedAt: '...', departedAt: '...' },
-    chlorine: { found: true,  durationMin: 10, arrivedAt: '...', departedAt: '...' },
-  },
-  driveTimeToJobMin: 18,          // minutes from home (or last job) to this job — needs route math
+  // ── Tier 2 ML context (✅ shipped May 9, 2026) ─────────────────────────
+  morningStops: {
+    rig:             'rig_2',
+    stops: [
+      { type: 'gas',      label: '7-Eleven', arrivedAt: '...', departedAt: '...', durationMin: 6  },
+      { type: 'chlorine', label: 'Pro-Line', arrivedAt: '...', departedAt: '...', durationMin: 10 },
+    ],
+    totalMorningMins: 16,
+    capturedAt:       '...',
+  },  // null if cron hasn't run for that date yet
+
+  // ── Day route context (STILL NEEDED — Tier 5) ───────────────────────────
+  driveTimeToJobMin: 18,          // ❌ Tier 5 — minutes from home/last job to this job
 
   // ── Weather (NEEDS CAPTURE — api/weather exists) ─────────────────────────
   weather: {
@@ -243,22 +249,27 @@ Every new `calendar_completion` entry now includes:
 
 **Does NOT affect existing entries** — only new completions get Tier 1 fields.
 
-### Tier 2 — Link morning stops to job entries (1–2 hours, do Sunday)
+### Tier 2 — ✅ SHIPPED May 9, 2026
 
-After Bouncie cron runs, it has `morningStops[rig]` in memory. Add a step to write
-`dayMorningStops` into each job's jh entry for that rig and date.
-
-Location: `bouncieJobDurationMatcher` in `index.js`, after the `timingData` Object.assign.
+Implemented in `_doCompleteJob` in `public/pure_cleaning_calendar.html`.
+Reads from `_morningStopsData[completedDate][rig]` — the in-memory cache that
+is already populated by `fetchMorningStops()` when the day view loads.
 
 ```js
-// After writing timingData into jhEntry:
-if (morningStops[bestRig]) {
-  jhEntry.dayMorningStops = morningStops[bestRig];
+morningStops: {
+  rig:              'rig_2',
+  stops: [
+    { type: 'gas',      label: '7-Eleven', arrivedAt: '...', departedAt: '...', durationMin: 6   },
+    { type: 'chlorine', label: 'Pro-Line', arrivedAt: '...', departedAt: '...', durationMin: 10  },
+  ],
+  totalMorningMins: 16,
+  capturedAt:       '...',
 }
+// or null if cron hasn't run for that date yet
 ```
 
-This retroactively links the morning stop data (currently lost in a per-day KV key)
-to the specific job entries where it matters.
+**Null case:** If Tyler completes a job before the 3 AM cron, `morningStops` is `null`.
+Backfill via Option B (post-hoc enrichment in Bouncie cron) is deferred to a future session.
 
 ### Tier 3 — Property type capture (30 min, do Sunday)
 

@@ -3516,6 +3516,32 @@ function _doCompleteJob(log) {
     : null;
   // ── End Tier 1 ML fields ─────────────────────────────────────────────────
 
+  // ── Tier 2 ML fields — morning stop context ───────────────────────────────
+  // _morningStopsData is populated by fetchMorningStops() when the day view loads.
+  // If the cron hasn't run yet for this date, the cache is empty → null.
+  let _mlMorningStops = null;
+  if (ss.rig) {
+    const _msRaw = (_morningStopsData[completedDate] || {})[ss.rig] || null;
+    if (_msRaw) {
+      const _msStops = Object.entries(_msRaw)
+        .filter(([, s]) => s.found)
+        .map(([poiKey, s]) => ({
+          type:        poiKey,              // 'gas' | 'chlorine'
+          label:       s.label || poiKey,
+          arrivedAt:   s.arrivedAt   || null,
+          departedAt:  s.departedAt  || null,
+          durationMin: s.durationMin || null,
+        }));
+      _mlMorningStops = {
+        rig:               ss.rig,
+        stops:             _msStops,
+        totalMorningMins:  _msStops.reduce((n, s) => n + (s.durationMin || 0), 0),
+        capturedAt:        _jhNow,
+      };
+    }
+  }
+  // ── End Tier 2 ML fields ─────────────────────────────────────────────────
+
   const _jhEntry = {
     jobId:          _jhJobId,
     date:           completedDate,
@@ -3534,6 +3560,8 @@ function _doCompleteJob(log) {
     customerTier:   _mlTier,
     sqFt:           _mlSqFt,
     geocodedCoords: _mlCoords,
+    // Tier 2 ML context
+    morningStops:   _mlMorningStops,
     ...(log.paymentStatus === 'paid' ? {
       payment:       log.paymentMethod || null,
       paymentMethod: log.paymentMethod || null,
