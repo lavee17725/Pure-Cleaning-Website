@@ -1134,6 +1134,7 @@ function renderServiceHistory(c) {
       hasGps:   !!(j.actualArrival || j.actualDuration),
       isLegacy: !!(j.date && j.date < '2026-01-01'),
       durationConfidence: j.durationConfidence || null,
+      crew: (j.crew || []).filter(Boolean),
     });
   });
 
@@ -1216,6 +1217,11 @@ function renderServiceHistory(c) {
       if (e.payment)  detailRows.push(`<span class="svc-detail-key">💵 Payment</span><span class="svc-detail-val">${esc(e.payment)}</span>`);
       if (e.notes)    detailRows.push(`<span class="svc-detail-key">📝 Notes</span><span class="svc-detail-val">${esc(e.notes)}</span>`);
       if (e.durationConfidence) detailRows.push(`<span class="svc-detail-key" style="color:#94a3b8;">GPS</span><span class="svc-detail-val" style="color:#94a3b8;">${esc(e.durationConfidence)}</span>`);
+      if (e.crew && e.crew.length) {
+        const crewNames = e.crew.map(id => id.charAt(0).toUpperCase() + id.slice(1)).join(', ');
+        const hrsEach = e.durFmt ? ` · ${e.durFmt} each` : '';
+        detailRows.push(`<span class="svc-detail-key">👷 Crew</span><span class="svc-detail-val">${esc(crewNames)}${esc(hrsEach)}</span>`);
+      }
       const detailHtml = detailRows.length
         ? `<div class="svc-detail-grid">${detailRows.join('')}</div>`
         : '';

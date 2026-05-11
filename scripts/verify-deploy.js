@@ -68,6 +68,10 @@ const HTML_FILES = [
     markers: ['const API', 'function buildTimeline', 'function calcChurnRisk'],
   },
   {
+    file: 'pure_cleaning_worker_hours.html',
+    markers: ['computeWorkerHours', 'admin/worker-hours', 'worker-card', '#detailTable', '#fromDate'],
+  },
+  {
     file: 'pure_cleaning_review_hub.html',
     markers: ['function loadHub', 'function daysBadge', 'CUTOFF'],
     cssChecks: [
@@ -652,7 +656,7 @@ async function checkCustomerFlows() {
       // Only fail if this is NOT known to be admin-only
       const knownAdmin = ['pure_cleaning_calendar', 'pure_cleaning_customer_directory',
         'pure_cleaning_incoming', 'pure_cleaning_review_hub', 'pure_cleaning_bulk_reactivation',
-        'pure_cleaning_admin', 'pure_cleaning_errors', 'pure_cleaning_backups',
+        'pure_cleaning_admin', 'pure_cleaning_errors', 'pure_cleaning_backups', 'pure_cleaning_worker_hours',
       ].some(a => file.includes(a));
       if (!knownAdmin) {
         fail(`Customer flow — ${file} has auth gate`, 'Customer page redirects to login — customers would be locked out');

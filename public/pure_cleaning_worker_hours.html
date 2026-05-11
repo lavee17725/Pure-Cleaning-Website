@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Worker Hours</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:#f0f2f5;color:#1a1f2e;min-height:100vh;}
+.topbar{background:#0a1628;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.topbar-title{font-size:16px;font-weight:800;letter-spacing:.3px;}
+.topbar a{color:#94a3b8;font-size:13px;text-decoration:none;margin-left:auto;}
+.topbar a:hover{color:#fff;}
+.page{max-width:1100px;margin:0 auto;padding:20px 16px;}
+.controls{background:#fff;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.controls label{font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;}
+.controls input[type=date]{padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;color:#1a1f2e;outline:none;}
+.controls input[type=date]:focus{border-color:#6366f1;}
+.btn-load{padding:8px 18px;background:#0a1628;color:#fff;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;}
+.btn-load:hover{background:#1b2e46;}
+.btn-clear{padding:8px 14px;background:none;color:#6b7280;border:1.5px solid #e2e8f0;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.btn-clear:hover{background:#f8fafc;}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:24px;}
+.worker-card{background:#fff;border-radius:12px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.06);cursor:pointer;border:2px solid transparent;transition:all .15s;user-select:none;}
+.worker-card:hover{border-color:#e0e7ff;box-shadow:0 4px 12px rgba(0,0,0,.1);}
+.worker-card.active{border-color:#6366f1;background:#f5f3ff;}
+.wc-name{font-size:18px;font-weight:800;color:#1a1f2e;margin-bottom:8px;}
+.wc-hours{font-size:28px;font-weight:800;color:#6366f1;line-height:1;}
+.wc-label{font-size:11px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-top:2px;}
+.wc-meta{display:flex;gap:14px;margin-top:10px;}
+.wc-stat{text-align:left;}
+.wc-stat-val{font-size:14px;font-weight:700;color:#374151;}
+.wc-stat-key{font-size:10px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.4px;}
+.section-title{font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;}
+.filter-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:#f0f0ff;border-radius:20px;font-size:12px;font-weight:600;color:#4f46e5;margin-bottom:14px;}
+.filter-pill button{border:none;background:none;cursor:pointer;color:#6366f1;font-size:14px;line-height:1;padding:0 2px;}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+thead th{background:#f8fafc;padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;border-bottom:1.5px solid #e2e8f0;}
+tbody tr{border-bottom:1px solid #f0f2f5;transition:background .1s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:#fafbfc;}
+td{padding:11px 14px;font-size:13px;color:#374151;}
+td.td-date{font-weight:600;color:#1a1f2e;white-space:nowrap;}
+td.td-customer a{color:#4f46e5;text-decoration:none;font-weight:600;}
+td.td-customer a:hover{text-decoration:underline;}
+td.td-hours{font-weight:700;color:#6366f1;text-align:right;}
+.crew-chip{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;background:#e0e7ff;color:#3730a3;margin:1px 2px;}
+.empty-state{text-align:center;padding:48px 24px;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.empty-state h3{font-size:18px;font-weight:800;color:#1a1f2e;margin-bottom:8px;}
+.empty-state p{font-size:13px;color:#6b7280;line-height:1.6;max-width:480px;margin:0 auto;}
+#loading{text-align:center;padding:40px;color:#6b7280;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-title">👷 Worker Hours</div>
+  <a href="/pure_cleaning_calendar.html">← Calendar</a>
+</div>
+
+<div class="page">
+  <div class="controls">
+    <label>From</label>
+    <input type="date" id="fromDate">
+    <label>To</label>
+    <input type="date" id="toDate">
+    <button class="btn-load" onclick="loadData()">Load</button>
+    <button class="btn-clear" onclick="clearFilter()">Show All Workers</button>
+    <span id="periodLabel" style="font-size:12px;color:#6b7280;margin-left:4px;"></span>
+  </div>
+
+  <div id="loading" style="display:none;">Loading…</div>
+  <div id="content" style="display:none;">
+    <div id="cardsArea"></div>
+    <div class="section-title">Job Detail</div>
+    <div id="filterPill" style="display:none;"></div>
+    <table id="detailTable">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Customer</th>
+          <th>Duration</th>
+          <th>Crew</th>
+        </tr>
+      </thead>
+      <tbody id="detailBody"></tbody>
+    </table>
+  </div>
+  <div id="emptyState" style="display:none;"></div>
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let _data = null;
+let _activeWorker = null;
+let _allJobs = [];
+
+function getWeekBounds() {
+  const today = new Date();
+  const day   = today.getDay();
+  const diff  = day === 0 ? 6 : day - 1;
+  const mon   = new Date(today); mon.setDate(today.getDate() - diff);
+  const sun   = new Date(mon);   sun.setDate(mon.getDate() + 6);
+  const fmt = d => d.toISOString().slice(0, 10);
+  return { from: fmt(mon), to: fmt(sun) };
+}
+
+function initDates() {
+  const { from, to } = getWeekBounds();
+  document.getElementById('fromDate').value = from;
+  document.getElementById('toDate').value   = to;
+}
+
+async function loadData() {
+  const from = document.getElementById('fromDate').value;
+  const to   = document.getElementById('toDate').value;
+  if (!from || !to) return;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('content').style.display  = 'none';
+  document.getElementById('emptyState').style.display = 'none';
+  try {
+    const r = await fetch(`${API}/admin/worker-hours?from=${from}&to=${to}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    _data = await r.json();
+    _activeWorker = null;
+    render();
+  } catch(e) {
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('emptyState').innerHTML = `<div class="empty-state"><h3>Load failed</h3><p>${e.message}</p></div>`;
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+  }
+}
+
+function render() {
+  const d = _data;
+  const from = document.getElementById('fromDate').value;
+  const to   = document.getElementById('toDate').value;
+  const fmtD = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  document.getElementById('periodLabel').textContent = `${fmtD(from)} – ${fmtD(to)}`;
+
+  if (!d.workers || d.workers.length === 0) {
+    document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('emptyState').innerHTML = `<div class="empty-state">
+      <h3>No data yet</h3>
+      <p>No GPS-tracked jobs with crew assignments found in this date range.<br>
+      Worker hours appear here once jobs are completed with crew assigned <em>and</em> GPS data arrives from the nightly Bouncie sync.</p>
+    </div>`;
+    return;
+  }
+
+  document.getElementById('content').style.display = 'block';
+  document.getElementById('emptyState').style.display = 'none';
+
+  // Build master job list (deduplicated by date+phone)
+  const seen = new Set();
+  _allJobs = [];
+  for (const w of d.workers) {
+    for (const j of w.jobs) {
+      const key = j.date + '|' + j.phone;
+      if (!seen.has(key)) {
+        seen.add(key);
+        // Find all workers on this job
+        const allCrew = d.workers.filter(w2 => w2.jobs.some(j2 => j2.date === j.date && j2.phone === j.phone)).map(w2 => w2.name);
+        _allJobs.push({ ...j, crew: allCrew });
+      }
+    }
+  }
+  _allJobs.sort((a, b) => b.date.localeCompare(a.date));
+
+  renderCards();
+  renderTable();
+}
+
+function renderCards() {
+  const d = _data;
+  const html = d.workers.map(w => {
+    const active = _activeWorker === w.name;
+    return `<div class="worker-card${active ? ' active' : ''}" id="wcard-${w.name}" onclick="toggleWorkerFilter('${w.name}')">
+      <div class="wc-name">${esc(w.name)}</div>
+      <div class="wc-hours">${w.hours}</div>
+      <div class="wc-label">hours this period</div>
+      <div class="wc-meta">
+        <div class="wc-stat"><div class="wc-stat-val">${w.jobCount}</div><div class="wc-stat-key">Jobs</div></div>
+        <div class="wc-stat"><div class="wc-stat-val">${w.avgHoursPerJob}h</div><div class="wc-stat-key">Avg/Job</div></div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('cardsArea').innerHTML = `<div class="cards" id="workerCards">${html}</div>`;
+}
+
+function renderTable() {
+  const jobs = _activeWorker
+    ? _allJobs.filter(j => j.crew.includes(_activeWorker))
+    : _allJobs;
+
+  const fmtD = s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const rows = jobs.map(j => {
+    const crewHtml = j.crew.map(n => `<span class="crew-chip">${esc(n)}</span>`).join('');
+    const profLink = `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(j.phone)}`;
+    return `<tr>
+      <td class="td-date">${esc(fmtD(j.date))}</td>
+      <td class="td-customer"><a href="${profLink}" target="_blank">${esc(j.customer)}</a></td>
+      <td class="td-hours">${j.hours}h</td>
+      <td>${crewHtml}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('detailBody').innerHTML = rows || `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:24px;">No jobs match</td></tr>`;
+}
+
+function toggleWorkerFilter(name) {
+  _activeWorker = _activeWorker === name ? null : name;
+  document.querySelectorAll('.worker-card').forEach(el => el.classList.remove('active'));
+  if (_activeWorker) document.getElementById('wcard-' + name)?.classList.add('active');
+  const pill = document.getElementById('filterPill');
+  if (_activeWorker) {
+    pill.style.display = 'block';
+    pill.innerHTML = `<span class="filter-pill">Filtered: ${esc(_activeWorker)} <button onclick="clearFilter()">✕</button></span>`;
+  } else {
+    pill.style.display = 'none';
+  }
+  renderTable();
+}
+
+function clearFilter() {
+  _activeWorker = null;
+  document.querySelectorAll('.worker-card').forEach(el => el.classList.remove('active'));
+  document.getElementById('filterPill').style.display = 'none';
+  renderTable();
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+initDates();
+loadData();
+</script>
+</body>
+</html>

@@ -871,6 +871,38 @@ export default {
         return jsonResponse({ active: !!alert, alert: alert || null }, corsHeaders);
       }
 
+      // ── Worker hours: date range summary (protected) ──────────────────────────
+      if (path === 'admin/worker-hours' && request.method === 'GET') {
+        const today   = new Date().toISOString().slice(0, 10);
+        const weekDay = new Date().getDay(); // 0=Sun
+        const daysToMon = weekDay === 0 ? 6 : weekDay - 1;
+        const monDate = new Date(); monDate.setDate(monDate.getDate() - daysToMon);
+        const sunDate = new Date(monDate); sunDate.setDate(monDate.getDate() + 6);
+        const from = url.searchParams.get('from') || monDate.toISOString().slice(0, 10);
+        const to   = url.searchParams.get('to')   || sunDate.toISOString().slice(0, 10);
+        const db   = await env.DATA.get(KV_KEYS.customers, 'json');
+        const customers = (db?.customers || []).filter(c => !c.deleted);
+        const workerMap = computeWorkerHours(customers, from, to);
+        const workers = Object.entries(workerMap)
+          .map(([name, d]) => ({ name, hours: d.hours, jobCount: d.jobCount, avgHoursPerJob: d.avgHoursPerJob, jobs: d.jobs }))
+          .sort((a, b) => b.hours - a.hours);
+        const totalJobs = [...new Set(workers.flatMap(w => w.jobs.map(j => j.phone + j.date)))].length;
+        return jsonResponse({ workers, periodStart: from, periodEnd: to, totalJobs }, corsHeaders);
+      }
+
+      // ── Worker hours: per-customer attribution (protected) ───────────────────
+      if (/^admin\/worker-hours\/customer\/[^/]+$/.test(path) && request.method === 'GET') {
+        const phone = path.split('/').pop().replace(/\D/g, '').slice(-10);
+        const db  = await env.DATA.get(KV_KEYS.customers, 'json');
+        const c   = (db?.customers || []).find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === phone);
+        if (!c) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
+        const workerMap = computeWorkerHours([c], '2000-01-01', '2099-12-31');
+        const workers = Object.entries(workerMap)
+          .map(([name, d]) => ({ name, hours: d.hours, jobCount: d.jobCount, jobs: d.jobs }))
+          .sort((a, b) => b.hours - a.hours);
+        return jsonResponse({ phone, customer: fullName(c), workers }, corsHeaders);
+      }
+
       // ── Backup: on-demand trigger (protected) ─────────────────────────────────
       if (path === 'admin/backup/now' && request.method === 'POST') {
         if (!env.BACKUPS) return jsonResponse({ error: 'R2 not configured — create bucket and uncomment [[r2_buckets]] in wrangler.toml' }, corsHeaders, 503);
@@ -2529,6 +2561,35 @@ async function bouncieJobDurationMatcher(date, env) {
 }
 
 function fullName(c) { return `${c.firstName || ''} ${c.lastName || ''}`.trim(); }
+
+// ── Per-worker hours from crew[] × actualDuration ────────────────────────────
+// actualDuration is stored in minutes (from Bouncie GPS durationMin).
+// Each worker in crew[] gets credit for the full job duration — crews work as units.
+function computeWorkerHours(customers, dateFrom, dateTo) {
+  const capitalize = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const result = {};
+  for (const c of customers) {
+    const custName = fullName(c);
+    for (const j of (c.jobHistory || [])) {
+      if (j.status !== 'completed') continue;
+      if (!j.actualDuration || j.actualDuration <= 0) continue;
+      if (!j.crew || j.crew.length === 0) continue;
+      if (!j.date || j.date < dateFrom || j.date > dateTo) continue;
+      const hours = Math.round((j.actualDuration / 60) * 10) / 10; // min → hours, 1dp
+      for (const crewId of j.crew) {
+        const name = capitalize(crewId);
+        if (!result[name]) result[name] = { hours: 0, jobCount: 0, jobs: [] };
+        result[name].hours    = Math.round((result[name].hours + hours) * 10) / 10;
+        result[name].jobCount += 1;
+        result[name].jobs.push({ date: j.date, customer: custName, phone: c.phone || '', hours });
+      }
+    }
+  }
+  for (const w of Object.values(result)) {
+    w.avgHoursPerJob = w.jobCount > 0 ? Math.round((w.hours / w.jobCount) * 10) / 10 : 0;
+  }
+  return result;
+}
 
 // ── Review queue ──────────────────────────────────────────────────────────────
 

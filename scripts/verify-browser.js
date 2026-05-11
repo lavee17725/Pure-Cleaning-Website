@@ -325,6 +325,43 @@ async function main() {
       }
     });
 
+    // ── WORKER HOURS ─────────────────────────────────────────────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_worker_hours.html`, 'worker-hours', async page => {
+      // Wait for page to load and API call to complete
+      await page.waitForTimeout(4000);
+
+      // ── Regression: date range picker present ──
+      const fromInput = await page.locator('#fromDate').isVisible().catch(() => false);
+      const toInput   = await page.locator('#toDate').isVisible().catch(() => false);
+      if (fromInput && toInput) {
+        pass('Worker Hours — date range picker visible');
+      } else {
+        fail('Worker Hours — date range picker visible', `fromDate: ${fromInput}, toDate: ${toInput}`);
+      }
+
+      // ── Regression: page renders without JS error (content or empty state visible) ──
+      const contentVisible    = await page.locator('#content').isVisible().catch(() => false);
+      const emptyStateVisible = await page.locator('#emptyState').isVisible().catch(() => false);
+      if (contentVisible || emptyStateVisible) {
+        if (contentVisible) {
+          const cardCount = await page.locator('.worker-card').count();
+          pass('Worker Hours — page rendered with data', `${cardCount} worker card(s)`);
+        } else {
+          pass('Worker Hours — page rendered (empty state)', 'No GPS+crew jobs in range — expected for now');
+        }
+      } else {
+        fail('Worker Hours — page rendered', 'Neither #content nor #emptyState is visible');
+      }
+
+      // ── Regression: detail table present ──
+      const tableVisible = await page.locator('#detailTable').isVisible().catch(() => false);
+      if (tableVisible) {
+        pass('Worker Hours — detail table present');
+      } else {
+        warn('Worker Hours — detail table present', '#detailTable not visible (may be hidden when empty state shows)');
+      }
+    });
+
     // ── CUSTOMER PROFILE ─────────────────────────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_customer_profile.html?phone=9546326630`, 'customer-profile', async page => {
       await page.waitForFunction(() => {
