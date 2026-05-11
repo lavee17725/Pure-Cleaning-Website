@@ -201,6 +201,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .arrival-btn-text{flex:1;min-width:0;overflow:hidden;}
 .arrival-btn-name{font-weight:700;display:inline;}
 .arrival-btn-slot{font-weight:400;opacity:.75;}
+.js-eta-btn{margin-bottom:4px;}
+.rig-pick-btn{font-size:10px;padding:3px 8px;border:1.5px solid var(--border);border-radius:6px;background:#f8faff;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600;transition:all .15s;margin-bottom:4px;}
+.rig-pick-btn:hover{background:#e0e7ff;border-color:#818cf8;color:#3730a3;}
+.rig-empty-label{font-size:11px;color:#9ca3af;padding:10px 8px;text-align:center;}
 
 /* ── REVIEW REQUEST BUTTON (on completed job cards) ── */
 .js-review-btn{display:block;width:100%;padding:5px 8px;border:1.5px solid #dbeafe;border-radius:6px;background:#eff6ff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:center;margin-top:6px;transition:all .15s;line-height:1.4;}
@@ -1172,6 +1176,15 @@ body{background:#f0f2f5;}
 </div>
 
 <!-- TAP-TO-SCHEDULE MODAL (mobile) -->
+<!-- ── RIG PICK MODAL ── -->
+<div class="overlay hidden" id="rigPickModal" onclick="if(event.target===this)closeRigPickModal()">
+  <div class="modal" style="max-width:300px;">
+    <div class="modal-title">Move to Rig</div>
+    <div id="rigPickContent" style="display:flex;flex-direction:column;gap:8px;padding:8px 0;"></div>
+    <button class="btn-secondary" onclick="closeRigPickModal()" style="margin-top:8px;width:100%;">Cancel</button>
+  </div>
+</div>
+
 <div class="overlay hidden" id="tapScheduleModal" onclick="if(event.target===this)closeTapScheduleModal()">
   <div class="modal" style="max-width:380px;">
     <div class="modal-title" id="tapScheduleTitle">📅 Schedule Job</div>
@@ -2386,29 +2399,28 @@ function renderCalGrid(dates) {
       const extrasHtml = extras.map(({customer, jhEntry}) => jobCardHistoryExtra(customer, jhEntry)).join('');
       const emptyClass = (jobs.length || extras.length) ? '' : ' empty-hint';
       const routeSummaryHtml = jobs.length >= 2 ? renderRouteSummary(jobs, date, rig) : '';
-      const arrivalHtml = renderArrivalButtons(date, rig, jobs);
       const printableJobs = jobs.filter(j => !j.isTest && (j.scheduledStatus?.state||'scheduled') !== 'completed');
       const bulkPrintHtml = printableJobs.length > 1
         ? `<div class="rig-print-row"><button class="rig-print-btn" onclick="printBulkJobSheets('${date}','${rig}')">🖨 ${printableJobs.length} sheets</button></div>`
         : '';
-      // Rig label chip — only render when rig has jobs
+      // Rig label chip — always visible so empty swimlanes are drag targets
       const winCounts = WINDOWS.map(w => {
         const n = jobs.filter(j => getJobWindow(j.scheduledStatus||{}) === w.id).length;
         return n > 0 ? `${w.emoji}${n}` : null;
       }).filter(Boolean).join('  ');
-      const rigLabelHtml = (jobs.length || extras.length) > 0
-        ? `<div class="wk-rig-label" onclick="openCrewPop('${date}','${rig}',this)" style="border-left:3px solid ${RIG_CAP_COLORS[rig]};">
-            <span style="color:${RIG_CAP_COLORS[rig]};font-size:11px;font-weight:700;">${RIG_LABELS[rig]}${halfBadge}</span>
-            ${crewLabel ? `<span class="rig-crew-label" style="font-size:10px;">${crewLabel}</span>` : ''}
-            ${winCounts ? `<div class="wk-win-counts">${winCounts}</div>` : ''}
-           </div>` : '';
+      const rigLabelHtml = `<div class="wk-rig-label" onclick="openCrewPop('${date}','${rig}',this)" style="border-left:3px solid ${RIG_CAP_COLORS[rig]};">
+          <span style="color:${RIG_CAP_COLORS[rig]};font-size:11px;font-weight:700;">${RIG_LABELS[rig]}${halfBadge}</span>
+          ${crewLabel ? `<span class="rig-crew-label" style="font-size:10px;">${crewLabel}</span>` : ''}
+          ${winCounts ? `<div class="wk-win-counts">${winCounts}</div>` : ''}
+         </div>`;
+      const emptyPlaceholder = (jobs.length === 0 && extras.length === 0)
+        ? `<div class="rig-empty-label drag-ignore">No jobs assigned</div>` : '';
       return `<div class="rig-section">
         ${rigLabelHtml}
         ${bulkPrintHtml}
-        <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}</div>
+        <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}${emptyPlaceholder}</div>
         ${extrasHtml}
         ${routeSummaryHtml}
-        ${arrivalHtml}
       </div>`;
     }).join('');
 
@@ -2458,9 +2470,18 @@ function jobCardScheduled(c) {
   const { html: amtHtml } = jobAmount(c);
   const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
   const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
+  const firstName = ((c.firstName||c.fn||'').trim().split(' ')[0]) || 'there';
   const jobDate  = ss.scheduledDate || '';
   const jobRig   = ss.rig || '';
   const hasCmpt  = !c.isTest && isComplaintLogged(phone);
+  const etaSlot  = getCardEtaSlot(phone, ss);
+  const etaSent  = phone ? isArrivalSent(jobDate, jobRig, phone) : false;
+  const etaBtnHtml = (state === 'scheduled' || state === 'in_progress') && !c.isTest && phone
+    ? `<button class="arrival-btn js-eta-btn${etaSent ? ' sent' : ''}" ${etaSent ? 'disabled ' : ''}onclick="event.stopPropagation();sendArrivalText('${phone}','${esc(firstName)}','${etaSlot}','${jobDate}','${jobRig}',this)"><span class="arrival-btn-icon">${etaSent ? '✅' : '📍'}</span><span class="arrival-btn-text">Text ETA<span class="arrival-btn-slot"> · ${ARRIVAL_SLOTS[etaSlot]?.label || etaSlot}</span></span></button>`
+    : '';
+  const rigPickBtnHtml = state !== 'completed' && !c.isTest && phone
+    ? `<button class="rig-pick-btn" onclick="event.stopPropagation();openRigPickModal('${phone}')">↔ Rig</button>`
+    : '';
   const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
 
   let reviewBtnHtml  = '';
@@ -2639,6 +2660,8 @@ function jobCardScheduled(c) {
     ${roofInfoHtml}
     ${reviewBtnHtml}
     ${printBtnHtml}
+    ${etaBtnHtml}
+    ${rigPickBtnHtml}
     ${complaintLink}
     ${zelleReqBtnHtml}
     ${paymentBtnHtml}
@@ -2947,7 +2970,7 @@ function initSortables() {
       animation:150,
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
-      filter: '.dist-marker,.route-summary,.route-warn,.route-missing,.win-lane-hdr,.win-section-hdr',
+      filter: '.dist-marker,.route-summary,.route-warn,.route-missing,.win-lane-hdr,.win-section-hdr,.rig-empty-label,.drag-ignore',
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
@@ -3041,6 +3064,55 @@ async function handleDropToSidebar(phone, evt) {
   renderCrewPanel(getWeekDates());
   // Re-render sidebar with proper sidebar card HTML — fixes stuck calendar card + missing X button
   renderSidebar();
+}
+
+// ── RIG PICK MODAL ────────────────────────────────────────────────────────────
+let _rigPickPhone = null;
+
+function openRigPickModal(phone) {
+  _rigPickPhone = phone;
+  const c = findCustomer(phone);
+  if (!c) return;
+  const currentRig = c.scheduledStatus?.rig || null;
+  const content = RIGS.map(r => {
+    const active = r === currentRig;
+    const clr    = RIG_CAP_COLORS[r];
+    return `<button onclick="applyRigPick('${r}')"
+      style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid ${active?clr:'var(--border)'};border-radius:9px;background:${active?'#f0f9ff':'#fff'};cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:${active?700:500};color:${active?clr:'var(--text)'};transition:all .15s;">
+      <span style="width:10px;height:10px;border-radius:50%;background:${clr};display:inline-block;flex-shrink:0;"></span>
+      ${RIG_LABELS[r]}${active ? ' ✓' : ''}
+    </button>`;
+  }).join('');
+  document.getElementById('rigPickContent').innerHTML = content;
+  document.getElementById('rigPickModal').classList.remove('hidden');
+}
+
+function closeRigPickModal() {
+  document.getElementById('rigPickModal').classList.add('hidden');
+  _rigPickPhone = null;
+}
+
+async function applyRigPick(rig) {
+  const phone = _rigPickPhone;
+  if (!phone) return;
+  const c = findCustomer(phone);
+  if (!c) return;
+  const prev    = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+  const prevRig = prev.rig, prevDate = prev.scheduledDate;
+  if (prevDate && prevRig && prevRig !== rig) {
+    const p = phone.replace(/\D/g,'').slice(-10);
+    if (calState.jobOrder?.[prevDate]?.[prevRig]) {
+      calState.jobOrder[prevDate][prevRig] = calState.jobOrder[prevDate][prevRig].filter(x => x !== p);
+      saveCalState();
+    }
+  }
+  c.scheduledStatus.rig = rig;
+  closeRigPickModal();
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  showToast(`↔ ${esc(name)} → ${RIG_LABELS[rig]}`, 'Undo', () => { undoAction(phone, prev); });
+  saveDb().catch(() => {});
+  renderCalGrid(getWeekDates());
+  renderCrewPanel(getWeekDates());
 }
 
 function undoAction(phone, prevStatus) {
@@ -4475,6 +4547,30 @@ async function sendReviewRequest(phone, firstName, btn) {
 }
 
 // ── ARRIVAL TEXTS ─────────────────────────────────────────────────────────────
+function categorizeService(text) {
+  const t = (text || '').toLowerCase();
+  if (/roof|soft\s*wash|softwash/.test(t)) return 'roof';
+  if (/driveway|patio|sidewalk|walkway|concrete|pressure|paver|pool deck|deck|entranceway|entrance|flatwork|pool area/.test(t)) return 'ground';
+  return 'unknown';
+}
+
+function getCardEtaSlot(phone, ss) {
+  const et = _estTimeMap.get(phone);
+  if (et) {
+    const h = Math.floor(et.startMin / 60);
+    if (h < 10) return '~9-10am';
+    if (h < 12) return '~11am-noon';
+    if (h < 13) return '~noon-1pm';
+    if (h < 15) return '~2-3pm';
+    if (h < 16) return '~3-4pm';
+    return '~4-5pm';
+  }
+  const w = ss.window || 'morning';
+  if (w === 'morning')         return '~9-10am';
+  if (w === 'early_afternoon') return '~noon-1pm';
+  return '~3-4pm';
+}
+
 const ARRIVAL_SLOTS = {
   '~9-10am':    { label:'~9–10am',    msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way and should arrive around 9-10am. See you soon!` },
   '~11am-noon': { label:'~11am–noon', msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading to you now — expect us around 11am-noon. See you soon!` },
@@ -5018,8 +5114,10 @@ async function confirmTapSchedule() {
   if (!c.scheduledStatus) c.scheduledStatus = {};
   c.scheduledStatus.state         = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
-  c.scheduledStatus.rig           = null;  // Day Pool — GPS will attribute rig
   c.scheduledStatus.window        = _tapSchedWindow || 'morning';
+  // Auto-assign Chevy on initial scheduling for roof/softwash jobs
+  const _autoSvc = c.scheduledStatus.jobNotes || c.quoteStatus?.mainServices || '';
+  c.scheduledStatus.rig = categorizeService(_autoSvc) === 'roof' ? 'rig_3' : null;
   const note = (document.getElementById('tapSchedNote').value || '').trim();
   if (note) c.scheduledStatus.scheduleNote = note;
   await saveDb();
