@@ -5,6 +5,7 @@ const ALLOWED_ORIGINS = [
   'https://purecleaningpressurecleaning.com',
   'https://www.purecleaningpressurecleaning.com',
   'https://lavee17725.github.io',  // GitHub Pages backup
+  'https://purecleaning-api.tylerfumero.workers.dev',  // workers.dev test URL (Phase 3 migration)
   'http://localhost:3000',  // local dev
   'http://localhost:8000',  // local dev
 ];
@@ -938,6 +939,10 @@ export default {
         return jsonResponse(hb || { status: 'never_run' }, corsHeaders);
       }
 
+      // Fall through to static assets for any unrecognized path (HTML pages, etc.)
+      if (env.ASSETS) {
+        return env.ASSETS.fetch(request);
+      }
       return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
     } catch (err) {
       console.error('Worker error:', err.message);

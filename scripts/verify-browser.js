@@ -24,7 +24,7 @@ const { getVerifyToken } = require('./lib/auto-auth');
 const path  = require('path');
 const fs    = require('fs');
 
-const PAGES_BASE = 'https://purecleaningpressurecleaning.com';
+const PAGES_BASE = process.env.PAGES_BASE || 'https://purecleaningpressurecleaning.com';
 const SS_DIR     = path.join(__dirname, '..', 'verify-screenshots');
 
 const results = [];
@@ -205,6 +205,72 @@ async function main() {
         }
       } else {
         warn('Calendar — drag to navigate', 'No .day-hdr bounding box found');
+      }
+
+      // ── Regression: all 3 rig swimlanes always visible (even empty ones) ──
+      await page.locator('button:has-text("Prev")').first().click(); // back to current week
+      await page.waitForTimeout(400);
+      const rigSections = await page.locator('.rig-section').count();
+      if (rigSections >= 3) {
+        pass('Calendar — rig swimlanes rendered', `${rigSections} rig sections visible`);
+      } else {
+        fail('Calendar — rig swimlanes rendered', `Only ${rigSections} .rig-section elements found — expected ≥3`);
+      }
+
+      // ── Regression: rig label headers visible (always-on) ──
+      const rigLabels = await page.locator('.wk-rig-label').count();
+      if (rigLabels >= 3) {
+        pass('Calendar — rig labels always visible', `${rigLabels} rig label chips found`);
+      } else {
+        fail('Calendar — rig labels always visible', `Only ${rigLabels} .wk-rig-label found — empty rigs may be hiding their header`);
+      }
+
+      // ── Regression: ETA button on scheduled job cards ──
+      const etaBtn = page.locator('.js-eta-btn').first();
+      const etaBtnExists = await etaBtn.count() > 0;
+      if (etaBtnExists) {
+        const visible = await etaBtn.isVisible().catch(() => false);
+        if (visible) {
+          pass('Calendar — inline ETA button visible on job card');
+        } else {
+          fail('Calendar — inline ETA button visible on job card', '.js-eta-btn in DOM but not visible');
+        }
+      } else {
+        warn('Calendar — inline ETA button', 'No .js-eta-btn found — may be no scheduled jobs this week');
+      }
+
+      // ── Regression: rig pick button on scheduled job cards ──
+      const rigPickBtn = page.locator('.rig-pick-btn').first();
+      const rigPickExists = await rigPickBtn.count() > 0;
+      if (rigPickExists) {
+        const rigPickVisible = await rigPickBtn.isVisible().catch(() => false);
+        if (rigPickVisible) {
+          pass('Calendar — rig pick button visible on job card');
+        } else {
+          fail('Calendar — rig pick button visible on job card', '.rig-pick-btn in DOM but not visible');
+        }
+      } else {
+        warn('Calendar — rig pick button', 'No .rig-pick-btn found — may be no scheduled jobs this week');
+      }
+
+      // ── Regression: rig pick modal opens and closes ──
+      if (rigPickExists) {
+        await rigPickBtn.click();
+        await page.waitForTimeout(300);
+        const modalVisible = await page.locator('#rigPickModal').isVisible().catch(() => false);
+        if (modalVisible) {
+          pass('Calendar — rig pick modal opens');
+          await page.locator('#rigPickModal .btn-secondary').click();
+          await page.waitForTimeout(200);
+          const modalClosed = !(await page.locator('#rigPickModal').isVisible().catch(() => true));
+          if (modalClosed) {
+            pass('Calendar — rig pick modal closes');
+          } else {
+            fail('Calendar — rig pick modal closes', 'Modal still visible after Cancel click');
+          }
+        } else {
+          fail('Calendar — rig pick modal opens', '#rigPickModal not visible after .rig-pick-btn click');
+        }
       }
     });
 

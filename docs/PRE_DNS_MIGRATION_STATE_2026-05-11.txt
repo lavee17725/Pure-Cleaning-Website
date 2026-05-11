@@ -1,0 +1,45 @@
+PRE-DNS MIGRATION BASELINE — 2026-05-11T18:56 UTC
+===================================================
+
+Captured immediately before Cloudflare Workers DNS cutover.
+
+── NAMESERVERS ──────────────────────────────────────────────
+ns09.domaincontrol.com.
+ns10.domaincontrol.com.
+
+── A RECORDS (purecleaningpressurecleaning.com) ─────────────
+185.199.108.153   ← GitHub Pages
+185.199.109.153   ← GitHub Pages
+185.199.110.153   ← GitHub Pages
+185.199.111.153   ← GitHub Pages
+
+── CNAME (www) ──────────────────────────────────────────────
+www.purecleaningpressurecleaning.com → lavee17725.github.io.
+
+── TXT RECORDS ──────────────────────────────────────────────
+"google-site-verification=30HSo0o4MdfWk6d851GoxNxBD1PmExkgvD_3PnFzm-M"
+
+── MX RECORDS ───────────────────────────────────────────────
+(none — email not configured on this domain)
+
+── HTTP RESPONSE (production at time of capture) ────────────
+HTTP/2 200
+server: GitHub.com
+content-type: text/html; charset=utf-8
+cache-control: max-age=600
+last-modified: Sat, 09 May 2026 17:19:54 GMT
+
+── ROLLBACK PROCEDURE ───────────────────────────────────────
+If Cloudflare migration fails after propagation completes:
+1. Log into GoDaddy → Domains → purecleaningpressurecleaning.com
+2. DNS Management → Nameservers → Change → Use default nameservers
+   OR enter manually: ns09.domaincontrol.com + ns10.domaincontrol.com
+3. Wait for propagation (typically 5–30 min, sometimes up to 4h)
+4. GitHub Pages resumes serving from lavee17725.github.io
+5. gh-pages branch intact — no data loss
+
+── WORKERS PRE-MIGRATION TEST RESULTS ──────────────────────
+workers.dev URL: https://purecleaning-api.tylerfumero.workers.dev
+Browser verification (Playwright): 13/13 PASS
+API health: {"status":"ok","customerCount":1242}
+HTML .html extension: HTTP 200 (no redirect, html_handling=none)

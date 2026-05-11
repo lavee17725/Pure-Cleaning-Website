@@ -51,6 +51,11 @@ const HTML_FILES = [
       'suppressClick',                                    // Regression: click suppressor after week nav
       '_isDuplicate',                                      // Regression: source-agnostic idempotency guard present
       'dayAge < 60',                                      // Regression: recent csv_backfill guard for Tanner-class bug
+      'js-eta-btn',                                       // Regression: inline ETA button on each job card
+      'getCardEtaSlot',                                   // Regression: ETA slot derived from _estTimeMap or ss.window
+      'rig-empty-label',                                  // Regression: always-visible empty swimlane placeholder
+      'openRigPickModal',                                 // Regression: click-to-assign rig picker
+      'categorizeService(_autoSvc)',                      // Regression: auto-assign Chevy on new roof/softwash jobs
     ],
   },
   {
