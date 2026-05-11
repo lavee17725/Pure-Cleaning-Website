@@ -286,6 +286,43 @@ async function main() {
           fail('Calendar — rig pick modal opens', '#rigPickModal not visible after .rig-pick-btn click');
         }
       }
+
+      // ── Regression: initSortables() resets wasDragging so day-nav drag works after rig drag ──
+      // Simulates the stuck-wasDragging bug: onAdd fires before onEnd in SortableJS v1.15,
+      // so onEnd is skipped when initSortables destroys the active Sortable mid-dispatch.
+      const wdBefore = await page.evaluate(() => {
+        wasDragging = true; // simulate stuck state after SortableJS onEnd was skipped
+        initSortables();    // the fix: initSortables() now resets wasDragging = false
+        return wasDragging;
+      }).catch(() => null);
+      if (wdBefore === false) {
+        pass('Calendar — initSortables resets wasDragging (rig-drag interference fix)');
+      } else if (wdBefore === null) {
+        warn('Calendar — initSortables wasDragging check', 'Could not evaluate — page context error');
+      } else {
+        fail('Calendar — initSortables resets wasDragging', `wasDragging was ${wdBefore} after initSortables — day-nav drag will be permanently blocked after rig drag`);
+      }
+
+      // ── Regression: day-nav drag works immediately after wasDragging reset ──
+      const labelPreReset = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
+      const dayHdrAfterReset = page.locator('.day-hdr').first();
+      const boxAfterReset = await dayHdrAfterReset.boundingBox().catch(() => null);
+      if (boxAfterReset) {
+        const sx = boxAfterReset.x + boxAfterReset.width / 2, sy = boxAfterReset.y + boxAfterReset.height / 2;
+        await page.mouse.move(sx, sy);
+        await page.mouse.down();
+        for (let i = 1; i <= 15; i++) await page.mouse.move(sx - i * 10, sy);
+        await page.mouse.up();
+        await page.waitForTimeout(500);
+        const labelPostReset = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
+        if (labelPreReset && labelPostReset && labelPreReset !== labelPostReset) {
+          pass('Calendar — day-nav drag works after initSortables reset', `${labelPreReset} → ${labelPostReset}`);
+        } else {
+          fail('Calendar — day-nav drag works after initSortables reset', `Week unchanged — wasDragging may still be blocking. Before: "${labelPreReset}" After: "${labelPostReset}"`);
+        }
+      } else {
+        warn('Calendar — day-nav drag post-reset', 'No .day-hdr bounding box found');
+      }
     });
 
     // ── CUSTOMER PROFILE ─────────────────────────────────────────────────────

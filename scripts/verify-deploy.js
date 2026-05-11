@@ -56,6 +56,7 @@ const HTML_FILES = [
       'rig-empty-label',                                  // Regression: always-visible empty swimlane placeholder
       'openRigPickModal',                                 // Regression: click-to-assign rig picker
       'categorizeService(_autoSvc)',                      // Regression: auto-assign Chevy on new roof/softwash jobs
+      'wasDragging = false',                              // Regression: initSortables resets wasDragging to fix SortableJS interference
     ],
   },
   {

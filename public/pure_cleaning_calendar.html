@@ -2949,6 +2949,10 @@ function getExtraCompletedJobsForRig(date, rig) {
 function initSortables() {
   sortables.forEach(s => { try { s.destroy(); } catch {} });
   sortables = [];
+  // Destroying all sortables ends any in-flight drag. Reset the flag so _weekNavDrag
+  // mousedown gate doesn't stay permanently blocked when onEnd never fires on the
+  // destroyed instance (onAdd fires before onEnd in SortableJS v1.15 dispatch order).
+  wasDragging = false;
 
   const sidebarEl = document.getElementById('needsList');
   if (sidebarEl) {
