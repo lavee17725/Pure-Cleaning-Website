@@ -765,3 +765,44 @@ Projects that are scoped, justified, and ready to execute — but intentionally 
 **Priority:** Medium. Enables many future features but not blocking current operations. Good candidate for a rainy-day HQ session.
 
 **Deferred:** May 9, 2026
+
+---
+
+### PROJECT: Weekly Data Snapshot Exporter → Google Drive
+
+**Purpose:** Make the full business state readable in a clean, comprehensive way without manual copy-paste. Sunday 11pm cron writes 3–4 structured JSON files to a designated Google Drive folder — enabling Tyler (or a fresh Claude session) to read full business state in seconds with no screenshot-paste workflow.
+
+**Files produced weekly:**
+
+| File | Contents |
+|------|---------|
+| `weekly_summary.json` | Week revenue, jobs completed, GPS match rate, top customers, repeat rate |
+| `customer_health.json` | Overdue customers, quotes-not-booked, high-value-low-engagement |
+| `operations_metrics.json` | Avg drive times, dwell time per location, rig utilization, worker hours |
+| `exceptions.json` | Unmatched GPS jobs, data integrity issues, things needing manual attention |
+
+**Architecture:**
+- New cron schedule in `cloudflare-worker/wrangler.toml`: Sunday 23:00 ET (`0 3 * * 1` UTC)
+- Cron handler reads KV (customers + jobHistory) and Bouncie cache
+- Writes via Google Drive API to `/PureCleaningCRM/weekly_reports/YYYY-WXX/`
+- Files overwritten each week; old week folders retained
+
+**Dependencies (all satisfied as of May 11):**
+- Bouncie pipeline collecting clean data ✓ (auth restored tonight)
+- Worker hours computation ✓ (shipped tonight — `computeWorkerHours`)
+- Google Drive API connection ✗ (needs Tyler's OAuth setup + target folder ID — one-time manual step)
+
+**Google Drive setup required before build:**
+1. Create a Google Cloud project → enable Drive API
+2. Create OAuth credentials (service account preferred for server-to-server)
+3. Share the target folder with the service account email
+4. Store credentials as Worker secret: `wrangler secret put GOOGLE_DRIVE_CREDENTIALS`
+5. Store folder ID: `wrangler secret put GOOGLE_DRIVE_FOLDER_ID`
+
+**Scope:** Read-only export. No CRM data modified. Pure observation layer.
+
+**Estimated scope:** 60–90 min in a focused session once Google OAuth is configured.
+
+**Priority:** High leverage. Every future strategy conversation benefits from instant business-state access. Pairs well with ML analysis sessions.
+
+**Deferred:** May 11, 2026
