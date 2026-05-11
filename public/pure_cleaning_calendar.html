@@ -1460,7 +1460,7 @@ function windowLabel(ss) {
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
 let dbRecord      = {};
-let weekOffset    = 0;
+let dayOffset     = 0; // days from today; drives day-by-day sliding window
 let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
 let _sidebarAutoCollapsed   = false;
@@ -1733,7 +1733,7 @@ async function saveDb() {
 function getWeekDates() {
   const today = new Date(); today.setHours(0,0,0,0);
   // Offset 0 = today through today+6. Prev/Next shift by 7-day blocks.
-  const start = new Date(today); start.setDate(today.getDate() + weekOffset * 7);
+  const start = new Date(today); start.setDate(today.getDate() + dayOffset);
   return Array.from({length:7}, (_,i) => {
     const d = new Date(start); d.setDate(start.getDate() + i);
     return d.toISOString().split('T')[0];
@@ -3960,8 +3960,8 @@ function saveDayOff() {
 }
 
 // ── WEEK NAV ──────────────────────────────────────────────────────────────────
-function changeWeek(dir) { weekOffset += dir; render(); updateBlockWeekBtn(); }
-function goToday()       { weekOffset = 0; render(); updateBlockWeekBtn(); }
+function changeWeek(dir) { dayOffset += dir * 7; render(); updateBlockWeekBtn(); }
+function goToday()       { dayOffset = 0; render(); updateBlockWeekBtn(); }
 
 let _crewVisible = false;
 function toggleCrewPanel() {
@@ -5966,12 +5966,13 @@ document.addEventListener('keydown', e => {
 });
 
 // ── WEEK VIEW — drag-to-navigate + touch swipe + edge fades ──────────────────
-// _weekNavDrag: mouse drag ≥ 100px left/right navigates weeks with fly-out animation
+// _weekNavDrag: drag left/right slides window by 1 day per DAY_DRAG_PX
 (function() {
-  const WEEK_NAV_THRESHOLD = 100; // px to commit week navigation
+  const DAY_DRAG_PX = 150; // px per 1-day shift
   let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false, _totalDx = 0;
   const scroller = () => document.querySelector('.main-col');
   const grid     = () => document.getElementById('calGrid');
+  const colWidth = () => document.querySelector('.day-col')?.offsetWidth || 175;
 
   function updateFades() {
     const sc = scroller();
@@ -5987,8 +5988,8 @@ document.addEventListener('keydown', e => {
   document.addEventListener('mousedown', e => {
     if (currentView !== 'week') return;
     if (wasDragging) return; // SortableJS already active
-    // .day-hdr intentionally NOT excluded — day headers are the natural grab bar for week navigation.
-    // A successful week-nav drag suppresses the click event so day-view doesn't also open.
+    // .day-hdr intentionally NOT excluded — day headers are the natural grab bar for day navigation.
+    // A successful day-nav drag suppresses the click event so day-view doesn't also open.
     if (e.target.closest('.job-scheduled,.win-lane-hdr,.rig-hdr,button,a,input,select,textarea,.modal')) return;
     const sc = scroller();
     if (!sc) return;
@@ -6014,9 +6015,9 @@ document.addEventListener('keydown', e => {
     _totalDx = dx;
     const sc = scroller();
     if (sc) sc.scrollLeft = _scrollX0 - dx;
-    // Parallax transform feedback — hints at week navigation direction
+    // Visual feedback: translate proportionally to how many days are being dragged
     const g = grid();
-    if (g) g.style.transform = 'translateX(' + (dx * 0.18) + 'px)';
+    if (g) g.style.transform = 'translateX(' + (dx * 0.5) + 'px)';
     updateFades();
   });
 
@@ -6029,27 +6030,30 @@ document.addEventListener('keydown', e => {
     const dx = _totalDx;
     _totalDx = 0;
 
-    if (Math.abs(dx) >= WEEK_NAV_THRESHOLD) {
-      // Suppress the synthetic click that fires after mouseup on a day-header, so day-view doesn't open
+    // Compute day shift: drag right = backward, drag left = forward
+    const days = Math.round(-dx / DAY_DRAG_PX);
+
+    if (days !== 0) {
+      // Suppress synthetic click on day-header so day-view doesn't open
       document.addEventListener('click', function suppressClick(e) {
         e.stopPropagation(); e.preventDefault();
         document.removeEventListener('click', suppressClick, true);
       }, { capture: true, once: true });
-      // Fly grid off-screen in drag direction, then navigate to new week
+      // Fly grid off-screen in drag direction, then slide to new window
       if (g) {
-        g.style.transition = 'transform 0.15s ease';
-        g.style.transform  = 'translateX(' + (dx > 0 ? 340 : -340) + 'px)';
+        g.style.transition = 'transform 0.12s ease';
+        g.style.transform  = 'translateX(' + (dx > 0 ? 280 : -280) + 'px)';
         setTimeout(() => {
           if (g) { g.style.transition = ''; g.style.transform = ''; }
-          changeWeek(dx < 0 ? 1 : -1);
-        }, 140);
+          dayOffset += days; render(); updateBlockWeekBtn();
+        }, 110);
       } else {
-        changeWeek(dx < 0 ? 1 : -1);
+        dayOffset += days; render(); updateBlockWeekBtn();
       }
       return;
     }
 
-    // Threshold not met — snap transform back and snap scroll to nearest column
+    // No day shift — snap transform back and snap scroll to nearest column
     if (g) {
       g.style.transition = 'transform 0.2s ease';
       g.style.transform  = '';
@@ -6057,16 +6061,15 @@ document.addEventListener('keydown', e => {
     }
     const sc = scroller();
     if (!sc) return;
-    const col = document.querySelector('.day-col');
-    const colW = col?.offsetWidth || 175;
-    sc.scrollTo({ left: Math.round(sc.scrollLeft / colW) * colW, behavior: 'smooth' });
+    const cw = colWidth();
+    sc.scrollTo({ left: Math.round(sc.scrollLeft / cw) * cw, behavior: 'smooth' });
     setTimeout(updateFades, 350);
   }
 
   document.addEventListener('mouseup',    stopDrag);
   document.addEventListener('mouseleave', stopDrag);
 
-  // Touch swipe — changes week (left = forward, right = back)
+  // Touch swipe — slides by 1 day per DAY_DRAG_PX
   let _wvTouchX = null;
   document.addEventListener('touchstart', e => {
     if (currentView !== 'week') return;
@@ -6076,8 +6079,9 @@ document.addEventListener('keydown', e => {
     if (currentView !== 'week' || _wvTouchX === null) return;
     const dx = e.changedTouches[0].clientX - _wvTouchX;
     _wvTouchX = null;
-    if (Math.abs(dx) < 55) return;
-    changeWeek(dx < 0 ? 1 : -1);
+    const days = Math.round(-dx / DAY_DRAG_PX);
+    if (days === 0) return;
+    dayOffset += days; render(); updateBlockWeekBtn();
   }, { passive: true });
 
   // Patch changeWeek to refresh fades after navigation

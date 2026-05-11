@@ -186,22 +186,36 @@ async function main() {
         fail('Calendar — week nav button', 'Week label unchanged after Next click');
       }
 
-      // ── Regression: drag to navigate (drag day-header 160px left = next week) ──
+      // ── Regression: drag 150px left = 1 day forward (day-by-day slide) ──
       const labelBefore = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
       const dayHdr = page.locator('.day-hdr').first();
       const box = await dayHdr.boundingBox().catch(() => null);
       if (box) {
         const sx = box.x + box.width / 2, sy = box.y + box.height / 2;
+        // Drag exactly 150px left — should shift window by exactly 1 day
         await page.mouse.move(sx, sy);
         await page.mouse.down();
-        for (let i = 1; i <= 16; i++) await page.mouse.move(sx - i * 10, sy);
+        for (let i = 1; i <= 15; i++) await page.mouse.move(sx - i * 10, sy);
         await page.mouse.up();
         await page.waitForTimeout(500);
-        const labelAfter = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
-        if (labelBefore && labelAfter && labelBefore !== labelAfter) {
-          pass('Calendar — drag to navigate', `${labelBefore} → ${labelAfter}`);
+        const labelAfter1 = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
+        if (labelBefore && labelAfter1 && labelBefore !== labelAfter1) {
+          pass('Calendar — drag 150px = 1 day forward', `${labelBefore} → ${labelAfter1}`);
         } else {
-          fail('Calendar — drag to navigate', `Week unchanged after 160px drag. Before: "${labelBefore}" After: "${labelAfter}"`);
+          fail('Calendar — drag 150px = 1 day forward', `Window unchanged after 150px drag. Before: "${labelBefore}" After: "${labelAfter1}"`);
+        }
+        // Drag 300px right — should shift window back 2 days
+        const labelBefore2 = labelAfter1;
+        await page.mouse.move(sx, sy);
+        await page.mouse.down();
+        for (let i = 1; i <= 30; i++) await page.mouse.move(sx + i * 10, sy);
+        await page.mouse.up();
+        await page.waitForTimeout(500);
+        const labelAfter2 = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
+        if (labelBefore2 && labelAfter2 && labelBefore2 !== labelAfter2) {
+          pass('Calendar — drag 300px = 2 days backward', `${labelBefore2} → ${labelAfter2}`);
+        } else {
+          fail('Calendar — drag 300px = 2 days backward', `Window unchanged after 300px drag. Before: "${labelBefore2}" After: "${labelAfter2}"`);
         }
       } else {
         warn('Calendar — drag to navigate', 'No .day-hdr bounding box found');
