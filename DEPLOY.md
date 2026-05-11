@@ -6,19 +6,18 @@
 
 | URL | Serves | Deploy command |
 |-----|--------|---------------|
-| `purecleaningpressurecleaning.com` | All HTML pages (`public/*.html`), React app | `npx gh-pages -d build` |
-| `fumero-pressure-washing.tylerfumero.workers.dev` | Same HTML/assets (mirror) | `wrangler deploy --config wrangler.jsonc` |
-| `purecleaning-api.tylerfumero.workers.dev` | All `/api/*` endpoints (`cloudflare-worker/src/index.js`) | `npm run deploy:api` |
+| `purecleaningpressurecleaning.com` | All HTML pages + API (single Cloudflare Worker) | `npm run deploy` |
+| `purecleaning-api.tylerfumero.workers.dev` | Same worker, workers.dev URL | `npm run deploy:api` |
 
-**The user-facing URL is GitHub Pages.** Workers static assets is a mirror that the user does not load.
+**Single Cloudflare Worker serves everything.** `purecleaningpressurecleaning.com` is the custom domain bound to `purecleaning-api`. GitHub Pages is no longer used.
 
 ## Deploy Commands
 
 ```bash
-# Deploy HTML + static assets (most common)
+# Deploy everything (most common)
 npm run deploy
 
-# Deploy API worker only (cloudflare-worker/src/index.js)
+# Deploy worker only, skip build (API/config changes only)
 npm run deploy:api
 
 # Run verification only (no deploy)
@@ -26,10 +25,10 @@ npm run deploy:verify
 ```
 
 `npm run deploy` does, in order:
-1. `npm run build` — React build + copies public/ → build/
-2. `npx gh-pages -d build` — pushes build/ to GitHub Pages (**this is what the user loads**)
-3. `wrangler deploy --config wrangler.jsonc` — pushes to Workers static assets mirror
-4. `node scripts/verify-deploy.js` — automated post-deploy verification (fails loud on any error)
+1. `npm run build` — React build + copies `public/` → `build/`
+2. `npm run deploy:api` — deploys `cloudflare-worker/src/index.js` + uploads `public/` as static assets
+3. `node scripts/verify-deploy.js` — automated post-deploy verification (fails loud on any error)
+4. `node scripts/verify-browser.js` — Playwright browser verification (fails loud if no credentials)
 
 ## What Verification Catches
 
@@ -37,40 +36,42 @@ npm run deploy:verify
 
 - **HTML reachability** — each admin page returns > 1KB on the live domain
 - **Code markers** — key function names, variables, and logic must be present in the live file
-- **CSS contrast** — catches white-on-white class bugs (the bug that hid names for months)
+- **CSS contrast** — catches white-on-white class bugs
 - **API health** — every Workers API endpoint returns valid JSON
-- **Render simulation** — traces the most recent incoming request through the actual JS logic and confirms name + address strings would be non-empty
+- **Render simulation** — traces the most recent incoming request through the actual JS logic
+
+`scripts/verify-browser.js` (Playwright) checks:
+- Admin page elements visible (not just in DOM)
+- Tab clicks, drag interactions, modal open/close
+- Requires `.env.local` with `ADMIN_PASSWORD` — exits(1) if missing
 
 If any check fails, the script exits 1 and prints `DEPLOY VERIFICATION FAILED`.
 
 ## Known Gotchas
 
-### Deploying API worker
-API worker requires a separate command (`npm run deploy:api`) from a specific directory.
-The `wrangler.toml` is at `cloudflare-worker/wrangler.toml`. Do **not** run `wrangler deploy` from the repo root for the API — root `wrangler.jsonc` is the static assets worker.
+### Static asset routing
+The Worker serves static files before the API auth gate: any path with a file extension (`.html`, `.js`, `.css`, etc.) or root `/` is served from the `public/` asset binding without auth. API routes have no file extension — they go through the normal routing/auth.
 
-### GitHub Pages propagation
-GitHub Pages CDN has a `max-age=600` (10 min) cache. After `gh-pages -d build`, the live URL may serve stale content for up to 10 minutes. `verify-deploy.js` polls are built in.
+### Workers propagation
+Cloudflare Workers deploys are live in < 30 seconds globally. No CDN propagation lag (previously 10 min on GitHub Pages).
 
-### The double-deploy anti-pattern
-Before May 2026, three consecutive deploys to fix name rendering went to Workers only, not GitHub Pages. The user-facing page was never updated. This is what `npm run deploy` now prevents — it deploys both targets atomically, then verifies.
+### API worker deploy command
+`npm run deploy:api` runs `npx wrangler deploy --config cloudflare-worker/wrangler.toml` from the project root. Do NOT run `wrangler deploy` without `--config` — it finds the root `wrangler.jsonc` (the old static-assets-only worker) instead.
 
-### CSS white-on-white
-`.req-name` previously used `color: var(--white)` against a white card background, making names invisible. Verify script checks `color` resolution against background and fails if they match.
-
-## Session Context
-
-`CLAUDE.md` at repo root is auto-read by Claude Code at session start. It contains deploy rules, CSS rules, data architecture, and safety rules. Claude Code loads it before any tool use.
-
-If you are a human starting a new session and want to verify Claude loaded the rules: ask "what does CLAUDE.md say about deploying?" It should answer without reading the file.
+### Rollback
+DNS rollback: log into GoDaddy → change NS back to `ns09/ns10.domaincontrol.com`. GitHub Pages (`gh-pages` branch) is intact and will resume serving once NS propagates (~5–30 min).
 
 ## File Map
 
 ```
-public/                         ← source HTML (edit these)
-build/                          ← generated by npm run build (do not edit)
-cloudflare-worker/src/index.js  ← API worker (edit for backend changes)
-cloudflare-worker/wrangler.toml ← API worker config
-wrangler.jsonc                  ← static assets worker config (root)
-scripts/verify-deploy.js        ← post-deploy verification
+public/                              ← source HTML (edit these)
+build/                               ← generated by npm run build (do not edit)
+cloudflare-worker/src/index.js       ← API worker + static asset routing
+cloudflare-worker/wrangler.toml      ← worker config ([assets] binding here)
+wrangler.jsonc                       ← legacy static-assets-only worker (unused)
+scripts/verify-deploy.js             ← post-deploy verification (curl-based)
+scripts/verify-browser.js            ← post-deploy verification (Playwright)
+scripts/lib/auto-auth.js             ← auto-auth via .env.local for verification
+.env.local                           ← ADMIN_PASSWORD (gitignored)
+docs/PRE_DNS_MIGRATION_STATE_2026-05-11.txt  ← DNS rollback reference
 ```

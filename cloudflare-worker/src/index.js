@@ -202,6 +202,20 @@ export default {
     const corsHeaders = getCorsHeaders(origin);
 
     try {
+      // ── Static assets: serve before auth gate ────────────────────────────────
+      // API routes never have file extensions; static files always do (or are /).
+      // binding = "ASSETS" in wrangler.toml makes env.ASSETS available here.
+      if (env.ASSETS) {
+        const pn = url.pathname;
+        if (pn === '/' || pn === '') {
+          // html_handling="none" means / doesn't auto-serve index.html — do it explicitly
+          return env.ASSETS.fetch(new Request(new URL('/index.html', request.url).href, request));
+        }
+        if (/\.[a-zA-Z0-9]+$/.test(pn)) {
+          return env.ASSETS.fetch(request);
+        }
+      }
+
       // Route handling
       const path = url.pathname.replace(/^\/+|\/+$/g, '');
 

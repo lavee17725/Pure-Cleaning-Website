@@ -17,25 +17,28 @@
 
 ## Section 2: Deploy Topology (Critical)
 
-Two separate targets. Deploying one does **not** update the other.
+**Single target.** Everything — HTML, assets, and API — served from one Cloudflare Worker.
 
 | Target | URL | Command |
 |--------|-----|---------|
-| **GitHub Pages** | `purecleaningpressurecleaning.com` ← **user loads this** | `npx gh-pages -d build` |
-| Workers static assets | `fumero-pressure-washing.tylerfumero.workers.dev` | `wrangler deploy --config wrangler.jsonc` |
-| **API Worker** | `purecleaning-api.tylerfumero.workers.dev` | `npm run deploy:api` |
+| **Cloudflare Worker** | `purecleaningpressurecleaning.com` ← **user loads this** | `npm run deploy` |
+| Workers.dev alias | `purecleaning-api.tylerfumero.workers.dev` | same worker |
 
-**All HTML files** (calendar, directory, incoming, profile, etc.) are served from **GitHub Pages**. Running `wrangler deploy` alone does nothing the user will see.
+**GitHub Pages is no longer used.** The `gh-pages` branch is retained as a rollback option (30-day retention) but is not the live target. DNS now points to Cloudflare (NS: `aisha.ns.cloudflare.com` + `rohin.ns.cloudflare.com`).
 
 ### Commands
 
 ```bash
-npm run deploy        # build → gh-pages → wrangler → verify (use for HTML changes)
-npm run deploy:api    # deploys cloudflare-worker/src/index.js only
-npm run deploy:verify # run verification without deploying
+npm run deploy        # build → deploy:api → verify-deploy → verify-browser
+npm run deploy:api    # deploys worker + uploads public/ as static assets
+npm run deploy:verify # run curl/marker verification without deploying
+npm run verify:browser # run Playwright verification without deploying
 ```
 
-`npm run deploy` ends with `scripts/verify-deploy.js`. If the output line is `🟢 All checks passed`, the deploy is live and correct. Never declare success before seeing that line.
+`npm run deploy` ends with `scripts/verify-browser.js`. If output is `🟢 Browser verification passed`, deploy is live and confirmed. Never declare success before seeing that line.
+
+### Static asset routing
+Worker serves `public/` assets before the API auth gate. Any request path with a file extension (`.html`, `.js`, `.css`, etc.) or root `/` → served from asset binding. API routes have no file extension → go through normal auth/routing.
 
 ### Verification confirms
 
@@ -43,7 +46,10 @@ npm run deploy:verify # run verification without deploying
 - Key code markers present in the live files (not just local)
 - CSS contrast: no white-on-white
 - API endpoints return valid JSON
-- Most recent incoming request renders name + address correctly
+- Playwright: visible UI elements, tab clicks, drag interactions
+
+### Rollback procedure
+Log into GoDaddy → Domains → change NS to `ns09/ns10.domaincontrol.com`. GitHub Pages resumes within 5–30 min. Full rollback state documented in `docs/PRE_DNS_MIGRATION_STATE_2026-05-11.txt`.
 
 ---
 
@@ -277,6 +283,7 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 9, 2026 | First run of full 3-class scanner against production — 16 Class A, 8 Class B, 6 Class C findings | Root cause confirmed: CSV import included upcoming scheduled jobs (May 6–15, 2026) as historical completed entries. All 14 same-date Class A risks are future jobs pre-imported. See cleanup plan in session log. |
 | May 10, 2026 | Class A/B/C jobHistory cleanup executed — 27 changes, 0 issues remaining | Snapshot: customer_db_backup_2026-05-11T03-04-58 (rollback available). Class A: 15 csv_backfill ghost entries deleted (future-dated imports). Class B: 7 duplicate completion entries deleted (Seeber double-fire + csv_backfill/calendar_completion pairs). Class C: 5 undefined-source entries patched to source='calendar_completion'. Scanner now shows 0/0/0 across all three classes. Erik Chafin false-positive tuned: same-svc-diff-date detection now requires dayDiff ≤ 60. |
 | May 11, 2026 | Schedule view: inline ETA button per job card (replaces bottom-of-rig arrival rows) | `renderArrivalButtons()` removed from rig section HTML; `etaBtnHtml` injected into each `jobCardScheduled()` card using `getCardEtaSlot()` which reads `_estTimeMap` if populated (day view) or falls back to `ss.window`. Reuses existing `sendArrivalText()` + `ARRIVAL_SLOTS` unchanged. Verified: 18/18 Playwright passes. |
+| May 11, 2026 | DNS migrated from GoDaddy/GitHub Pages to Cloudflare Workers — single-pipeline deploy | purecleaningpressurecleaning.com now served by purecleaning-api Worker (NS: aisha/rohin.ns.cloudflare.com). Static assets via [assets] binding = "ASSETS" in cloudflare-worker/wrangler.toml pointing to ../public. Root / explicitly mapped to index.html (html_handling=none doesn't auto-serve index). Worker serves static files before auth gate (extension check). npm run deploy reduced to: build → deploy:api → verify-deploy → verify-browser. Sub-30s propagation confirmed. Rollback: GoDaddy NS → ns09/ns10.domaincontrol.com. |
 | May 11, 2026 | SortableJS interference bug fixed: initSortables() now resets wasDragging=false | Root cause: SortableJS v1.15 dispatches onAdd before onEnd. handleDropToRig (called from onAdd) calls renderCalGrid → initSortables() which destroys the active Sortable instance mid-dispatch. onEnd never fires, so setTimeout(()=>wasDragging=false,100) never runs. wasDragging stays true permanently, blocking all _weekNavDrag mousedown events. Fix: reset wasDragging=false at top of initSortables() — destroying all instances ends any in-flight drag. |
 | May 11, 2026 | Calendar week-view drag changed from week-jump to day-by-day sliding window | `weekOffset * 7` replaced with `dayOffset` (individual days from today). `changeWeek(dir)` now does `dayOffset += dir * 7` (buttons still advance full weeks). `_weekNavDrag` threshold changed from `WEEK_NAV_THRESHOLD = 100px → 1 full week` to `DAY_DRAG_PX = 150px → 1 day`; `days = Math.round(-dx / DAY_DRAG_PX)`. Touch swipe updated to same model. Verified: 150px drag shifts exactly 1 day, 300px shifts 2 days. |
 | May 11, 2026 | Schedule view: all 3 rig swimlanes always visible + click-to-assign rig picker | `rigLabelHtml` unconditionally rendered (previously conditional on `jobs.length > 0`); empty swimlanes show "No jobs assigned" placeholder (`.rig-empty-label.drag-ignore`). `openRigPickModal(phone)` → 3-rig picker modal → `applyRigPick(rig)` persists via `saveDb()`. Auto-assign Chevy on `confirmTapSchedule()` when services match `categorizeService() === 'roof'`. `categorizeService` added to calendar.html (same keywords as Law 11 in bulk_reactivation). |
