@@ -924,7 +924,9 @@ async function checkJobHistoryIntegrity() {
           collisionRisks.push({ name, phone: c.phone, type: 'same-date', dayDiff, sim: sim.toFixed(2) });
         } else if (dayDiff <= 14 && sim >= 0.8) {
           collisionRisks.push({ name, phone: c.phone, type: 'near-date+similar-svc', dayDiff, sim: sim.toFixed(2) });
-        } else if (sim >= 0.95) {
+        } else if (sim >= 0.95 && dayDiff <= 60) {
+          // dayDiff > 60 excluded: legitimate repeat customers often book the same recurring services
+          // (e.g., Erik Chafin — same services, 434 days apart = annual repeat, not a collision)
           collisionRisks.push({ name, phone: c.phone, type: 'same-svc-diff-date', dayDiff, sim: sim.toFixed(2) });
         }
       }
