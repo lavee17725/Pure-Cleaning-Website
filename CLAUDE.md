@@ -621,6 +621,8 @@ node scripts/verify-browser.js  ← Playwright visibility/interaction checks
 
 **Status:** ✅ Both tiers enforced · screenshots saved to `verify-screenshots/` on each run
 
+**Law 14 enforcement:** `verify-browser.js` now exits(1) with explicit setup instructions when no credentials are configured. "Skipped" is treated identically to "Failed" — the deploy stops either way.
+
 ---
 
 ### LAW 13: BUG VARIANTS REQUIRE GENERALIZED DETECTION
@@ -645,6 +647,52 @@ node scripts/verify-browser.js  ← Playwright visibility/interaction checks
 **Established:** May 9, 2026, after Tanner Huysman showed that the existing csv_backfill guard was instance-specific and missed a variant of the same pattern (near-date collision with identical service description from CSV import of future-dated job).
 
 **Status:** ✅ Generalized scanner active in verify-deploy.js · source-agnostic idempotency guard in `_doCompleteJob`
+
+---
+
+---
+
+### LAW 14: VERIFICATION CANNOT SKIP WITHOUT FAILING
+
+**Rule:** A verification step that silently skips when prerequisites are missing provides false confidence. Required verification steps must FAIL the deploy loudly if they cannot run.
+
+**"Skipped" = "Failed."** No exceptions.
+
+**The pattern that motivated this Law:**
+- Browser verification (`verify-browser.js`) was built and wired into the deploy pipeline
+- First run: `process.exit(0)` when no `VERIFY_TOKEN` configured — deploy "passed"
+- Result: every "ship → broken" loop repeated, now with the extra irony that the verification layer designed to catch it had silently declared success
+
+**How it works now:** `verify-browser.js` exits(1) with explicit setup instructions when no credentials are found:
+```
+❌  BROWSER VERIFICATION CANNOT RUN — no admin credentials configured.
+
+    Fix (one-time setup):
+      1. Copy .env.local.example → .env.local
+      2. Set ADMIN_PASSWORD=<your login password>
+      3. Re-run: npm run deploy
+
+    .env.local is gitignored — never committed.
+    Once set, all verification runs automatically forever.
+```
+
+**One-time setup Tyler must do once:**
+```bash
+cp .env.local.example .env.local
+# then edit .env.local: ADMIN_PASSWORD=<login password>
+```
+
+After that, every `npm run deploy` auto-authenticates and runs the full Playwright verification without any manual steps.
+
+**The only acceptable exit states for a verification step:**
+- ✅ Ran and passed
+- ❌ Ran and found a problem → investigate and fix
+
+There is no third option. "Could not run" is a deployment blocker, not a bypass.
+
+**Established:** May 10, 2026, after the browser verification built the previous day silently skipped on its first run, defeating its entire purpose. The same "ship → still broken" loop repeated.
+
+**Status:** ✅ Enforced — verify-browser.js exits(1) with explicit instructions when no credentials
 
 ---
 

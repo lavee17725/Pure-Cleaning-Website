@@ -61,9 +61,17 @@ async function main() {
     printResults(); process.exit(1);
   }
   if (!session) {
-    warn('Browser auth', 'No credentials configured. Add ADMIN_PASSWORD to .env.local to enable browser verification.');
-    console.log('⚠️   No auth credentials — browser verification skipped (see .env.local.example)');
-    process.exit(0);
+    // Law 14: "Skipped" is not "Passed". Hard fail so the deploy stops.
+    console.error('\n❌  BROWSER VERIFICATION CANNOT RUN — no admin credentials configured.');
+    console.error('');
+    console.error('    Fix (one-time setup):');
+    console.error('      1. Copy .env.local.example → .env.local');
+    console.error('      2. Set ADMIN_PASSWORD=<your login password>');
+    console.error('      3. Re-run: npm run deploy');
+    console.error('');
+    console.error('    .env.local is gitignored — never committed.');
+    console.error('    Once set, all verification runs automatically forever.\n');
+    process.exit(1);
   }
   pass('Browser auth', 'Session token obtained via auto-auth');
 
