@@ -336,6 +336,12 @@ function renderBuilder(existing) {
   const fn = customer.firstName || '';
   const ln = customer.lastName || '';
   const city = customer.city || '';
+  const _mqBcpaAddr  = (customer.address || '').trim();
+  const _mqBcpaCity  = city.trim();
+  const _mqBcpaUrl   = _mqBcpaAddr
+    ? `https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=${encodeURIComponent(`${_mqBcpaAddr}, ${_mqBcpaCity}, FL`)}`
+    : null;
+  const _mqBcpaClip  = JSON.stringify(`${_mqBcpaAddr}, ${_mqBcpaCity}, FL`);
   const phone = fmtPh(customer.phone || '');
   const svcAgreed = qs.servicesAgreed || {};
   const services = svcAgreed.fullDescription || qs.mainServices || qs.notes || '';
@@ -413,7 +419,7 @@ function renderBuilder(existing) {
           <input type="number" id="mqRoofSqFt" class="price-input" value="${_roofSqFt || ''}" min="0" step="1" placeholder="e.g. 2400" style="font-size:16px;padding:9px 11px;background:var(--white);">
           <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Look up: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Look up: ${_mqBcpaUrl ? `<a href="${_mqBcpaUrl}" target="_blank" rel="noopener" onclick="navigator.clipboard.writeText(${_mqBcpaClip}).catch(()=>{})" style="color:var(--sky);font-weight:600;" title="Opens BCPA with address pre-filled — address also copied to clipboard">Broward</a>` : `<span style="color:var(--muted);cursor:not-allowed;" title="Load a customer first">Broward</span>`} · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
       </div>
     </div>
 

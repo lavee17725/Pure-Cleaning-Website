@@ -272,7 +272,7 @@ select option{background:var(--white);}
     <div class="field" style="margin-bottom:0;">
       <label>Roof sq ft <span style="font-weight:400;font-size:11px;color:var(--muted2);">(optional)</span></label>
       <input type="number" id="roofSqFt" placeholder="e.g. 1800" oninput="saveDraft()">
-      <div class="appraiser-links" style="margin-top:5px;">Look up sq ft: <a href="https://web.bcpa.net/bcpaclient/#/Record-Search" target="_blank" rel="noopener">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener">Palm Beach</a></div>
+      <div class="appraiser-links" style="margin-top:5px;">Look up sq ft: <a href="#" onclick="event.preventDefault();openBcpaV2()" title="Opens BCPA with address pre-filled">Broward (BCPA)</a> · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener">Palm Beach</a></div>
     </div>
   </div>
 
@@ -906,6 +906,18 @@ const _BROWARD = ['weston','davie','pembroke pines','coral springs','plantation'
 const _MIAMI_DADE = ['miami','aventura','kendall','doral','hialeah','hialeah gardens','homestead','cutler bay','pinecrest','palmetto bay','miami beach','miami lakes','coral gables','north miami','north miami beach','sunny isles beach','bay harbor islands','bal harbour','surfside','key biscayne','south miami','west miami','miami springs','medley','sweetwater','opa-locka','florida city','indian creek','biscayne park','el portal','miami shores','north bay village','virginia gardens'];
 const _PALM_BEACH = ['boca raton','delray beach','wellington','boynton beach','west palm beach','palm beach','palm beach gardens','jupiter','lake worth beach','royal palm beach','greenacres','riviera beach','palm springs','highland beach','tequesta','north palm beach','lantana','manalapan','juno beach','atlantis','south palm beach','loxahatchee','belle glade','pahokee','south bay'];
 
+function openBcpaV2() {
+  const addr = (document.getElementById('custAddr')?.value || '').trim();
+  if (!addr) {
+    const el = document.getElementById('custAddr');
+    if (el) { el.focus(); el.placeholder = '← Enter address first'; }
+    return;
+  }
+  const url = 'https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=' + encodeURIComponent(addr + ' FL');
+  navigator.clipboard.writeText(addr).catch(() => {});
+  window.open(url, '_blank');
+}
+
 function detectCounty(addr) {
   const s = addr.toLowerCase();
   if (_BROWARD.some(c => s.includes(c)))    return 'broward';
@@ -924,11 +936,10 @@ function updatePropLink() {
     return;
   }
 
-  console.log('[propLink] addr=', addr.slice(0,30)||'(empty)', '— county:', detectCounty(addr)||'unknown');
   const county = detectCounty(addr);
   let url;
   if (county === 'broward') {
-    url = 'https://web.bcpa.net/bcpaclient/#/Record-Search';
+    url = 'https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=' + encodeURIComponent(addr + ' FL');
   } else if (county === 'miami-dade') {
     url = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';
   } else if (county === 'palm-beach') {
@@ -936,7 +947,8 @@ function updatePropLink() {
   } else {
     url = 'https://www.google.com/search?q=' + encodeURIComponent(addr + ' FL property appraiser');
   }
-  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" title="Opens property appraiser in new tab">📍 Look up property records →</a>';
+  const clipStr = JSON.stringify(addr);
+  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" onclick="navigator.clipboard.writeText(' + clipStr + ').catch(()=>{})" title="Opens property appraiser in new tab — address also copied to clipboard">📍 Look up property records →</a>';
 }
 
 // ─── AUTO-POPULATE FROM ?customer= LINK ──────────────────────────

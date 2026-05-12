@@ -510,6 +510,30 @@ async function main() {
       }
     });
 
+    // ── BCPA DEEP-LINK: calendar job card ────────────────────────────────────
+    // Phone 9546877537 = Weston customer with address — should show a BCPA chip
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'bcpa-calendar', async page => {
+      await page.waitForFunction(() => document.querySelectorAll('.pa-link').length > 0, { timeout: 20000 }).catch(() => {});
+
+      const paLinks = await page.locator('.pa-link').count();
+      if (paLinks === 0) {
+        warn('BCPA calendar — .pa-link chips visible', 'No .pa-link elements found (may be no Broward jobs visible in current week)');
+        return;
+      }
+      pass('BCPA calendar — .pa-link chips present', `${paLinks} chip(s) visible`);
+
+      // Confirm at least one has a deep-link URL with searchValue
+      const hasDeepLink = await page.evaluate(() => {
+        const links = [...document.querySelectorAll('.pa-link')];
+        return links.some(a => (a.href || '').includes('searchValue='));
+      });
+      if (hasDeepLink) {
+        pass('BCPA calendar — deep-link URL contains searchValue param');
+      } else {
+        fail('BCPA calendar — deep-link URL contains searchValue param', 'No .pa-link found with searchValue= in href');
+      }
+    });
+
     // ── GOOGLE DRIVE / WEEKLY EXPORT ─────────────────────────────────────────
     // Test 1: /oauth/google/start returns a redirect to Google (302 → accounts.google.com)
     await withPage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {
