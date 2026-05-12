@@ -303,6 +303,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Roof story selector added (1-story or 2-story). Admin-only — NOT on customer-facing web quote form (Tyler/Mom assess from BCPA + address knowledge). Appears conditionally only when "Roof" service is detected in the field. Default: 1-story (most common). Tracked in scheduledStatus.roofStories, jobHistory[].roofStories, quoteHistory[].roofStories. Added to all 6 admin entry points (Add Verbal Quote modal, calendar tap-schedule + add-unscheduled modals, new customer entry, mini quote builder, quote builder v2). Display: story-badge chip after roof service text in calendar job cards, customer profile service history, and day route view. Historical roof jobs without roofStories default to 1-story display. Foundation for story-aware pricing/duration ML. |
 
+| May 12, 2026 | ETA text content corrected per Tyler's spec (which was supposed to ship May 10 but slipped through). Slots: 10 AM (was 9 AM), early afternoon, late afternoon (3 slots, was 6 granular). Template: "Hi [FirstName], I wanted to confirm that we will be pressure cleaning [service] tomorrow around [slot]. Thank you." Service text is natural language ("your roof", "your home and roof") not raw technical terms. Hardcoded "tomorrow" since texts are sent the night before. friendlyServiceDesc() helper derives service description from scheduledStatus.jobNotes. |
+
 *Append future decisions below this line.*
 
 ---
