@@ -534,35 +534,73 @@ async function main() {
       }
     });
 
-    // ── DAY ROUTE VIEW ───────────────────────────────────────────────────────
+    // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
-      // Test 1: page loads
       await page.waitForTimeout(5000); // API call + render
 
-      // Test 2: date picker visible
-      const datePicker = await page.locator('#datePicker').isVisible().catch(() => false);
-      if (datePicker) {
-        pass('Day Route — date picker visible');
+      // Test 1: three tabs present
+      const tabDay  = await page.locator('#tab-day').isVisible().catch(() => false);
+      const tabWeek = await page.locator('#tab-week').isVisible().catch(() => false);
+      const tabAvg  = await page.locator('#tab-avg').isVisible().catch(() => false);
+      if (tabDay && tabWeek && tabAvg) {
+        pass('Day Route — all 3 tabs visible (Day / Week / Averages)');
       } else {
-        fail('Day Route — date picker visible', '#datePicker not found');
+        fail('Day Route — all 3 tabs visible', `day:${tabDay} week:${tabWeek} avg:${tabAvg}`);
       }
+
+      // Test 2: date picker visible in day tab
+      const datePicker = await page.locator('#datePicker').isVisible().catch(() => false);
+      if (datePicker) { pass('Day Route — date picker visible'); }
+      else            { fail('Day Route — date picker visible', '#datePicker not found'); }
 
       // Test 3: three rig columns rendered
       const col1 = await page.locator('#col_rig_1').isVisible().catch(() => false);
       const col2 = await page.locator('#col_rig_2').isVisible().catch(() => false);
       const col3 = await page.locator('#col_rig_3').isVisible().catch(() => false);
-      if (col1 && col2 && col3) {
-        pass('Day Route — three rig columns rendered (col_rig_1/2/3 visible)');
-      } else {
-        fail('Day Route — three rig columns rendered', `col_rig_1:${col1} col_rig_2:${col2} col_rig_3:${col3}`);
+      if (col1 && col2 && col3) { pass('Day Route — three rig columns rendered'); }
+      else { fail('Day Route — three rig columns rendered', `col_rig_1:${col1} col_rig_2:${col2} col_rig_3:${col3}`); }
+
+      const rigLabels = await page.locator('.rig-label').count();
+      if (rigLabels >= 3) { pass('Day Route — rig labels rendered', `${rigLabels} found`); }
+      else { fail('Day Route — rig labels rendered', `only ${rigLabels}`); }
+
+      // Test 4: click Week tab → week grid renders
+      if (tabWeek) {
+        await page.locator('#tab-week').click();
+        await page.waitForTimeout(6000); // 7 parallel API calls
+        const weekTable = await page.locator('#weekTable').isVisible().catch(() => false);
+        if (weekTable) {
+          pass('Day Route — Week tab: #weekTable visible after click');
+        } else {
+          fail('Day Route — Week tab: #weekTable visible after click', '#weekTable not visible');
+        }
+        const weekCells = await page.locator('.week-cell').count();
+        if (weekCells > 0) {
+          pass('Day Route — Week tab: .week-cell elements rendered', `${weekCells} cells`);
+        } else {
+          warn('Day Route — Week tab: .week-cell elements', 'No .week-cell found — all empty days or still loading');
+        }
       }
 
-      // Test 4: each column has a rig label (not just spinner)
-      const rigLabels = await page.locator('.rig-label').count();
-      if (rigLabels >= 3) {
-        pass('Day Route — rig labels rendered', `${rigLabels} labels found`);
-      } else {
-        fail('Day Route — rig labels rendered', `only ${rigLabels} .rig-label elements (expected ≥3)`);
+      // Test 5: click Averages tab → cards render
+      if (tabAvg) {
+        await page.locator('#tab-avg').click();
+        await page.waitForFunction(() => {
+          const cards = document.getElementById('avgCards');
+          return cards && cards.style.display !== 'none';
+        }, { timeout: 15000 }).catch(() => {});
+        const avgCards = await page.locator('#avgCards').isVisible().catch(() => false);
+        if (avgCards) {
+          pass('Day Route — Averages tab: #avgCards visible after click');
+        } else {
+          fail('Day Route — Averages tab: #avgCards visible after click', '#avgCards not visible');
+        }
+        const avgCardCount = await page.locator('.avg-card').count();
+        if (avgCardCount >= 3) {
+          pass('Day Route — Averages tab: stat cards rendered', `${avgCardCount} cards`);
+        } else {
+          fail('Day Route — Averages tab: stat cards rendered', `only ${avgCardCount} .avg-card elements (expected ≥3)`);
+        }
       }
     });
 

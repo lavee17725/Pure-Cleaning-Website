@@ -958,6 +958,9 @@ export default {
       if (path === 'admin/day-route' && request.method === 'GET') {
         return await handleDayRoute(request, env, corsHeaders, url);
       }
+      if (path === 'admin/day-route/averages' && request.method === 'GET') {
+        return await handleDayRouteAverages(request, env, corsHeaders, url);
+      }
 
       // ── Worker hours: per-customer attribution (protected) ───────────────────
       if (/^admin\/worker-hours\/customer\/[^/]+$/.test(path) && request.method === 'GET') {
@@ -2396,6 +2399,158 @@ function checkMorningStopsForRig(trips, pois, tripFirstCoord, tripLastCoord) {
     };
   }
   return results;
+}
+
+// ── Day Route Averages ────────────────────────────────────────────────────────
+// Computes stats from existing KV data (no new Bouncie calls) so it stays fast.
+// Data sources:
+//   - jobHistory: rig stats, service-type durations, geographic spread, between-job drive times
+//   - bouncie:poi_stats:{gas|chlorine}: rolling 7-Eleven/Pro-Line dwell averages
+//   - bouncie:morning_stops:{date}: per-date POI samples for in-period median
+async function handleDayRouteAverages(request, env, corsHeaders, url) {
+  const to   = url.searchParams.get('to')   || new Date().toISOString().slice(0, 10);
+  const fromDefault = new Date(); fromDefault.setDate(fromDefault.getDate() - 30);
+  const from = url.searchParams.get('from') || fromDefault.toISOString().slice(0, 10);
+
+  const db = await env.DATA.get(KV_KEYS.customers, 'json');
+  const customers = (db?.customers || []).filter(Boolean);
+
+  // Rolling POI averages (all-time, stored by Bouncie cron)
+  const [gasStats, chlorStats] = await Promise.all([
+    env.DATA.get('bouncie:poi_stats:gas', 'json'),
+    env.DATA.get('bouncie:poi_stats:chlorine', 'json'),
+  ]);
+
+  // In-period morning stop samples for median calculation
+  const days = [];
+  for (let d = new Date(from + 'T00:00:00Z'); d.toISOString().slice(0,10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+    if (days.length > 90) break; // hard cap
+  }
+  const morningStopsArr = await Promise.all(days.map(d => env.DATA.get(`bouncie:morning_stops:${d}`, 'json')));
+  const inPeriodDwell = { gas: [], chlorine: [] };
+  for (const ms of morningStopsArr) {
+    if (!ms?.morningStops) continue;
+    for (const rigStops of Object.values(ms.morningStops)) {
+      for (const [key, stop] of Object.entries(rigStops)) {
+        if (stop?.found && stop.durationMin > 0 && inPeriodDwell[key]) {
+          inPeriodDwell[key].push(stop.durationMin);
+        }
+      }
+    }
+  }
+
+  const calcStats = arr => {
+    if (!arr.length) return { avgMinutes: null, median: null, sampleSize: 0 };
+    const sum = arr.reduce((a, b) => a + b, 0);
+    const s   = [...arr].sort((a, b) => a - b);
+    const m   = Math.floor(s.length / 2);
+    const med = s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+    return { avgMinutes: Math.round(sum / arr.length), median: med, sampleSize: arr.length };
+  };
+
+  // Rig stats, service-type durations, geo spread, between-job drive times — from jobHistory
+  const categorize = text => {
+    const t = (text || '').toLowerCase();
+    const isRoof   = /roof|soft\s*wash|softwash/.test(t);
+    const isGround = /driveway|patio|sidewalk|walkway|concrete|pressure|paver|pool\s*deck|\bdeck\b|entranceway|entrance|flatwork|pool area/.test(t);
+    if (isRoof && isGround) return 'both';
+    if (isRoof)   return 'roof';
+    if (isGround) return 'ground';
+    return 'unknown';
+  };
+
+  const RIGS = ['rig_1', 'rig_2', 'rig_3'];
+  const rigAccum  = Object.fromEntries(RIGS.map(r => [r, { jobCount: 0, revenue: 0, durMin: 0, durSample: 0 }]));
+  const svcSamples = { roof: [], ground: [], both: [], unknown: [] };
+  const geoAccum   = {};
+  const betweenJobDriveMins = [];
+
+  for (const c of customers) {
+    const city = (c.city || 'Unknown').trim();
+    // Build per-rig-per-day job lists so we can compute between-job drive times
+    const rigDayJobs = {};
+    for (const j of (c.jobHistory || [])) {
+      if (j.status !== 'completed' || j.source === 'csv_backfill') continue;
+      if (!j.date || j.date < from || j.date > to) continue;
+      const rig = j.actualRig || j.rigId;
+      if (!rig || !rigAccum[rig]) continue;
+      const r = rigAccum[rig];
+      r.jobCount++;
+      r.revenue += j.amount || 0;
+      if (j.actualDuration > 0) { r.durMin += j.actualDuration; r.durSample++; }
+      const svc = categorize(j.services || j.jobNotes || '');
+      if (j.actualDuration > 0 && svcSamples[svc]) svcSamples[svc].push(j.actualDuration);
+      if (!geoAccum[city]) geoAccum[city] = { jobCount: 0, durMin: 0, durSample: 0 };
+      geoAccum[city].jobCount++;
+      if (j.actualDuration > 0) { geoAccum[city].durMin += j.actualDuration; geoAccum[city].durSample++; }
+      // Collect for between-job drive time computation
+      const key = `${rig}:${j.date}`;
+      if (!rigDayJobs[key]) rigDayJobs[key] = [];
+      rigDayJobs[key].push(j);
+    }
+    // Between-job drive times for this customer's jobs (same rig/date, consecutive)
+    for (const jobs of Object.values(rigDayJobs)) {
+      const sorted = jobs.filter(j => j.actualArrival && j.actualDeparture)
+        .sort((a, b) => new Date(a.actualArrival) - new Date(b.actualArrival));
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const driveMin = Math.round((new Date(sorted[i + 1].actualArrival) - new Date(sorted[i].actualDeparture)) / 60000);
+        if (driveMin > 0 && driveMin < 120) betweenJobDriveMins.push(driveMin); // sanity cap 2h
+      }
+    }
+  }
+
+  const rigStats = Object.fromEntries(RIGS.map(r => {
+    const a = rigAccum[r];
+    return [r, {
+      jobCount:         a.jobCount,
+      totalRevenue:     Math.round(a.revenue),
+      avgRevenue:       a.jobCount > 0 ? Math.round(a.revenue / a.jobCount) : null,
+      totalActiveHours: Math.round(a.durMin / 6) / 10,
+      avgJobDuration:   a.durSample > 0 ? Math.round(a.durMin / a.durSample) : null,
+      sampleSize:       a.durSample,
+    }];
+  }));
+
+  const svcAverages = Object.fromEntries(
+    Object.entries(svcSamples)
+      .filter(([, arr]) => arr.length > 0)
+      .map(([svc, arr]) => [svc, calcStats(arr)])
+  );
+
+  const geoSpread = Object.fromEntries(
+    Object.entries(geoAccum)
+      .sort((a, b) => b[1].jobCount - a[1].jobCount)
+      .slice(0, 15)
+      .map(([city, d]) => [city, { jobCount: d.jobCount, avgJobMinutes: d.durSample > 0 ? Math.round(d.durMin / d.durSample) : null }])
+  );
+
+  return jsonResponse({
+    periodStart: from, periodEnd: to, sampleDays: days.length,
+    dwellAverages: {
+      '7eleven': {
+        ...(calcStats(inPeriodDwell.gas)),
+        allTimeAvgMinutes: gasStats?.avgMin || null,
+        allTimeSampleSize: gasStats?.count  || 0,
+      },
+      proline: {
+        ...(calcStats(inPeriodDwell.chlorine)),
+        allTimeAvgMinutes: chlorStats?.avgMin || null,
+        allTimeSampleSize: chlorStats?.count  || 0,
+      },
+      home_departure: { note: 'Trip startTime not cached — will compute once day-route caching is added.' },
+    },
+    driveSegmentAverages: {
+      between_jobs: betweenJobDriveMins.length > 0
+        ? { ...calcStats(betweenJobDriveMins), note: 'Drive time between consecutive jobs on same rig/day' }
+        : { avgMinutes: null, sampleSize: 0, note: 'Insufficient GPS-matched job pairs in date range' },
+      home_to_7eleven:       { note: 'Requires day-route caching — not yet accumulated' },
+      '7eleven_to_proline':  { note: 'Requires day-route caching — not yet accumulated' },
+      proline_to_first_job:  { note: 'Requires day-route caching — not yet accumulated' },
+      last_job_to_home:      { note: 'Requires day-route caching — not yet accumulated' },
+    },
+    rigStats, serviceTypeAverages: svcAverages, geographicSpread: geoSpread,
+  }, corsHeaders);
 }
 
 // ── Day Route View ────────────────────────────────────────────────────────────

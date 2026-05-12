@@ -73,7 +73,8 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_day_route.html',
-    markers: ['admin/day-route', 'renderRigColumn', 'col_rig_1', 'openDayRouteView', 'DAY_ROUTE_LOCATIONS'],
+    markers: ['admin/day-route', 'renderRigColumn', 'col_rig_1', 'openDayRouteView', 'DAY_ROUTE_LOCATIONS',
+              'tab-week', 'tab-avg', 'loadWeek', 'loadAverages', 'renderWeekCell', 'renderAveragesCards'],
   },
   {
     file: 'pure_cleaning_review_hub.html',
