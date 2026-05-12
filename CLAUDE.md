@@ -293,6 +293,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Verbal quote lifecycle shipped: quoteLifecycle string field (not quoteStatus object), quoteHistory[] array, Did Not Service tab in bulk_reactivation | quoteStatus is a complex object used everywhere — new lifecycle tracking uses a separate quoteLifecycle top-level string ('verbal_pending', 'confirmed', 'did_not_service') and quoteHistory[] array. customerToDbRecord fixed to persist new fields (previously they were dropped on every save). Re-engagement chips: <30d = follow up, 30–179d = re-engage, 180–364d = 6-month check-in, ≥365d = cold storage. |
 
+| May 12, 2026 | Weekly data export to Google Drive shipped. Every Monday 4 AM UTC, 4 JSON files written to Tyler's 'PureCleaningCRM' Drive folder: weekly_summary, customer_health, operations_metrics, exceptions. OAuth refresh token persisted in KV after one-time authorization at /oauth/google/start. Manual trigger endpoint POST /admin/export-weekly for backfilling and testing. Future Claude sessions can read directly from Drive via connector — eliminates copy-paste analysis bottleneck. |
+
 *Append future decisions below this line.*
 
 ---
