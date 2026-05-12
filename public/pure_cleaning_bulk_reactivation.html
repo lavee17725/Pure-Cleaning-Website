@@ -250,6 +250,13 @@ td.money{font-family:'DM Mono',monospace;}
 .text-disconnected-btn{background:rgba(229,62,62,.1);color:#fc8181;border:1px solid rgba(229,62,62,.3);border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:default;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .contact-stats{font-size:12px;color:var(--muted);padding:5px 2px;}
 
+/* did-not-service follow-up chips */
+.dns-chip{display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap;}
+.dns-chip-followup{background:rgba(220,38,38,.12);color:#dc2626;border:1px solid rgba(220,38,38,.3);}
+.dns-chip-reengage{background:rgba(217,119,6,.12);color:#d97706;border:1px solid rgba(217,119,6,.3);}
+.dns-chip-sixmo{background:rgba(45,125,210,.12);color:#2d7dd2;border:1px solid rgba(45,125,210,.3);}
+.dns-chip-cold{background:rgba(107,114,128,.12);color:#6b7280;border:1px solid rgba(107,114,128,.3);}
+
 /* tier badge inline-styled — no pill class needed */
 
 /* row ⋯ overflow menu */
@@ -505,6 +512,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
     <button class="pool-tab" onclick="setPoolTab('excluded')" style="border-color:rgba(229,62,62,.5);color:#fca5a5;">⛔ Excluded <span class="pool-badge" id="tabExcludedCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('timeline')">📅 Timeline <span class="pool-badge" id="tabTimelineCount">0</span></button>
     <button class="pool-tab" onclick="setPoolTab('all')">⏱ All <span class="pool-badge" id="tabAllCount">—</span></button>
+    <button class="pool-tab" onclick="setPoolTab('dns')" style="border-color:rgba(217,119,6,.4);color:#d97706;">❌ Did Not Service <span class="pool-badge" id="tabDnsCount">0</span></button>
   </div>
 
   <!-- SERVICE SECTION TABS (active pool only) -->
@@ -916,6 +924,9 @@ function customerToDbRecord(c) {
     reactivationExcluded: c.reactivationExcluded || null,
     jobHistory: c.jobHistory || [],
     legacyStats: c.legacyStats || null,
+    quoteLifecycle: c.quoteLifecycle || null,
+    quoteHistory:   c.quoteHistory  || [],
+    lastReachOutAt: c.lastReachOutAt || null,
   };
 }
 
@@ -1046,6 +1057,10 @@ function dbRecordToCustomer(r) {
     // Per-service-type reactivation fields
     lastGroundDateObj, lastRoofDateObj, monthsSinceGround, monthsSinceRoof,
     svcSection, groundUrgency, roofUrgency,
+    // Verbal quote lifecycle
+    quoteLifecycle: r.quoteLifecycle || null,
+    quoteHistory:   r.quoteHistory   || [],
+    lastReachOutAt: r.lastReachOutAt  || null,
   };
 }
 
@@ -1602,6 +1617,17 @@ function applyFilters() {
   }
 
   filteredCustomers = allCustomers.filter(c => {
+    if (poolTab === 'dns') {
+      const isDns = c.quoteLifecycle === 'did_not_service' || c.quoteLifecycle === 'cold_storage';
+      if (!isDns) return false;
+      if (q) {
+        const full = ((c.fn||'') + ' ' + (c.ln||'')).toLowerCase();
+        return full.includes(q) || (qDigits && c.phone && c.phone.includes(qDigits));
+      }
+      return true;
+    }
+    // Exclude DNS/cold-storage customers from all other tabs
+    if (c.quoteLifecycle === 'did_not_service' || c.quoteLifecycle === 'cold_storage') return false;
     if (poolTab === 'excluded')   return c.reactivationExcluded?.excluded === true;
     if (poolTab === 'opted_out')   return !!c.optOut;
     if (poolTab === 'moved_away')  return !!c.movedAway;
@@ -1680,6 +1706,15 @@ let _sortAsc = true;
 
 function applySort() {
   if (poolTab === 'timeline') { renderTimelineView(); return; }
+  if (poolTab === 'dns') {
+    // Sort oldest outcomeAt first — most urgent follow-ups at top
+    filteredCustomers.sort((a, b) => {
+      const ae = (a.quoteHistory||[]).slice().reverse().find(e => e.outcome === 'did_not_service');
+      const be = (b.quoteHistory||[]).slice().reverse().find(e => e.outcome === 'did_not_service');
+      return (ae?.outcomeAt||'').localeCompare(be?.outcomeAt||'');
+    });
+    renderTable(); return;
+  }
   if (poolTab === 'contacted' || poolTab === 'today' || poolTab === 'week') {
     filteredCustomers.sort((a, b) => {
       const ta = (loadContactRecord(a.phone) || {}).contactedAt || '';
@@ -1764,6 +1799,43 @@ const EXCL_REASON_LABELS = {
 function renderTable() {
   const tbody = document.getElementById('tableBody');
   try {
+  // ── DNS tab: special card-style rendering ─────────────────────────────────
+  if (poolTab === 'dns') {
+    if (filteredCustomers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">No Did Not Service customers yet. When a verbal quote is declined, it moves here for follow-up.</td></tr>`;
+      updateSelInfo(); return;
+    }
+    tbody.innerHTML = filteredCustomers.map(c => {
+      const lastEntry = (c.quoteHistory||[]).slice().reverse().find(e => e.outcome === 'did_not_service') || (c.quoteHistory||[]).slice(-1)[0] || {};
+      const daysSince = lastEntry.outcomeAt ? Math.floor((Date.now() - new Date(lastEntry.outcomeAt)) / 86400000) : null;
+      const chip = daysSince === null ? '' :
+        daysSince < 30  ? `<span class="dns-chip dns-chip-followup">🔔 Follow up now</span>` :
+        daysSince < 180 ? `<span class="dns-chip dns-chip-reengage">⏰ Re-engage</span>` :
+        daysSince < 365 ? `<span class="dns-chip dns-chip-sixmo">🎯 6-month check-in</span>` :
+                          `<span class="dns-chip dns-chip-cold">🧊 Cold storage</span>`;
+      const dayStr = daysSince !== null ? `${daysSince}d ago` : '—';
+      const lastReach = c.lastReachOutAt ? new Date(c.lastReachOutAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—';
+      const svcStr = esc(lastEntry.quotedService || '—');
+      const price = lastEntry.quotedPrice ? `$${Number(lastEntry.quotedPrice).toLocaleString()}` : '';
+      const textBtn = c.phone ? `<button class="text-now-btn" data-contact-phone="${c.phone}" onclick="sendDnsText('${c.phone}')">📱 Send Text</button>` : '';
+      return `<tr onclick="goToProfile('${c.phone}')">
+        <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${selectedPhones.has(c.phone)?'checked':''} onchange="toggleRow(this)"></td>
+        <td onclick="event.stopPropagation()">${textBtn}</td>
+        <td class="name">${esc(c.fn)} ${esc(c.ln)}</td>
+        <td class="phone">${formatPhone(c.phone)}</td>
+        <td>${esc(c.city||'—')}</td>
+        <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${svcStr}">${svcStr}${price ? ' · '+price : ''}</td>
+        <td>${dayStr}</td>
+        <td>${chip}</td>
+        <td style="color:var(--muted);font-size:11px;">${lastReach}</td>
+        <td>${lastEntry.reason ? `<span style="font-size:11px;color:var(--muted);">"${esc(lastEntry.reason.slice(0,40))}"</span>` : ''}</td>
+        <td></td>
+        <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation();toggleRowMenu('${c.phone}',this)" title="More actions">⋯</button></td>
+      </tr>`;
+    }).join('');
+    updateSelInfo(); return;
+  }
+
   const emptyTabs = ['today','week','opted_out','moved_away','excluded'];
   if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
     const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.',excluded:'No excluded customers — looking good!'};
@@ -2374,7 +2446,7 @@ function undoContact(phone) {
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
-    el.classList.toggle('active', ['active','booked','today','week','contacted','opted_out','moved_away','excluded','timeline','all'][i] === tab);
+    el.classList.toggle('active', ['active','booked','today','week','contacted','opted_out','moved_away','excluded','timeline','all','dns'][i] === tab);
   });
   const isTimeline = tab === 'timeline';
   const tw = document.getElementById('tableWrap');
@@ -2389,9 +2461,10 @@ function setPoolTab(tab) {
 function updateTabCounts() {
   const el = document.getElementById('tabActiveCount');
   if (!el || !allCustomers.length) return;
-  let active = 0, booked = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0;
+  let active = 0, booked = 0, contacted = 0, todayCt = 0, weekCt = 0, optedOutCt = 0, movedAwayCt = 0, excludedCt = 0, timelineUrgent = 0, dnsCt = 0;
   let groundCt = 0, roofCt = 0, bothCt = 0;
   allCustomers.forEach(c => {
+    if (c.quoteLifecycle === 'did_not_service' || c.quoteLifecycle === 'cold_storage') { dnsCt++; return; }
     if (c.reactivationExcluded?.excluded) { excludedCt++; return; }
     if (c.optOut)    { optedOutCt++;   return; }
     if (c.movedAway) { movedAwayCt++;  return; }
@@ -2426,6 +2499,8 @@ function updateTabCounts() {
   document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
   document.getElementById('tabExcludedCount').textContent  = excludedCt;
   document.getElementById('tabTimelineCount').textContent  = timelineUrgent;
+  const dnsEl = document.getElementById('tabDnsCount');
+  if (dnsEl) dnsEl.textContent = dnsCt;
   const svcG = document.getElementById('svcCountGround');
   const svcR = document.getElementById('svcCountRoof');
   const svcB = document.getElementById('svcCountBoth');
@@ -2506,6 +2581,23 @@ async function executeTextNow(phone) {
   saveContacts(contacts);
   applyFilters();
   updateContactStats();
+}
+
+// ─── DNS RE-ENGAGEMENT TEXT ───────────────────────────────────────────────────
+async function sendDnsText(phone) {
+  const c = allCustomers.find(a => a.phone === phone);
+  if (!c) return;
+  if (c.optOut) {
+    alert(`Cannot send SMS — ${c.fn} ${c.ln} has opted out of text messages (TCPA compliance).`);
+    return;
+  }
+  c.lastReachOutAt = new Date().toISOString();
+  saveDatabase().catch(e => console.warn('DNS reach-out save failed:', e.message));
+  const svcEntry = (c.quoteHistory||[]).slice().reverse().find(e => e.outcome === 'did_not_service');
+  const svcLine  = svcEntry && svcEntry.quotedService ? ` for your ${svcEntry.quotedService}` : '';
+  const msg = `Hi ${c.fn}! This is Tyler from Pure Cleaning. Just following up — we had chatted about a quote${svcLine}. We'd love to get your property looking great. Text or call us back anytime! 🌊`;
+  window.location.href = `sms:${phone}&body=${encodeURIComponent(msg)}`;
+  renderTable();
 }
 
 // ─── LINK GENERATION ─────────────────────────────────────────────────────────

@@ -98,6 +98,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 .quoted-pill{font-size:11px;color:var(--green);font-family:'DM Mono',monospace;background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.25);border-radius:6px;padding:4px 9px;white-space:nowrap;}
 
+/* ── Verbal quote card ── */
+.req-card.verbal{border-left:3px solid #d97706;}
+.verbal-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;background:rgba(217,119,6,.15);color:#92400e;padding:2px 7px;border-radius:8px;}
+.price-badge{font-size:12px;font-weight:700;background:rgba(29,158,117,.12);color:#065f46;padding:2px 8px;border-radius:8px;border:1px solid rgba(29,158,117,.2);}
+.btn-confirm{display:inline-flex;align-items:center;gap:5px;background:#1d9e75;color:white;border:none;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;font-family:'DM Sans',sans-serif;}
+.btn-confirm:hover{background:#178063;}
+.btn-dns{display:inline-flex;align-items:center;gap:5px;background:rgba(229,62,62,.1);color:var(--red);border:1.5px solid rgba(229,62,62,.3);border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;}
+.btn-dns:hover{background:rgba(229,62,62,.18);}
+
+/* ── Modals ── */
+.vq-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center;padding:1rem;}
+.vq-overlay.show{display:flex;}
+.vq-modal{background:var(--card);border-radius:16px;padding:1.5rem;width:min(500px,100%);max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.vq-title{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:1.25rem;}
+.vq-field{margin-bottom:12px;}
+.vq-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:block;}
+.vq-input,.vq-textarea{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;background:var(--input-bg);color:var(--text);box-sizing:border-box;}
+.vq-input:focus,.vq-textarea:focus{border-color:var(--sky);}
+.vq-row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.vq-actions{display:flex;gap:10px;margin-top:1.25rem;}
+.vq-btn-primary{flex:1;padding:11px;background:var(--sky);color:white;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.vq-btn-primary:hover{background:#2470c0;}
+.vq-btn-cancel{padding:11px 20px;background:none;color:var(--muted);border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
+.add-verbal-bar{padding:8px 1.25rem 0;max-width:640px;margin:0 auto;}
+
 /* ── Bulk selection ── */
 .bulk-cb{width:16px;height:16px;cursor:pointer;accent-color:var(--sky);flex-shrink:0;}
 .select-row{display:flex;align-items:center;gap:8px;padding:.375rem .25rem .625rem;font-size:12px;color:var(--muted);}
@@ -140,8 +165,67 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="tab"        id="tab-all"       onclick="switchTab('all')">All <span class="cnt" id="cnt-all">0</span></div>
 </div>
 
+<div class="add-verbal-bar">
+  <button onclick="openVerbalModal()" style="background:var(--gold);color:var(--navy);border:none;border-radius:10px;padding:9px 18px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(244,166,32,.25);" id="addVerbalBtn">📞 Add Verbal Quote</button>
+</div>
+
 <div class="wrap" id="wrap">
   <div class="empty-state"><div class="e-icon">⏳</div><p>Loading requests…</p></div>
+</div>
+
+<!-- Verbal Quote Modal -->
+<div class="vq-overlay" id="vqModal" onclick="if(event.target===this)closeVerbalModal()">
+  <div class="vq-modal">
+    <div class="vq-title">📞 Add Verbal Quote</div>
+    <div class="vq-row2">
+      <div class="vq-field"><label class="vq-label">First Name *</label><input class="vq-input" id="vqFirstName" placeholder="First name"></div>
+      <div class="vq-field"><label class="vq-label">Last Name *</label><input class="vq-input" id="vqLastName" placeholder="Last name"></div>
+    </div>
+    <div class="vq-field"><label class="vq-label">Phone *</label><input class="vq-input" id="vqPhone" type="tel" placeholder="(555) 555-5555" oninput="formatPhoneInput(this)"></div>
+    <div class="vq-field"><label class="vq-label">Address *</label><input class="vq-input" id="vqAddress" placeholder="Street address"></div>
+    <div class="vq-row2">
+      <div class="vq-field"><label class="vq-label">City *</label><input class="vq-input" id="vqCity" placeholder="City"></div>
+      <div class="vq-field"><label class="vq-label">Quoted Price ($) *</label><input class="vq-input" id="vqPrice" type="number" min="0" step="25" placeholder="500"></div>
+    </div>
+    <div class="vq-field"><label class="vq-label">Service Requested *</label><input class="vq-input" id="vqService" placeholder="e.g. Roof cleaning, driveway wash…"></div>
+    <div class="vq-row2">
+      <div class="vq-field"><label class="vq-label">Preferred Date</label><input class="vq-input" id="vqPreferredDate" type="date"></div>
+    </div>
+    <div class="vq-field"><label class="vq-label">Notes</label><textarea class="vq-textarea" id="vqNotes" rows="2" placeholder="'Will think about it', 'Call back Thursday'…" style="resize:vertical;"></textarea></div>
+    <div id="vqError" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
+    <div class="vq-actions">
+      <button class="vq-btn-primary" onclick="submitVerbalQuote()">💾 Save Quote</button>
+      <button class="vq-btn-cancel" onclick="closeVerbalModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm & Schedule Modal -->
+<div class="vq-overlay" id="csModal" onclick="if(event.target===this)closeCsModal()">
+  <div class="vq-modal" style="max-width:360px;">
+    <div class="vq-title">✅ Confirm & Schedule</div>
+    <div id="csName" style="font-size:14px;color:var(--muted);margin-bottom:1rem;"></div>
+    <div class="vq-field"><label class="vq-label">Scheduled Date *</label><input class="vq-input" id="csDate" type="date"></div>
+    <div class="vq-field"><label class="vq-label">Notes (optional)</label><input class="vq-input" id="csNotes" placeholder="Any notes for the job"></div>
+    <div id="csError" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
+    <div class="vq-actions">
+      <button class="vq-btn-primary" onclick="submitConfirmSchedule()" style="background:#1d9e75;">📅 Schedule It</button>
+      <button class="vq-btn-cancel" onclick="closeCsModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Did Not Service Modal -->
+<div class="vq-overlay" id="dnsModal" onclick="if(event.target===this)closeDnsModal()">
+  <div class="vq-modal" style="max-width:360px;">
+    <div class="vq-title">❌ Did Not Service</div>
+    <div id="dnsName" style="font-size:14px;color:var(--muted);margin-bottom:1rem;"></div>
+    <div class="vq-field"><label class="vq-label">Reason (optional)</label><input class="vq-input" id="dnsReason" placeholder="Too expensive, chose competitor…"></div>
+    <div class="vq-actions">
+      <button class="vq-btn-primary" onclick="submitDns()" style="background:var(--red);">Move to Follow-up Queue</button>
+      <button class="vq-btn-cancel" onclick="closeDnsModal()">Cancel</button>
+    </div>
+  </div>
 </div>
 
 <!-- Undo toast -->
@@ -466,6 +550,37 @@ function buildCard(req) {
   if (d.notes) notes += `<div class="req-note">📝 ${esc(d.notes)}</div>`;
   if (d.otherServices) notes += `<div class="req-note" style="margin-top:4px;">➕ Other: ${esc(d.otherServices)}</div>`;
 
+  // Verbal-quote card: different actions
+  if (req.source === 'verbal') {
+    const priceBadge = d.quotedPrice ? `<span class="price-badge">$${Number(d.quotedPrice).toLocaleString()}</span>` : '';
+    const prefDateStr = d.preferredDate ? `<span class="meta-item">📅 Wants: <strong>${new Date(d.preferredDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</strong></span>` : '';
+    const isSel = selectedIds.has(req.id);
+    return `<div class="req-card verbal${isSel ? ';outline:2px solid var(--sky)' : ''}" id="card-${req.id}">
+      <div class="req-header">
+        <div class="req-name-wrap">
+          <input class="bulk-cb" type="checkbox" ${isSel?'checked':''} onchange="toggleBulkSelect('${req.id}')" style="margin-right:6px;">
+          <span class="req-name">${esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || '—')}</span>
+          <span class="verbal-badge">📞 Verbal</span>
+          ${priceBadge}
+        </div>
+        <span class="req-time">${timeAgo(req.submittedAt)}</span>
+      </div>
+      <div class="req-meta">
+        ${phone ? `<span class="meta-item">📞 <strong>${esc(phone)}</strong></span>` : ''}
+        ${address && city ? `<span class="meta-item">📍 <strong>${esc(address)}, ${esc(city)}</strong></span>` : city ? `<span class="meta-item">📍 <strong>${esc(city)}</strong></span>` : ''}
+        ${prefDateStr}
+      </div>
+      ${d.services?.[0] ? `<div class="svc-label">Service</div><div class="svc-chips"><span class="chip chip-svc">${esc(d.services[0])}</span></div>` : ''}
+      ${d.notes ? `<div class="req-note">📝 ${esc(d.notes)}</div>` : ''}
+      <div class="req-actions">
+        <button class="btn-confirm" onclick="openCsModal('${req.id}')">✅ Confirm &amp; Schedule</button>
+        <button class="btn-dns" onclick="openDnsModal('${req.id}')">❌ Did Not Service</button>
+        <button class="btn-delete" onclick="deleteRequest('${req.id}')">✕</button>
+        ${viewCxBtn(phone)}
+      </div>
+    </div>`;
+  }
+
   // Actions
   let actions = '';
   const delBtn = `<button class="btn-delete" onclick="deleteRequest('${req.id}')">✕ Delete</button>`;
@@ -603,9 +718,193 @@ function esc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Customer DB cache (verbal quote lifecycle operations) ───────────
+let _customersDb = null;
+
+async function loadCustomerDb() {
+  try {
+    const res = await fetch(`${PCPC_API}/customers`);
+    if (!res.ok) { _knownPhones = new Set(); return; }
+    const data = await res.json();
+    _customersDb = data;
+    _knownPhones = new Set(
+      (data.customers || []).filter(c => !c.deleted)
+        .map(c => (c.phone || '').replace(/\D/g, '')).filter(Boolean)
+    );
+  } catch { _knownPhones = new Set(); }
+  renderTab();
+}
+
+async function saveCustomerDb() {
+  if (!_customersDb) return;
+  await fetch(`${PCPC_API}/customers`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(_customersDb)
+  });
+}
+
+function findOrCreateCustomer(phone, firstName, lastName, address, city) {
+  if (!_customersDb) _customersDb = { customers: [] };
+  const norm = phone.replace(/\D/g, '').slice(-10);
+  let c = (_customersDb.customers || []).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === norm);
+  if (!c) {
+    c = { id: 'cust_' + Date.now().toString(36), firstName, lastName, phone: norm, address, city,
+          totalJobs: 0, lifetimeSpend: 0, jobHistory: [], quoteHistory: [] };
+    _customersDb.customers.push(c);
+    _knownPhones?.add(norm);
+  } else {
+    if (!c.firstName && firstName) c.firstName = firstName;
+    if (!c.lastName  && lastName)  c.lastName  = lastName;
+    if (!c.address   && address)   c.address   = address;
+    if (!c.city      && city)      c.city      = city;
+  }
+  return c;
+}
+
+// ── Verbal Quote Modal ──────────────────────────────────────────────
+function openVerbalModal() {
+  ['vqFirstName','vqLastName','vqPhone','vqAddress','vqCity','vqPrice','vqService','vqPreferredDate','vqNotes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('vqError').style.display = 'none';
+  document.getElementById('vqModal').classList.add('show');
+  setTimeout(() => document.getElementById('vqFirstName').focus(), 50);
+}
+function closeVerbalModal() { document.getElementById('vqModal').classList.remove('show'); }
+
+function formatPhoneInput(input) {
+  let v = input.value.replace(/\D/g, '').slice(0, 10);
+  if (v.length >= 6) v = '(' + v.slice(0,3) + ') ' + v.slice(3,6) + '-' + v.slice(6);
+  else if (v.length >= 3) v = '(' + v.slice(0,3) + ') ' + v.slice(3);
+  input.value = v;
+}
+
+async function submitVerbalQuote() {
+  const fn    = document.getElementById('vqFirstName').value.trim();
+  const ln    = document.getElementById('vqLastName').value.trim();
+  const phone = document.getElementById('vqPhone').value.replace(/\D/g,'').slice(-10);
+  const addr  = document.getElementById('vqAddress').value.trim();
+  const city  = document.getElementById('vqCity').value.trim();
+  const price = parseFloat(document.getElementById('vqPrice').value) || 0;
+  const svc   = document.getElementById('vqService').value.trim();
+  const prefDate = document.getElementById('vqPreferredDate').value || null;
+  const notes = document.getElementById('vqNotes').value.trim();
+  const errEl = document.getElementById('vqError');
+
+  if (!fn || !ln) { errEl.textContent = 'First and last name required.'; errEl.style.display = 'block'; return; }
+  if (phone.length !== 10) { errEl.textContent = 'Valid 10-digit phone required.'; errEl.style.display = 'block'; return; }
+  if (!addr) { errEl.textContent = 'Address required.'; errEl.style.display = 'block'; return; }
+  if (!svc)  { errEl.textContent = 'Service description required.'; errEl.style.display = 'block'; return; }
+  if (!price){ errEl.textContent = 'Quoted price required.'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+
+  const now = new Date().toISOString();
+  const reqId = 'verbal_' + Date.now().toString(36);
+  const req = { id: reqId, source: 'verbal', status: 'new', submittedAt: now,
+    customer_name: fn + ' ' + ln,
+    customerData: { firstName: fn, lastName: ln, phone, address: addr, city, services: [svc], quotedPrice: price, preferredDate: prefDate, notes: notes || null } };
+  allRequests = [req, ...allRequests];
+
+  if (!_customersDb) await loadCustomerDb();
+  const c = findOrCreateCustomer(phone, fn, ln, addr, city);
+  if (!c.quoteHistory) c.quoteHistory = [];
+  c.quoteHistory.push({ quotedAt: now, quotedPrice: price, quotedService: svc, quotedNotes: notes||null, preferredDate: prefDate||null, source: 'verbal', outcome: null, outcomeAt: null, followUpAt: new Date(Date.now() + 7*86400000).toISOString(), incomingReqId: reqId });
+  c.quoteLifecycle = 'verbal_pending';
+
+  closeVerbalModal();
+  renderTab();
+  try {
+    await Promise.all([persistRequests(), saveCustomerDb()]);
+    auditLog('verbal_quote_added', { phone, name: fn + ' ' + ln, service: svc, price });
+  } catch(e) { alert('Saved locally but failed to sync — check connection.'); }
+}
+
+// ── Confirm & Schedule ──────────────────────────────────────────────
+let _csReqId = null;
+function openCsModal(reqId) {
+  _csReqId = reqId;
+  const req = allRequests.find(r => r.id === reqId);
+  const d = req?.customerData || {};
+  document.getElementById('csName').textContent = ((d.firstName||'') + ' ' + (d.lastName||'')).trim() + (d.quotedPrice ? ' · $' + d.quotedPrice : '');
+  const tom = new Date(); tom.setDate(tom.getDate() + 1);
+  document.getElementById('csDate').value = tom.toISOString().slice(0, 10);
+  document.getElementById('csNotes').value = '';
+  document.getElementById('csError').style.display = 'none';
+  document.getElementById('csModal').classList.add('show');
+}
+function closeCsModal() { document.getElementById('csModal').classList.remove('show'); _csReqId = null; }
+
+async function submitConfirmSchedule() {
+  const date = document.getElementById('csDate').value;
+  if (!date) { document.getElementById('csError').textContent = 'Date required.'; document.getElementById('csError').style.display = 'block'; return; }
+  document.getElementById('csError').style.display = 'none';
+  const req = allRequests.find(r => r.id === _csReqId);
+  if (!req) { closeCsModal(); return; }
+  const d = req.customerData || {};
+  const phone = (d.phone||'').replace(/\D/g,'').slice(-10);
+  const notes = document.getElementById('csNotes').value.trim();
+  const now = new Date().toISOString();
+
+  if (!_customersDb) await loadCustomerDb();
+  const c = findOrCreateCustomer(phone, d.firstName, d.lastName, d.address, d.city);
+  const entry = (c.quoteHistory||[]).slice().reverse().find(e => e.incomingReqId === _csReqId);
+  if (entry) { entry.outcome = 'confirmed'; entry.outcomeAt = now; }
+  c.quoteLifecycle = null;
+  const svc = d.services?.[0] || '';
+  const isRoof = /roof|soft\s*wash|softwash/i.test(svc);
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  Object.assign(c.scheduledStatus, { state: 'scheduled', scheduledDate: date, rig: isRoof ? 'rig_3' : null, jobNotes: svc, approvedAmount: d.quotedPrice || 0, window: 'morning', ...(notes ? { scheduleNote: notes } : {}) });
+
+  allRequests = allRequests.filter(r => r.id !== _csReqId);
+  closeCsModal();
+  renderTab();
+  try {
+    await Promise.all([persistRequests(), saveCustomerDb()]);
+    const dateStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    showUndoToast(`✅ Scheduled ${d.firstName||'customer'} for ${dateStr}`, null, null);
+    auditLog('verbal_quote_confirmed', { phone, date, service: svc });
+  } catch(e) { alert('Failed to sync — check connection.'); }
+}
+
+// ── Did Not Service ─────────────────────────────────────────────────
+let _dnsReqId = null;
+function openDnsModal(reqId) {
+  _dnsReqId = reqId;
+  const req = allRequests.find(r => r.id === reqId);
+  const d = req?.customerData || {};
+  document.getElementById('dnsName').textContent = ((d.firstName||'') + ' ' + (d.lastName||'')).trim();
+  document.getElementById('dnsReason').value = '';
+  document.getElementById('dnsModal').classList.add('show');
+}
+function closeDnsModal() { document.getElementById('dnsModal').classList.remove('show'); _dnsReqId = null; }
+
+async function submitDns() {
+  const req = allRequests.find(r => r.id === _dnsReqId);
+  if (!req) { closeDnsModal(); return; }
+  const d = req.customerData || {};
+  const phone = (d.phone||'').replace(/\D/g,'').slice(-10);
+  const reason = document.getElementById('dnsReason').value.trim() || null;
+  const now = new Date().toISOString();
+
+  if (!_customersDb) await loadCustomerDb();
+  const c = findOrCreateCustomer(phone, d.firstName, d.lastName, d.address, d.city);
+  const entry = (c.quoteHistory||[]).slice().reverse().find(e => e.incomingReqId === _dnsReqId);
+  if (entry) { entry.outcome = 'did_not_service'; entry.outcomeAt = now; if (reason) entry.reason = reason; }
+  c.quoteLifecycle = 'did_not_service';
+
+  allRequests = allRequests.filter(r => r.id !== _dnsReqId);
+  closeDnsModal();
+  renderTab();
+  try {
+    await Promise.all([persistRequests(), saveCustomerDb()]);
+    showUndoToast(`❌ Moved ${d.firstName||'customer'} to follow-up queue`, null, null);
+    auditLog('verbal_quote_dns', { phone, reason });
+  } catch(e) { alert('Failed to sync — check connection.'); }
+}
+
 // ── Init ───────────────────────────────────────────────────────────
 loadRequests();
-loadKnownPhones();
+loadCustomerDb(); // replaces loadKnownPhones — loads full DB for lifecycle ops
 setInterval(() => loadRequests(true), 30000);
 </script>
 </body>

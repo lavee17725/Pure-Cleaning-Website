@@ -105,6 +105,12 @@ const HTML_FILES = [
       // Regression: eligibility uses date-object null check, not monthsSince !== null
       'lastGroundDateObj !== null',
       'lastRoofDateObj   !== null',
+      // Verbal quote lifecycle: DNS tab + sendDnsText + chip CSS + customerToDbRecord preserves new fields
+      'setPoolTab(\'dns\')',
+      'function sendDnsText',
+      'dns-chip-followup',
+      'quoteLifecycle: c.quoteLifecycle',
+      'quoteHistory:   c.quoteHistory',
     ],
   },
 ];

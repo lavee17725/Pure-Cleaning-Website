@@ -462,6 +462,52 @@ async function main() {
       } else {
         pass('Incoming — .req-name color', `${reqColor} (not white-on-white)`);
       }
+
+      // ── Verbal Quote: Add Verbal Quote button visible ──
+      const addVerbalVisible = await page.locator('#addVerbalBtn').isVisible().catch(() => false);
+      if (addVerbalVisible) {
+        pass('Incoming — Add Verbal Quote button visible');
+      } else {
+        fail('Incoming — Add Verbal Quote button visible', '#addVerbalBtn not visible');
+      }
+
+      // ── Verbal Quote: clicking button opens modal ──
+      if (addVerbalVisible) {
+        await page.locator('#addVerbalBtn').click();
+        await page.waitForTimeout(300);
+        const modalOpen = await page.locator('#vqModal').isVisible().catch(() => false);
+        if (modalOpen) {
+          pass('Incoming — vqModal opens on button click');
+        } else {
+          fail('Incoming — vqModal opens on button click', '#vqModal not visible after click');
+        }
+        await page.keyboard.press('Escape');
+      }
+    });
+
+    // ── BULK REACTIVATION — DNS TAB ──────────────────────────────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation-dns', async page => {
+      await page.waitForSelector('.pool-tab', { timeout: 20000 }).catch(() => {});
+
+      // ── DNS tab button exists ──
+      const dnsTab = await page.locator('button:has-text("Did Not Service")').isVisible().catch(() => false);
+      if (dnsTab) {
+        pass('Bulk Reactivation — DNS tab button visible');
+      } else {
+        fail('Bulk Reactivation — DNS tab button visible', 'No button with "Did Not Service" text found');
+      }
+
+      // ── Click DNS tab → renders without JS error ──
+      if (dnsTab) {
+        await page.locator('button:has-text("Did Not Service")').click();
+        await page.waitForTimeout(500);
+        const tbody = await page.locator('#tableBody').isVisible().catch(() => false);
+        if (tbody) {
+          pass('Bulk Reactivation — DNS tab renders after click');
+        } else {
+          fail('Bulk Reactivation — DNS tab renders after click', '#tableBody not visible after DNS tab click');
+        }
+      }
     });
 
     await context.close();

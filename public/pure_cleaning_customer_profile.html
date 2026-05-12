@@ -2000,6 +2000,29 @@ function renderExtendedSections(c, events) {
       </div>
     </div>`);
   }
+  // quoteHistory[] — verbal quote lifecycle entries (added May 2026)
+  (c.quoteHistory || []).slice().reverse().forEach(qh => {
+    const outcomeLabel = qh.outcome === 'confirmed'       ? 'Scheduled' :
+                         qh.outcome === 'did_not_service' ? 'Did Not Service' :
+                         qh.outcome === 'pending'         ? 'Pending' :
+                         (qh.outcome || 'Unknown').replace(/_/g,' ');
+    const outcomeColor = qh.outcome === 'confirmed'       ? '#16a34a' :
+                         qh.outcome === 'did_not_service' ? '#dc2626' : '#d97706';
+    const dateStr  = qh.outcomeAt || qh.createdAt;
+    const price    = qh.quotedPrice ? `$${Number(qh.quotedPrice).toLocaleString()}` : '';
+    const note     = qh.reason ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">"${esc(qh.reason.slice(0,80))}"</div>` : '';
+    quoteRows.push(`<div class="xsec-row" style="border-left:3px solid ${outcomeColor}22;padding-left:8px;">
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);">📞 ${esc(qh.quotedService || 'Verbal Quote')}</div>
+        <div style="font-size:11px;color:var(--muted);">${dateStr ? fmtDate(dateStr) : '—'}</div>
+        ${note}
+      </div>
+      <div style="text-align:right;">
+        ${price ? `<div style="font-size:14px;font-weight:700;color:var(--terra);">${price}</div>` : ''}
+        <div style="font-size:11px;font-weight:700;color:${outcomeColor};">${outcomeLabel}</div>
+      </div>
+    </div>`);
+  });
   const quoteBody = quoteRows.length
     ? quoteRows.join('') + (qs.confirmedAt && qs.confirmedDateDisplay ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">Scheduled: ${esc(qs.confirmedDateDisplay)}</div>` : '')
     : `<div class="xsec-empty">No quotes on record.</div>`;
