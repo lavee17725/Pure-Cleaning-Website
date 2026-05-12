@@ -115,6 +115,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .svc-row.selected .svc-check{background:var(--red);border-color:var(--red);}
 .svc-name{flex:1;font-size:15px;font-weight:600;color:var(--text);}
 .svc-count{font-size:11px;color:var(--muted);white-space:nowrap;}
+.story-sel{display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;margin-top:8px;}
+.story-sel-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
+.story-sel label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
+.story-sel input[type=radio]{accent-color:#c2410c;width:15px;height:15px;cursor:pointer;}
+.story-badge{display:inline-block;font-size:10px;font-weight:700;background:rgba(194,65,12,.1);color:#c2410c;border-radius:10px;padding:1px 7px;margin-left:5px;vertical-align:middle;}
 .roof-method-wrap{background:#fff6f2;border-top:1px solid #fecaca;padding:8px 14px 10px 46px;}
 .roof-method-wrap label{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;}
 .roof-method-wrap input[type=radio]{accent-color:var(--red);width:16px;height:16px;flex-shrink:0;cursor:pointer;}
@@ -326,6 +331,14 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         </div>
         <div id="roofTypeError" style="font-size:11px;color:#e53e3e;font-weight:600;margin-top:5px;display:none;">Please select roof type before saving.</div>
         <div id="roofTypeWarn" class="roof-inline-warn" style="display:none;"></div>
+        <div style="margin-top:12px;">
+          <label class="re-label">Stories</label>
+          <div class="story-sel">
+            <span class="story-sel-lbl">Stories:</span>
+            <label><input type="radio" name="nRoofStories" value="1" id="nStories1" checked> 1-Story</label>
+            <label><input type="radio" name="nRoofStories" value="2"> 2-Story</label>
+          </div>
+        </div>
       </div>
 
       <!-- Driveway extra fields — shown when Driveway is selected -->
@@ -622,6 +635,7 @@ let _svcSel          = new Set();
 let _svcSecExp       = false;
 let _svcCustExp      = false;
 let _roofMethod      = null;
+let _roofStories     = 1;
 let _roofSubLocked   = false;
 let _gutterTypes     = new Set();
 let _roofType        = null;  // 'shingle'|'large_barrel'|'short_barrel'|'flat_tile'|'v_shape'|'venezuelan_tile'|'metal'|'other'
@@ -788,7 +802,7 @@ function toggleService(id) {
     if (id==='walkway')      _bundleFlags.walkway     = false;
   } else {
     _svcSel.delete(id);
-    if (id==='roof_cleaning') { _roofMethod=null; _roofSubLocked=false; }
+    if (id==='roof_cleaning') { _roofMethod=null; _roofSubLocked=false; _roofStories=1; const r1=document.getElementById('nStories1'); if(r1) r1.checked=true; }
     if (id==='gutters')       { _gutterTypes.clear(); _gutterSubLocked=false; }
     // Auto-unbundle
     if (id==='roof_cleaning' && _bundleFlags.rinseWalls)  { _svcSel.delete('rinse_walls'); _bundleFlags.rinseWalls=false; }
@@ -930,6 +944,7 @@ function getServicesAgreedValue() {
   return {
     structured,
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
+    roofStories:      isRoofSel ? (parseInt(document.querySelector('input[name=nRoofStories]:checked')?.value||'1')) : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
     roofSqFt:         parseInt(document.getElementById('nRoofSqFt')?.value) || null,

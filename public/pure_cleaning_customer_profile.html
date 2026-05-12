@@ -1136,6 +1136,7 @@ function renderServiceHistory(c) {
       isLegacy: !!(j.date && j.date < '2026-01-01'),
       durationConfidence: j.durationConfidence || null,
       crew: (j.crew || []).filter(Boolean),
+      roofStories: j.roofStories || null,
     });
   });
 
@@ -1212,7 +1213,12 @@ function renderServiceHistory(c) {
         detailRows.push(`<span class="svc-detail-key">🕐 On site</span><span class="svc-detail-val" style="color:#94a3b8;">Not tracked</span>`);
       }
       if (e.rigLabel) detailRows.push(`<span class="svc-detail-key">🚛 Rig</span><span class="svc-detail-val" style="color:${e.rigColor||'inherit'};font-weight:700;">${esc(e.rigLabel)}</span>`);
-      if (e.services && e.services !== '—') detailRows.push(`<span class="svc-detail-key">📋 Services</span><span class="svc-detail-val">${esc(e.services)}</span>`);
+      if (e.services && e.services !== '—') {
+        const _isRoofSvc = /roof|soft\s*wash|softwash/i.test(e.services);
+        const _storyLabel = _isRoofSvc ? (e.roofStories ? `${e.roofStories}-story` : '1-story') : null;
+        const _storySuffix = _storyLabel ? ` <span style="display:inline-block;font-size:10px;font-weight:700;background:rgba(194,65,12,.1);color:#c2410c;border-radius:10px;padding:1px 7px;margin-left:4px;">${_storyLabel}</span>` : '';
+        detailRows.push(`<span class="svc-detail-key">📋 Services</span><span class="svc-detail-val">${esc(e.services)}${_storySuffix}</span>`);
+      }
       if (e.address)  detailRows.push(`<span class="svc-detail-key">📍 Address</span><span class="svc-detail-val">${esc(e.address)}</span>`);
       if (e.sqFt)     detailRows.push(`<span class="svc-detail-key">📐 Sq ft</span><span class="svc-detail-val">${Number(e.sqFt).toLocaleString()} sq ft</span>`);
       if (e.payment)  detailRows.push(`<span class="svc-detail-key">💵 Payment</span><span class="svc-detail-val">${esc(e.payment)}</span>`);

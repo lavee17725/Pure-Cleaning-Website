@@ -122,6 +122,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .vq-btn-primary:hover{background:#2470c0;}
 .vq-btn-cancel{padding:11px 20px;background:none;color:var(--muted);border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
 .add-verbal-bar{padding:8px 1.25rem 0;max-width:640px;margin:0 auto;}
+.story-sel{display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;margin-top:6px;}
+.story-sel-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
+.story-sel label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
+.story-sel input[type=radio]{accent-color:#c2410c;width:15px;height:15px;cursor:pointer;}
+.story-badge{display:inline-block;font-size:10px;font-weight:700;background:rgba(194,65,12,.1);color:#c2410c;border-radius:10px;padding:1px 7px;margin-left:5px;vertical-align:middle;}
 
 /* ── Bulk selection ── */
 .bulk-cb{width:16px;height:16px;cursor:pointer;accent-color:var(--sky);flex-shrink:0;}
@@ -187,7 +192,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div class="vq-field"><label class="vq-label">City *</label><input class="vq-input" id="vqCity" placeholder="City"></div>
       <div class="vq-field"><label class="vq-label">Quoted Price ($) *</label><input class="vq-input" id="vqPrice" type="number" min="0" step="25" placeholder="500"></div>
     </div>
-    <div class="vq-field"><label class="vq-label">Service Requested *</label><input class="vq-input" id="vqService" placeholder="e.g. Roof cleaning, driveway wash…"></div>
+    <div class="vq-field">
+      <label class="vq-label">Service Requested *</label>
+      <input class="vq-input" id="vqService" placeholder="e.g. Roof cleaning, driveway wash…" oninput="checkVqRoof()">
+      <div id="vqStorySel" style="display:none;">
+        <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
+          <label><input type="radio" name="vqRoofStories" value="1" checked> 1-Story</label>
+          <label><input type="radio" name="vqRoofStories" value="2"> 2-Story</label>
+        </div>
+      </div>
+    </div>
     <div class="vq-row2">
       <div class="vq-field"><label class="vq-label">Preferred Date</label><input class="vq-input" id="vqPreferredDate" type="date"></div>
     </div>
@@ -762,6 +776,17 @@ function findOrCreateCustomer(phone, firstName, lastName, address, city) {
 }
 
 // ── Verbal Quote Modal ──────────────────────────────────────────────
+function checkVqRoof() {
+  const svc = (document.getElementById('vqService')?.value || '').toLowerCase();
+  const isRoof = /roof|soft\s*wash|softwash/.test(svc);
+  const sel = document.getElementById('vqStorySel');
+  if (sel) sel.style.display = isRoof ? '' : 'none';
+  if (!isRoof) {
+    const r1 = document.querySelector('input[name=vqRoofStories][value="1"]');
+    if (r1) r1.checked = true; // reset to 1-story when roof unchecked
+  }
+}
+
 function openVerbalModal() {
   ['vqFirstName','vqLastName','vqPhone','vqAddress','vqCity','vqPrice','vqService','vqPreferredDate','vqNotes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
@@ -808,7 +833,9 @@ async function submitVerbalQuote() {
   if (!_customersDb) await loadCustomerDb();
   const c = findOrCreateCustomer(phone, fn, ln, addr, city);
   if (!c.quoteHistory) c.quoteHistory = [];
-  c.quoteHistory.push({ quotedAt: now, quotedPrice: price, quotedService: svc, quotedNotes: notes||null, preferredDate: prefDate||null, source: 'verbal', outcome: null, outcomeAt: null, followUpAt: new Date(Date.now() + 7*86400000).toISOString(), incomingReqId: reqId });
+  const _vqIsRoof = /roof|soft\s*wash|softwash/i.test(svc);
+  const _vqStories = _vqIsRoof ? parseInt(document.querySelector('input[name=vqRoofStories]:checked')?.value || '1') : null;
+  c.quoteHistory.push({ quotedAt: now, quotedPrice: price, quotedService: svc, quotedNotes: notes||null, preferredDate: prefDate||null, source: 'verbal', outcome: null, outcomeAt: null, followUpAt: new Date(Date.now() + 7*86400000).toISOString(), incomingReqId: reqId, roofStories: _vqStories });
   c.quoteLifecycle = 'verbal_pending';
 
   closeVerbalModal();

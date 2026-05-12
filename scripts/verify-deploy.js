@@ -57,6 +57,10 @@ const HTML_FILES = [
       'openRigPickModal',                                 // Regression: click-to-assign rig picker
       'categorizeService(_autoSvc)',                      // Regression: auto-assign Chevy on new roof/softwash jobs
       'wasDragging = false',                              // Regression: initSortables resets wasDragging to fix SortableJS interference
+      'openDayRouteView',                                 // Regression: Day Route button in topbar
+      'story-badge',                                      // Regression: roof story badge in job cards
+      'tapSchedStorySel',                                 // Regression: story selector in tap-schedule modal
+      'checkUnschRoof',                                   // Regression: story selector in add-unscheduled modal
     ],
   },
   {
@@ -73,8 +77,9 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_day_route.html',
-    markers: ['admin/day-route', 'renderRigColumn', 'col_rig_1', 'openDayRouteView', 'DAY_ROUTE_LOCATIONS',
-              'tab-week', 'tab-avg', 'loadWeek', 'loadAverages', 'renderWeekCell', 'renderAveragesCards'],
+    markers: ['admin/day-route', 'renderRigColumn', 'col_rig_1',
+              'tab-week', 'tab-avg', 'loadWeek', 'loadAverages', 'renderWeekCell', 'renderAveragesCards',
+              'roofStories', 'storyBadge'],
   },
   {
     file: 'pure_cleaning_review_hub.html',

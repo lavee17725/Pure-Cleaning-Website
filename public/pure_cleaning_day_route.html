@@ -290,10 +290,12 @@ function renderSegment(seg) {
     const confCls = seg.confidence === 'matched_high' ? 'conf-high' : 'conf-medium';
     const confLbl = seg.confidence === 'matched_high' ? 'GPS High' : 'GPS Med';
     const rev     = seg.amount ? `<span class="seg-job-revenue">$${Number(seg.amount).toLocaleString()}</span>` : '';
+    const isRoofSeg = /roof|soft\s*wash|softwash/i.test(seg.service || '');
+    const storyBadge = isRoofSeg ? `<span style="display:inline-block;font-size:9px;font-weight:700;background:rgba(194,65,12,.12);color:#c2410c;border-radius:10px;padding:1px 6px;margin-left:4px;">${seg.roofStories||1}-story</span>` : '';
     return `<div class="seg-job">
       <div class="seg-job-name">${esc(seg.customer||'Unknown Customer')}</div>
       ${seg.address ? `<div class="seg-job-addr">📍 ${esc(seg.address)}${seg.city?', '+esc(seg.city):''}</div>` : ''}
-      ${seg.service ? `<div class="seg-job-svc">${esc(seg.service.slice(0,60))}</div>` : ''}
+      ${seg.service ? `<div class="seg-job-svc">${esc(seg.service.slice(0,60))}${storyBadge}</div>` : ''}
       <div class="seg-job-meta"><span class="seg-job-dur">${fmtTime(seg.arriveAt)} – ${fmtTime(seg.departAt)}${seg.durationMin != null ? ' · '+fmtDur(seg.durationMin) : ''}</span><span class="conf-chip ${confCls}">${confLbl}</span>${rev}</div>
     </div>`;
   }

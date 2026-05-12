@@ -485,6 +485,70 @@ async function main() {
       }
     });
 
+    // ── ROOF STORY SELECTOR ───────────────────────────────────────────────────
+    // Test 1+2: Verbal Quote modal — story selector appears when "Roof" in service, disappears without
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_incoming.html`, 'roof-story-incoming', async page => {
+      await page.waitForTimeout(2000);
+
+      // Open Add Verbal Quote modal
+      const btn = await page.locator('#addVerbalBtn').isVisible().catch(() => false);
+      if (!btn) { warn('Roof Story — incoming: Add Verbal Quote button not found'); return; }
+      await page.locator('#addVerbalBtn').click();
+      await page.waitForTimeout(300);
+
+      // Story selector should be hidden initially
+      const hiddenInitially = await page.evaluate(() => {
+        const el = document.getElementById('vqStorySel');
+        return el && (el.style.display === 'none' || el.style.display === '');
+      });
+      if (hiddenInitially !== false) {
+        pass('Roof Story — vqStorySel hidden initially');
+      } else {
+        fail('Roof Story — vqStorySel hidden initially', 'Story selector was visible before typing');
+      }
+
+      // Type "Roof cleaning" → selector should appear
+      await page.locator('#vqService').fill('Roof cleaning');
+      await page.locator('#vqService').dispatchEvent('input');
+      await page.waitForTimeout(100);
+      const shownAfterRoof = await page.evaluate(() => {
+        const el = document.getElementById('vqStorySel');
+        return el && el.style.display !== 'none';
+      });
+      if (shownAfterRoof) {
+        pass('Roof Story — vqStorySel appears when "Roof" typed');
+      } else {
+        fail('Roof Story — vqStorySel appears when "Roof" typed', 'Story selector not visible after typing roof');
+      }
+
+      // Check default is 1-Story
+      const defaultIs1 = await page.evaluate(() => {
+        const r = document.querySelector('input[name=vqRoofStories][value="1"]');
+        return r && r.checked;
+      });
+      if (defaultIs1) {
+        pass('Roof Story — default is 1-Story in verbal quote modal');
+      } else {
+        fail('Roof Story — default is 1-Story in verbal quote modal');
+      }
+
+      // Clear service → selector should hide
+      await page.locator('#vqService').fill('Driveway cleaning');
+      await page.locator('#vqService').dispatchEvent('input');
+      await page.waitForTimeout(100);
+      const hiddenAfterClear = await page.evaluate(() => {
+        const el = document.getElementById('vqStorySel');
+        return el && el.style.display === 'none';
+      });
+      if (hiddenAfterClear) {
+        pass('Roof Story — vqStorySel hides when non-roof service typed');
+      } else {
+        fail('Roof Story — vqStorySel hides when non-roof service typed');
+      }
+
+      await page.keyboard.press('Escape');
+    });
+
     // ── BULK REACTIVATION — DNS TAB ──────────────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation-dns', async page => {
       await page.waitForSelector('.pool-tab', { timeout: 20000 }).catch(() => {});

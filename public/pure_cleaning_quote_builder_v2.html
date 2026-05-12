@@ -309,6 +309,15 @@ select option{background:var(--white);}
     </div>
   </div>
 
+  <!-- Roof story selector — shown when a Roof service is in the list -->
+  <div id="v2StorySel" style="display:none;padding:0 0 4px 0;">
+    <div style="display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;">Stories:</span>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2Stories1" value="1" checked style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" value="2" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 2-Story</label>
+    </div>
+  </div>
+
   <!-- WHAT'S OUR PRICE -->
   <div class="form-card">
     <div class="sec-hdr">
@@ -582,6 +591,11 @@ function renderChips() {
   document.getElementById('serviceChips').innerHTML = services.map((s,i) =>
     `<div class="chip">${s}<span class="remove" onclick="removeService(${i})">×</span></div>`
   ).join('');
+  // Show/hide roof story selector
+  const hasRoof = services.some(s => /roof|soft\s*wash|softwash/i.test(s));
+  const storySel = document.getElementById('v2StorySel');
+  if (storySel) storySel.style.display = hasRoof ? '' : 'none';
+  if (!hasRoof) { const r1 = document.getElementById('v2Stories1'); if (r1) r1.checked = true; }
   renderAddons();
   saveDraft();
 }
@@ -787,10 +801,13 @@ async function generateQuote() {
     miniQuoteCode: mqCode,
   };
 
+  const hasRoofV2 = services.some(s => /roof|soft\s*wash|softwash/i.test(s));
+  const v2RoofStories = hasRoofV2 ? parseInt(document.querySelector('input[name=v2RoofStories]:checked')?.value || '1') : null;
   const quotePayload = {
     fn, ln, ph, address, city: extractCityFromAddr(address), services: serviceStr, mainServices: serviceStr,
     mainAmount: priceNum, approvedAmount: priceNum, addOns: [],
     dateSuggestions, miniQuoteCustomData: miniData,
+    roofStories: v2RoofStories,
     source: 'quote_builder_v2', created: now,
   };
 

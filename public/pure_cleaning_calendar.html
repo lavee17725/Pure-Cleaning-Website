@@ -38,6 +38,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .topbar-logo span{color:var(--gold);}
 .back-link{font-size:12px;color:var(--gold);text-decoration:none;font-weight:600;margin-right:10px;}
 .week-nav{display:flex;align-items:center;gap:6px;}
+.story-sel{display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;margin-top:6px;}
+.story-sel-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
+.story-sel label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
+.story-sel input[type=radio]{accent-color:#c2410c;width:15px;height:15px;cursor:pointer;}
+.story-badge{display:inline-block;font-size:10px;font-weight:700;background:rgba(194,65,12,.1);color:#c2410c;border-radius:10px;padding:1px 7px;margin-left:5px;vertical-align:middle;}
 .nav-btn{background:rgba(255,255,255,.12);border:none;color:#fff;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;}
 .nav-btn:hover{background:rgba(255,255,255,.22);}
 .block-week-btn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#94a3b8;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;white-space:nowrap;}
@@ -1158,7 +1163,13 @@ body{background:#f0f2f5;}
         <div id="unschPhoneHint" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
       </div>
       <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Services</label>
-        <input id="unschServices" type="text" placeholder="e.g. Roof + Driveway" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+        <input id="unschServices" type="text" placeholder="e.g. Roof + Driveway" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;" oninput="checkUnschRoof()">
+        <div id="unschStorySel" style="display:none;">
+          <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
+            <label><input type="radio" name="unschStories" value="1" checked> 1-Story</label>
+            <label><input type="radio" name="unschStories" value="2"> 2-Story</label>
+          </div>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Total ($)</label>
@@ -1206,6 +1217,12 @@ body{background:#f0f2f5;}
       <input id="tapSchedNote" type="text" placeholder="e.g. call ahead, gate code…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:8px;">🛰 Rig will be auto-assigned by GPS when job runs — no need to pick one now.</div>
+    <div id="tapSchedStorySel" style="display:none;margin-top:10px;">
+      <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
+        <label><input type="radio" name="tapSchedStories" value="1" checked> 1-Story</label>
+        <label><input type="radio" name="tapSchedStories" value="2"> 2-Story</label>
+      </div>
+    </div>
     <div class="modal-footer" style="margin-top:1.25rem;">
       <button class="mbtn-cancel" onclick="closeTapScheduleModal()">Cancel</button>
       <button class="mbtn-save" id="tapSchedConfirmBtn" onclick="confirmTapSchedule()">Schedule ✓</button>
@@ -2635,7 +2652,7 @@ function jobCardScheduled(c) {
   const _svcRaw  = (ss.jobNotes || c.quoteStatus?.mainServices || c.quoteStatus?.notes
                  || _jhMatch?.services || _jhMatch?.jobNotes || '').trim();
   const svcLine  = _svcRaw
-    ? `<div class="js-svc">📋 ${esc(_svcRaw)}</div>`
+    ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || 1) : null; const _storyBadge = _stories ? `<span class="story-badge">${_stories}-story</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
     : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
@@ -5014,18 +5031,27 @@ function unschPhoneLookup(val) {
   }
 }
 
+function checkUnschRoof() {
+  const svc = (document.getElementById('unschServices')?.value || '').toLowerCase();
+  const el  = document.getElementById('unschStorySel');
+  if (el) el.style.display = /roof|soft\s*wash|softwash/.test(svc) ? '' : 'none';
+}
+
 async function saveAddUnscheduled() {
   const ph  = (document.getElementById('unschPhone').value || '').replace(/\D/g,'').slice(-10);
   const svc = (document.getElementById('unschServices').value || '').trim();
   const amt = parseFloat(document.getElementById('unschAmount').value) || 0;
   const dt  = document.getElementById('unschDate').value || null;
   if (!ph || ph.length < 10) { showToast('Enter a valid phone number'); return; }
+  const isUnschRoof = /roof|soft\s*wash|softwash/i.test(svc);
+  const unschStories = isUnschRoof ? parseInt(document.querySelector('input[name=unschStories]:checked')?.value || '1') : null;
 
   const existing = findCustomer(ph);
   if (existing) {
     existing.scheduledStatus = {
       state: 'needs_scheduling', scheduledDate: dt, approvedAmount: amt,
       jobNotes: svc, source: 'manual', scheduledAt: new Date().toISOString(),
+      ...(unschStories ? { roofStories: unschStories } : {}),
     };
   } else {
     const newCust = {
@@ -5034,6 +5060,7 @@ async function saveAddUnscheduled() {
       quoteStatus: null, scheduledStatus: {
         state: 'needs_scheduling', scheduledDate: dt, approvedAmount: amt,
         jobNotes: svc, source: 'manual', scheduledAt: new Date().toISOString(),
+        ...(unschStories ? { roofStories: unschStories } : {}),
       },
       alerts: [], source: 'manual_queue',
     };
@@ -5106,6 +5133,16 @@ function openTapScheduleModal(phone) {
   }
   const btn = document.getElementById('tapSchedConfirmBtn');
   if (btn) btn.disabled = !proposed;
+  // Show story selector if this customer's job is a roof job
+  const svcText = (c?.scheduledStatus?.jobNotes || c?.quoteStatus?.mainServices || '').toLowerCase();
+  const isTapRoof = /roof|soft\s*wash|softwash/.test(svcText);
+  const storySel = document.getElementById('tapSchedStorySel');
+  if (storySel) storySel.style.display = isTapRoof ? '' : 'none';
+  if (isTapRoof) {
+    const existing = c?.scheduledStatus?.roofStories || 1;
+    const r = document.querySelector(`input[name=tapSchedStories][value="${existing}"]`);
+    if (r) r.checked = true;
+  }
   document.getElementById('tapScheduleModal').classList.remove('hidden');
 }
 
@@ -5131,6 +5168,11 @@ async function confirmTapSchedule() {
   c.scheduledStatus.rig = categorizeService(_autoSvc) === 'roof' ? 'rig_3' : null;
   const note = (document.getElementById('tapSchedNote').value || '').trim();
   if (note) c.scheduledStatus.scheduleNote = note;
+  // Save story count if selector is visible
+  const _tapStorySel = document.getElementById('tapSchedStorySel');
+  if (_tapStorySel && _tapStorySel.style.display !== 'none') {
+    c.scheduledStatus.roofStories = parseInt(document.querySelector('input[name=tapSchedStories]:checked')?.value || '1');
+  }
   await saveDb();
   closeTapScheduleModal();
   render();
