@@ -36,6 +36,8 @@ const HTML_FILES = [
       'address && city',     // address/city ternary
       'function buildCard',
       'PCPC_API',
+      'vqLeadSource',        // Regression: lead source dropdown in verbal quote modal
+      "didnt_ask",           // Regression: Didn't ask option present
     ],
     cssChecks: [
       // class, color property pattern, forbidden resolved value (white-on-white check)
@@ -124,6 +126,14 @@ const HTML_FILES = [
       'dns-chip-followup',
       'quoteLifecycle: c.quoteLifecycle',
       'quoteHistory:   c.quoteHistory',
+    ],
+  },
+  {
+    file: 'pure_cleaning_new_customer.html',
+    markers: [
+      'buildLeadSource',     // lead source capture on form submit
+      'nLeadSource',         // lead source dropdown element
+      'didnt_ask',           // Regression: "Didn't ask" option present
     ],
   },
 ];

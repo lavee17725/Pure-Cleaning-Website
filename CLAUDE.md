@@ -307,6 +307,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Cache-Control headers fixed — HTML files now no-cache, hashed static assets immutable (1 year). Root cause: Cloudflare's [assets] binding serves static files DIRECTLY from edge cache (cf-cache-status: HIT) without running the worker's fetch handler when run_worker_first is not set. Fix required two changes: (1) addCacheHeaders() helper in index.js to set correct headers via env.ASSETS.fetch() + new Response(); (2) run_worker_first = true in [assets] block of wrangler.toml so the worker's fetch handler actually executes for all paths including HTML/JS. Without run_worker_first, addCacheHeaders code runs but is never called for static asset paths. |
 
+| May 12, 2026 | 'Didn't ask' option added to 'How did they hear about us?' field across all admin entry points. Field still required (forces conscious choice) but Mom can save without blocking when info wasn't captured during call. Customer-facing web form unchanged (we want real data from customers). verbal quote modal in incoming.html now includes the lead source dropdown and saves to c.leadSource on the customer record (only if not already set — doesn't overwrite existing attribution). Tracking: marketing_attribution_capture_rate metric added to weekly_summary.json Drive snapshot; attributionAlert soft-alert added to customer_health.json if capture rate < 50% over last 30 days. |
+
 *Append future decisions below this line.*
 
 ---

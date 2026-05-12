@@ -190,6 +190,19 @@ export function generateWeeklySummary(customers, weekStart, weekEnd) {
   const workerHours = Object.fromEntries(Object.entries(workerHoursRaw).map(([k, v]) => [k, v.hours]));
   const topCustomers = Object.values(revenueByCustomer).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
 
+  // Marketing attribution capture rate — new customers entered this week with a real source
+  const newCustomersThisWeek = active.filter(c => {
+    const d = (c.customerSince || c.createdAt || '').slice(0, 10);
+    return d >= weekStart && d <= weekEnd;
+  });
+  const newWithRealSource = newCustomersThisWeek.filter(c => {
+    const p = c.leadSource?.primary || '';
+    return p && p !== 'didnt_ask';
+  });
+  const attributionCaptureRate = newCustomersThisWeek.length > 0
+    ? Math.round((newWithRealSource.length / newCustomersThisWeek.length) * 100)
+    : null;
+
   return {
     weekStart, weekEnd,
     generatedAt: new Date().toISOString(),
@@ -203,6 +216,12 @@ export function generateWeeklySummary(customers, weekStart, weekEnd) {
     },
     workerHours,
     topCustomers,
+    marketing_attribution_capture_rate: attributionCaptureRate,
+    marketing_attribution_detail: {
+      newCustomersThisWeek:    newCustomersThisWeek.length,
+      withRealSource:          newWithRealSource.length,
+      withDidntAsk:            newCustomersThisWeek.length - newWithRealSource.length,
+    },
   };
 }
 
@@ -274,6 +293,15 @@ export function generateCustomerHealth(customers) {
   overdueForService.sort((a, b) => (b.lifetimeValue * b.monthsSinceLastService) - (a.lifetimeValue * a.monthsSinceLastService));
   highValueLowEngagement.sort((a, b) => b.lifetimeValue - a.lifetimeValue);
 
+  // Marketing attribution health — last 30 days
+  const cutoff30 = new Date(now - 30 * 86400000).toISOString().slice(0, 10);
+  const recent = active.filter(c => (c.customerSince || c.createdAt || '').slice(0, 10) >= cutoff30);
+  const recentWithReal = recent.filter(c => { const p = c.leadSource?.primary || ''; return p && p !== 'didnt_ask'; });
+  const recentCaptureRate = recent.length > 0 ? Math.round((recentWithReal.length / recent.length) * 100) : null;
+  const attributionAlert = (recentCaptureRate !== null && recentCaptureRate < 50)
+    ? { alert: 'low_attribution_capture', captureRate: recentCaptureRate, newCustomers30d: recent.length, withRealSource: recentWithReal.length, message: `Only ${recentCaptureRate}% of new customers in the last 30 days have a real marketing source — ${recent.length - recentWithReal.length} used "Didn't ask".` }
+    : null;
+
   return {
     generatedAt: new Date().toISOString(),
     overdueForService: overdueForService.slice(0, 50),
@@ -281,6 +309,7 @@ export function generateCustomerHealth(customers) {
     didNotServiceFollowUps,
     coldStorageCount: didNotServiceFollowUps.coldStorage.length,
     highValueLowEngagement: highValueLowEngagement.slice(0, 30),
+    attributionAlert,
   };
 }
 

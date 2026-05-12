@@ -205,6 +205,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="vq-row2">
       <div class="vq-field"><label class="vq-label">Preferred Date</label><input class="vq-input" id="vqPreferredDate" type="date"></div>
     </div>
+    <div class="vq-field">
+      <label class="vq-label">How did they hear about us? *</label>
+      <select class="vq-input" id="vqLeadSource" style="padding:10px 14px;">
+        <option value="">Select one…</option>
+        <option value="google">Google search</option>
+        <option value="referral">Friend or family referred me</option>
+        <option value="truck">Saw the truck</option>
+        <option value="angi">Angi</option>
+        <option value="nextdoor">Nextdoor</option>
+        <option value="repeat">I've used Pure Cleaning before</option>
+        <option value="other">Other</option>
+        <option value="didnt_ask">Didn't ask / Unknown</option>
+      </select>
+    </div>
     <div class="vq-field"><label class="vq-label">Notes</label><textarea class="vq-textarea" id="vqNotes" rows="2" placeholder="'Will think about it', 'Call back Thursday'…" style="resize:vertical;"></textarea></div>
     <div id="vqError" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
     <div class="vq-actions">
@@ -788,7 +802,7 @@ function checkVqRoof() {
 }
 
 function openVerbalModal() {
-  ['vqFirstName','vqLastName','vqPhone','vqAddress','vqCity','vqPrice','vqService','vqPreferredDate','vqNotes'].forEach(id => {
+  ['vqFirstName','vqLastName','vqPhone','vqAddress','vqCity','vqPrice','vqService','vqPreferredDate','vqNotes','vqLeadSource'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('vqError').style.display = 'none';
@@ -812,8 +826,9 @@ async function submitVerbalQuote() {
   const city  = document.getElementById('vqCity').value.trim();
   const price = parseFloat(document.getElementById('vqPrice').value) || 0;
   const svc   = document.getElementById('vqService').value.trim();
-  const prefDate = document.getElementById('vqPreferredDate').value || null;
-  const notes = document.getElementById('vqNotes').value.trim();
+  const prefDate  = document.getElementById('vqPreferredDate').value || null;
+  const notes     = document.getElementById('vqNotes').value.trim();
+  const leadSrc   = document.getElementById('vqLeadSource').value || 'didnt_ask';
   const errEl = document.getElementById('vqError');
 
   if (!fn || !ln) { errEl.textContent = 'First and last name required.'; errEl.style.display = 'block'; return; }
@@ -837,6 +852,7 @@ async function submitVerbalQuote() {
   const _vqStories = _vqIsRoof ? parseInt(document.querySelector('input[name=vqRoofStories]:checked')?.value || '1') : null;
   c.quoteHistory.push({ quotedAt: now, quotedPrice: price, quotedService: svc, quotedNotes: notes||null, preferredDate: prefDate||null, source: 'verbal', outcome: null, outcomeAt: null, followUpAt: new Date(Date.now() + 7*86400000).toISOString(), incomingReqId: reqId, roofStories: _vqStories });
   c.quoteLifecycle = 'verbal_pending';
+  if (!c.leadSource) c.leadSource = { primary: leadSrc, label: ({google:'Google search',referral:'Friend or family referred me',truck:'Saw the truck',angi:'Angi',nextdoor:'Nextdoor',repeat:"I've used Pure Cleaning before",other:'Other',didnt_ask:"Didn't ask / Unknown"}[leadSrc] || leadSrc), capturedAt: now, capturedVia: 'verbal_quote' };
 
   closeVerbalModal();
   renderTab();
