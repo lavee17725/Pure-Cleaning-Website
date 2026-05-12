@@ -59,6 +59,9 @@ const HTML_FILES = [
       'wasDragging = false',                              // Regression: initSortables resets wasDragging to fix SortableJS interference
       'openDayRouteView',                                 // Regression: Day Route button in topbar
       'story-badge',                                      // Regression: roof story badge in job cards
+      'friendlyServiceDesc',                              // Regression: ETA text uses natural-language service description
+      'tomorrow around',                                  // Regression: ETA message hardcoded "tomorrow" for night-before send
+      "'morning'",                                        // Regression: slot key 'morning' (not '~9-10am')
       'tapSchedStorySel',                                 // Regression: story selector in tap-schedule modal
       'checkUnschRoof',                                   // Regression: story selector in add-unscheduled modal
     ],

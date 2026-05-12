@@ -2494,8 +2494,9 @@ function jobCardScheduled(c) {
   const hasCmpt  = !c.isTest && isComplaintLogged(phone);
   const etaSlot  = getCardEtaSlot(phone, ss);
   const etaSent  = phone ? isArrivalSent(jobDate, jobRig, phone) : false;
+  const etaSvc   = friendlyServiceDesc(c);
   const etaBtnHtml = (state === 'scheduled' || state === 'in_progress') && !c.isTest && phone
-    ? `<button class="arrival-btn js-eta-btn${etaSent ? ' sent' : ''}" ${etaSent ? 'disabled ' : ''}onclick="event.stopPropagation();sendArrivalText('${phone}','${esc(firstName)}','${etaSlot}','${jobDate}','${jobRig}',this)"><span class="arrival-btn-icon">${etaSent ? '✅' : '📍'}</span><span class="arrival-btn-text">Text ETA<span class="arrival-btn-slot"> · ${ARRIVAL_SLOTS[etaSlot]?.label || etaSlot}</span></span></button>`
+    ? `<button class="arrival-btn js-eta-btn${etaSent ? ' sent' : ''}" ${etaSent ? 'disabled ' : ''}data-svc="${esc(etaSvc)}" onclick="event.stopPropagation();sendArrivalText('${phone}','${esc(firstName)}','${etaSlot}','${jobDate}','${jobRig}',this)"><span class="arrival-btn-icon">${etaSent ? '✅' : '📍'}</span><span class="arrival-btn-text">Text ETA<span class="arrival-btn-slot"> · ${ARRIVAL_SLOTS[etaSlot]?.label || etaSlot}</span></span></button>`
     : '';
   const rigPickBtnHtml = state !== 'completed' && !c.isTest && phone
     ? `<button class="rig-pick-btn" onclick="event.stopPropagation();openRigPickModal('${phone}')">↔ Rig</button>`
@@ -4586,34 +4587,38 @@ function getCardEtaSlot(phone, ss) {
   const et = _estTimeMap.get(phone);
   if (et) {
     const h = Math.floor(et.startMin / 60);
-    if (h < 10) return '~9-10am';
-    if (h < 12) return '~11am-noon';
-    if (h < 13) return '~noon-1pm';
-    if (h < 15) return '~2-3pm';
-    if (h < 16) return '~3-4pm';
-    return '~4-5pm';
+    if (h < 12) return 'morning';
+    if (h < 15) return 'early_afternoon';
+    return 'late_afternoon';
   }
   const w = ss.window || 'morning';
-  if (w === 'morning')         return '~9-10am';
-  if (w === 'early_afternoon') return '~noon-1pm';
-  return '~3-4pm';
+  if (w === 'morning')         return 'morning';
+  if (w === 'early_afternoon') return 'early_afternoon';
+  return 'late_afternoon';
+}
+
+// Derive customer-friendly service description for ETA text.
+// Returns "your roof", "your home", "your roof and home", etc.
+function friendlyServiceDesc(c) {
+  const raw = ((c.scheduledStatus?.jobNotes || c.quoteStatus?.mainServices || '')).toLowerCase();
+  const hasRoof   = /roof|soft\s*wash|softwash/.test(raw);
+  const hasGround = /driveway|patio|sidewalk|walkway|concrete|pressure|paver|pool\s*deck|\bdeck\b|entranceway|pool area/.test(raw);
+  if (hasRoof && hasGround) return 'your roof and home';
+  if (hasRoof)   return 'your roof';
+  if (hasGround) return 'your home';
+  return 'your home';
 }
 
 const ARRIVAL_SLOTS = {
-  '~9-10am':    { label:'~9–10am',    msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way and should arrive around 9-10am. See you soon!` },
-  '~11am-noon': { label:'~11am–noon', msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading to you now — expect us around 11am-noon. See you soon!` },
-  '~noon-1pm':  { label:'~noon–1pm',  msg: n => `Hi ${n}! Pure Cleaning here 👋 We're on our way, should be there around noon-1pm. See you soon!` },
-  '~2-3pm':     { label:'~2–3pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 Heading your way now — expect us around 2-3pm. Thanks!` },
-  '~3-4pm':     { label:'~3–4pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 On our way — should arrive around 3-4pm. Thanks for your patience!` },
-  '~4-5pm':     { label:'~4–5pm',     msg: n => `Hi ${n}! Pure Cleaning here 👋 On our way to you now — expect us around 4-5pm. Thanks for your patience!` },
+  'morning':        { label: '10 AM',          msg: (n, svc) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning ${svc} tomorrow around 10 AM. Thank you.` },
+  'early_afternoon':{ label: 'early afternoon', msg: (n, svc) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning ${svc} tomorrow around early afternoon. Thank you.` },
+  'late_afternoon': { label: 'late afternoon',  msg: (n, svc) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning ${svc} tomorrow around late afternoon. Thank you.` },
 };
 
 function getArrivalSlots(count) {
-  if (count === 1) return ['~9-10am'];
-  if (count === 2) return ['~9-10am', '~noon-1pm'];
-  if (count === 3) return ['~9-10am', '~11am-noon', '~2-3pm'];
-  if (count === 4) return ['~9-10am', '~11am-noon', '~2-3pm', '~4-5pm'];
-  return ['~9-10am', '~11am-noon', '~noon-1pm', '~2-3pm', '~3-4pm', '~4-5pm'].slice(0, Math.min(count, 6));
+  if (count === 1) return ['morning'];
+  if (count === 2) return ['morning', 'late_afternoon'];
+  return ['morning', 'early_afternoon', 'late_afternoon'].slice(0, Math.min(count, 3));
 }
 
 function isArrivalSent(date, rig, phone) {
@@ -4641,7 +4646,8 @@ function renderArrivalButtons(date, rig, jobs) {
     const noPhone = !phone;
     const slotLabel = ARRIVAL_SLOTS[slot]?.label || slot;
     const cls = `arrival-btn${sent ? ' sent' : ''}${noPhone ? ' no-phone' : ''}`;
-    const handler = (!noPhone && !sent) ? `onclick="sendArrivalText('${phone}','${esc(firstName)}','${slot}','${date}','${rig}',this)"` : '';
+    const svcDesc = friendlyServiceDesc(c);
+    const handler = (!noPhone && !sent) ? `onclick="sendArrivalText('${phone}','${esc(firstName)}','${slot}','${date}','${rig}',this,'${esc(svcDesc)}')"` : '';
     const noPhoneTitle = noPhone ? 'title="No phone on file"' : '';
     return `<button class="${cls}" ${handler} ${noPhoneTitle}>
       <span class="arrival-btn-icon">${sent ? '✅' : '📍'}</span>
@@ -4652,10 +4658,11 @@ function renderArrivalButtons(date, rig, jobs) {
   return `<div class="arrival-section">${btns}</div>`;
 }
 
-function sendArrivalText(phone, name, slot, date, rig, btn) {
+function sendArrivalText(phone, name, slot, date, rig, btn, service) {
   const tpl = ARRIVAL_SLOTS[slot];
   if (!tpl || !phone) return;
-  const msg = tpl.msg(name);
+  const svc = service || btn?.dataset?.svc || 'your home';
+  const msg = tpl.msg(name, svc);
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   markArrivalSent(date, rig, phone, slot);
   btn.classList.add('sent');
