@@ -299,6 +299,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Day Route View shipped — foundation for operations visualization and future auto-routing. Per-rig per-day timeline from Bouncie GPS + jobHistory: Home → drive → 7-Eleven/Pro-Line → Jobs → Home. Named location detection within 300ft radius. Dual job matching: time-based (if Bouncie cron has run) or proximity fallback (same-day live). /admin/day-route endpoint + /pure_cleaning_day_route.html page. Calendar topbar "📍 Day Route" button. May 11 rig_1 returned 17 real segments on first run. Sets foundation for auto-pairing/route-optimization (deferred to next session). |
 
+| May 12, 2026 | Day Route View extended with Week View + Averages View. Week view shows 7-day × 3-rig grid — clicking any cell jumps to that day's detail. Averages view rolls up dwell times (7-Eleven, Pro-Line from bouncie:poi_stats rolling averages), between-job drive times (from actualArrival/Departure pairs in jobHistory), rig performance, service-type durations, and geographic spread — all from existing KV data, no new Bouncie API calls. Drive segment averages for home/7-Eleven/Pro-Line route legs marked "accumulating" until day-route caching is added. Sample sizes insufficient for ~2-3 weeks. |
+
 *Append future decisions below this line.*
 
 ---
