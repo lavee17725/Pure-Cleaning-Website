@@ -295,6 +295,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Weekly data export to Google Drive shipped. Every Monday 4 AM UTC, 4 JSON files written to Tyler's 'PureCleaningCRM' Drive folder: weekly_summary, customer_health, operations_metrics, exceptions. OAuth refresh token persisted in KV after one-time authorization at /oauth/google/start. Manual trigger endpoint POST /admin/export-weekly for backfilling and testing. Future Claude sessions can read directly from Drive via connector — eliminates copy-paste analysis bottleneck. |
 
+| May 12, 2026 | BCPA link UX fixed across 5 files. Previously 3 files had blank BCPA URLs forcing address re-entry (~20s paper cut per quote). Now all locations deep-link with ?searchType=address&searchValue= + fire-and-forget clipboard write as fallback. calendar.html and customer_profile.html already deep-linked; clipboard write added there too. new_customer.html (4 static links) → openBcpaFromForm() reads form fields at click time. mini_quote_builder.html → constructs URL from customer object at render time. quote_builder_v2.html → updatePropLink() injects searchValue; separate openBcpaV2() for sq-ft lookup link. Empty-address guard: focuses field with placeholder hint instead of opening blank tab. |
+
 *Append future decisions below this line.*
 
 ---
