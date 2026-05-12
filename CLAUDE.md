@@ -297,6 +297,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | BCPA link UX fixed across 5 files. Previously 3 files had blank BCPA URLs forcing address re-entry (~20s paper cut per quote). Now all locations deep-link with ?searchType=address&searchValue= + fire-and-forget clipboard write as fallback. calendar.html and customer_profile.html already deep-linked; clipboard write added there too. new_customer.html (4 static links) → openBcpaFromForm() reads form fields at click time. mini_quote_builder.html → constructs URL from customer object at render time. quote_builder_v2.html → updatePropLink() injects searchValue; separate openBcpaV2() for sq-ft lookup link. Empty-address guard: focuses field with placeholder hint instead of opening blank tab. |
 
+| May 12, 2026 | Day Route View shipped — foundation for operations visualization and future auto-routing. Per-rig per-day timeline from Bouncie GPS + jobHistory: Home → drive → 7-Eleven/Pro-Line → Jobs → Home. Named location detection within 300ft radius. Dual job matching: time-based (if Bouncie cron has run) or proximity fallback (same-day live). /admin/day-route endpoint + /pure_cleaning_day_route.html page. Calendar topbar "📍 Day Route" button. May 11 rig_1 returned 17 real segments on first run. Sets foundation for auto-pairing/route-optimization (deferred to next session). |
+
 *Append future decisions below this line.*
 
 ---
