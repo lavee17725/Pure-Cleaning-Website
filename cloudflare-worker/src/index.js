@@ -954,6 +954,11 @@ export default {
         return jsonResponse({ workers, periodStart: from, periodEnd: to, totalJobs }, corsHeaders);
       }
 
+      // ── Day route view (protected) ───────────────────────────────────────────
+      if (path === 'admin/day-route' && request.method === 'GET') {
+        return await handleDayRoute(request, env, corsHeaders, url);
+      }
+
       // ── Worker hours: per-customer attribution (protected) ───────────────────
       if (/^admin\/worker-hours\/customer\/[^/]+$/.test(path) && request.method === 'GET') {
         const phone = path.split('/').pop().replace(/\D/g, '').slice(-10);
@@ -2391,6 +2396,170 @@ function checkMorningStopsForRig(trips, pois, tripFirstCoord, tripLastCoord) {
     };
   }
   return results;
+}
+
+// ── Day Route View ────────────────────────────────────────────────────────────
+// Known named locations. Coords sourced from HOME_BASE (calendar.html) and MORNING_STOP_POIS.
+const DAY_ROUTE_LOCATIONS = [
+  { name: 'home',    label: 'Home Base', emoji: '🏠', lat: 26.0418239, lng: -80.3709794 },
+  { name: '7eleven', label: '7-Eleven',  emoji: '⛽', lat: 26.0852,    lng: -80.3740    },
+  { name: 'proline', label: 'Pro-Line',  emoji: '🧪', lat: 26.0712,    lng: -80.3680    },
+];
+const DAY_ROUTE_THRESHOLD_KM = 0.0914; // 300 ft
+
+function namedLocationFromCoords(lat, lng) {
+  let closest = null, closestDist = Infinity;
+  for (const loc of DAY_ROUTE_LOCATIONS) {
+    const d = haversineKm(lat, lng, loc.lat, loc.lng);
+    if (d < closestDist) { closestDist = d; closest = loc; }
+  }
+  if (closestDist <= DAY_ROUTE_THRESHOLD_KM) return { ...closest, distanceFt: Math.round(closestDist * 3280.84) };
+  return null;
+}
+
+function buildDayRoute(date, rig, sortedTrips, rigJobs) {
+  const firstCoordOf = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[0]           : null; };
+  const lastCoordOf  = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[c.length - 1] : null; };
+
+  const empty = { rig, date, segments: [], noData: true, totals: { jobCount: 0, totalRevenue: 0, totalActiveHours: 0, totalDriveMin: 0 } };
+  if (!sortedTrips.length) return empty;
+
+  const segments = [];
+
+  // Departure: identify where the first trip started
+  const firstCoord = firstCoordOf(sortedTrips[0]);
+  if (firstCoord) {
+    const loc = namedLocationFromCoords(firstCoord[1], firstCoord[0]);
+    segments.push({ type: 'depart', location: loc?.name || null, label: loc?.label || 'Start', emoji: loc?.emoji || '📍', time: sortedTrips[0].startTime });
+  }
+
+  for (let i = 0; i < sortedTrips.length; i++) {
+    const trip    = sortedTrips[i];
+    const nextTrip = sortedTrips[i + 1];
+
+    // Drive segment — the trip itself
+    const driveMin  = Math.round((new Date(trip.endTime) - new Date(trip.startTime)) / 60000);
+    const distMi    = trip.distance != null ? Math.round(trip.distance * 0.621371 * 10) / 10 : null;
+    segments.push({ type: 'drive', distanceMiles: distMi, durationMin: Math.max(driveMin, 0), startTime: trip.startTime, endTime: trip.endTime });
+
+    if (!nextTrip) break;
+
+    // Dwell window between this trip's end and next trip's start
+    const dwellStart = trip.endTime;
+    const dwellEnd   = nextTrip.startTime;
+    const dwellMin   = Math.round((new Date(dwellEnd) - new Date(dwellStart)) / 60000);
+    if (dwellMin < 1) continue; // sub-minute gap = GPS jitter, skip
+
+    const endCoord = lastCoordOf(trip);
+
+    // Named location?
+    if (endCoord) {
+      const named = namedLocationFromCoords(endCoord[1], endCoord[0]);
+      if (named) {
+        segments.push({ type: 'stop', location: named.name, label: named.label, emoji: named.emoji, arriveAt: dwellStart, departAt: dwellEnd, durationMin: dwellMin });
+        continue;
+      }
+    }
+
+    // Job match by time — prefer jobs where actualArrival matches this dwell start (cron has run)
+    const timeJob = rigJobs.find(j =>
+      j.actualArrival && Math.abs(new Date(j.actualArrival) - new Date(dwellStart)) < 120000
+    );
+    if (timeJob) {
+      segments.push({ type: 'job', customer: timeJob.customerName, phone: timeJob.phone, address: timeJob.address, city: timeJob.city, service: timeJob.services || timeJob.jobNotes || '', arriveAt: dwellStart, departAt: dwellEnd, durationMin: dwellMin, confidence: timeJob.durationConfidence || 'matched_high', amount: timeJob.amount || null });
+      continue;
+    }
+
+    // Job match by proximity — fallback for same-day (cron hasn't run yet)
+    if (endCoord) {
+      const proxJob = rigJobs.find(j => {
+        const jLat = j.geocodedLat; const jLng = j.geocodedLng;
+        if (!jLat || !jLng) return false;
+        return haversineKm(endCoord[1], endCoord[0], jLat, jLng) <= 0.1524;
+      });
+      if (proxJob) {
+        const dist = haversineKm(endCoord[1], endCoord[0], proxJob.geocodedLat, proxJob.geocodedLng);
+        segments.push({ type: 'job', customer: proxJob.customerName, phone: proxJob.phone, address: proxJob.address, city: proxJob.city, service: proxJob.services || proxJob.jobNotes || '', arriveAt: dwellStart, departAt: dwellEnd, durationMin: dwellMin, confidence: dist <= 0.0762 ? 'matched_high' : 'matched_medium', amount: proxJob.amount || null });
+        continue;
+      }
+    }
+
+    // Unknown dwell
+    segments.push({ type: 'stop', location: null, label: null, emoji: '📍', arriveAt: dwellStart, departAt: dwellEnd, durationMin: dwellMin, coords: endCoord ? { lat: endCoord[1], lng: endCoord[0] } : null });
+  }
+
+  // Return: final location after last trip
+  const lastCoord2 = lastCoordOf(sortedTrips[sortedTrips.length - 1]);
+  if (lastCoord2) {
+    const loc = namedLocationFromCoords(lastCoord2[1], lastCoord2[0]);
+    segments.push({ type: loc?.name === 'home' ? 'return' : 'arrive', location: loc?.name || null, label: loc?.label || 'Final stop', emoji: loc?.emoji || '📍', time: sortedTrips[sortedTrips.length - 1].endTime });
+  }
+
+  const jobSegs   = segments.filter(s => s.type === 'job');
+  const driveSegs = segments.filter(s => s.type === 'drive');
+  return {
+    rig, date, segments,
+    totals: {
+      jobCount:         jobSegs.length,
+      totalRevenue:     Math.round(jobSegs.reduce((s, j) => s + (j.amount || 0), 0)),
+      totalActiveHours: Math.round(jobSegs.reduce((s, j) => s + (j.durationMin || 0), 0) / 6) / 10,
+      totalDriveMin:    driveSegs.reduce((s, d) => s + (d.durationMin || 0), 0),
+    },
+  };
+}
+
+async function handleDayRoute(request, env, corsHeaders, url) {
+  const date     = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+  const rigParam = url.searchParams.get('rig');
+
+  const db         = await env.DATA.get(KV_KEYS.customers, 'json');
+  const customers  = (db?.customers || []).filter(Boolean);
+  const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
+
+  let accessToken;
+  try { accessToken = await getBouncieAccessToken(env); }
+  catch(e) { return jsonResponse({ error: 'Bouncie not authorized', message: e.message }, corsHeaders, 503); }
+
+  const rigsToProcess = rigParam
+    ? (rigMapping[rigParam]?.imei ? [[rigParam, rigMapping[rigParam]]] : [])
+    : Object.entries(rigMapping).filter(([, re]) => re?.imei);
+
+  const startsAfter = `${date}T00:00:00.000Z`;
+  const endsBefore  = `${date}T23:59:59.000Z`;
+  const results     = {};
+
+  await Promise.all(rigsToProcess.map(async ([rig, rigEntry]) => {
+    try {
+      const res = await fetch(
+        `${BOUNCIE_API_BASE}/trips?imei=${rigEntry.imei}&gpsFormat=geojson&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
+        { headers: { Authorization: accessToken } }
+      );
+      const trips = res.ok ? await res.json() : [];
+      const sortedTrips = Array.isArray(trips) ? trips.sort((a, b) => a.startTime < b.startTime ? -1 : 1) : [];
+
+      // Collect completed jobs for this rig+date with coords
+      const rigJobs = [];
+      for (const c of customers) {
+        for (const j of (c.jobHistory || [])) {
+          if (j.date !== date || j.status !== 'completed') continue;
+          if (j.rigId !== rig && j.actualRig !== rig) continue;
+          rigJobs.push({
+            ...j,
+            customerName: fullName(c), phone: c.phone, address: c.address, city: c.city,
+            geocodedLat: j.lat || j.geocodedLat || c.geocoded?.lat || null,
+            geocodedLng: j.lng || j.geocodedLng || c.geocoded?.lng || null,
+          });
+        }
+      }
+
+      results[rig] = buildDayRoute(date, rig, sortedTrips, rigJobs);
+    } catch(e) {
+      results[rig] = { rig, date, segments: [], error: e.message, totals: { jobCount: 0, totalRevenue: 0, totalActiveHours: 0, totalDriveMin: 0 } };
+    }
+  }));
+
+  if (rigParam) return jsonResponse(results[rigParam] || { rig: rigParam, date, error: 'Rig not in mapping', segments: [], totals: {} }, corsHeaders);
+  return jsonResponse({ date, rigs: results }, corsHeaders);
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {

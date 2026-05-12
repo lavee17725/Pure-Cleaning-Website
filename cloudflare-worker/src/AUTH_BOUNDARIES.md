@@ -44,6 +44,7 @@ Key protected resources:
 - `GET /incoming` — all quote requests
 - `PUT /incoming` — replaces incoming list
 - `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active, google-drive/status, export-weekly)
+- `GET /admin/day-route?date=YYYY-MM-DD&rig=rig_1|rig_2|rig_3` — per-rig operational timeline from Bouncie GPS + jobHistory
 - `POST /admin/export-weekly` — triggers weekly Google Drive export (with optional `?from=&to=` params)
 - `POST /admin/google-drive/set-folder` — stores Drive folder ID in KV
 - `GET /events` — audit/event log

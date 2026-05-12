@@ -534,6 +534,77 @@ async function main() {
       }
     });
 
+    // ── DAY ROUTE VIEW ───────────────────────────────────────────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
+      // Test 1: page loads
+      await page.waitForTimeout(5000); // API call + render
+
+      // Test 2: date picker visible
+      const datePicker = await page.locator('#datePicker').isVisible().catch(() => false);
+      if (datePicker) {
+        pass('Day Route — date picker visible');
+      } else {
+        fail('Day Route — date picker visible', '#datePicker not found');
+      }
+
+      // Test 3: three rig columns rendered
+      const col1 = await page.locator('#col_rig_1').isVisible().catch(() => false);
+      const col2 = await page.locator('#col_rig_2').isVisible().catch(() => false);
+      const col3 = await page.locator('#col_rig_3').isVisible().catch(() => false);
+      if (col1 && col2 && col3) {
+        pass('Day Route — three rig columns rendered (col_rig_1/2/3 visible)');
+      } else {
+        fail('Day Route — three rig columns rendered', `col_rig_1:${col1} col_rig_2:${col2} col_rig_3:${col3}`);
+      }
+
+      // Test 4: each column has a rig label (not just spinner)
+      const rigLabels = await page.locator('.rig-label').count();
+      if (rigLabels >= 3) {
+        pass('Day Route — rig labels rendered', `${rigLabels} labels found`);
+      } else {
+        fail('Day Route — rig labels rendered', `only ${rigLabels} .rig-label elements (expected ≥3)`);
+      }
+    });
+
+    // Test 5: calendar has Day Route button
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-day-route-link', async page => {
+      await page.waitForTimeout(3000);
+      const btn = await page.getByText('Day Route', { exact: false }).isVisible().catch(() => false);
+      if (btn) {
+        pass('Calendar — Day Route button visible in topbar');
+      } else {
+        fail('Calendar — Day Route button visible in topbar', 'No element containing "Day Route" found');
+      }
+    });
+
+    // Test 6: API endpoint returns valid structure
+    {
+      const token = await (async () => {
+        const { getVerifyToken } = require('./lib/auto-auth');
+        const auth = await getVerifyToken().catch(() => null);
+        return auth?.token || null;
+      })();
+      if (token) {
+        const apiRes = await fetch(`${PAGES_BASE}/admin/day-route?date=2026-05-11&rig=rig_1`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => null);
+        if (!apiRes) {
+          warn('Day Route API — /admin/day-route endpoint', 'fetch failed');
+        } else if (apiRes.status === 200) {
+          const body = await apiRes.json().catch(() => null);
+          if (body && 'segments' in body && 'totals' in body) {
+            pass('Day Route API — returns expected shape', `${body.segments?.length ?? 0} segments, noData:${!!body.noData}`);
+          } else {
+            fail('Day Route API — returns expected shape', `missing segments or totals: ${JSON.stringify(body).slice(0,100)}`);
+          }
+        } else {
+          fail('Day Route API — /admin/day-route', `HTTP ${apiRes.status}`);
+        }
+      } else {
+        warn('Day Route API — skipped', 'no auth token configured');
+      }
+    }
+
     // ── GOOGLE DRIVE / WEEKLY EXPORT ─────────────────────────────────────────
     // Test 1: /oauth/google/start returns a redirect to Google (302 → accounts.google.com)
     await withPage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {

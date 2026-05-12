@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname+location.search));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Day Route View — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--terra:#c2410c;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.site-header{position:sticky;top:0;z-index:100;background:var(--navy);height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;box-shadow:0 2px 8px rgba(0,0,0,.25);}
+.btn-back{display:flex;align-items:center;gap:6px;color:var(--white);background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 12px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s;}
+.btn-back:hover{background:rgba(255,255,255,.2);}
+.header-title{color:var(--white);font-size:15px;font-weight:700;letter-spacing:.3px;}
+.header-right{width:88px;}
+.controls{display:flex;align-items:center;gap:12px;padding:16px 20px;background:var(--card);border-bottom:1px solid var(--border);}
+.controls label{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+input[type=date]{padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);background:var(--white);cursor:pointer;-webkit-appearance:none;}
+input[type=date]:focus{outline:none;border-color:var(--sky);}
+.btn-load{padding:8px 18px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:background .15s;}
+.btn-load:hover{background:#2470c0;}
+.today-chip{padding:6px 12px;background:rgba(45,125,210,.1);border:1px solid rgba(45,125,210,.3);border-radius:8px;font-size:12px;font-weight:700;color:var(--sky);cursor:pointer;white-space:nowrap;}
+.today-chip:hover{background:rgba(45,125,210,.18);}
+
+/* Three-column grid */
+.rig-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);min-height:calc(100vh - 112px);}
+.rig-col{background:var(--bg);padding:16px 14px;}
+.rig-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+.rig-label{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--navy);}
+.rig-sub{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.8px;}
+.rig-totals{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.total-pill{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--muted);}
+.total-pill span{color:var(--text);}
+
+/* Timeline */
+.timeline{display:flex;flex-direction:column;gap:0;}
+.seg-drive{display:flex;align-items:center;gap:6px;padding:4px 0 4px 20px;color:var(--muted);font-size:11px;font-family:'DM Mono',monospace;}
+.seg-drive::before{content:'↓';font-size:14px;color:var(--border);}
+.seg-depart,.seg-return,.seg-arrive{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(10,22,40,.06);border-radius:8px;margin:2px 0;}
+.seg-depart-icon,.seg-return-icon{font-size:18px;}
+.seg-depart-info,.seg-return-info{flex:1;}
+.seg-depart-label,.seg-return-label{font-size:12px;font-weight:700;color:var(--navy);}
+.seg-time{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:1px;}
+.seg-stop{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin:2px 0;}
+.seg-stop-icon{font-size:16px;line-height:1.4;}
+.seg-stop-info{flex:1;}
+.seg-stop-label{font-size:12px;font-weight:700;color:var(--navy);}
+.seg-stop-sub{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+.seg-stop-unknown .seg-stop-label{color:var(--muted);}
+.seg-job{display:flex;flex-direction:column;gap:3px;padding:10px 12px;background:rgba(45,125,210,.06);border:1.5px solid rgba(45,125,210,.2);border-radius:10px;margin:3px 0;}
+.seg-job-name{font-size:13px;font-weight:700;color:var(--navy);}
+.seg-job-addr{font-size:11px;color:var(--muted);}
+.seg-job-svc{font-size:11px;font-weight:600;color:var(--terra);}
+.seg-job-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px;}
+.seg-job-dur{font-size:11px;font-family:'DM Mono',monospace;color:var(--muted);}
+.conf-chip{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:2px 6px;border-radius:10px;}
+.conf-high{background:rgba(29,158,117,.15);color:#1d9e75;}
+.conf-medium{background:rgba(244,166,32,.15);color:#d97706;}
+.seg-job-revenue{font-size:12px;font-weight:700;color:var(--green);}
+.seg-job-times{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);}
+
+/* Loading / empty states */
+.rig-loading{display:flex;align-items:center;justify-content:center;padding:32px 0;flex-direction:column;gap:10px;}
+.spinner{width:28px;height:28px;border:2.5px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.empty-state{text-align:center;padding:32px 16px;color:var(--muted);}
+.empty-state-icon{font-size:28px;margin-bottom:8px;}
+.empty-state-msg{font-size:13px;line-height:1.6;}
+.error-state{background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.2);border-radius:10px;padding:12px;font-size:12px;color:var(--red);}
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a href="/pure_cleaning_calendar.html" class="btn-back">← Calendar</a>
+  <span class="header-title">📍 Day Route View</span>
+  <div class="header-right"></div>
+</header>
+
+<div class="controls">
+  <label for="datePicker">Date</label>
+  <input type="date" id="datePicker">
+  <button class="btn-load" onclick="loadRoute()">Load</button>
+  <span class="today-chip" onclick="goToday()">Today</span>
+  <span class="today-chip" onclick="goYesterday()">Yesterday</span>
+</div>
+
+<div class="rig-grid" id="rigGrid">
+  <div class="rig-col" id="col_rig_1"><div class="rig-header"><span class="rig-label">Old Tacoma</span><span class="rig-sub">rig 1</span></div><div class="rig-loading"><div class="spinner"></div></div></div>
+  <div class="rig-col" id="col_rig_2"><div class="rig-header"><span class="rig-label">New Tacoma</span><span class="rig-sub">rig 2</span></div><div class="rig-loading"><div class="spinner"></div></div></div>
+  <div class="rig-col" id="col_rig_3"><div class="rig-header"><span class="rig-label">Chevy</span><span class="rig-sub">rig 3 · soft wash</span></div><div class="rig-loading"><div class="spinner"></div></div></div>
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const RIG_NAMES = { rig_1: 'Old Tacoma', rig_2: 'New Tacoma', rig_3: 'Chevy' };
+const RIG_SUBS  = { rig_1: 'rig 1', rig_2: 'rig 2', rig_3: 'rig 3 · soft wash' };
+
+// ── Initialise date from URL param or today ───────────────────────────────────
+(function initDate() {
+  const p = new URLSearchParams(location.search).get('date');
+  const dp = document.getElementById('datePicker');
+  dp.value = p || new Date().toISOString().slice(0, 10);
+})();
+
+function goToday() {
+  document.getElementById('datePicker').value = new Date().toISOString().slice(0, 10);
+  loadRoute();
+}
+function goYesterday() {
+  const d = new Date(); d.setDate(d.getDate() - 1);
+  document.getElementById('datePicker').value = d.toISOString().slice(0, 10);
+  loadRoute();
+}
+
+// ── Time formatting ───────────────────────────────────────────────────────────
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    // Convert UTC to ET (UTC-4 in summer, UTC-5 in winter — approximate)
+    const et = new Date(d.getTime() - 4 * 3600000);
+    const h = et.getUTCHours(); const m = et.getUTCMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    return `${h % 12 || 12}:${String(m).padStart(2,'0')} ${ampm}`;
+  } catch { return '—'; }
+}
+function fmtDur(min) {
+  if (min == null) return '—';
+  if (min < 60) return `${min}m`;
+  return `${Math.floor(min/60)}h ${min%60 > 0 ? min%60+'m' : ''}`.trim();
+}
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Segment renderers ─────────────────────────────────────────────────────────
+function renderSegment(seg) {
+  if (seg.type === 'drive') {
+    const dist = seg.distanceMiles != null ? `${seg.distanceMiles} mi` : '';
+    const dur  = seg.durationMin > 0 ? fmtDur(seg.durationMin) : '';
+    const parts = [dist, dur].filter(Boolean).join(' · ');
+    return `<div class="seg-drive">${parts || 'en route'}</div>`;
+  }
+
+  if (seg.type === 'depart' || seg.type === 'depart_unknown') {
+    return `<div class="seg-depart">
+      <span class="seg-depart-icon">${esc(seg.emoji)}</span>
+      <div class="seg-depart-info">
+        <div class="seg-depart-label">${esc(seg.label)}</div>
+        <div class="seg-time">Depart ${fmtTime(seg.time)}</div>
+      </div>
+    </div>`;
+  }
+
+  if (seg.type === 'return' || seg.type === 'arrive') {
+    return `<div class="seg-return">
+      <span class="seg-return-icon">${esc(seg.emoji)}</span>
+      <div class="seg-return-info">
+        <div class="seg-return-label">${esc(seg.label)}</div>
+        <div class="seg-time">Arrive ${fmtTime(seg.time)}</div>
+      </div>
+    </div>`;
+  }
+
+  if (seg.type === 'stop') {
+    const isKnown = !!seg.location;
+    const cls     = isKnown ? 'seg-stop' : 'seg-stop seg-stop-unknown';
+    const icon    = seg.emoji || '📍';
+    const label   = seg.label || 'Unknown stop';
+    const times   = [fmtTime(seg.arriveAt), fmtTime(seg.departAt)].filter(Boolean).join(' – ');
+    const dur     = seg.durationMin != null ? fmtDur(seg.durationMin) : '';
+    return `<div class="${cls}">
+      <span class="seg-stop-icon">${esc(icon)}</span>
+      <div class="seg-stop-info">
+        <div class="seg-stop-label">${esc(label)}</div>
+        <div class="seg-stop-sub">${times}${dur ? ' · ' + dur : ''}</div>
+      </div>
+    </div>`;
+  }
+
+  if (seg.type === 'job') {
+    const conf = seg.confidence === 'matched_high' ? 'matched_high' : 'matched_medium';
+    const confLabel = conf === 'matched_high' ? 'GPS High' : 'GPS Med';
+    const confCls   = conf === 'matched_high' ? 'conf-high' : 'conf-medium';
+    const times     = `${fmtTime(seg.arriveAt)} – ${fmtTime(seg.departAt)}`;
+    const dur       = seg.durationMin != null ? fmtDur(seg.durationMin) : '';
+    const rev       = seg.amount ? `<span class="seg-job-revenue">$${Number(seg.amount).toLocaleString()}</span>` : '';
+    return `<div class="seg-job">
+      <div class="seg-job-name">${esc(seg.customer || 'Unknown Customer')}</div>
+      ${seg.address ? `<div class="seg-job-addr">📍 ${esc(seg.address)}${seg.city ? ', ' + esc(seg.city) : ''}</div>` : ''}
+      ${seg.service ? `<div class="seg-job-svc">${esc(seg.service.slice(0, 60))}</div>` : ''}
+      <div class="seg-job-meta">
+        <span class="seg-job-dur">${times}${dur ? ' · ' + dur : ''}</span>
+        <span class="conf-chip ${confCls}">${confLabel}</span>
+        ${rev}
+      </div>
+    </div>`;
+  }
+
+  return '';
+}
+
+function renderRigColumn(rig, data) {
+  const col = document.getElementById(`col_${rig}`);
+  if (!col) return;
+
+  const header = `<div class="rig-header"><span class="rig-label">${RIG_NAMES[rig] || rig}</span><span class="rig-sub">${RIG_SUBS[rig] || ''}</span></div>`;
+
+  if (data.error && !data.segments?.length) {
+    col.innerHTML = header + `<div class="error-state">⚠️ ${esc(data.error)}</div>`;
+    return;
+  }
+
+  if (data.noData || !data.segments?.length) {
+    const dateStr = data.date || '';
+    col.innerHTML = header + `<div class="empty-state"><div class="empty-state-icon">🛣️</div><div class="empty-state-msg">No GPS data for ${esc(dateStr)}.<br>If this is today, check back after the overnight Bouncie sync at 3 AM UTC.</div></div>`;
+    return;
+  }
+
+  const t = data.totals || {};
+  const pills = [
+    t.jobCount ? `<span class="total-pill">${t.jobCount} job${t.jobCount===1?'':'s'}</span>` : '',
+    t.totalRevenue ? `<span class="total-pill">$${Number(t.totalRevenue).toLocaleString()}</span>` : '',
+    t.totalActiveHours ? `<span class="total-pill"><span>${t.totalActiveHours}h</span> on jobs</span>` : '',
+    t.totalDriveMin ? `<span class="total-pill"><span>${fmtDur(t.totalDriveMin)}</span> driving</span>` : '',
+  ].filter(Boolean).join('');
+
+  const timeline = (data.segments || []).map(renderSegment).join('');
+
+  col.innerHTML = header +
+    (pills ? `<div class="rig-totals">${pills}</div>` : '') +
+    `<div class="timeline">${timeline}</div>`;
+}
+
+// ── Main load ─────────────────────────────────────────────────────────────────
+async function loadRoute() {
+  const date = document.getElementById('datePicker').value;
+  if (!date) return;
+
+  // Update URL without reload
+  const newUrl = `${location.pathname}?date=${date}`;
+  history.replaceState(null, '', newUrl);
+
+  // Show spinners
+  ['rig_1','rig_2','rig_3'].forEach(rig => {
+    const col = document.getElementById(`col_${rig}`);
+    if (col) col.innerHTML = `<div class="rig-header"><span class="rig-label">${RIG_NAMES[rig]}</span><span class="rig-sub">${RIG_SUBS[rig]}</span></div><div class="rig-loading"><div class="spinner"></div></div>`;
+  });
+
+  try {
+    const res  = await fetch(`${API}/admin/day-route?date=${date}`);
+    const body = await res.json();
+
+    if (!res.ok) {
+      ['rig_1','rig_2','rig_3'].forEach(rig => {
+        const col = document.getElementById(`col_${rig}`);
+        if (col) col.innerHTML = `<div class="rig-header"><span class="rig-label">${RIG_NAMES[rig]}</span></div><div class="error-state">${esc(body.error || `HTTP ${res.status}`)}</div>`;
+      });
+      return;
+    }
+
+    const rigs = body.rigs || {};
+    ['rig_1','rig_2','rig_3'].forEach(rig => {
+      renderRigColumn(rig, rigs[rig] || { rig, date, noData: true, segments: [], totals: {} });
+    });
+  } catch(e) {
+    ['rig_1','rig_2','rig_3'].forEach(rig => {
+      const col = document.getElementById(`col_${rig}`);
+      if (col) col.innerHTML = `<div class="rig-header"><span class="rig-label">${RIG_NAMES[rig]}</span></div><div class="error-state">Network error: ${esc(e.message)}</div>`;
+    });
+    try { navigator.sendBeacon(API + '/errors/log', JSON.stringify({ source:'day_route_load', page:'pure_cleaning_day_route.html', errorType:(e&&e.name)||'Error', message:((e&&e.message)||'').slice(0,500), url:location.href, timestamp:new Date().toISOString() })); } catch {}
+  }
+}
+
+// Auto-load on page open
+loadRoute();
+</script>
+</body>
+</html>

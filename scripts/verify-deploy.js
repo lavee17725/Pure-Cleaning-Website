@@ -72,6 +72,10 @@ const HTML_FILES = [
     markers: ['computeWorkerHours', 'admin/worker-hours', 'worker-card', '#detailTable', '#fromDate'],
   },
   {
+    file: 'pure_cleaning_day_route.html',
+    markers: ['admin/day-route', 'renderRigColumn', 'col_rig_1', 'openDayRouteView', 'DAY_ROUTE_LOCATIONS'],
+  },
+  {
     file: 'pure_cleaning_review_hub.html',
     markers: ['function loadHub', 'function daysBadge', 'CUTOFF'],
     cssChecks: [
@@ -703,6 +707,7 @@ async function checkCustomerFlows() {
       const knownAdmin = ['pure_cleaning_calendar', 'pure_cleaning_customer_directory',
         'pure_cleaning_incoming', 'pure_cleaning_review_hub', 'pure_cleaning_bulk_reactivation',
         'pure_cleaning_admin', 'pure_cleaning_errors', 'pure_cleaning_backups', 'pure_cleaning_worker_hours',
+        'pure_cleaning_day_route',
       ].some(a => file.includes(a));
       if (!knownAdmin) {
         fail(`Customer flow — ${file} has auth gate`, 'Customer page redirects to login — customers would be locked out');
