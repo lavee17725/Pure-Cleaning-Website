@@ -301,6 +301,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Day Route View extended with Week View + Averages View. Week view shows 7-day × 3-rig grid — clicking any cell jumps to that day's detail. Averages view rolls up dwell times (7-Eleven, Pro-Line from bouncie:poi_stats rolling averages), between-job drive times (from actualArrival/Departure pairs in jobHistory), rig performance, service-type durations, and geographic spread — all from existing KV data, no new Bouncie API calls. Drive segment averages for home/7-Eleven/Pro-Line route legs marked "accumulating" until day-route caching is added. Sample sizes insufficient for ~2-3 weeks. |
 
+| May 12, 2026 | Roof story selector added (1-story or 2-story). Admin-only — NOT on customer-facing web quote form (Tyler/Mom assess from BCPA + address knowledge). Appears conditionally only when "Roof" service is detected in the field. Default: 1-story (most common). Tracked in scheduledStatus.roofStories, jobHistory[].roofStories, quoteHistory[].roofStories. Added to all 6 admin entry points (Add Verbal Quote modal, calendar tap-schedule + add-unscheduled modals, new customer entry, mini quote builder, quote builder v2). Display: story-badge chip after roof service text in calendar job cards, customer profile service history, and day route view. Historical roof jobs without roofStories default to 1-story display. Foundation for story-aware pricing/duration ML. |
+
 *Append future decisions below this line.*
 
 ---
