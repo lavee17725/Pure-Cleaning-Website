@@ -1,5 +1,11 @@
-// Cloudflare Worker for Pure Cleaning Pressure Cleaning
+// Cloudflare Worker for Pure Cleaning Pressure Washing
 // Replaces JSONbin with KV-backed REST API
+
+import {
+  GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, GOOGLE_REDIRECT_URI,
+  KV_GOOGLE_STATE, KV_GOOGLE_FOLDER,
+  getGoogleAccessToken, writeToGoogleDrive, runWeeklyExport,
+} from './exports.js';
 
 const ALLOWED_ORIGINS = [
   'https://purecleaningpressurecleaning.com',
@@ -164,7 +170,27 @@ async function verifySession(request, env) {
 
 export default {
   async scheduled(event, env, ctx) {
-    if (event.cron === '0 4 * * *') {
+    if (event.cron === '0 4 * * 1') {
+      // Monday 4 AM UTC — weekly Google Drive export
+      ctx.waitUntil((async () => {
+        try {
+          const now     = new Date();
+          // Export covers previous Mon–Sun (the week that just ended)
+          const dow     = now.getDay() === 0 ? 7 : now.getDay(); // Mon=1 … Sun=7
+          const lastMon = new Date(now); lastMon.setDate(now.getDate() - dow - 6);
+          const lastSun = new Date(lastMon); lastSun.setDate(lastMon.getDate() + 6);
+          await runWeeklyExport(env,
+            lastMon.toISOString().slice(0, 10),
+            lastSun.toISOString().slice(0, 10),
+          );
+        } catch(e) {
+          console.error('weekly export cron error:', e.message);
+          await env.DATA.put('google_export:last_run', JSON.stringify({
+            ranAt: new Date().toISOString(), status: 'error', error: e.message,
+          }));
+        }
+      })());
+    } else if (event.cron === '0 4 * * *') {
       // Nightly backup — 4 AM UTC (runs after Bouncie matcher)
       ctx.waitUntil(runNightlyBackup(env));
     } else {
@@ -268,6 +294,7 @@ export default {
         (path === 'dates/suggest'   && request.method === 'GET')  ||
         (path === 'service-frequency' && request.method === 'GET') ||
         (path === 'addons-config'   && request.method === 'GET')  ||
+        path.startsWith('oauth/google/')  ||  // Google OAuth flow — browser redirect, no token yet
         path.startsWith('quote/')   ||
         (path.startsWith('agreement/') && (
           path.endsWith('/confirm')       ||
@@ -663,6 +690,43 @@ export default {
       }
       if (path === 'oauth/bouncie/callback' && request.method === 'GET') {
         return await handleBouncieCallback(request, env, url);
+      }
+
+      // ── Google Drive OAuth ────────────────────────────────────────────────────
+      if (path === 'oauth/google/start' && request.method === 'GET') {
+        return await handleGoogleStart(env);
+      }
+      if (path === 'oauth/google/callback' && request.method === 'GET') {
+        return await handleGoogleCallback(request, env, url);
+      }
+      if (path === 'admin/google-drive/set-folder' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        if (!body.folderId) return jsonResponse({ error: 'folderId required' }, corsHeaders, 400);
+        await env.DATA.put(KV_GOOGLE_FOLDER, body.folderId);
+        return jsonResponse({ success: true, folderId: body.folderId }, corsHeaders);
+      }
+      if (path === 'admin/google-drive/status' && request.method === 'GET') {
+        const refresh = await env.DATA.get('google_oauth:refresh_token');
+        const folder  = await env.DATA.get(KV_GOOGLE_FOLDER);
+        const lastRun = await env.DATA.get('google_export:last_run', 'json');
+        return jsonResponse({ authorized: !!refresh, folderId: folder || null, lastExport: lastRun || null }, corsHeaders);
+      }
+
+      // ── Weekly export: manual trigger ─────────────────────────────────────────
+      if (path === 'admin/export-weekly' && request.method === 'POST') {
+        const today    = new Date();
+        // Default to previous Mon–Sun if no dates provided
+        const dayOfWk  = today.getDay() === 0 ? 7 : today.getDay(); // Mon=1 … Sun=7
+        const lastMon  = new Date(today); lastMon.setDate(today.getDate() - dayOfWk - 6);
+        const lastSun  = new Date(lastMon); lastSun.setDate(lastMon.getDate() + 6);
+        const from = url.searchParams.get('from') || lastMon.toISOString().slice(0, 10);
+        const to   = url.searchParams.get('to')   || lastSun.toISOString().slice(0, 10);
+        try {
+          const result = await runWeeklyExport(env, from, to);
+          return jsonResponse(result, corsHeaders);
+        } catch(e) {
+          return jsonResponse({ error: e.message }, corsHeaders, 500);
+        }
       }
 
       // ── Bouncie vehicles API (Phase 1) ────────────────────────────────────────
@@ -2070,6 +2134,99 @@ code{font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px;}
   return page('Bouncie Connected!',
     `<p>Authorization successful. Tokens stored.</p>
      <p>Test the connection: <code>/api/bouncie/vehicles</code></p>
+     <p class="meta">Authorized ${new Date().toLocaleString()}</p>`);
+}
+
+// ── Google Drive OAuth handlers ───────────────────────────────────────────────
+function oauthPage(title, body, ok = true) {
+  return new Response(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} — Pure Cleaning</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,"Helvetica Neue",sans-serif;background:#f4f6f9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5rem;}
+.card{background:#fff;border-radius:18px;padding:2.5rem 2rem;max-width:440px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.1);}
+.icon{font-size:52px;margin-bottom:1rem;}
+h2{font-size:22px;font-weight:800;color:${ok ? '#0a1628' : '#e53e3e'};margin-bottom:.75rem;}
+p{font-size:14px;color:#6b7280;line-height:1.6;margin-top:.5rem;}
+code{font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px;}
+.meta{font-size:11px;color:#9ca3af;margin-top:1.5rem;font-family:monospace;}
+</style></head>
+<body><div class="card"><div class="icon">${ok ? '✅' : '❌'}</div><h2>${title}</h2>${body}</div></body></html>`,
+  { headers: { 'Content-Type': 'text/html' } });
+}
+
+async function handleGoogleStart(env) {
+  if (!env.GOOGLE_OAUTH_CLIENT_ID) {
+    return oauthPage('Setup Required',
+      '<p>Set worker secrets first:</p><p><code>wrangler secret put GOOGLE_OAUTH_CLIENT_ID</code></p><p><code>wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET</code></p>', false);
+  }
+  const state = crypto.randomUUID();
+  await env.DATA.put(KV_GOOGLE_STATE, state, { expirationTtl: 600 });
+  const params = new URLSearchParams({
+    client_id:     env.GOOGLE_OAUTH_CLIENT_ID,
+    redirect_uri:  GOOGLE_REDIRECT_URI,
+    response_type: 'code',
+    scope:         'https://www.googleapis.com/auth/drive.file',
+    access_type:   'offline',
+    prompt:        'consent',
+    state,
+  });
+  return Response.redirect(`${GOOGLE_AUTH_URL}?${params}`, 302);
+}
+
+async function handleGoogleCallback(request, env, url) {
+  const error = url.searchParams.get('error');
+  if (error) return oauthPage('Authorization Failed',
+    `<p>Google returned: <strong>${error}</strong></p><p>Visit <code>/oauth/google/start</code> to retry.</p>`, false);
+
+  const code  = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  if (!code) return oauthPage('No Code', '<p>No authorization code from Google.</p>', false);
+
+  const storedState = await env.DATA.get(KV_GOOGLE_STATE);
+  if (!state || state !== storedState) {
+    return oauthPage('State Mismatch', '<p>CSRF state invalid. Visit <code>/oauth/google/start</code> to restart.</p>', false);
+  }
+  await env.DATA.delete(KV_GOOGLE_STATE);
+
+  let tokens;
+  try {
+    const res = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id:     env.GOOGLE_OAUTH_CLIENT_ID,
+        client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+        redirect_uri:  GOOGLE_REDIRECT_URI,
+        grant_type:    'authorization_code',
+      }),
+    });
+    tokens = await res.json();
+  } catch(e) {
+    return oauthPage('Network Error', `<p>${e.message}</p>`, false);
+  }
+
+  if (!tokens.refresh_token) {
+    return oauthPage('No Refresh Token',
+      `<p>Google did not return a refresh_token. This can happen if the app was previously authorized.</p>
+       <p>Go to <a href="https://myaccount.google.com/permissions">Google Account → Security → App access</a>, revoke "Pure Cleaning CRM Export", then retry.</p>`, false);
+  }
+
+  await Promise.all([
+    env.DATA.put('google_oauth:refresh_token', tokens.refresh_token),
+    env.DATA.put('google_oauth:access_token', JSON.stringify({
+      access_token: tokens.access_token,
+      expires_at:   Date.now() + ((tokens.expires_in || 3600) - 120) * 1000,
+    })),
+  ]);
+
+  return oauthPage('Google Drive Connected!',
+    `<p>Authorization successful. Refresh token stored in KV.</p>
+     <p>Weekly exports will begin next Monday 4 AM UTC.</p>
+     <p>Set your Drive folder: <code>POST /admin/google-drive/set-folder</code> with <code>{"folderId":"..."}</code></p>
+     <p>Test now: <code>POST /admin/export-weekly</code></p>
      <p class="meta">Authorized ${new Date().toLocaleString()}</p>`);
 }
 

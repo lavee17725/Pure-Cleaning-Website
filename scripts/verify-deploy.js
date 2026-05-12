@@ -559,6 +559,46 @@ async function checkBackupHealth() {
   }
 }
 
+// ── CHECK 6b: Google Drive export status ─────────────────────────────────
+async function checkGoogleExportStatus() {
+  const verifyToken = await getToken();
+  if (!verifyToken) {
+    warn('Google export health', 'Add ADMIN_PASSWORD to .env.local to enable Google export checks');
+    return;
+  }
+  let data;
+  try {
+    const r = await fetch(`${WORKERS_API}/admin/google-drive/status`, {
+      headers: { Authorization: `Bearer ${verifyToken}` },
+    });
+    if (!r.ok) { warn('Google export health', `HTTP ${r.status}`); return; }
+    data = await r.json();
+  } catch(e) {
+    warn('Google export health — fetch', e.message);
+    return;
+  }
+  if (!data.authorized) {
+    warn('Google export health — not authorized', 'Visit /oauth/google/start to authorize Google Drive access');
+    return;
+  }
+  if (!data.folderId) {
+    warn('Google export health — folder not set', 'POST /admin/google-drive/set-folder with { folderId } from Drive URL');
+    return;
+  }
+  const last = data.lastExport;
+  if (!last) {
+    warn('Google export health — never run', 'Trigger a manual test: POST /admin/export-weekly');
+    return;
+  }
+  const ageHours = (Date.now() - new Date(last.ranAt)) / 3600000;
+  const ageLabel = ageHours < 24 ? `${Math.round(ageHours)}h ago` : `${(ageHours / 24).toFixed(1)}d ago`;
+  if (last.success) {
+    pass('Google export health', `Last export ${ageLabel} · ${(last.filesWritten || []).length} files written`);
+  } else {
+    warn('Google export health — last export had errors', `${ageLabel}: ${(last.errors || []).map(e => e.error).join('; ')}`);
+  }
+}
+
 // ── CHECK 7: Error monitoring — spike detection ───────────────────────────
 async function checkErrorSpike() {
   // Requires auth (admin/errors is a protected endpoint)
@@ -1022,6 +1062,7 @@ async function main() {
   await checkDbSanity();
   await checkCronHeartbeat();
   await checkBackupHealth();
+  await checkGoogleExportStatus();
   await checkErrorSpike();
   await checkJobHistoryIntegrity(); // Law 13: generalized csv_backfill collision + idempotency scanner
   await checkCustomerFlows();

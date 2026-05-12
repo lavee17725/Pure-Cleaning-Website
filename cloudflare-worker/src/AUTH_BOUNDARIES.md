@@ -29,6 +29,8 @@ These endpoints are in the `isPublic` check in `index.js`.
 | `/dates/suggest` | GET | quote form | Returns suggested available dates |
 | `/service-frequency` | GET | quote form | Returns service frequency config |
 | `/addons-config` | GET | quote form | Returns add-on options |
+| `/oauth/google/start` | GET | Tyler's browser (one-time setup) | Redirects to Google consent screen |
+| `/oauth/google/callback` | GET | Google (redirect target) | Exchanges auth code for refresh token |
 
 ---
 
@@ -41,7 +43,9 @@ Key protected resources:
 - `PUT /customers` — replaces entire customer DB (destructive)
 - `GET /incoming` — all quote requests
 - `PUT /incoming` — replaces incoming list
-- `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active)
+- `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active, google-drive/status, export-weekly)
+- `POST /admin/export-weekly` — triggers weekly Google Drive export (with optional `?from=&to=` params)
+- `POST /admin/google-drive/set-folder` — stores Drive folder ID in KV
 - `GET /events` — audit/event log
 - `PUT /agreement/{phone}/edit-services` — admin edits services
 - `POST /agreement/{phone}/manual-confirm` — admin confirms
