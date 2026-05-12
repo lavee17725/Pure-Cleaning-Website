@@ -291,6 +291,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 | May 11, 2026 | Calendar week-view drag changed from week-jump to day-by-day sliding window | `weekOffset * 7` replaced with `dayOffset` (individual days from today). `changeWeek(dir)` now does `dayOffset += dir * 7` (buttons still advance full weeks). `_weekNavDrag` threshold changed from `WEEK_NAV_THRESHOLD = 100px → 1 full week` to `DAY_DRAG_PX = 150px → 1 day`; `days = Math.round(-dx / DAY_DRAG_PX)`. Touch swipe updated to same model. Verified: 150px drag shifts exactly 1 day, 300px shifts 2 days. |
 | May 11, 2026 | Schedule view: all 3 rig swimlanes always visible + click-to-assign rig picker | `rigLabelHtml` unconditionally rendered (previously conditional on `jobs.length > 0`); empty swimlanes show "No jobs assigned" placeholder (`.rig-empty-label.drag-ignore`). `openRigPickModal(phone)` → 3-rig picker modal → `applyRigPick(rig)` persists via `saveDb()`. Auto-assign Chevy on `confirmTapSchedule()` when services match `categorizeService() === 'roof'`. `categorizeService` added to calendar.html (same keywords as Law 11 in bulk_reactivation). |
 
+| May 12, 2026 | Verbal quote lifecycle shipped: quoteLifecycle string field (not quoteStatus object), quoteHistory[] array, Did Not Service tab in bulk_reactivation | quoteStatus is a complex object used everywhere — new lifecycle tracking uses a separate quoteLifecycle top-level string ('verbal_pending', 'confirmed', 'did_not_service') and quoteHistory[] array. customerToDbRecord fixed to persist new fields (previously they were dropped on every save). Re-engagement chips: <30d = follow up, 30–179d = re-engage, 180–364d = 6-month check-in, ≥365d = cold storage. |
+
 *Append future decisions below this line.*
 
 ---
