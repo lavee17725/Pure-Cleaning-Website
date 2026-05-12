@@ -235,10 +235,12 @@ export default {
         const pn = url.pathname;
         if (pn === '/' || pn === '') {
           // html_handling="none" means / doesn't auto-serve index.html — do it explicitly
-          return env.ASSETS.fetch(new Request(new URL('/index.html', request.url).href, request));
+          const r = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url).href, request));
+          return addCacheHeaders(r, 'html');
         }
         if (/\.[a-zA-Z0-9]+$/.test(pn)) {
-          return env.ASSETS.fetch(request);
+          const r = await env.ASSETS.fetch(request);
+          return addCacheHeaders(r, pn.endsWith('.html') ? 'html' : 'asset');
         }
       }
 
@@ -1059,7 +1061,8 @@ export default {
 
       // Fall through to static assets for any unrecognized path (HTML pages, etc.)
       if (env.ASSETS) {
-        return env.ASSETS.fetch(request);
+        const r = await env.ASSETS.fetch(request);
+        return addCacheHeaders(r, url.pathname.endsWith('.html') ? 'html' : 'asset');
       }
       return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
     } catch (err) {
@@ -3039,6 +3042,22 @@ async function bouncieJobDurationMatcher(date, env) {
   );
 
   return { date, total: completedToday.length, matched, results, morningStops };
+}
+
+// ── Cache-Control helpers ─────────────────────────────────────────────────────
+// HTML files: no-cache so browsers always fetch fresh after a deploy.
+// Static assets: 1-year immutable cache — content-hashed names (main.abc123.js)
+//   guarantee cache busting happens via filename change, not header expiry.
+function addCacheHeaders(response, type) {
+  const h = new Headers(response.headers);
+  if (type === 'html') {
+    h.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    h.set('Pragma', 'no-cache');
+    h.set('Expires', '0');
+  } else {
+    h.set('Cache-Control', 'public, max-age=31536000, immutable');
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers: h });
 }
 
 function fullName(c) { return `${c.firstName || ''} ${c.lastName || ''}`.trim(); }

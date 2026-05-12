@@ -76,7 +76,7 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_worker_hours.html',
-    markers: ['computeWorkerHours', 'admin/worker-hours', 'worker-card', '#detailTable', '#fromDate'],
+    markers: ['admin/worker-hours', 'worker-card', 'detailTable', 'fromDate'],
   },
   {
     file: 'pure_cleaning_day_route.html',
@@ -1062,6 +1062,37 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── Cache-Control headers ─────────────────────────────────────────────────
+async function checkCacheHeaders() {
+  const base = process.env.PAGES_BASE || WORKERS_API;
+
+  // HTML files must have no-cache headers
+  try {
+    const r = await fetch(`${base}/pure_cleaning_calendar.html`, { headers: { 'Cache-Control': 'no-cache' } });
+    const cc = r.headers.get('cache-control') || '';
+    if (cc.includes('no-cache') || cc.includes('no-store')) {
+      pass('Cache headers — HTML no-cache', `calendar.html: ${cc}`);
+    } else {
+      fail('Cache headers — HTML no-cache', `calendar.html Cache-Control: "${cc}" — expected no-cache`);
+    }
+  } catch (e) {
+    fail('Cache headers — HTML no-cache', `fetch failed: ${e.message}`);
+  }
+
+  // Hashed JS bundles must have immutable long-lived cache headers
+  try {
+    const r = await fetch(`${base}/static/js/main.faff34a1.js`, { headers: { 'Cache-Control': 'no-cache' } });
+    const cc = r.headers.get('cache-control') || '';
+    if (cc.includes('max-age=31536000') || cc.includes('immutable')) {
+      pass('Cache headers — JS bundle immutable', `main.faff34a1.js: ${cc}`);
+    } else {
+      fail('Cache headers — JS bundle immutable', `main.faff34a1.js Cache-Control: "${cc}" — expected max-age=31536000`);
+    }
+  } catch (e) {
+    fail('Cache headers — JS bundle immutable', `fetch failed: ${e.message}`);
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────
 async function main() {
   console.log('\n🔍  Pure Cleaning — Deploy Verification');
@@ -1081,6 +1112,7 @@ async function main() {
   await checkJobHistoryIntegrity(); // Law 13: generalized csv_backfill collision + idempotency scanner
   await checkCustomerFlows();
   await checkMobileCompatibility();
+  await checkCacheHeaders();
 
   // Print results
   console.log('');

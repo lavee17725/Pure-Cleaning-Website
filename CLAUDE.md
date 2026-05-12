@@ -305,6 +305,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | ETA text content corrected per Tyler's spec (which was supposed to ship May 10 but slipped through). Slots: 10 AM (was 9 AM), early afternoon, late afternoon (3 slots, was 6 granular). Template: "Hi [FirstName], I wanted to confirm that we will be pressure cleaning [service] tomorrow around [slot]. Thank you." Service text is natural language ("your roof", "your home and roof") not raw technical terms. Hardcoded "tomorrow" since texts are sent the night before. friendlyServiceDesc() helper derives service description from scheduledStatus.jobNotes. |
 
+| May 12, 2026 | Cache-Control headers fixed — HTML files now no-cache, hashed static assets immutable (1 year). Root cause: Cloudflare's [assets] binding serves static files DIRECTLY from edge cache (cf-cache-status: HIT) without running the worker's fetch handler when run_worker_first is not set. Fix required two changes: (1) addCacheHeaders() helper in index.js to set correct headers via env.ASSETS.fetch() + new Response(); (2) run_worker_first = true in [assets] block of wrangler.toml so the worker's fetch handler actually executes for all paths including HTML/JS. Without run_worker_first, addCacheHeaders code runs but is never called for static asset paths. |
+
 *Append future decisions below this line.*
 
 ---
