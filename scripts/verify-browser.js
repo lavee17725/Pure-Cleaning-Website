@@ -81,6 +81,62 @@ async function main() {
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 
+    // ── HOMEPAGE (no auth needed — public page) ──────────────────────────────
+    // Law 12 expansion: homepage must render React app, not just empty skeleton.
+    // Root cause of May 12 outage: [assets] pointed to public/ (source template,
+    // no bundle refs) instead of build/ (compiled output with /static/js/*.js).
+    await withPage(context, `${PAGES_BASE}/`, 'homepage', async page => {
+      // Collect console errors during load
+      const consoleErrors = [];
+      page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 120)); });
+
+      await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
+
+      // ── Regression: React bundle returns 200 (not 404) ──
+      const bundleUrl = await page.evaluate(() => {
+        const s = document.querySelector('script[src*="/static/js/main."]');
+        return s ? s.src : null;
+      });
+      if (bundleUrl) {
+        const bundleRes = await page.evaluate(async url => {
+          try { const r = await fetch(url); return r.status; } catch { return 0; }
+        }, bundleUrl);
+        if (bundleRes === 200) {
+          pass('Homepage — React bundle 200', bundleUrl.split('/').pop());
+        } else {
+          fail('Homepage — React bundle 200', `${bundleUrl.split('/').pop()} returned HTTP ${bundleRes} — [assets] directory may be wrong`);
+        }
+      } else {
+        fail('Homepage — React bundle tag present', 'No <script src="/static/js/main.*"> in page — serving bare template (public/index.html) not compiled build');
+      }
+
+      // ── Regression: React mounted (#root not empty) ──
+      const rootEmpty = await page.evaluate(() => {
+        const el = document.getElementById('root');
+        return !el || el.innerHTML.trim() === '';
+      });
+      if (!rootEmpty) {
+        pass('Homepage — React mounted (#root populated)');
+      } else {
+        fail('Homepage — React mounted (#root populated)', '#root is empty — JS bundle did not execute or bundle 404');
+      }
+
+      // ── Regression: visible brand text rendered ──
+      const brandText = await page.evaluate(() => document.body.innerText || '');
+      if (brandText.toLowerCase().includes('pure cleaning')) {
+        pass('Homepage — brand content visible', `"Pure Cleaning" found in rendered text`);
+      } else {
+        fail('Homepage — brand content visible', 'No "Pure Cleaning" in rendered body text — page may be blank');
+      }
+
+      // ── Console errors ──
+      if (consoleErrors.length === 0) {
+        pass('Homepage — no console errors');
+      } else {
+        fail('Homepage — no console errors', consoleErrors.slice(0, 3).join(' | '));
+      }
+    });
+
     // Inject admin auth before any page script runs — mirrors the auth gate IIFE
     await context.addInitScript(({ token, expiresAt }) => {
       localStorage.setItem('admin_token', token);
