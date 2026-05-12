@@ -36,8 +36,8 @@ const HTML_FILES = [
       'address && city',     // address/city ternary
       'function buildCard',
       'PCPC_API',
-      'vqLeadSource',        // Regression: lead source dropdown in verbal quote modal
-      "didnt_ask",           // Regression: Didn't ask option present
+      'submitConfirmSchedule',  // Regression: Confirm & Schedule still works for queued entries
+      'quoteLifecycle',         // Regression: lifecycle tracking still present
     ],
     cssChecks: [
       // class, color property pattern, forbidden resolved value (white-on-white check)
@@ -131,9 +131,13 @@ const HTML_FILES = [
   {
     file: 'pure_cleaning_new_customer.html',
     markers: [
-      'buildLeadSource',     // lead source capture on form submit
-      'nLeadSource',         // lead source dropdown element
-      'didnt_ask',           // Regression: "Didn't ask" option present
+      'buildLeadSource',       // lead source capture on form submit
+      'nLeadSource',           // lead source dropdown element
+      'didnt_ask',             // Regression: "Didn't ask" option present
+      'whatNextModal',         // Regression: 3-option post-save modal present
+      'addToQueue',            // Regression: Incoming Queue option present
+      'submitScheduleNow',     // Regression: Schedule it now option present
+      'openScheduleModal',     // Regression: date picker for Option A
     ],
   },
 ];

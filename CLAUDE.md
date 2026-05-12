@@ -309,6 +309,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | 'Didn't ask' option added to 'How did they hear about us?' field across all admin entry points. Field still required (forces conscious choice) but Mom can save without blocking when info wasn't captured during call. Customer-facing web form unchanged (we want real data from customers). verbal quote modal in incoming.html now includes the lead source dropdown and saves to c.leadSource on the customer record (only if not already set — doesn't overwrite existing attribution). Tracking: marketing_attribution_capture_rate metric added to weekly_summary.json Drive snapshot; attributionAlert soft-alert added to customer_health.json if capture rate < 50% over last 30 days. |
 
+| May 12, 2026 | Phone-quote intake flow simplified. After Save Customer on 'Quoted on phone' path, Mom sees a 3-option modal: Schedule it now (date picker → sets scheduledStatus.state='scheduled' + auto-Chevy for roof → redirect to calendar), Add to Incoming Queue (no date → sets quoteLifecycle='verbal_pending' + creates incoming request entry + shows phone-success state), Build mini quote (existing digital quote builder). Removes duplicate 'Add Verbal Quote' button from incoming page since all verbal entries now flow through new_customer.html. Verbal quote lifecycle (Did Not Service tab, follow-up chips) unchanged — continues to work for entries flowing in via Option B. |
+
 *Append future decisions below this line.*
 
 ---

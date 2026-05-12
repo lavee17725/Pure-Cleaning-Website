@@ -463,90 +463,13 @@ async function main() {
         pass('Incoming — .req-name color', `${reqColor} (not white-on-white)`);
       }
 
-      // ── Verbal Quote: Add Verbal Quote button visible ──
-      const addVerbalVisible = await page.locator('#addVerbalBtn').isVisible().catch(() => false);
-      if (addVerbalVisible) {
-        pass('Incoming — Add Verbal Quote button visible');
+      // ── Verbal Quote button removed (verbal quotes now flow via new_customer.html) ──
+      const addVerbalGone = await page.locator('#addVerbalBtn').count() === 0;
+      if (addVerbalGone) {
+        pass('Incoming — Add Verbal Quote button removed (redirected to new_customer.html flow)');
       } else {
-        fail('Incoming — Add Verbal Quote button visible', '#addVerbalBtn not visible');
+        fail('Incoming — Add Verbal Quote button removed', '#addVerbalBtn still present');
       }
-
-      // ── Verbal Quote: clicking button opens modal ──
-      if (addVerbalVisible) {
-        await page.locator('#addVerbalBtn').click();
-        await page.waitForTimeout(300);
-        const modalOpen = await page.locator('#vqModal').isVisible().catch(() => false);
-        if (modalOpen) {
-          pass('Incoming — vqModal opens on button click');
-        } else {
-          fail('Incoming — vqModal opens on button click', '#vqModal not visible after click');
-        }
-        await page.keyboard.press('Escape');
-      }
-    });
-
-    // ── ROOF STORY SELECTOR ───────────────────────────────────────────────────
-    // Test 1+2: Verbal Quote modal — story selector appears when "Roof" in service, disappears without
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_incoming.html`, 'roof-story-incoming', async page => {
-      await page.waitForTimeout(2000);
-
-      // Open Add Verbal Quote modal
-      const btn = await page.locator('#addVerbalBtn').isVisible().catch(() => false);
-      if (!btn) { warn('Roof Story — incoming: Add Verbal Quote button not found'); return; }
-      await page.locator('#addVerbalBtn').click();
-      await page.waitForTimeout(300);
-
-      // Story selector should be hidden initially
-      const hiddenInitially = await page.evaluate(() => {
-        const el = document.getElementById('vqStorySel');
-        return el && (el.style.display === 'none' || el.style.display === '');
-      });
-      if (hiddenInitially !== false) {
-        pass('Roof Story — vqStorySel hidden initially');
-      } else {
-        fail('Roof Story — vqStorySel hidden initially', 'Story selector was visible before typing');
-      }
-
-      // Type "Roof cleaning" → selector should appear
-      await page.locator('#vqService').fill('Roof cleaning');
-      await page.locator('#vqService').dispatchEvent('input');
-      await page.waitForTimeout(100);
-      const shownAfterRoof = await page.evaluate(() => {
-        const el = document.getElementById('vqStorySel');
-        return el && el.style.display !== 'none';
-      });
-      if (shownAfterRoof) {
-        pass('Roof Story — vqStorySel appears when "Roof" typed');
-      } else {
-        fail('Roof Story — vqStorySel appears when "Roof" typed', 'Story selector not visible after typing roof');
-      }
-
-      // Check default is 1-Story
-      const defaultIs1 = await page.evaluate(() => {
-        const r = document.querySelector('input[name=vqRoofStories][value="1"]');
-        return r && r.checked;
-      });
-      if (defaultIs1) {
-        pass('Roof Story — default is 1-Story in verbal quote modal');
-      } else {
-        fail('Roof Story — default is 1-Story in verbal quote modal');
-      }
-
-      // Clear service → selector should hide
-      await page.locator('#vqService').fill('Driveway cleaning');
-      await page.locator('#vqService').dispatchEvent('input');
-      await page.waitForTimeout(100);
-      const hiddenAfterClear = await page.evaluate(() => {
-        const el = document.getElementById('vqStorySel');
-        return el && el.style.display === 'none';
-      });
-      if (hiddenAfterClear) {
-        pass('Roof Story — vqStorySel hides when non-roof service typed');
-      } else {
-        fail('Roof Story — vqStorySel hides when non-roof service typed');
-      }
-
-      await page.keyboard.press('Escape');
     });
 
     // ── BULK REACTIVATION — DNS TAB ──────────────────────────────────────────
@@ -752,6 +675,43 @@ async function main() {
     } else {
       fail('Google Drive status — /admin/google-drive/status', `unexpected status ${statusRes.status}`);
     }
+
+    // ── NEW CUSTOMER — 3-option post-save modal ────────────────────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-postsave', async page => {
+      // Trigger modal directly without a real DB save
+      const opened = await page.evaluate(() => {
+        try {
+          window._lastSavedCustomer = { firstName: 'Test', lastName: 'Customer', phone: '0000000000', quoteStatus: null };
+          showWhatNextModal(window._lastSavedCustomer);
+          return true;
+        } catch(e) { return e.message; }
+      });
+      if (opened !== true) { fail('New Customer — whatNextModal trigger', String(opened)); return; }
+
+      const modalVisible = await page.locator('#whatNextModal').isVisible();
+      if (modalVisible) pass('New Customer — post-save modal visible after save');
+      else fail('New Customer — post-save modal visible', '#whatNextModal not visible');
+
+      const optCount = await page.locator('.wn-opt').count();
+      if (optCount >= 3) pass('New Customer — post-save modal has 3 options', `${optCount} options`);
+      else fail('New Customer — post-save modal has 3 options', `only ${optCount} found`);
+
+      // Click "Schedule it now" → schedDateModal should appear
+      await page.locator('.wn-opt').first().click();
+      const datePicker = await page.locator('#schedDateModal').isVisible();
+      if (datePicker) pass('New Customer — Schedule it now opens date picker');
+      else fail('New Customer — Schedule it now opens date picker', '#schedDateModal not visible');
+
+      // Dismiss date modal, verify Incoming Queue option is present
+      await page.locator('#schedDateModal button').first().click();
+      const queueOptVisible = await page.locator('.wn-opt', { hasText: 'Add to Incoming Queue' }).isVisible();
+      if (queueOptVisible) pass('New Customer — Add to Incoming Queue option visible');
+      else fail('New Customer — Add to Incoming Queue option visible', 'option text not found');
+
+      const miniOptVisible = await page.locator('.wn-opt', { hasText: 'Build mini quote' }).isVisible();
+      if (miniOptVisible) pass('New Customer — Build mini quote option visible');
+      else fail('New Customer — Build mini quote option visible', 'option text not found');
+    });
 
     await context.close();
   } finally {

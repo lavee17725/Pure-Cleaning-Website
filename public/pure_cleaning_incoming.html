@@ -121,7 +121,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .vq-btn-primary{flex:1;padding:11px;background:var(--sky);color:white;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
 .vq-btn-primary:hover{background:#2470c0;}
 .vq-btn-cancel{padding:11px 20px;background:none;color:var(--muted);border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
-.add-verbal-bar{padding:8px 1.25rem 0;max-width:640px;margin:0 auto;}
 .story-sel{display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;margin-top:6px;}
 .story-sel-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);}
 .story-sel label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;}
@@ -170,62 +169,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="tab"        id="tab-all"       onclick="switchTab('all')">All <span class="cnt" id="cnt-all">0</span></div>
 </div>
 
-<div class="add-verbal-bar">
-  <button onclick="openVerbalModal()" style="background:var(--gold);color:var(--navy);border:none;border-radius:10px;padding:9px 18px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(244,166,32,.25);" id="addVerbalBtn">📞 Add Verbal Quote</button>
-</div>
-
 <div class="wrap" id="wrap">
   <div class="empty-state"><div class="e-icon">⏳</div><p>Loading requests…</p></div>
-</div>
-
-<!-- Verbal Quote Modal -->
-<div class="vq-overlay" id="vqModal" onclick="if(event.target===this)closeVerbalModal()">
-  <div class="vq-modal">
-    <div class="vq-title">📞 Add Verbal Quote</div>
-    <div class="vq-row2">
-      <div class="vq-field"><label class="vq-label">First Name *</label><input class="vq-input" id="vqFirstName" placeholder="First name"></div>
-      <div class="vq-field"><label class="vq-label">Last Name *</label><input class="vq-input" id="vqLastName" placeholder="Last name"></div>
-    </div>
-    <div class="vq-field"><label class="vq-label">Phone *</label><input class="vq-input" id="vqPhone" type="tel" placeholder="(555) 555-5555" oninput="formatPhoneInput(this)"></div>
-    <div class="vq-field"><label class="vq-label">Address *</label><input class="vq-input" id="vqAddress" placeholder="Street address"></div>
-    <div class="vq-row2">
-      <div class="vq-field"><label class="vq-label">City *</label><input class="vq-input" id="vqCity" placeholder="City"></div>
-      <div class="vq-field"><label class="vq-label">Quoted Price ($) *</label><input class="vq-input" id="vqPrice" type="number" min="0" step="25" placeholder="500"></div>
-    </div>
-    <div class="vq-field">
-      <label class="vq-label">Service Requested *</label>
-      <input class="vq-input" id="vqService" placeholder="e.g. Roof cleaning, driveway wash…" oninput="checkVqRoof()">
-      <div id="vqStorySel" style="display:none;">
-        <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
-          <label><input type="radio" name="vqRoofStories" value="1" checked> 1-Story</label>
-          <label><input type="radio" name="vqRoofStories" value="2"> 2-Story</label>
-        </div>
-      </div>
-    </div>
-    <div class="vq-row2">
-      <div class="vq-field"><label class="vq-label">Preferred Date</label><input class="vq-input" id="vqPreferredDate" type="date"></div>
-    </div>
-    <div class="vq-field">
-      <label class="vq-label">How did they hear about us? *</label>
-      <select class="vq-input" id="vqLeadSource" style="padding:10px 14px;">
-        <option value="">Select one…</option>
-        <option value="google">Google search</option>
-        <option value="referral">Friend or family referred me</option>
-        <option value="truck">Saw the truck</option>
-        <option value="angi">Angi</option>
-        <option value="nextdoor">Nextdoor</option>
-        <option value="repeat">I've used Pure Cleaning before</option>
-        <option value="other">Other</option>
-        <option value="didnt_ask">Didn't ask / Unknown</option>
-      </select>
-    </div>
-    <div class="vq-field"><label class="vq-label">Notes</label><textarea class="vq-textarea" id="vqNotes" rows="2" placeholder="'Will think about it', 'Call back Thursday'…" style="resize:vertical;"></textarea></div>
-    <div id="vqError" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
-    <div class="vq-actions">
-      <button class="vq-btn-primary" onclick="submitVerbalQuote()">💾 Save Quote</button>
-      <button class="vq-btn-cancel" onclick="closeVerbalModal()">Cancel</button>
-    </div>
-  </div>
 </div>
 
 <!-- Confirm & Schedule Modal -->
@@ -789,77 +734,11 @@ function findOrCreateCustomer(phone, firstName, lastName, address, city) {
   return c;
 }
 
-// ── Verbal Quote Modal ──────────────────────────────────────────────
-function checkVqRoof() {
-  const svc = (document.getElementById('vqService')?.value || '').toLowerCase();
-  const isRoof = /roof|soft\s*wash|softwash/.test(svc);
-  const sel = document.getElementById('vqStorySel');
-  if (sel) sel.style.display = isRoof ? '' : 'none';
-  if (!isRoof) {
-    const r1 = document.querySelector('input[name=vqRoofStories][value="1"]');
-    if (r1) r1.checked = true; // reset to 1-story when roof unchecked
-  }
-}
-
-function openVerbalModal() {
-  ['vqFirstName','vqLastName','vqPhone','vqAddress','vqCity','vqPrice','vqService','vqPreferredDate','vqNotes','vqLeadSource'].forEach(id => {
-    const el = document.getElementById(id); if (el) el.value = '';
-  });
-  document.getElementById('vqError').style.display = 'none';
-  document.getElementById('vqModal').classList.add('show');
-  setTimeout(() => document.getElementById('vqFirstName').focus(), 50);
-}
-function closeVerbalModal() { document.getElementById('vqModal').classList.remove('show'); }
-
 function formatPhoneInput(input) {
   let v = input.value.replace(/\D/g, '').slice(0, 10);
   if (v.length >= 6) v = '(' + v.slice(0,3) + ') ' + v.slice(3,6) + '-' + v.slice(6);
   else if (v.length >= 3) v = '(' + v.slice(0,3) + ') ' + v.slice(3);
   input.value = v;
-}
-
-async function submitVerbalQuote() {
-  const fn    = document.getElementById('vqFirstName').value.trim();
-  const ln    = document.getElementById('vqLastName').value.trim();
-  const phone = document.getElementById('vqPhone').value.replace(/\D/g,'').slice(-10);
-  const addr  = document.getElementById('vqAddress').value.trim();
-  const city  = document.getElementById('vqCity').value.trim();
-  const price = parseFloat(document.getElementById('vqPrice').value) || 0;
-  const svc   = document.getElementById('vqService').value.trim();
-  const prefDate  = document.getElementById('vqPreferredDate').value || null;
-  const notes     = document.getElementById('vqNotes').value.trim();
-  const leadSrc   = document.getElementById('vqLeadSource').value || 'didnt_ask';
-  const errEl = document.getElementById('vqError');
-
-  if (!fn || !ln) { errEl.textContent = 'First and last name required.'; errEl.style.display = 'block'; return; }
-  if (phone.length !== 10) { errEl.textContent = 'Valid 10-digit phone required.'; errEl.style.display = 'block'; return; }
-  if (!addr) { errEl.textContent = 'Address required.'; errEl.style.display = 'block'; return; }
-  if (!svc)  { errEl.textContent = 'Service description required.'; errEl.style.display = 'block'; return; }
-  if (!price){ errEl.textContent = 'Quoted price required.'; errEl.style.display = 'block'; return; }
-  errEl.style.display = 'none';
-
-  const now = new Date().toISOString();
-  const reqId = 'verbal_' + Date.now().toString(36);
-  const req = { id: reqId, source: 'verbal', status: 'new', submittedAt: now,
-    customer_name: fn + ' ' + ln,
-    customerData: { firstName: fn, lastName: ln, phone, address: addr, city, services: [svc], quotedPrice: price, preferredDate: prefDate, notes: notes || null } };
-  allRequests = [req, ...allRequests];
-
-  if (!_customersDb) await loadCustomerDb();
-  const c = findOrCreateCustomer(phone, fn, ln, addr, city);
-  if (!c.quoteHistory) c.quoteHistory = [];
-  const _vqIsRoof = /roof|soft\s*wash|softwash/i.test(svc);
-  const _vqStories = _vqIsRoof ? parseInt(document.querySelector('input[name=vqRoofStories]:checked')?.value || '1') : null;
-  c.quoteHistory.push({ quotedAt: now, quotedPrice: price, quotedService: svc, quotedNotes: notes||null, preferredDate: prefDate||null, source: 'verbal', outcome: null, outcomeAt: null, followUpAt: new Date(Date.now() + 7*86400000).toISOString(), incomingReqId: reqId, roofStories: _vqStories });
-  c.quoteLifecycle = 'verbal_pending';
-  if (!c.leadSource) c.leadSource = { primary: leadSrc, label: ({google:'Google search',referral:'Friend or family referred me',truck:'Saw the truck',angi:'Angi',nextdoor:'Nextdoor',repeat:"I've used Pure Cleaning before",other:'Other',didnt_ask:"Didn't ask / Unknown"}[leadSrc] || leadSrc), capturedAt: now, capturedVia: 'verbal_quote' };
-
-  closeVerbalModal();
-  renderTab();
-  try {
-    await Promise.all([persistRequests(), saveCustomerDb()]);
-    auditLog('verbal_quote_added', { phone, name: fn + ' ' + ln, service: svc, price });
-  } catch(e) { alert('Saved locally but failed to sync — check connection.'); }
 }
 
 // ── Confirm & Schedule ──────────────────────────────────────────────

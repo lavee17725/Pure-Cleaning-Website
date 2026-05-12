@@ -104,6 +104,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .mfoot{display:flex;gap:10px;margin-top:1.25rem;}
 .mbtn-c{flex:1;padding:14px;border:2px solid var(--border);border-radius:11px;background:none;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;color:var(--muted);}
 .mbtn-a{flex:2;padding:14px;border:none;border-radius:11px;background:var(--navy);color:#fff;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
+.wn-opt{display:flex;align-items:center;gap:12px;width:100%;padding:14px 16px;background:var(--bg);border:1.5px solid var(--border);border-radius:12px;cursor:pointer;text-align:left;font-family:'DM Sans',sans-serif;transition:border-color .15s,background .15s;}
+.wn-opt:hover{border-color:var(--gold);background:#fef9ee;}
+.wn-icon{font-size:20px;flex-shrink:0;}
+.wn-text{display:flex;flex-direction:column;gap:2px;}
+.wn-text strong{font-size:14px;font-weight:700;color:var(--navy);}
+.wn-text span{font-size:12px;color:var(--muted);}
 .mbtn-a:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
 /* ── Service Picker ── */
 .svc-row{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);-webkit-tap-highlight-color:transparent;transition:background .1s;}
@@ -501,14 +507,45 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   </div>
 </div>
 
-<!-- BUILD MINI QUOTE MODAL -->
-<div class="moverlay hidden" id="buildMQModal">
-  <div class="msheet">
+<!-- WHAT'S NEXT MODAL (post-save: phone-quote path) -->
+<div class="moverlay hidden" id="whatNextModal">
+  <div class="msheet" style="max-width:440px;">
     <div class="msheet-title">✅ Customer saved!</div>
-    <p style="font-size:14px;color:var(--muted);margin-bottom:1.25rem;">Build their mini quote to set custom pricing and send a confirmation text — or save for later.</p>
+    <div id="whatNextSub" style="font-size:14px;color:var(--muted);margin-bottom:1.25rem;"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:1rem;">
+      <button class="wn-opt" onclick="openScheduleModal()">
+        <span class="wn-icon">✅</span>
+        <div class="wn-text"><strong>Schedule it now</strong><span>Customer confirmed — put on calendar</span></div>
+      </button>
+      <button class="wn-opt" onclick="addToQueue()">
+        <span class="wn-icon">📋</span>
+        <div class="wn-text"><strong>Add to Incoming Queue</strong><span>Customer thinking it over — follow up in 7 days</span></div>
+      </button>
+      <button class="wn-opt" onclick="buildMQNow()">
+        <span class="wn-icon">💻</span>
+        <div class="wn-text"><strong>Build mini quote</strong><span>Send customer a polished digital quote</span></div>
+      </button>
+    </div>
+    <button class="mbtn-c" onclick="whatNextLater()" style="width:100%;">Save for later</button>
+  </div>
+</div>
+
+<!-- SCHEDULE DATE MODAL (Option A: Schedule it now) -->
+<div class="moverlay hidden" id="schedDateModal">
+  <div class="msheet" style="max-width:380px;">
+    <div class="msheet-title">📅 What date?</div>
+    <div class="field" style="margin-bottom:1rem;">
+      <label>Scheduled date *</label>
+      <input id="schedDate" type="date" class="fi" style="font-size:15px;">
+    </div>
+    <div class="field" style="margin-bottom:1rem;">
+      <label>Notes (optional)</label>
+      <input id="schedNotes" class="fi" placeholder="Any notes for the job" style="font-size:15px;">
+    </div>
+    <div id="schedError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
     <div class="mfoot">
-      <button class="mbtn-c" onclick="buildMQLater()">Save &amp; Build Later</button>
-      <button class="mbtn-a" onclick="buildMQNow()">Build Mini Quote Now →</button>
+      <button class="mbtn-c" onclick="closeScheduleModal()">← Back</button>
+      <button class="mbtn-a" onclick="submitScheduleNow()">📅 Schedule it</button>
     </div>
   </div>
 </div>
@@ -1460,7 +1497,7 @@ async function submitPhonePath() {
     }
     _lastSavedCustomer = customer;
     try { await saveDb(); } catch(e) { console.warn('[new_customer] DB save failed:', e.message); }
-    showBuildMiniQuoteModal(customer);
+    showWhatNextModal(customer);
   } catch(e) {
     alert('Error: ' + e.message);
     btn.disabled=false; btn.textContent='✅ Save Customer';
@@ -1504,22 +1541,28 @@ async function submitDigitalPath() {
   }
 }
 
-function showBuildMiniQuoteModal(customer) {
-  document.getElementById('psSub').textContent = `${customer.firstName} ${customer.lastName} added to "Needs Mini Quote" queue.`;
+// ── What's Next modal (post-save: phone-quote path) ──────────────────────────
+function showWhatNextModal(customer) {
+  document.getElementById('whatNextSub').textContent = `${customer.firstName} ${customer.lastName} saved.`;
   document.getElementById('psBuildBtn').dataset.phone = customer.phone;
-  document.getElementById('buildMQModal').classList.remove('hidden');
+  document.getElementById('whatNextModal').classList.remove('hidden');
+}
+
+function closeWhatNextModal() {
+  document.getElementById('whatNextModal').classList.add('hidden');
+}
+
+function whatNextLater() {
+  closeWhatNextModal();
+  document.getElementById('psSub').textContent = `${_lastSavedCustomer?.firstName || 'Customer'} saved. Build their mini quote when ready.`;
+  showState('phone-success');
 }
 
 function buildMQNow() {
-  document.getElementById('buildMQModal').classList.add('hidden');
+  closeWhatNextModal();
   if (_lastSavedCustomer) {
     window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(_lastSavedCustomer.phone || '');
   }
-}
-
-function buildMQLater() {
-  document.getElementById('buildMQModal').classList.add('hidden');
-  showState('phone-success');
 }
 
 function buildMQFromSuccess() {
@@ -1529,6 +1572,97 @@ function buildMQFromSuccess() {
     window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(phone);
   } else if (_lastSavedCustomer) {
     window.location.href = '/pure_cleaning_mini_quote_builder.html?phone=' + encodeURIComponent(_lastSavedCustomer.phone || '');
+  }
+}
+
+// ── Option A: Schedule it now ─────────────────────────────────────────────────
+function openScheduleModal() {
+  const tom = new Date(); tom.setDate(tom.getDate() + 1);
+  document.getElementById('schedDate').value = tom.toISOString().slice(0, 10);
+  document.getElementById('schedNotes').value = '';
+  document.getElementById('schedError').style.display = 'none';
+  document.getElementById('schedDateModal').classList.remove('hidden');
+}
+
+function closeScheduleModal() {
+  document.getElementById('schedDateModal').classList.add('hidden');
+}
+
+async function submitScheduleNow() {
+  const date = document.getElementById('schedDate').value;
+  if (!date) { document.getElementById('schedError').textContent = 'Date required.'; document.getElementById('schedError').style.display = 'block'; return; }
+  document.getElementById('schedError').style.display = 'none';
+
+  const c = _lastSavedCustomer;
+  if (!c) return;
+  const svc = c.quoteStatus?.mainServices || '';
+  const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
+  const notes = document.getElementById('schedNotes').value.trim();
+
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  Object.assign(c.scheduledStatus, {
+    state: 'scheduled', scheduledDate: date,
+    rig: isRoof ? 'rig_3' : null,
+    jobNotes: svc, approvedAmount: c.quoteStatus?.mainAmount || 0, window: 'morning',
+    ...(notes ? { scheduleNote: notes } : {})
+  });
+  c.quoteLifecycle = 'confirmed';
+
+  try {
+    await saveDb();
+    closeScheduleModal();
+    closeWhatNextModal();
+    window.location.href = '/pure_cleaning_calendar.html?date=' + encodeURIComponent(date);
+  } catch(e) {
+    document.getElementById('schedError').textContent = 'Failed to save — check connection.';
+    document.getElementById('schedError').style.display = 'block';
+  }
+}
+
+// ── Option B: Add to Incoming Queue ──────────────────────────────────────────
+async function addToQueue() {
+  const c = _lastSavedCustomer;
+  if (!c) return;
+
+  const now = new Date().toISOString();
+  c.quoteLifecycle = 'verbal_pending';
+  if (!c.quoteHistory) c.quoteHistory = [];
+  const reqId = 'verbal_nc_' + Date.now().toString(36);
+  const svc = c.quoteStatus?.mainServices || '';
+  c.quoteHistory.push({
+    quotedAt: now, quotedPrice: c.quoteStatus?.mainAmount || null,
+    quotedService: svc, source: 'verbal',
+    outcome: null, outcomeAt: null,
+    followUpAt: new Date(Date.now() + 7*86400000).toISOString(),
+    incomingReqId: reqId
+  });
+
+  // Create incoming request so it appears in the incoming queue
+  const req = {
+    id: reqId, source: 'verbal', status: 'new', submittedAt: now,
+    customer_name: c.firstName + ' ' + c.lastName,
+    customerData: {
+      firstName: c.firstName, lastName: c.lastName, phone: c.phone,
+      address: c.address, city: c.city,
+      services: svc ? [svc] : [],
+      quotedPrice: c.quoteStatus?.mainAmount || 0,
+      notes: c.notes || null
+    }
+  };
+
+  try {
+    const r = await fetch(`${PCPC_API}/incoming`);
+    const data = await r.json();
+    const requests = [req, ...(data.requests || [])];
+    await Promise.all([
+      fetch(`${PCPC_API}/incoming`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ requests }) }),
+      saveDb()
+    ]);
+    closeWhatNextModal();
+    document.getElementById('psSub').textContent = `${c.firstName} ${c.lastName} added to follow-up queue.`;
+    showState('phone-success');
+  } catch(e) {
+    alert('Failed to add to queue — check connection.');
   }
 }
 
