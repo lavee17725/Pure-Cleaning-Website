@@ -1162,6 +1162,19 @@ body{background:#f0f2f5;}
       </div>
     </div>
 
+    <div class="modal-section-hdr" id="fePaymentHdr" style="display:none;">Payment</div>
+    <div class="modal-field" id="fePaymentField" style="display:none;">
+      <label>Payment Method</label>
+      <select id="fePayMethod" class="modal-input">
+        <option value="">— not yet logged —</option>
+        <option value="zelle">💚 Zelle</option>
+        <option value="check">✍️ Check</option>
+        <option value="cash">💵 Cash</option>
+        <option value="venmo">💜 Venmo</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+
     <div class="modal-section-hdr">Notes</div>
     <div class="modal-field"><textarea id="feNotes" class="modal-input" rows="2" placeholder="Any notes…" style="resize:vertical;"></textarea></div>
 
@@ -3518,6 +3531,11 @@ function markComplete() {
   // Pre-fill amount from scheduled job total
   const c = findCustomer(jmPhone);
   if (c?.scheduledStatus?.approvedAmount) document.getElementById('paymentAmount').value = c.scheduledStatus.approvedAmount;
+  // Pre-select payment method from customer preference (fallback: cash)
+  const _cmPref = (c?.preferredPaymentMethod || c?.paymentMethod || 'cash').toLowerCase();
+  const _cmKnown = ['zelle','check','cash','venmo','other'];
+  const pmSel = document.getElementById('paymentMethod');
+  if (pmSel) pmSel.value = _cmKnown.includes(_cmPref) ? _cmPref : 'cash';
   // Reset photo state
   _pendingPhotos = [];
   const grid = document.getElementById('photoThumbGrid'); if (grid) grid.innerHTML = '';
@@ -4863,9 +4881,12 @@ function openPaymentModal(phone) {
   const total = (c.scheduledStatus||{}).approvedAmount || (c.quoteStatus||{}).approvedAmount || (c.quoteStatus||{}).mainAmount || 0;
   document.getElementById('payTotal').value = total || '';
 
-  // Reset method to cash
+  // Pre-select customer's known payment preference (fallback: cash)
+  const _pref = (c.preferredPaymentMethod || c.paymentMethod || 'cash').toLowerCase();
+  const _knownPm = ['zelle','check','cash','venmo','other'];
+  const _defaultPm = _knownPm.includes(_pref) ? _pref : 'cash';
   const radios = document.querySelectorAll('input[name="payMethod"]');
-  radios.forEach(r => { r.checked = r.value === 'cash'; });
+  radios.forEach(r => { r.checked = r.value === _defaultPm; });
   document.getElementById('payMethodOther').value = '';
 
   // Set date to today
@@ -5020,6 +5041,17 @@ function openEditModal(phone) {
   document.getElementById('feRig').value   = ss.rig || '';
   document.getElementById('feNotes').value = c.notes || '';
 
+  // Payment field — only visible for completed jobs
+  const _feCompleted = ss.state === 'completed';
+  document.getElementById('fePaymentHdr').style.display   = _feCompleted ? '' : 'none';
+  document.getElementById('fePaymentField').style.display = _feCompleted ? '' : 'none';
+  if (_feCompleted) {
+    const _jhForPay = (c.jobHistory || []).find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill');
+    const _curPm = (_jhForPay?.paymentMethod || _jhForPay?.payment || c.paymentMethod || '').toLowerCase();
+    const _pmSel = document.getElementById('fePayMethod');
+    if (_pmSel) _pmSel.value = ['zelle','check','cash','venmo','other'].includes(_curPm) ? _curPm : '';
+  }
+
   document.getElementById('feMoreLink').dataset.phone = phone;
   document.getElementById('fePhoneNote').style.display = 'none';
   document.getElementById('feError').style.display     = 'none';
@@ -5113,6 +5145,7 @@ async function saveFullEdit() {
     }
   }
 
+  const fePayMethod = (document.getElementById('fePayMethod')?.value || '').trim();
   const c  = _feCust;
   const ss = c.scheduledStatus || (c.scheduledStatus = {});
   const qs = c.quoteStatus    || (c.quoteStatus = {});
@@ -5139,6 +5172,28 @@ async function saveFullEdit() {
   if (ss.state === 'completed' && ss.scheduledDate && ss.rig !== prevRig) {
     const jhEntry = (c.jobHistory || []).find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill');
     if (jhEntry) { jhEntry.rigId = ss.rig || null; jhEntry.rig = ss.rig || null; } // both fields — rig for render, rigId for ML
+  }
+
+  // For completed jobs: persist payment method correction if changed
+  if (ss.state === 'completed' && fePayMethod) {
+    const _jhPay = (c.jobHistory || []).find(j => j.date === (date || ss.scheduledDate) && j.source !== 'csv_backfill');
+    if (_jhPay) {
+      const _oldPm = _jhPay.paymentMethod || _jhPay.payment || null;
+      if (_oldPm !== fePayMethod) {
+        _jhPay.paymentMethod = fePayMethod;
+        _jhPay.payment       = fePayMethod;
+        if (_jhPay.paymentInfo) {
+          _jhPay.paymentInfo = { ..._jhPay.paymentInfo, method: fePayMethod, correctedAt: new Date().toISOString(), correctedBy: 'admin' };
+        }
+        c.paymentMethod = fePayMethod;
+        logEvent('payment_method_corrected', newPhone, {
+          oldMethod: _oldPm,
+          newMethod: fePayMethod,
+          jobDate:   date || ss.scheduledDate,
+          correctedBy: 'admin',
+        });
+      }
+    }
   }
 
   const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());

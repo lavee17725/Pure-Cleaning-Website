@@ -1084,6 +1084,79 @@ async function main() {
       else fail('Calendar — drag suppressor still blocks day-header mis-click', 'day-header click was not suppressed');
     });
 
+    // ── PAYMENT MODAL — preferredPaymentMethod pre-selection ─────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-modal-prefill', async page => {
+      await page.waitForTimeout(2000);
+
+      // 1. Kristina Seeber (9542493300) has preferredPaymentMethod=zelle → modal should pre-select Zelle
+      const zellePreSelected = await page.evaluate(() => {
+        const c = (dbRecord?.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === '9542493300');
+        if (!c) return null;
+        openPaymentModal('9542493300');
+        const checked = document.querySelector('input[name="payMethod"]:checked');
+        return checked?.value || null;
+      });
+      if (zellePreSelected === null) {
+        warn('Payment modal — Zelle pre-selected for preferredPaymentMethod=zelle', 'Kristina Seeber not found in DB');
+      } else if (zellePreSelected === 'zelle') {
+        pass('Payment modal — Zelle pre-selected for preferredPaymentMethod=zelle');
+      } else {
+        fail('Payment modal — Zelle pre-selected for preferredPaymentMethod=zelle', `Got ${zellePreSelected} instead of zelle`);
+      }
+
+      // 2. Customer with no preferredPaymentMethod → fallback to cash
+      const cashFallback = await page.evaluate(() => {
+        const c = (dbRecord?.customers||[]).find(x => !x.preferredPaymentMethod && !x.paymentMethod && x.scheduledStatus?.state === 'completed');
+        if (!c) return null;
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+        openPaymentModal(ph);
+        const checked = document.querySelector('input[name="payMethod"]:checked');
+        return checked?.value || null;
+      });
+      if (cashFallback === null) {
+        warn('Payment modal — cash fallback when no preference', 'no customer without preference found');
+      } else if (cashFallback === 'cash') {
+        pass('Payment modal — cash fallback when no preference');
+      } else {
+        fail('Payment modal — cash fallback when no preference', `Got ${cashFallback} instead of cash`);
+      }
+
+      // 3. Pencil edit modal shows payment field for completed jobs
+      const pencilPaymentField = await page.evaluate(() => {
+        const c = (dbRecord?.customers||[]).find(x => x.scheduledStatus?.state === 'completed' && x.phone);
+        if (!c) return null;
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+        openEditModal(ph);
+        const hdr   = document.getElementById('fePaymentHdr');
+        const field = document.getElementById('fePaymentField');
+        return hdr?.style.display !== 'none' && field?.style.display !== 'none';
+      });
+      if (pencilPaymentField === null) {
+        warn('Pencil edit — payment field visible for completed job', 'no completed customer found');
+      } else if (pencilPaymentField) {
+        pass('Pencil edit — payment field visible for completed job');
+      } else {
+        fail('Pencil edit — payment field visible for completed job', 'fePaymentHdr or fePaymentField still hidden for completed job');
+      }
+
+      // 4. Pencil edit modal hides payment field for scheduled (not completed) jobs
+      const pencilPaymentHidden = await page.evaluate(() => {
+        const c = (dbRecord?.customers||[]).find(x => x.scheduledStatus?.state === 'scheduled' && x.phone);
+        if (!c) return null;
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+        openEditModal(ph);
+        const hdr = document.getElementById('fePaymentHdr');
+        return hdr?.style.display === 'none';
+      });
+      if (pencilPaymentHidden === null) {
+        warn('Pencil edit — payment field hidden for scheduled job', 'no scheduled customer found');
+      } else if (pencilPaymentHidden) {
+        pass('Pencil edit — payment field hidden for scheduled job');
+      } else {
+        fail('Pencil edit — payment field hidden for scheduled job', 'fePaymentHdr is visible for a non-completed job');
+      }
+    });
+
     // ── NEW CUSTOMER — 3-option post-save modal ────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-postsave', async page => {
       // Trigger modal directly without a real DB save
