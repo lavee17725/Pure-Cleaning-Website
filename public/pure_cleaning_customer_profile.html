@@ -912,17 +912,18 @@ function renderHeroBanner(c) {
     const MDADE  = new Set(['miami','hialeah','homestead','miami gardens','kendall','pinecrest','coral gables','doral','sweetwater','miami lakes','south miami','miami beach','miami shores','north miami','north miami beach','aventura','key biscayne','bal harbour','surfside','bay harbor islands','golden beach','opa-locka','opa locka','florida city','cutler bay','palmetto bay']);
     const PBCH   = new Set(['boca raton','delray beach','boynton beach','west palm beach','lake worth','wellington','palm beach gardens','royal palm beach','greenacres','lake worth beach','jupiter','tequesta','palm beach','north palm beach']);
     const encoded = encodeURIComponent(`${c.address}, ${c.city}, FL`);
-    if (BROWARD.has(ct)) return { url:`https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=${encoded}`, label:'BCPA' };
+    if (BROWARD.has(ct)) return { url:'https://web.bcpa.net/BcpaClient/#/Record-Search', label:'BCPA' };
     if (MDADE.has(ct))   return { url:`https://www.miamidade.gov/Apps/PA/PAOnlineTools/`, label:'MDPA' };
     if (PBCH.has(ct))    return { url:`https://www.pbcgov.com/papa/Asps/PropertySearch/PropertySearch.aspx`, label:'PBPA' };
     return null;
   })();
-  const _paClipText_p = JSON.stringify(`${c.address}, ${c.city}, FL`);
-  const _paBtn_p = _paUrl_p ? `<a href="${_paUrl_p.url}" target="_blank" onclick="navigator.clipboard.writeText(${_paClipText_p}).catch(()=>{})" style="font-size:11px;font-weight:700;color:var(--sky);background:#eff6ff;border-radius:4px;padding:2px 7px;margin-left:8px;text-decoration:none;white-space:nowrap;" title="Open ${_paUrl_p.label} property search — address copied to clipboard">🏠 ${_paUrl_p.label}</a>` : '';
+  const _paBtn_p = _paUrl_p ? `<a href="${_paUrl_p.url}" target="_blank" style="font-size:11px;font-weight:700;color:var(--sky);background:#eff6ff;border-radius:4px;padding:2px 7px;margin-left:8px;text-decoration:none;white-space:nowrap;" title="Open ${_paUrl_p.label} property search">🏠 ${_paUrl_p.label}</a>` : '';
+  const _copyAddrStr_p = JSON.stringify(`${c.address}, ${c.city}, FL`);
+  const _copyBtn_p = (c.address && c.city) ? `<button onclick="navigator.clipboard.writeText(${_copyAddrStr_p}).then(()=>showToast('Address copied — paste into BCPA')).catch(()=>{})" style="font-size:11px;font-weight:600;color:var(--sky);background:#eff6ff;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;margin-left:6px;white-space:nowrap;">📋 Copy</button>` : '';
   let addrHtml = '';
   if (c.address && c.city) {
     const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`;
-    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a>${_paBtn_p}</div>`;
+    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a>${_paBtn_p}${_copyBtn_p}</div>`;
   } else if (c.city) {
     addrHtml = `<div class="hero-contact-line">📍 ${esc(c.city)}, FL${_paBtn_p}</div>`;
   }

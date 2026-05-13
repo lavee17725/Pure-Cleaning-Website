@@ -268,7 +268,10 @@ select option{background:var(--white);}
       <div class="sec-hdr-sub">Address helps us suggest nearby dates and look up property records.</div>
     </div>
     <div class="field"><label>Street address</label><input type="text" id="custAddr" placeholder="1234 Mango Way, Weston, FL 33326" oninput="updatePreview();updatePropLink();saveDraft()"></div>
-    <div id="propLinkWrap" style="margin-top:-6px;margin-bottom:.875rem;"></div>
+    <div style="margin-top:-10px;margin-bottom:6px;">
+      <button type="button" id="v2CopyAddrBtn" onclick="copyV2Addr()" style="font-size:11px;font-weight:600;color:var(--sky2,#2d7dd2);background:#eff6ff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;opacity:.4;pointer-events:none;">📋 Copy address — paste into BCPA</button>
+    </div>
+    <div id="propLinkWrap" style="margin-top:0;margin-bottom:.875rem;"></div>
     <div class="field" style="margin-bottom:0;">
       <label>Roof sq ft <span style="font-weight:400;font-size:11px;color:var(--muted2);">(optional)</span></label>
       <input type="number" id="roofSqFt" placeholder="e.g. 1800" oninput="saveDraft()">
@@ -326,7 +329,7 @@ select option{background:var(--white);}
     </div>
     <div class="price-wrap">
       <span class="currency">$</span>
-      <input type="number" id="quotePricePressure" placeholder="0" oninput="updatePreview();saveDraft();updateSendBtn()">
+      <input type="number" id="quotePricePressure" placeholder="0" step="25" oninput="updatePreview();saveDraft();updateSendBtn()">
     </div>
   </div>
 
@@ -614,8 +617,8 @@ function renderAddons() {
       <div class="icon">${a.icon}</div>
       <div class="addon-info"><div class="addon-name">${a.label}</div><div class="addon-hint">Customer taps to add</div></div>
       <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-        <div class="addon-price-input"><span>+$</span><input type="number" id="addon_${a.id}" placeholder="0" min="0" oninput="updatePreview()" title="Bundle price"></div>
-        <div class="addon-price-input"><span style="font-size:10px;color:var(--muted);">Reg $</span><input type="number" id="addonRegular_${a.id}" placeholder="0" min="0" style="width:60px;color:var(--muted);font-size:12px;" title="Regular price (shown as strikethrough)"></div>
+        <div class="addon-price-input"><span>+$</span><input type="number" id="addon_${a.id}" placeholder="0" min="0" step="25" oninput="updatePreview()" title="Bundle price"></div>
+        <div class="addon-price-input"><span style="font-size:10px;color:var(--muted);">Reg $</span><input type="number" id="addonRegular_${a.id}" placeholder="0" min="0" step="25" style="width:60px;color:var(--muted);font-size:12px;" title="Regular price (shown as strikethrough)"></div>
       </div>
       <label class="toggle"><input type="checkbox" id="addonEnabled_${a.id}" checked><span class="toggle-slider"></span></label>
     </div>
@@ -924,15 +927,7 @@ const _MIAMI_DADE = ['miami','aventura','kendall','doral','hialeah','hialeah gar
 const _PALM_BEACH = ['boca raton','delray beach','wellington','boynton beach','west palm beach','palm beach','palm beach gardens','jupiter','lake worth beach','royal palm beach','greenacres','riviera beach','palm springs','highland beach','tequesta','north palm beach','lantana','manalapan','juno beach','atlantis','south palm beach','loxahatchee','belle glade','pahokee','south bay'];
 
 function openBcpaV2() {
-  const addr = (document.getElementById('custAddr')?.value || '').trim();
-  if (!addr) {
-    const el = document.getElementById('custAddr');
-    if (el) { el.focus(); el.placeholder = '← Enter address first'; }
-    return;
-  }
-  const url = 'https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=' + encodeURIComponent(addr + ' FL');
-  navigator.clipboard.writeText(addr).catch(() => {});
-  window.open(url, '_blank');
+  window.open('https://web.bcpa.net/BcpaClient/#/Record-Search', '_blank');
 }
 
 function detectCounty(addr) {
@@ -950,13 +945,14 @@ function updatePropLink() {
 
   if (!addr) {
     wrap.innerHTML = '<button class="prop-link" disabled title="Enter customer address first" style="opacity:.4;cursor:not-allowed;">📍 Look up property records →</button>';
+    updateV2CopyBtn(false);
     return;
   }
 
   const county = detectCounty(addr);
   let url;
   if (county === 'broward') {
-    url = 'https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=' + encodeURIComponent(addr + ' FL');
+    url = 'https://web.bcpa.net/BcpaClient/#/Record-Search';
   } else if (county === 'miami-dade') {
     url = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';
   } else if (county === 'palm-beach') {
@@ -964,8 +960,34 @@ function updatePropLink() {
   } else {
     url = 'https://www.google.com/search?q=' + encodeURIComponent(addr + ' FL property appraiser');
   }
-  const clipStr = JSON.stringify(addr);
-  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" onclick="navigator.clipboard.writeText(' + clipStr + ').catch(()=>{})" title="Opens property appraiser in new tab — address also copied to clipboard">📍 Look up property records →</a>';
+  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" title="Opens property appraiser in new tab">📍 Look up property records →</a>';
+  updateV2CopyBtn(true);
+}
+function updateV2CopyBtn(enable) {
+  const btn = document.getElementById('v2CopyAddrBtn');
+  if (!btn) return;
+  btn.style.opacity = enable ? '1' : '.4';
+  btn.style.pointerEvents = enable ? 'auto' : 'none';
+}
+function copyV2Addr() {
+  const addr = (document.getElementById('custAddr')?.value || '').trim();
+  if (!addr) return;
+  navigator.clipboard.writeText(addr + ', FL').then(() => {
+    showV2CopyToast('Address copied — paste into BCPA');
+  }).catch(() => {});
+}
+function showV2CopyToast(msg) {
+  let t = document.getElementById('v2CopyToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'v2CopyToast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1d9e75;color:#fff;padding:7px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:opacity .2s;pointer-events:none;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
 }
 
 // ─── AUTO-POPULATE FROM ?customer= LINK ──────────────────────────

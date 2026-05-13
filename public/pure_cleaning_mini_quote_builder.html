@@ -339,9 +339,6 @@ function renderBuilder(existing) {
   const city = customer.city || '';
   const _mqBcpaAddr  = (customer.address || '').trim();
   const _mqBcpaCity  = city.trim();
-  const _mqBcpaUrl   = _mqBcpaAddr
-    ? `https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=${encodeURIComponent(`${_mqBcpaAddr}, ${_mqBcpaCity}, FL`)}`
-    : null;
   const _mqBcpaClip  = JSON.stringify(`${_mqBcpaAddr}, ${_mqBcpaCity}, FL`);
   const phone = fmtPh(customer.phone || '');
   const svcAgreed = qs.servicesAgreed || {};
@@ -405,13 +402,13 @@ function renderBuilder(existing) {
     </div>
 
     <div class="job-card">
-      <div class="job-label"><span>✓</span> Main Job (already agreed)</div>
+      <div class="job-label"><span>✓</span> Main Job</div>
       <div class="job-services">${esc(services) || '<span style="color:var(--muted);">No services noted</span>'}</div>
       ${roofJobInfoHtml}
       <div style="margin-top:.75rem;">
-        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;">Price Tony Quoted</label>
+        <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;">Quote price</label>
         <div class="price-input-wrap" style="max-width:180px;">
-          <input type="number" class="price-input" id="mainJobPrice" value="${amount || ''}" min="0" placeholder="e.g. 300" style="font-size:20px;padding:10px 10px 10px 26px;">
+          <input type="number" class="price-input" id="mainJobPrice" value="${amount || ''}" min="0" step="25" placeholder="e.g. 300" style="font-size:20px;padding:10px 10px 10px 26px;">
         </div>
       </div>
       <div style="margin-top:.875rem;padding-top:.75rem;border-top:1px solid var(--border);">
@@ -420,7 +417,13 @@ function renderBuilder(existing) {
           <input type="number" id="mqRoofSqFt" class="price-input" value="${_roofSqFt || ''}" min="0" step="1" placeholder="e.g. 2400" style="font-size:16px;padding:9px 11px;background:var(--white);">
           <span style="font-size:12px;color:var(--muted);white-space:nowrap;">sq ft</span>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:3px;">Look up: ${_mqBcpaUrl ? `<a href="${_mqBcpaUrl}" target="_blank" rel="noopener" onclick="navigator.clipboard.writeText(${_mqBcpaClip}).catch(()=>{})" style="color:var(--sky);font-weight:600;" title="Opens BCPA with address pre-filled — address also copied to clipboard">Broward</a>` : `<span style="color:var(--muted);cursor:not-allowed;" title="Load a customer first">Broward</span>`} · <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> · <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+          <span>Look up:</span>
+          <a href="https://web.bcpa.net/BcpaClient/#/Record-Search" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Broward</a> ·
+          <a href="https://www.miamidade.gov/Apps/PA/PropertySearch/" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Miami-Dade</a> ·
+          <a href="https://pbcpao.gov/AdvSearch/AdvanceSearch" target="_blank" rel="noopener" style="color:var(--sky);font-weight:600;">Palm Beach</a>
+          ${_mqBcpaAddr ? `<button type="button" onclick="navigator.clipboard.writeText(${_mqBcpaClip}).then(()=>showToast('Address copied — paste into BCPA')).catch(()=>{})" style="font-size:11px;font-weight:600;color:var(--sky);background:#eff6ff;border:none;border-radius:6px;padding:3px 9px;cursor:pointer;margin-left:2px;">📋 Copy address</button>` : ''}
+        </div>
       </div>
     </div>
 
@@ -592,13 +595,13 @@ function addonRowHtml(id, name, icon, enabled, bundle, regular, note, extraBodyH
         <div class="price-field">
           <label>Bundle price (today)</label>
           <div class="price-input-wrap">
-            <input type="number" class="price-input" id="bundle-${id}" value="${bundle}" min="0" placeholder="150" oninput="updateSavings('${id}')">
+            <input type="number" class="price-input" id="bundle-${id}" value="${bundle}" min="0" step="25" placeholder="150" oninput="updateSavings('${id}')">
           </div>
         </div>
         <div class="price-field">
           <label>Standalone (separately)</label>
           <div class="price-input-wrap">
-            <input type="number" class="price-input" id="regular-${id}" value="${regular}" min="0" placeholder="200" oninput="updateSavings('${id}')">
+            <input type="number" class="price-input" id="regular-${id}" value="${regular}" min="0" step="25" placeholder="200" oninput="updateSavings('${id}')">
           </div>
         </div>
       </div>
@@ -705,13 +708,13 @@ function renderCustomRows() {
         <div class="price-field">
           <label>Bundle price</label>
           <div class="price-input-wrap">
-            <input type="number" class="price-input" id="cbundle-${r.id}" value="${r.data.bundle || ''}" min="0" placeholder="300">
+            <input type="number" class="price-input" id="cbundle-${r.id}" value="${r.data.bundle || ''}" min="0" step="25" placeholder="300">
           </div>
         </div>
         <div class="price-field">
           <label>Regular price</label>
           <div class="price-input-wrap">
-            <input type="number" class="price-input" id="cregular-${r.id}" value="${r.data.standalone || ''}" min="0" placeholder="400">
+            <input type="number" class="price-input" id="cregular-${r.id}" value="${r.data.standalone || ''}" min="0" step="25" placeholder="400">
           </div>
         </div>
       </div>

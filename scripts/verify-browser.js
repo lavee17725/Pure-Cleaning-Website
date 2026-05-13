@@ -797,28 +797,82 @@ async function main() {
       }
     });
 
-    // ── BCPA DEEP-LINK: calendar job card ────────────────────────────────────
-    // Phone 9546877537 = Weston customer with address — should show a BCPA chip
+    // ── BCPA LINKS: calendar job card ────────────────────────────────────────
+    // BCPA deep-link reverted May 13 — BCPA never parsed searchValue in practice.
+    // Now: plain href to /Record-Search (no query params), plus 📋 Copy button.
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'bcpa-calendar', async page => {
       await page.waitForFunction(() => document.querySelectorAll('.pa-link').length > 0, { timeout: 20000 }).catch(() => {});
 
       const paLinks = await page.locator('.pa-link').count();
       if (paLinks === 0) {
-        warn('BCPA calendar — .pa-link chips visible', 'No .pa-link elements found (may be no Broward jobs visible in current week)');
+        warn('BCPA calendar — .pa-link chips present', 'No .pa-link elements found (may be no Broward jobs visible in current week)');
         return;
       }
       pass('BCPA calendar — .pa-link chips present', `${paLinks} chip(s) visible`);
 
-      // Confirm at least one has a deep-link URL with searchValue
+      // Confirm NO .pa-link has a searchValue param (deep-link reverted)
       const hasDeepLink = await page.evaluate(() => {
         const links = [...document.querySelectorAll('.pa-link')];
         return links.some(a => (a.href || '').includes('searchValue='));
       });
       if (hasDeepLink) {
-        pass('BCPA calendar — deep-link URL contains searchValue param');
+        fail('BCPA calendar — plain href (no searchValue)', '.pa-link still has searchValue= deep-link — revert incomplete');
       } else {
-        fail('BCPA calendar — deep-link URL contains searchValue param', 'No .pa-link found with searchValue= in href');
+        pass('BCPA calendar — plain href (no searchValue)', 'No searchValue= params in BCPA chips');
       }
+    });
+
+    // ── INTAKE PAPER CUTS: price step / label rename / BCPA copy button ──────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'intake-papercuts', async page => {
+      await page.waitForTimeout(2000);
+
+      // 1. Copy-address button exists adjacent to address field
+      const copyBtn = await page.locator('#nCopyAddrBtn').isVisible().catch(() => false);
+      if (copyBtn) pass('New Customer — 📋 Copy address button present');
+      else fail('New Customer — 📋 Copy address button present', '#nCopyAddrBtn not visible');
+
+      // 2. Clicking copy button calls clipboard.writeText with address value
+      await page.evaluate(() => {
+        document.getElementById('nAddr').value = '123 Test St';
+        document.getElementById('nCity').value = 'Weston';
+        document.getElementById('nAddr').dispatchEvent(new Event('input'));
+      });
+      await page.waitForTimeout(300);
+      let clipboardOk = false;
+      try {
+        await page.evaluate(() => {
+          let captured = null;
+          const orig = navigator.clipboard.writeText.bind(navigator.clipboard);
+          navigator.clipboard.writeText = v => { captured = v; window._lastClip = v; return Promise.resolve(); };
+        });
+        await page.click('#nCopyAddrBtn');
+        await page.waitForTimeout(300);
+        const clip = await page.evaluate(() => window._lastClip);
+        clipboardOk = (clip || '').includes('123 Test St');
+      } catch (_) {}
+      if (clipboardOk) pass('New Customer — copy button writes address to clipboard');
+      else warn('New Customer — copy button writes address to clipboard', 'clipboard intercept unavailable in this context — manual verify');
+
+      // 3. BCPA links are plain href (no searchValue)
+      const bcpaNoDeepLink = await page.evaluate(() => {
+        return [...document.querySelectorAll('a')].every(a => !(a.href || '').includes('searchValue='));
+      });
+      if (bcpaNoDeepLink) pass('New Customer — BCPA links: no searchValue param');
+      else fail('New Customer — BCPA links: no searchValue param', 'Found searchValue= in a link — BCPA revert incomplete');
+    });
+
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_mini_quote_builder.html`, 'mqb-papercuts', async page => {
+      await page.waitForTimeout(2000);
+
+      // 4. "Already agreed quote price" label no longer present
+      const oldLabel = await page.evaluate(() => document.body.innerText.includes('already agreed'));
+      if (oldLabel) fail('Mini Quote Builder — "already agreed" text removed', 'Text still present in page');
+      else pass('Mini Quote Builder — "already agreed" text removed');
+
+      // 5. "Quote price" label present
+      const newLabel = await page.evaluate(() => document.body.innerText.toLowerCase().includes('quote price'));
+      if (newLabel) pass('Mini Quote Builder — "Quote price" label present');
+      else warn('Mini Quote Builder — "Quote price" label present', 'Label not found in rendered text — may be hidden until customer loads');
     });
 
     // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────

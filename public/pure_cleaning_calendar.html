@@ -901,7 +901,7 @@ body{background:#f0f2f5;}
         </div>
         <div>
           <label>Amount ($)</label>
-          <input type="number" id="paymentAmount" class="modal-input" style="margin-top:4px;" placeholder="375" min="0">
+          <input type="number" id="paymentAmount" class="modal-input" style="margin-top:4px;" placeholder="375" min="0" step="25">
         </div>
       </div>
     </div>
@@ -1012,7 +1012,7 @@ body{background:#f0f2f5;}
       <label>Total Paid</label>
       <div style="position:relative;">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
-        <input type="number" id="payTotal" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+        <input type="number" id="payTotal" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="0">
       </div>
     </div>
     <div class="modal-field">
@@ -1053,7 +1053,7 @@ body{background:#f0f2f5;}
       <label>Base Price</label>
       <div style="position:relative;">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
-        <input type="number" id="editBasePrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="300" oninput="updateEditTotal()">
+        <input type="number" id="editBasePrice" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="300" oninput="updateEditTotal()">
       </div>
     </div>
     <div class="modal-field">
@@ -1091,8 +1091,11 @@ body{background:#f0f2f5;}
     </div>
     <div class="modal-field"><label>Email</label><input id="feEmail" class="modal-input" type="email" placeholder="email@example.com"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-      <div class="modal-field"><label>Street Address</label><input id="feAddr" class="modal-input" placeholder="Street address"></div>
+      <div class="modal-field"><label>Street Address</label><input id="feAddr" class="modal-input" placeholder="Street address" oninput="updateFeCopyBtn()"></div>
       <div class="modal-field"><label>City</label><input id="feCity" class="modal-input" placeholder="City"></div>
+    </div>
+    <div style="margin-top:-6px;margin-bottom:8px;">
+      <button type="button" id="feCopyAddrBtn" onclick="copyFeAddr()" style="font-size:11px;font-weight:600;color:var(--sky);background:#eff6ff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;opacity:.4;pointer-events:none;">📋 Copy address — paste into BCPA</button>
     </div>
     <div class="modal-field">
       <label>How did they hear about us?</label>
@@ -1141,7 +1144,7 @@ body{background:#f0f2f5;}
       <label>Price ($)</label>
       <div style="position:relative;">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
-        <input type="number" id="fePrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+        <input type="number" id="fePrice" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="0">
       </div>
     </div>
 
@@ -1185,7 +1188,7 @@ body{background:#f0f2f5;}
       <label>Total Price</label>
       <div style="position:relative;">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
-        <input type="number" id="queueEditPrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+        <input type="number" id="queueEditPrice" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="0">
       </div>
     </div>
     <div class="modal-field">
@@ -1275,7 +1278,7 @@ body{background:#f0f2f5;}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Total ($)</label>
-          <input id="unschAmount" type="number" placeholder="0" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
+          <input id="unschAmount" type="number" placeholder="0" step="25" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
         </div>
         <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Proposed Date</label>
           <input id="unschDate" type="date" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
@@ -1351,7 +1354,7 @@ function getPropertyAppraiserUrl(city, address) {
   if (!city || !address) return null;
   const c = city.toLowerCase().trim();
   const encoded = encodeURIComponent(`${address}, ${city}, FL`);
-  if (_BROWARD_CITIES.has(c))    return `https://web.bcpa.net/BcpaClient/#/Record-Search?searchType=address&searchValue=${encoded}`;
+  if (_BROWARD_CITIES.has(c))    return 'https://web.bcpa.net/BcpaClient/#/Record-Search';
   if (_MIAMI_DADE_CITIES.has(c)) return `https://www.miamidade.gov/Apps/PA/PAOnlineTools/`;
   if (_PALM_BEACH_CITIES.has(c)) return `https://www.pbcgov.com/papa/Asps/PropertySearch/PropertySearch.aspx`;
   return null;
@@ -2796,8 +2799,7 @@ function jobCardScheduled(c) {
     ${c.address ? (() => {
         const paUrl = getPropertyAppraiserUrl(c.city, c.address);
         const paLbl = paUrl ? getPaLabel(c.city) : null;
-        const _paClip = JSON.stringify(`${c.address}, ${c.city}, FL`);
-        const paBtn = paUrl ? `<a href="${paUrl}" target="_blank" onclick="event.stopPropagation();navigator.clipboard.writeText(${_paClip}).catch(()=>{})" class="pa-link">🏠 ${paLbl}</a>` : '';
+        const paBtn = paUrl ? `<a href="${paUrl}" target="_blank" onclick="event.stopPropagation()" class="pa-link">🏠 ${paLbl}</a>` : '';
         return `<div class="js-addr">📍 ${esc(c.address)}${paBtn}</div>`;
       })() : ''}
     ${(() => {
@@ -4999,6 +5001,7 @@ function openEditModal(phone) {
   document.getElementById('feEmail').value = c.email || '';
   document.getElementById('feAddr').value  = c.address || '';
   document.getElementById('feCity').value  = c.city || '';
+  updateFeCopyBtn();
   document.getElementById('feSqFt').value  = c.sqFt || ss.sqFt || svcAgreed.roofSqFt || '';
   document.getElementById('feLeadSrc').value = c.leadSource?.primary || '';
 
@@ -5062,6 +5065,21 @@ function closeFullEditModal() {
   document.getElementById('fullEditModal').classList.add('hidden');
   _fePhone = null;
   _feCust  = null;
+}
+function updateFeCopyBtn() {
+  const btn = document.getElementById('feCopyAddrBtn');
+  if (!btn) return;
+  const has = (document.getElementById('feAddr')?.value || '').trim().length > 0;
+  btn.style.opacity = has ? '1' : '.4';
+  btn.style.pointerEvents = has ? 'auto' : 'none';
+}
+function copyFeAddr() {
+  const addr = (document.getElementById('feAddr')?.value || '').trim();
+  const city = (document.getElementById('feCity')?.value || '').trim();
+  if (!addr) return;
+  navigator.clipboard.writeText(`${addr}, ${city}, FL`).then(() => {
+    showToast('Address copied — paste into BCPA', 'success');
+  }).catch(() => {});
 }
 
 async function saveFullEdit() {
