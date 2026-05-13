@@ -323,6 +323,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 13, 2026 | Day Route view now opens in same tab (window.location.href not window.open). Day Route page already had ← Calendar back button. Keeps Tyler in the Operations Hub flow without tab proliferation. |
 
+| May 13, 2026 | Dual-card render bug after rig-correction shipped fix. jobHistory entries have two rig fields: 'rig' (used by calendar render via getExtraCompletedJobsForRig) and 'rigId' (used by ML/worker-hours). Yesterday's Phase 3 + saveFullEdit only updated rigId, leaving 'rig' stale → renderer placed the history card in the old rig column while scheduledStatus card was in the new rig column → two visual cards for same job. Fix: saveFullEdit now writes BOTH fields atomically (jhEntry.rig = ss.rig || null). Jim New jobHistory[0].rig backfilled to rig_2. Audit confirmed only Jim New was affected. Backlog: consolidate rig + rigId to single source of truth when safe. |
+
 *Append future decisions below this line.*
 
 ---

@@ -71,7 +71,8 @@ const HTML_FILES = [
       'fePhone',                                          // Regression: phone field in full edit modal
       'DAY_DRAG_PX',                                      // Regression: day-by-day drag constant
       "state === 'completed'",                            // Regression: drag guard on completed jobs
-      'jhEntry.rigId = ss.rig',                           // Regression: pencil edit updates jobHistory rigId
+      'jhEntry.rigId = ss.rig',                           // Regression: pencil edit updates jobHistory.rigId
+      'jhEntry.rig = ss.rig',                             // Regression: pencil edit also updates jobHistory.rig (render field)
       '_lastCommittedDays',                               // Regression: continuous drag commits mid-drag
       'renderRigCommuteBanners',                          // Regression: home commute banners per rig
       'rig-commute-banner',                               // Regression: commute banner CSS class

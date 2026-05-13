@@ -536,6 +536,49 @@ async function main() {
         }
       }
 
+      // ── Jim New: exactly ONE card on May 6, in rig_2 (New Tacoma) ───────────
+      // Regression: dual jobHistory.rig/rigId mismatch caused two visual cards.
+      // After fix both fields are rig_2, ssCovers fires, no duplicate rendered.
+      {
+        const jimResult = await page.evaluate(() => {
+          if (typeof dayOffset === 'undefined' || typeof render !== 'function') return { skip: 'render not available' };
+          // Navigate to week of 2026-05-06
+          const target = new Date('2026-05-06T12:00:00');
+          const todayMid = new Date(); todayMid.setHours(0,0,0,0);
+          dayOffset = Math.round((target - todayMid) / 86400000);
+          render();
+          // Count Jim New cards
+          const cards = [...document.querySelectorAll('[data-phone="9546326630"]')];
+          const rigSections = cards.map(el => {
+            let node = el;
+            while (node && node !== document.body) {
+              if (node.dataset?.rig) return node.dataset.rig;
+              const jd = node.closest('[data-rig]');
+              if (jd) return jd.dataset.rig;
+              node = node.parentElement;
+            }
+            // also check rig-jobs parent
+            const rj = el.closest('.rig-jobs');
+            return rj?.dataset?.rig || 'unknown';
+          });
+          return { count: cards.length, rigs: rigSections };
+        });
+        if (jimResult.skip) {
+          warn('Calendar — Jim New single card check', jimResult.skip);
+        } else if (jimResult.count === 1) {
+          pass('Calendar — Jim New: exactly 1 card on May 6 (no duplicate)', `rig: ${jimResult.rigs[0]}`);
+          if (jimResult.rigs[0] === 'rig_2') {
+            pass('Calendar — Jim New: card is in rig_2 (New Tacoma)');
+          } else {
+            fail('Calendar — Jim New: card is in rig_2', `actual rig: ${jimResult.rigs[0]}`);
+          }
+        } else if (jimResult.count === 0) {
+          warn('Calendar — Jim New: 0 cards found', 'Job may not be visible in this week');
+        } else {
+          fail('Calendar — Jim New: exactly 1 card on May 6', `found ${jimResult.count} cards in rigs: ${jimResult.rigs.join(', ')}`);
+        }
+      }
+
       // ── Drag guard on completed jobs ─────────────────────────────────────────
       // Test: handleDropToRig on a completed job must NOT change state or rig.
       // Jim New (9546326630) has state=completed, rig=rig_2, date=2026-05-06.
