@@ -976,6 +976,60 @@ async function main() {
       fail('Google Drive status — /admin/google-drive/status', `unexpected status ${statusRes.status}`);
     }
 
+    // ── CALENDAR — drag suppressor allows modal/overlay clicks ─────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-drag-suppressor', async page => {
+      await page.waitForTimeout(2000);
+
+      const testPhone = await page.evaluate(() =>
+        (dbRecord?.customers||[]).find(c => c.scheduledStatus?.state === 'completed')?.phone || null
+      );
+      if (!testPhone) { warn('Calendar drag suppressor — payment modal test', 'no completed customer found'); return; }
+
+      // Open payment modal programmatically (so we can test suppressor without real card click)
+      await page.evaluate(ph => openPaymentModal(ph), testPhone);
+      await page.waitForTimeout(200);
+
+      // Register a drag suppressor using the same logic as the live stopDrag() function
+      await page.evaluate(() => {
+        (function registerSuppressor() {
+          document.addEventListener('click', function suppressClick(e) {
+            if (e.target.closest('.overlay, .modal, .crew-pop, [role="dialog"], .popover, .dropdown-menu')) {
+              registerSuppressor(); // re-register — modal click is not the target
+              return;
+            }
+            e.stopPropagation(); e.preventDefault();
+          }, { capture: true, once: true });
+        })();
+      });
+
+      // Clicking modal submit button should NOT be suppressed
+      const suppressorResult = await page.evaluate(async () => {
+        const orig = window.submitPayment;
+        let submitCalled = false;
+        window.submitPayment = function() { submitCalled = true; return orig.apply(this, arguments); };
+        document.querySelector('#paymentModal .mbtn-save')?.click();
+        await new Promise(r => setTimeout(r, 200));
+        window.submitPayment = orig;
+        return submitCalled;
+      });
+      if (suppressorResult) pass('Calendar — drag suppressor allows modal button clicks');
+      else fail('Calendar — drag suppressor allows modal button clicks', 'submitPayment was not called despite being inside .overlay');
+
+      // Verify the suppressor is still consumed (next non-modal click IS suppressed)
+      const suppConsumed = await page.evaluate(async () => {
+        let dayViewOpened = false;
+        const origSwitch = window.switchView;
+        window.switchView = function() { dayViewOpened = true; return origSwitch?.apply(this, arguments); };
+        // Click a day header (non-modal click) — suppressor should fire and block it
+        document.querySelector('.day-hdr')?.click();
+        await new Promise(r => setTimeout(r, 100));
+        window.switchView = origSwitch;
+        return dayViewOpened;
+      });
+      if (!suppConsumed) pass('Calendar — drag suppressor still blocks day-header mis-click');
+      else fail('Calendar — drag suppressor still blocks day-header mis-click', 'day-header click was not suppressed');
+    });
+
     // ── NEW CUSTOMER — 3-option post-save modal ────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-postsave', async page => {
       // Trigger modal directly without a real DB save

@@ -6401,11 +6401,18 @@ document.addEventListener('keydown', e => {
     // All day shifts committed in real-time during mousemove. Just snap back and reset.
     _lastCommittedDays = 0;
 
-    // Suppress synthetic click after any horizontal drag
-    document.addEventListener('click', function suppressClick(e) {
-      e.stopPropagation(); e.preventDefault();
-      document.removeEventListener('click', suppressClick, true);
-    }, { capture: true, once: true });
+    // Suppress the synthetic click that follows a horizontal drag.
+    // Only targets non-modal clicks (day-header mis-clicks). If the next click is inside a
+    // modal/overlay, let it through and stay active for the next non-modal click.
+    (function registerSuppressor() {
+      document.addEventListener('click', function suppressClick(e) {
+        if (e.target.closest('.overlay, .modal, .crew-pop, [role="dialog"], .popover, .dropdown-menu')) {
+          registerSuppressor(); // stay active — modal click was not the intended suppression target
+          return;
+        }
+        e.stopPropagation(); e.preventDefault();
+      }, { capture: true, once: true });
+    })();
 
     // Snap transform back to 0 with ease-out
     if (g) {
