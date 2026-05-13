@@ -287,6 +287,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .dist-marker.dm-red{color:#dc2626;}
 .dist-marker.dm-none{color:#d1d5db;}
 .route-summary{display:flex;align-items:center;justify-content:space-between;padding:5px 8px 3px;font-size:11px;font-weight:600;color:#374151;border-top:1px dashed #e2e8f0;margin-top:2px;}
+.rig-commute-banner{font-size:10px;color:var(--muted);font-weight:600;padding:3px 8px;background:#f5f8ff;border-radius:5px;margin:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rig-commute-total{font-size:10px;color:var(--sky);font-weight:700;padding:2px 8px 4px;}
 .route-warn{font-size:10px;color:#dc2626;padding:1px 8px 4px;font-weight:600;}
 .route-missing{font-size:10px;color:#9ca3af;padding:1px 8px 4px;}
 .optimize-btn{background:none;border:1px solid #d1d5db;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700;color:#374151;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .1s;white-space:nowrap;}
@@ -2127,6 +2129,32 @@ function renderRouteSummary(jobs, date, rig) {
   </div>${warnHtml}${missingNote}`;
 }
 
+// Commute distance banners: 🏠→first, last→🏠, and daily total per rig swimlane.
+// Uses 35 mph average for South Florida streets. Returns {top, bottom, total} HTML strings.
+function renderRigCommuteBanners(activeJobs) {
+  if (!activeJobs.length) return { top: '', bottom: '', total: '' };
+  const firstCoords = getJobCoords(activeJobs[0]);
+  const lastCoords  = getJobCoords(activeJobs[activeJobs.length - 1]);
+  const homeToFirst = firstCoords ? distanceBetween(HOME_BASE.lat, HOME_BASE.lng, firstCoords.lat, firstCoords.lng) * 1.3 : null;
+  const lastToHome  = lastCoords  ? distanceBetween(lastCoords.lat, lastCoords.lng, HOME_BASE.lat, HOME_BASE.lng) * 1.3 : null;
+  let interMi = 0;
+  for (let i = 0; i < activeJobs.length - 1; i++) {
+    const a = getJobCoords(activeJobs[i]), b = getJobCoords(activeJobs[i + 1]);
+    if (a && b) interMi += distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
+  }
+  const fmt = (mi, mph) => mi != null
+    ? `${mi.toFixed(1)} mi · ~${Math.max(1, Math.round(mi / mph * 60))} min`
+    : '—';
+  const top    = `<div class="rig-commute-banner">🏠 → first: ${fmt(homeToFirst, 35)}</div>`;
+  const bottom = `<div class="rig-commute-banner">last → 🏠: ${fmt(lastToHome, 35)}</div>`;
+  const totalMi = (homeToFirst || 0) + interMi + (lastToHome || 0);
+  const anyCoords = homeToFirst != null || lastToHome != null;
+  const total = anyCoords
+    ? `<div class="rig-commute-total">📊 ${totalMi.toFixed(1)} mi total · ${activeJobs.length} job${activeJobs.length !== 1 ? 's' : ''}</div>`
+    : '';
+  return { top, bottom, total };
+}
+
 function getScheduledForRigOrdered(date, rig) {
   const jobs = getScheduledForRig(date, rig);
   const savedOrder = (calState.jobOrder?.[date]?.[rig]) || [];
@@ -2533,11 +2561,16 @@ function renderCalGrid(dates) {
          </div>`;
       const emptyPlaceholder = (jobs.length === 0 && extras.length === 0)
         ? `<div class="rig-empty-label drag-ignore">No jobs assigned</div>` : '';
+      const activeForCommute = jobs.filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
+      const commute = activeForCommute.length ? renderRigCommuteBanners(activeForCommute) : { top:'', bottom:'', total:'' };
       return `<div class="rig-section">
         ${rigLabelHtml}
         ${bulkPrintHtml}
+        ${commute.top}
         <div class="rig-jobs${emptyClass}" data-date="${date}" data-rig="${rig}" id="rj-${date}-${rig}">${jobsHtml}${emptyPlaceholder}</div>
         ${extrasHtml}
+        ${commute.bottom}
+        ${commute.total}
         ${routeSummaryHtml}
       </div>`;
     }).join('');
@@ -4096,7 +4129,7 @@ function goToday()       { dayOffset = 0; render(); updateBlockWeekBtn(); }
 function openDayRouteView() {
   // Opens day route view for the first visible date (start of current window)
   const date = getWeekDates()[0];
-  window.open(`/pure_cleaning_day_route.html?date=${date}`, '_blank');
+  window.location.href = `/pure_cleaning_day_route.html?date=${date}`;
 }
 
 let _crewVisible = false;
@@ -6297,7 +6330,7 @@ document.addEventListener('keydown', e => {
 // _weekNavDrag: drag left/right slides window by 1 day per DAY_DRAG_PX
 (function() {
   const DAY_DRAG_PX = 150; // px per 1-day shift
-  let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false, _totalDx = 0;
+  let _dragging = false, _startX = 0, _startY = 0, _scrollX0 = 0, _isH = false, _totalDx = 0, _lastCommittedDays = 0;
   const scroller = () => document.querySelector('.main-col');
   const grid     = () => document.getElementById('calGrid');
   const colWidth = () => document.querySelector('.day-col')?.offsetWidth || 175;
@@ -6324,6 +6357,7 @@ document.addEventListener('keydown', e => {
     _dragging = true;
     _isH      = false;
     _totalDx  = 0;
+    _lastCommittedDays = 0;
     _startX   = e.clientX;
     _startY   = e.clientY;
     _scrollX0 = sc.scrollLeft;
@@ -6341,7 +6375,15 @@ document.addEventListener('keydown', e => {
       const g = grid(); if (g) g.classList.add('wv-dragging');
     }
     _totalDx = dx;
-    // 1:1 cursor-follow during drag — no scroll, no parallax resistance
+    // Commit day shifts in real-time as cursor crosses each DAY_DRAG_PX boundary
+    const days = Math.round(-dx / DAY_DRAG_PX);
+    if (days !== _lastCommittedDays) {
+      dayOffset += (days - _lastCommittedDays);
+      _lastCommittedDays = days;
+      render();
+      updateBlockWeekBtn();
+    }
+    // 1:1 cursor-follow — transform persists across render() since it's on the element, not innerHTML
     const g = grid();
     if (g) { g.style.transition = 'none'; g.style.transform = 'translateX(' + dx + 'px)'; }
     updateFades();
@@ -6356,25 +6398,20 @@ document.addEventListener('keydown', e => {
     const dx = _totalDx;
     _totalDx = 0;
 
-    // Below 50px counts as no-intent drag — snap back, no day shift
-    const days = Math.abs(dx) < 50 ? 0 : Math.round(-dx / DAY_DRAG_PX);
+    // All day shifts committed in real-time during mousemove. Just snap back and reset.
+    _lastCommittedDays = 0;
 
-    // Suppress synthetic click after any horizontal drag (even sub-threshold),
-    // so dragging on a day-header doesn't accidentally open day view on release.
+    // Suppress synthetic click after any horizontal drag
     document.addEventListener('click', function suppressClick(e) {
       e.stopPropagation(); e.preventDefault();
       document.removeEventListener('click', suppressClick, true);
     }, { capture: true, once: true });
 
-    // Snap transform back to 0 with ease-out; update content immediately
+    // Snap transform back to 0 with ease-out
     if (g) {
       g.style.transition = 'transform 150ms ease-out';
       g.style.transform  = '';
       setTimeout(() => { if (g) g.style.transition = ''; }, 160);
-    }
-
-    if (days !== 0) {
-      dayOffset += days; render(); updateBlockWeekBtn();
     }
   }
 

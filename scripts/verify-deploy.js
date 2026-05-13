@@ -72,6 +72,10 @@ const HTML_FILES = [
       'DAY_DRAG_PX',                                      // Regression: day-by-day drag constant
       "state === 'completed'",                            // Regression: drag guard on completed jobs
       'jhEntry.rigId = ss.rig',                           // Regression: pencil edit updates jobHistory rigId
+      '_lastCommittedDays',                               // Regression: continuous drag commits mid-drag
+      'renderRigCommuteBanners',                          // Regression: home commute banners per rig
+      'rig-commute-banner',                               // Regression: commute banner CSS class
+      'window.location.href',                             // Regression: Day Route opens in same tab
     ],
   },
   {

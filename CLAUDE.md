@@ -317,6 +317,12 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 13, 2026 | Drag-on-completed-jobs bug fixed. handleDropToRig unconditionally set state='scheduled' when called, corrupting completed jobs. Plus drag never touched jobHistory[N].rigId — the field that matters for ML and worker hours. Fix: block drag entirely on completed jobs (toast directs to pencil edit). Pencil edit modal now updates both scheduledStatus.rig AND matching jobHistory entry's rigId atomically. Jim New jobHistory rigId backfilled to rig_2 for May 6 entry (his $1,700 sand-and-seal). Drag = scheduling future work. Pencil = editing history. Clean separation of concerns. Snapshot before data fix: customer_db_backup_2026-05-13T16-37-54. |
 
+| May 13, 2026 | Continuous drag: dayOffset now increments in real-time as cursor crosses each 150px boundary (Math.round(-dx/150) compared to _lastCommittedDays). Label updates mid-drag — no release needed to commit each day. On release: snap-back only, no extra render(). transform persists through render() calls since it's on the element, not innerHTML. |
+
+| May 13, 2026 | Home commute distance banners added per rig swimlane in week view. renderRigCommuteBanners() shows 🏠→first, last→🏠, and 📊 total using haversine + 1.3× correction + 35mph average. Only shows on rigs with ≥1 non-cancelled job. Complements existing between-job routeSummaryHtml without duplication. |
+
+| May 13, 2026 | Day Route view now opens in same tab (window.location.href not window.open). Day Route page already had ← Calendar back button. Keeps Tyler in the Operations Hub flow without tab proliferation. |
+
 *Append future decisions below this line.*
 
 ---

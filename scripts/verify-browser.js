@@ -273,6 +273,24 @@ async function main() {
         } else {
           fail('Calendar — drag 300px = 2 days backward', `Window unchanged after 300px drag. Before: "${labelBefore2}" After: "${labelAfter2}"`);
         }
+
+        // ── Continuous drag: label updates MID-DRAG at 75px boundary ────────
+        // With continuous commit, the week label changes as cursor crosses each 150px boundary.
+        // Drag to 80px (past first 75px commit point) and check label BEFORE release.
+        const labelPreContinuous = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
+        await page.mouse.move(sx, sy);
+        await page.mouse.down();
+        await page.mouse.move(sx - 10, sy); // start horizontal lock-in
+        await page.mouse.move(sx - 80, sy); // past 75px first commit boundary
+        // Check label MID-DRAG (before mouseup) — should already have changed
+        const labelMidDrag = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+        if (labelPreContinuous && labelMidDrag && labelPreContinuous !== labelMidDrag) {
+          pass('Calendar — continuous drag: label updates mid-drag at 75px', `${labelPreContinuous} → ${labelMidDrag} (before release)`);
+        } else {
+          fail('Calendar — continuous drag: label updates mid-drag', `Label did not change mid-drag. Before: "${labelPreContinuous}" Mid: "${labelMidDrag}"`);
+        }
       } else {
         warn('Calendar — drag to navigate', 'No .day-hdr bounding box found');
       }
@@ -436,6 +454,85 @@ async function main() {
           }
         } else {
           warn('Calendar — 25px drag test', 'calGrid bounding box not found');
+        }
+      }
+
+      // ── Part 2: home commute banners visible on populated rig ────────────────
+      // Navigate to a week with completed jobs (Jim New, May 6, rig_2)
+      {
+        const rigBannerResult = await page.evaluate(() => {
+          // Jump to week of 2026-05-06
+          const target = new Date('2026-05-06T12:00:00');
+          const todayMid = new Date(); todayMid.setHours(0,0,0,0);
+          const diff = Math.round((target - todayMid) / 86400000);
+          if (typeof dayOffset !== 'undefined') dayOffset = diff;
+          if (typeof render === 'function') render();
+          return diff;
+        });
+        await page.waitForTimeout(500);
+        const topBanners  = await page.locator('.rig-commute-banner').count();
+        const totalBanners = await page.locator('.rig-commute-total').count();
+        if (topBanners > 0) {
+          pass('Calendar — commute banners present on populated rig', `${topBanners} .rig-commute-banner element(s) found`);
+        } else {
+          warn('Calendar — commute banners present', 'No .rig-commute-banner found — may be no geocoded jobs in week');
+        }
+        if (totalBanners > 0) {
+          pass('Calendar — commute total banner present', `${totalBanners} .rig-commute-total element(s) found`);
+        } else {
+          warn('Calendar — commute total banner', 'No .rig-commute-total found');
+        }
+        // Check banner content (at least one should have the home emoji)
+        const firstBannerText = topBanners > 0
+          ? await page.locator('.rig-commute-banner').first().textContent().catch(() => '')
+          : '';
+        if (firstBannerText.includes('🏠')) {
+          pass('Calendar — commute banner shows home emoji', `"${firstBannerText.trim().slice(0,40)}"`);
+        } else if (topBanners > 0) {
+          fail('Calendar — commute banner shows home emoji', `Banner text: "${firstBannerText.trim().slice(0,40)}"`);
+        }
+      }
+
+      // ── Part 3: Day Route navigates in same tab (no _blank) ──────────────────
+      {
+        const dayRouteBtn = page.locator('button:has-text("Day Route")');
+        const btnExists = await dayRouteBtn.isVisible().catch(() => false);
+        if (btnExists) {
+          // Check the button does not open a new tab (window.location.href not window.open)
+          const usesLocationHref = await page.evaluate(() => {
+            const src = document.documentElement.innerHTML;
+            return src.includes('window.location.href') && src.includes('day_route.html') &&
+                   !src.includes("window.open") || src.indexOf('window.location.href') < src.indexOf('window.open') + 5;
+          });
+          // A simpler check: the function source doesn't contain window.open for day route
+          const noBlank = await page.evaluate(() => {
+            const src = openDayRouteView.toString();
+            return src.includes('location.href') && !src.includes('window.open');
+          });
+          if (noBlank) {
+            pass('Calendar — Day Route button: navigates in same tab (no _blank)');
+          } else {
+            fail('Calendar — Day Route button: navigates in same tab', 'openDayRouteView still uses window.open');
+          }
+        } else {
+          warn('Calendar — Day Route button', 'Button not found');
+        }
+      }
+
+      // ── Part 3: Day Route page has ← Calendar back button ────────────────────
+      // (Verified separately since navigating away would end this page's tests)
+      {
+        const backBtnSource = await page.evaluate(async () => {
+          try {
+            const r = await fetch('/pure_cleaning_day_route.html', { headers: { 'Cache-Control': 'no-cache' } });
+            const html = await r.text();
+            return html.includes('← Calendar') || html.includes('← Calendar');
+          } catch { return false; }
+        });
+        if (backBtnSource) {
+          pass('Day Route — ← Calendar back button present in HTML');
+        } else {
+          fail('Day Route — ← Calendar back button present', 'Not found in page source');
         }
       }
 
