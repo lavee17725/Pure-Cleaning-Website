@@ -149,6 +149,17 @@ const HTML_FILES = [
       'addToQueue',            // Regression: Incoming Queue option present
       'submitScheduleNow',     // Regression: Schedule it now option present
       'openScheduleModal',     // Regression: date picker for Option A
+      'matchBanner',           // Existing customer detection — rich match banner
+      'altPhoneRow',           // Alt phone toggle row
+      'nAltPhone',             // Alt phone input field
+      'showMatchBanner',       // Match banner JS function
+      'useMatch',              // "Yes, use existing" handler
+      'onNameInput',           // Name detection debounce trigger
+      'onAddressInput',        // Address detection debounce trigger
+      'showJobHistory',        // Job history section renderer
+      'jhSection',             // Job history container
+      'customer.altPhone',     // altPhone persisted to customer record
+      'existing_customer_updated', // audit event on existing customer update
     ],
   },
 ];

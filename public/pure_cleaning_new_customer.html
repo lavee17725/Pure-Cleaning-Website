@@ -80,6 +80,25 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .dup-row{display:flex;gap:8px;}
 .dup-yes{flex:1;min-height:44px;padding:10px;background:var(--gold);color:var(--navy);border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
 .dup-no{min-height:44px;padding:10px 14px;background:none;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
+/* ── Existing customer match banner ── */
+.match-banner{background:#fffbeb;border:2px solid #fcd34d;border-radius:14px;padding:12px 14px;margin-bottom:1rem;display:none;}
+.match-card{margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #fde68a;}
+.match-card:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
+.match-info{font-size:14px;font-weight:600;color:#78350f;margin-bottom:4px;line-height:1.4;}
+.match-detail{font-size:12px;color:#92400e;margin-bottom:3px;line-height:1.4;}
+.match-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
+.match-yes{flex:1;min-width:0;min-height:40px;padding:8px 10px;background:var(--gold);color:var(--navy);border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.match-no{min-height:40px;padding:8px 12px;background:none;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);}
+.match-view{display:inline-flex;align-items:center;min-height:40px;padding:8px 10px;font-size:13px;font-weight:600;color:var(--sky);text-decoration:none;}
+/* ── Alt phone row ── */
+.alt-phone-remove{min-height:36px;padding:8px 10px;background:none;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);white-space:nowrap;flex-shrink:0;}
+.alt-phone-remove:hover{border-color:var(--red);color:var(--red);}
+/* ── Prior job history ── */
+.jh-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);}
+.jh-row:last-child{border-bottom:none;}
+.jh-date{font-size:12px;font-weight:700;color:var(--muted);min-width:90px;flex-shrink:0;}
+.jh-svc{flex:1;font-size:13px;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.jh-amt{font-size:13px;font-weight:700;color:var(--navy);flex-shrink:0;}
 .success-wrap{text-align:center;padding:2.5rem 0 1.5rem;}
 .s-emoji{font-size:72px;display:block;margin-bottom:1rem;animation:pop .45s ease;}
 @keyframes pop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
@@ -199,6 +218,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
     </div>
 
+    <!-- Existing customer match banner (replaces simple dupCallout for all match types) -->
+    <div id="matchBanner" class="match-banner"></div>
+
     <!-- Duplicate callout -->
     <div class="dup-callout" id="dupCallout">
       <div class="dup-text" id="dupText"></div>
@@ -236,20 +258,27 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     <div class="field-row">
       <div class="field">
         <label>First name<span class="field-req">*</span></label>
-        <input id="nFn" class="fi" type="text" placeholder="Karen" oninput="checkReq()">
+        <input id="nFn" class="fi" type="text" placeholder="Karen" oninput="checkReq();onNameInput()">
       </div>
       <div class="field">
         <label>Last name<span class="field-req">*</span></label>
-        <input id="nLn" class="fi" type="text" placeholder="Wilson" oninput="checkReq()">
+        <input id="nLn" class="fi" type="text" placeholder="Wilson" oninput="checkReq();onNameInput()">
       </div>
     </div>
     <div class="field">
-      <label>📞 Phone<span class="field-req">*</span></label>
+      <label style="display:flex;align-items:center;justify-content:space-between;">
+        <span>📞 Phone<span class="field-req">*</span></span>
+        <button type="button" id="altPhoneToggle" onclick="showAltPhone()" class="add-link" style="font-size:12px;font-weight:600;">+ Add alt phone</button>
+      </label>
       <input id="nPhone" class="fi" type="tel" placeholder="(954) 555-1234" oninput="onPhoneInput(this)">
+      <div id="altPhoneRow" style="display:none;margin-top:6px;gap:8px;align-items:center;">
+        <input id="nAltPhone" class="fi" type="tel" placeholder="Alt phone (spouse, work, etc.)" oninput="fmtAltPhone(this)" style="flex:1;font-size:15px;">
+        <button type="button" class="alt-phone-remove" onclick="hideAltPhone()">× Remove</button>
+      </div>
     </div>
     <div class="field">
       <label>📍 Street address<span class="field-req">*</span></label>
-      <input id="nAddr" class="fi" type="text" placeholder="16621 SW 62nd St" oninput="checkReq()">
+      <input id="nAddr" class="fi" type="text" placeholder="16621 SW 62nd St" oninput="checkReq();onAddressInput()">
     </div>
     <div class="field">
       <label>City<span class="field-req">*</span></label>
@@ -458,6 +487,15 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <h3>📝 Notes for the team</h3>
     </div>
     <textarea id="nNotes" class="notes-box" placeholder="Gate code, parking, anything the crew needs to know…"></textarea>
+
+    <!-- Prior job history — shown after confirming existing customer via useMatch() -->
+    <div id="jhSection" style="display:none;margin-top:1rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem;cursor:pointer;" onclick="toggleJhBody()">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">📋 Prior job history</div>
+        <span id="jhToggle" style="font-size:12px;color:var(--sky);font-weight:600;">▶ Show</span>
+      </div>
+      <div id="jhBody" style="display:none;background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:8px 12px;max-height:300px;overflow-y:auto;"></div>
+    </div>
 
     <div style="margin-top:1rem;padding:10px 12px;background:#fafafa;border:1.5px solid #e2e8f0;border-radius:10px;">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;">
@@ -1064,6 +1102,10 @@ let currentPath  = 'phone';
 let _confirmSms  = '';
 let _lastSavedCustomer = null;
 let _saving = false;
+let _matchResults = [];
+let _nameDetectTimer = null;
+let _addrDetectTimer = null;
+let _altPhoneTimer   = null;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -1217,6 +1259,19 @@ function resetForm() {
   const not2 = document.getElementById('nLeadOtherText'); if (not2) not2.value = '';
   const nle  = document.getElementById('nLeadSourceError'); if (nle) nle.style.display = 'none';
   document.getElementById('dupCallout').classList.remove('show');
+  const apEl = document.getElementById('nAltPhone');
+  if (apEl) { apEl.value=''; apEl.readOnly=false; apEl.style.cssText=''; }
+  const apRow = document.getElementById('altPhoneRow');
+  if (apRow) apRow.style.display='none';
+  const apTgl = document.getElementById('altPhoneToggle');
+  if (apTgl) apTgl.style.display='';
+  hideMatchBanner(); _matchResults=[];
+  const jhSec = document.getElementById('jhSection');
+  if (jhSec) jhSec.style.display='none';
+  const jhBody = document.getElementById('jhBody');
+  if (jhBody) { jhBody.style.display='none'; jhBody.innerHTML=''; }
+  const jhTgl = document.getElementById('jhToggle');
+  if (jhTgl) jhTgl.textContent='▶ Show';
   renderNewAlerts();
   checkReq();
 }
@@ -1239,8 +1294,9 @@ function onPhoneInput(input) {
   else if (d.length >= 4) input.value = `(${d.slice(0,3)}) ${d.slice(3)}`;
   else input.value = d;
   checkReq();
-  if (d.length !== 10 || !isNew) { document.getElementById('dupCallout').classList.remove('show'); return; }
-  const dup = allCustomers.find(c => c.phone === d);
+  if (d.length !== 10 || !isNew) { document.getElementById('dupCallout').classList.remove('show'); hideMatchBanner(); return; }
+  const dup = allCustomers.find(c => (c.phone||'').replace(/\D/g,'').slice(0,10) === d) ||
+              allCustomers.find(c => (c.altPhone||'').replace(/\D/g,'').slice(0,10) === d);
   if (dup) {
     document.getElementById('optOutCallout').style.display = 'none';
     document.getElementById('movedAwayCallout').style.display = 'none';
@@ -1249,15 +1305,13 @@ function onPhoneInput(input) {
       const atStr = dup.movedAway.at ? ' on ' + new Date(dup.movedAway.at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
       document.getElementById('movedAwayText').textContent = `🏠 MOVED AWAY — ${dup.firstName} ${dup.lastName} was marked as moved away${atStr}${loc}. This customer is outside the service area.`;
       document.getElementById('movedAwayCallout').style.display = 'block';
-      document.getElementById('dupCallout').classList.remove('show');
-      dupPhone = null;
+      hideMatchBanner(); dupPhone = null;
     } else if (dup.optOut) {
       const OPT_LABELS = {customer_request:'Customer request',wrong_number:'Wrong number',deceased:'Deceased',moved:'Moved away',do_not_contact:'Do not contact'};
       const reason = OPT_LABELS[dup.optOut.reason] || dup.optOut.reason || 'Unknown';
       document.getElementById('optOutText').textContent = `⚠️ ${dup.firstName} ${dup.lastName} is marked opted out (${reason}). Do not contact this customer.`;
       document.getElementById('optOutCallout').style.display = 'block';
-      document.getElementById('dupCallout').classList.remove('show');
-      dupPhone = null;
+      hideMatchBanner(); dupPhone = null;
     } else {
       dupPhone = d;
       const cmptWarn = document.getElementById('complaintCallout');
@@ -1268,11 +1322,11 @@ function onPhoneInput(input) {
       } else if (cmptWarn) {
         cmptWarn.style.display = 'none';
       }
-      document.getElementById('dupText').textContent = `👋 Looks like we already know ${dup.firstName} ${dup.lastName}! Tap below to use their info, or continue.`;
-      document.getElementById('dupCallout').classList.add('show');
+      showMatchBanner([dup]);
     }
   } else {
     dupPhone = null;
+    hideMatchBanner();
     document.getElementById('dupCallout').classList.remove('show');
     document.getElementById('optOutCallout').style.display = 'none';
     document.getElementById('movedAwayCallout').style.display = 'none';
@@ -1303,6 +1357,173 @@ function useDuplicate() {
 function skipDuplicate() {
   dupPhone = null;
   document.getElementById('dupCallout').classList.remove('show');
+}
+
+// ── Alt phone ─────────────────────────────────────────────────────────────────
+function showAltPhone() {
+  const row = document.getElementById('altPhoneRow');
+  if (row) row.style.display = 'flex';
+  const btn = document.getElementById('altPhoneToggle');
+  if (btn) btn.style.display = 'none';
+  document.getElementById('nAltPhone')?.focus();
+}
+function hideAltPhone() {
+  const row = document.getElementById('altPhoneRow');
+  if (row) row.style.display = 'none';
+  const el = document.getElementById('nAltPhone');
+  if (el) { el.value=''; el.readOnly=false; el.style.cssText=''; }
+  const btn = document.getElementById('altPhoneToggle');
+  if (btn) btn.style.display = '';
+}
+function fmtAltPhone(input) {
+  const d = input.value.replace(/\D/g,'').slice(0,10);
+  if (d.length >= 7) input.value = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+  else if (d.length >= 4) input.value = `(${d.slice(0,3)}) ${d.slice(3)}`;
+  else input.value = d;
+  if (d.length !== 10 || !isNew) return;
+  clearTimeout(_altPhoneTimer);
+  _altPhoneTimer = setTimeout(() => {
+    const match = allCustomers.find(c =>
+      (c.altPhone||'').replace(/\D/g,'').slice(0,10) === d ||
+      (c.phone||'').replace(/\D/g,'').slice(0,10) === d
+    );
+    if (match && !match.optOut && !match.movedAway) showMatchBanner([match]);
+  }, 300);
+}
+
+// ── Existing customer match banner ────────────────────────────────────────────
+function _matchStats(c) {
+  const jh = (c.jobHistory||[]);
+  const completed = jh.filter(j => j.status==='completed' || j.completedAt);
+  const sorted = [...completed].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const last = sorted[0];
+  const totalJobs = completed.length || c.totalJobs || 0;
+  const spend = completed.reduce((s,j) => s + (j.amount||0), 0) || c.lifetimeSpend || 0;
+  const lastDate = last?.date
+    ? new Date(last.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : (c.lastService ? new Date(c.lastService).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : null);
+  const lastType = last ? (last.services||last.jobNotes||'') : '';
+  const lastAmt  = last?.amount ?? null;
+  return { totalJobs, spend, lastDate, lastType, lastAmt };
+}
+function showMatchBanner(matches) {
+  if (!matches || !matches.length) return;
+  _matchResults = matches.filter(c => !c.isReferralOnly && !(c.phone||'').startsWith('REFERRAL_'));
+  if (!_matchResults.length) return;
+  const banner = document.getElementById('matchBanner');
+  if (!banner) return;
+  document.getElementById('dupCallout').classList.remove('show');
+  banner.innerHTML = _matchResults.map((c, i) => {
+    const stats  = _matchStats(c);
+    const ph     = c.phone||'';
+    const phFmt  = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
+    const lastLine = stats.lastDate
+      ? `Last service: ${stats.lastDate}${stats.lastType?' · '+esc(stats.lastType.slice(0,40)):''}${stats.lastAmt!=null?' · $'+Number(stats.lastAmt).toFixed(0):''}`
+      : 'No service history';
+    return `<div class="match-card">
+      <div class="match-info">🔍 <strong>${esc(c.firstName||'')} ${esc(c.lastName||'')}</strong>${phFmt?' · '+phFmt:''}${c.address?' · '+esc(c.address)+(c.city?', '+esc(c.city):''):''}</div>
+      <div class="match-detail">${lastLine}</div>
+      <div class="match-detail">Total jobs: ${stats.totalJobs} · Lifetime spend: $${Number(stats.spend).toFixed(0)}</div>
+      <div class="match-actions">
+        <button class="match-yes" onclick="useMatch(${i})">✓ Yes, use existing</button>
+        <button class="match-no"  onclick="dismissMatch()">✗ No, this is new</button>
+        <a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone||'')}" target="_blank" class="match-view">View profile →</a>
+      </div>
+    </div>`;
+  }).join('');
+  banner.style.display = 'block';
+}
+function hideMatchBanner() {
+  const b = document.getElementById('matchBanner');
+  if (b) b.style.display = 'none';
+}
+function dismissMatch() {
+  hideMatchBanner();
+  _matchResults = [];
+}
+function useMatch(idx) {
+  const c = _matchResults[idx];
+  if (!c) return;
+  currentCustomer = c; isNew = false; dupPhone = c.phone;
+  pendingAlerts = [...(c.alerts||[])];
+  const ph = c.phone||'';
+  document.getElementById('nFn').value    = c.firstName||'';
+  document.getElementById('nLn').value    = c.lastName||'';
+  document.getElementById('nPhone').value = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
+  document.getElementById('nPhone').readOnly = true;
+  document.getElementById('nPhone').style.cssText = 'background:#f5f3ef;color:var(--muted);';
+  document.getElementById('nAddr').value  = c.address||'';
+  document.getElementById('nCity').value  = c.city||'';
+  document.getElementById('nEmail').value = c.email||'';
+  document.getElementById('nZip').value   = c.zip||'';
+  document.getElementById('nNotes').value = c.notes||'';
+  if (c.altPhone) {
+    const apd = (c.altPhone||'').replace(/\D/g,'').slice(0,10);
+    if (apd.length === 10) {
+      showAltPhone();
+      const apEl = document.getElementById('nAltPhone');
+      if (apEl) { apEl.value=`(${apd.slice(0,3)}) ${apd.slice(3,6)}-${apd.slice(6)}`; apEl.readOnly=true; apEl.style.background='#f5f3ef'; }
+    }
+  }
+  hideMatchBanner();
+  showJobHistory(c);
+  renderNewAlerts(); checkReq();
+}
+
+// ── Prior job history section ─────────────────────────────────────────────────
+function showJobHistory(c) {
+  const sec = document.getElementById('jhSection');
+  if (!sec) return;
+  const jh = (c.jobHistory||[]).filter(j => j.status==='completed'||j.completedAt).sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  if (!jh.length) { sec.style.display='none'; return; }
+  const body = document.getElementById('jhBody');
+  if (body) {
+    body.innerHTML = jh.slice(0,10).map(j => {
+      const dt  = j.date ? new Date(j.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '?';
+      const svc = (j.services||j.jobNotes||'');
+      const amt = j.amount != null ? '$'+Number(j.amount).toFixed(0) : '';
+      return `<div class="jh-row"><span class="jh-date">${dt}</span><span class="jh-svc">${esc(svc.slice(0,50))}</span><span class="jh-amt">${amt}</span></div>`;
+    }).join('');
+  }
+  sec.style.display = 'block';
+}
+function toggleJhBody() {
+  const b = document.getElementById('jhBody');
+  const t = document.getElementById('jhToggle');
+  if (!b) return;
+  const open = b.style.display !== 'none';
+  b.style.display = open ? 'none' : 'block';
+  if (t) t.textContent = open ? '▶ Show' : '▼ Hide';
+}
+
+// ── Address / name detection ──────────────────────────────────────────────────
+function onNameInput() {
+  if (!isNew) return;
+  clearTimeout(_nameDetectTimer);
+  _nameDetectTimer = setTimeout(() => {
+    const fn = (document.getElementById('nFn')?.value||'').trim().toLowerCase();
+    const ln = (document.getElementById('nLn')?.value||'').trim().toLowerCase();
+    if (!fn || !ln) return;
+    const matches = allCustomers.filter(c =>
+      (c.firstName||'').toLowerCase() === fn &&
+      (c.lastName||'').toLowerCase()  === ln &&
+      !c.isReferralOnly && !(c.phone||'').startsWith('REFERRAL_')
+    );
+    if (matches.length) showMatchBanner(matches.slice(0,3));
+  }, 500);
+}
+function onAddressInput() {
+  if (!isNew) return;
+  clearTimeout(_addrDetectTimer);
+  _addrDetectTimer = setTimeout(() => {
+    const addr = (document.getElementById('nAddr')?.value||'').trim().toLowerCase();
+    if (addr.length < 5) return;
+    const matches = allCustomers.filter(c =>
+      (c.address||'').toLowerCase().includes(addr) &&
+      !c.isReferralOnly && !(c.phone||'').startsWith('REFERRAL_')
+    );
+    if (matches.length) showMatchBanner(matches.slice(0,3));
+  }, 500);
 }
 
 function openBcpaFromForm() {
@@ -1434,6 +1655,7 @@ async function submitPhonePath() {
   const email   = document.getElementById('nEmail').value.trim();
   const zip     = document.getElementById('nZip').value.trim();
   const notes   = document.getElementById('nNotes').value.trim();
+  const altPhoneRaw = (document.getElementById('nAltPhone')?.value||'').replace(/\D/g,'').slice(0,10);
   const svcAgreed = getServicesAgreedValue();
   const services  = svcAgreed.fullDescription;
   try {
@@ -1496,6 +1718,11 @@ async function submitPhonePath() {
       }
     }
     _lastSavedCustomer = customer;
+    if (customer && altPhoneRaw) customer.altPhone = altPhoneRaw;
+    if (customer && !isNew && currentCustomer) {
+      if (!customer.auditLog) customer.auditLog = [];
+      customer.auditLog.push({ event:'existing_customer_updated', via:'new_customer_page', at:new Date().toISOString() });
+    }
     try { await saveDb(); } catch(e) { console.warn('[new_customer] DB save failed:', e.message); }
     showWhatNextModal(customer);
   } catch(e) {

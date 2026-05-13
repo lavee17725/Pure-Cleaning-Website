@@ -180,6 +180,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div id="csName" style="font-size:14px;color:var(--muted);margin-bottom:1rem;"></div>
     <div class="vq-field"><label class="vq-label">Scheduled Date *</label><input class="vq-input" id="csDate" type="date"></div>
     <div class="vq-field"><label class="vq-label">Notes (optional)</label><input class="vq-input" id="csNotes" placeholder="Any notes for the job"></div>
+    <div class="vq-field"><label class="vq-label">Alt phone (optional)</label><input class="vq-input" id="csAltPhone" type="tel" placeholder="(954) 555-0000" oninput="formatPhoneInput(this)"></div>
     <div id="csError" style="color:var(--red);font-size:12px;margin-top:4px;display:none;"></div>
     <div class="vq-actions">
       <button class="vq-btn-primary" onclick="submitConfirmSchedule()" style="background:#1d9e75;">📅 Schedule It</button>
@@ -751,6 +752,7 @@ function openCsModal(reqId) {
   const tom = new Date(); tom.setDate(tom.getDate() + 1);
   document.getElementById('csDate').value = tom.toISOString().slice(0, 10);
   document.getElementById('csNotes').value = '';
+  document.getElementById('csAltPhone').value = '';
   document.getElementById('csError').style.display = 'none';
   document.getElementById('csModal').classList.add('show');
 }
@@ -765,10 +767,12 @@ async function submitConfirmSchedule() {
   const d = req.customerData || {};
   const phone = (d.phone||'').replace(/\D/g,'').slice(-10);
   const notes = document.getElementById('csNotes').value.trim();
+  const altPhoneRaw = (document.getElementById('csAltPhone')?.value||'').replace(/\D/g,'').slice(0,10);
   const now = new Date().toISOString();
 
   if (!_customersDb) await loadCustomerDb();
   const c = findOrCreateCustomer(phone, d.firstName, d.lastName, d.address, d.city);
+  if (altPhoneRaw) c.altPhone = altPhoneRaw;
   const entry = (c.quoteHistory||[]).slice().reverse().find(e => e.incomingReqId === _csReqId);
   if (entry) { entry.outcome = 'confirmed'; entry.outcomeAt = now; }
   c.quoteLifecycle = null;

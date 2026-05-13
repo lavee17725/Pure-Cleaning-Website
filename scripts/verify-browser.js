@@ -1013,6 +1013,82 @@ async function main() {
       else fail('New Customer — Build mini quote option visible', 'option text not found');
     });
 
+    // ── NEW CUSTOMER — existing customer detection + alt phone ─────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-detection', async page => {
+      // Alt phone toggle is visible
+      const toggleVisible = await page.locator('#altPhoneToggle').isVisible();
+      if (toggleVisible) pass('New Customer — alt phone toggle visible');
+      else fail('New Customer — alt phone toggle visible', '#altPhoneToggle not found');
+
+      // Alt phone row is hidden by default
+      const altRowHidden = await page.locator('#altPhoneRow').evaluate(el => el.style.display === 'none' || getComputedStyle(el).display === 'none');
+      if (altRowHidden) pass('New Customer — alt phone row hidden by default');
+      else fail('New Customer — alt phone row hidden by default', 'altPhoneRow visible on load');
+
+      // Clicking "+ Add alt phone" shows the row
+      await page.locator('#altPhoneToggle').click();
+      const altRowShown = await page.locator('#altPhoneRow').evaluate(el => el.style.display === 'flex');
+      if (altRowShown) pass('New Customer — "+ Add alt phone" click shows row');
+      else fail('New Customer — "+ Add alt phone" click shows row', 'altPhoneRow not flex after click');
+
+      // Match banner hidden by default
+      const bannerHidden = await page.locator('#matchBanner').evaluate(el => el.style.display === 'none' || getComputedStyle(el).display === 'none');
+      if (bannerHidden) pass('New Customer — match banner hidden by default');
+      else fail('New Customer — match banner hidden by default', '#matchBanner visible on load');
+
+      // showMatchBanner() populates and shows the banner
+      const bannerShown = await page.evaluate(() => {
+        try {
+          window._matchResults = [];
+          const fakeCustomer = {
+            firstName: 'Jane', lastName: 'Test', phone: '9545550001',
+            address: '100 Test St', city: 'Weston',
+            jobHistory: [{ status:'completed', date:'2025-11-01', amount:350, services:'Driveway pressure wash', completedAt:'2025-11-01T12:00:00Z' }],
+            totalJobs: 1, lifetimeSpend: 350
+          };
+          window.allCustomers = window.allCustomers || [];
+          showMatchBanner([fakeCustomer]);
+          return document.getElementById('matchBanner').style.display === 'block';
+        } catch(e) { return e.message; }
+      });
+      if (bannerShown === true) pass('New Customer — showMatchBanner() makes banner visible');
+      else fail('New Customer — showMatchBanner() makes banner visible', String(bannerShown));
+
+      // Banner has Yes / No / View profile buttons
+      const hasYes = await page.locator('.match-yes').isVisible();
+      const hasNo  = await page.locator('.match-no').isVisible();
+      if (hasYes && hasNo) pass('New Customer — match banner has Yes + No buttons');
+      else fail('New Customer — match banner has Yes + No buttons', `yes=${hasYes} no=${hasNo}`);
+
+      // "No, this is new" dismisses banner
+      await page.locator('.match-no').click();
+      const dismissed = await page.locator('#matchBanner').evaluate(el => el.style.display === 'none');
+      if (dismissed) pass('New Customer — dismiss match banner hides it');
+      else fail('New Customer — dismiss match banner hides it', 'banner still visible after dismissal');
+
+      // useMatch fills form and shows job history
+      // Note: use showMatchBanner to populate the script-level _matchResults (window.x won't reach let vars)
+      const matchUsed = await page.evaluate(() => {
+        try {
+          const fakeCustomer = {
+            firstName: 'Jane', lastName: 'Test', phone: '9545550001',
+            address: '100 Test St', city: 'Weston',
+            email: 'jane@test.com', zip: '33326', notes: 'Gate code 1234', alerts: [],
+            jobHistory: [{ status:'completed', date:'2025-11-01', amount:350, services:'Driveway', completedAt:'2025-11-01T12:00:00Z' }],
+            totalJobs: 1, lifetimeSpend: 350
+          };
+          showMatchBanner([fakeCustomer]);
+          useMatch(0);
+          const fnVal   = document.getElementById('nFn').value;
+          const jhShown = document.getElementById('jhSection').style.display !== 'none';
+          return { fn: fnVal, jhShown };
+        } catch(e) { return { error: e.message }; }
+      });
+      if (matchUsed.error) fail('New Customer — useMatch() fills form + shows history', matchUsed.error);
+      else if (matchUsed.fn === 'Jane' && matchUsed.jhShown) pass('New Customer — useMatch() fills form + shows job history');
+      else fail('New Customer — useMatch() fills form + shows job history', `fn=${matchUsed.fn} jhShown=${matchUsed.jhShown}`);
+    });
+
     await context.close();
   } finally {
     await browser.close();
