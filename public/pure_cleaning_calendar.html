@@ -2875,9 +2875,10 @@ function jobCardHistoryExtra(c, jhEntry) {
   const _paLbl = _paUrl ? getPaLabel(addrCity) : null;
   const _paBtn = _paUrl ? `<a href="${_paUrl}" target="_blank" onclick="event.stopPropagation()" class="pa-link">🏠 ${_paLbl}</a>` : '';
 
-  // Payment button — reads jhEntry.paymentInfo (per-job level)
-  const jhPaid = jhEntry.paymentInfo?.paidAt;
-  const jhPayMethod = jhEntry.paymentMethod || jhEntry.payment;
+  // Payment button — reads jhEntry.paymentInfo (per-job level).
+  // Fallback to c.paymentInfo when jhEntry has no jobId (historical entry, normal-mode payment write).
+  const jhPaid = jhEntry.paymentInfo?.paidAt || (!jhEntry.jobId && c.paymentInfo?.paidAt) || null;
+  const jhPayMethod = jhEntry.paymentMethod || jhEntry.payment || (!jhEntry.jobId && c.paymentInfo?.method) || '';
   let paymentBtnHtml = '';
   let zelleReqBtnHtml = '';
   let receiptBtnHtml = '';
@@ -3124,7 +3125,7 @@ function buildQueueHtml(jobs) {
 function getScheduledForRig(date, rig) {
   return (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
-    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed'||ss.state==='canceled'||ss.state==='no_show') && ss.scheduledDate===date && ss.rig===rig;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed') && ss.scheduledDate===date && ss.rig===rig;
   });
 }
 
@@ -4087,7 +4088,13 @@ function promptCancelJob(phone) {
 function executeCancelJob(phone, reason) {
   const c = findCustomer(phone);
   if (!c) return;
-  _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
+  _deletedSnapshot = {
+    phone,
+    quoteStatus:    JSON.parse(JSON.stringify(c.quoteStatus    || {})),
+    scheduledStatus:JSON.parse(JSON.stringify(c.scheduledStatus|| {})),
+    quoteLifecycle: c.quoteLifecycle || null,
+    quoteHistory:   JSON.parse(JSON.stringify(c.quoteHistory   || [])),
+  };
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
 
   if (reason === 'reschedule_later') {
@@ -4105,6 +4112,20 @@ function executeCancelJob(phone, reason) {
   c.scheduledStatus.canceledDate = isoToday();
   c.scheduledStatus.canceledReason = reason;
 
+  // Auto-enroll in "Quoted - Did Not Service" queue in Bulk Reactivation
+  const ss = c.scheduledStatus || {};
+  const _reasonLabels = { customer_canceled:'Customer cancelled', tyler_canceled:'Tyler cancelled', no_show:'Customer no-show' };
+  c.quoteLifecycle = 'did_not_service';
+  if (!c.quoteHistory) c.quoteHistory = [];
+  c.quoteHistory.push({
+    outcome:       'did_not_service',
+    outcomeAt:     new Date().toISOString(),
+    quotedService: ss.jobNotes || '',
+    quotedPrice:   ss.approvedAmount || null,
+    reason:        _reasonLabels[reason] || reason,
+    canceledBy:    'admin',
+  });
+
   // Customer-initiated cancels trigger 6-month cooldown in reactivation
   if (reason === 'customer_canceled' || reason === 'no_show') {
     try {
@@ -4115,7 +4136,7 @@ function executeCancelJob(phone, reason) {
     } catch(e) {}
   }
 
-  logEvent('job_canceled', phone, {name, reason});
+  logEvent('job_canceled', phone, {name, reason, scheduledDate: ss.scheduledDate, service: ss.jobNotes});
   saveDb().catch(()=>{});
   render();
   showToast(`✕ ${esc(name)}'s job canceled`, 'Undo', () => undoDelete(phone));
@@ -4125,8 +4146,10 @@ function undoDelete(phone) {
   if (!_deletedSnapshot || _deletedSnapshot.phone !== phone) return;
   const c = findCustomer(phone);
   if (!c) return;
-  c.quoteStatus = _deletedSnapshot.quoteStatus;
+  c.quoteStatus     = _deletedSnapshot.quoteStatus;
   c.scheduledStatus = _deletedSnapshot.scheduledStatus;
+  c.quoteLifecycle  = _deletedSnapshot.quoteLifecycle;
+  c.quoteHistory    = _deletedSnapshot.quoteHistory;
   _deletedSnapshot = null;
   saveDb().catch(()=>{});
   render();

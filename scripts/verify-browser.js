@@ -1099,6 +1099,133 @@ async function main() {
       else fail('Extra card Edit — openEditModal populates Monroe services', `feServices was: "${result.feSvcVal}"`);
     });
 
+    // ── CANCELLED JOBS — removed from calendar + auto-DNS ────────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'cancel-job-dns', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(() => {
+        // Find a scheduled customer to cancel
+        const c = (dbRecord?.customers||[]).find(x =>
+          x.scheduledStatus?.state === 'scheduled' && x.scheduledStatus?.rig && x.phone && !x.isTest
+        );
+        if (!c) return { skip: 'no scheduled customer found' };
+
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+        const origSaveDb = window.saveDb;
+        window.saveDb = () => Promise.resolve();
+        const origRender = window.render;
+        window.render = () => {};
+
+        const beforeLifecycle = c.quoteLifecycle || null;
+        const beforeHistLen   = (c.quoteHistory||[]).length;
+
+        // Execute cancel
+        executeCancelJob(ph, 'tyler_canceled');
+
+        const afterState     = c.scheduledStatus?.state;
+        const afterLifecycle = c.quoteLifecycle;
+        const afterHistLen   = (c.quoteHistory||[]).length;
+        const lastEntry      = (c.quoteHistory||[]).slice(-1)[0] || {};
+        const entryOutcome   = lastEntry.outcome;
+
+        // Undo so we don't leave stale in-memory data
+        undoDelete(ph);
+
+        window.saveDb = origSaveDb;
+        window.render = origRender;
+
+        // Verify getScheduledForRig no longer returns canceled jobs
+        const canceledCustomer = (dbRecord?.customers||[]).find(x =>
+          x.scheduledStatus?.state === 'canceled'
+        );
+        const canceledInRig = canceledCustomer
+          ? getScheduledForRig(canceledCustomer.scheduledStatus.scheduledDate, canceledCustomer.scheduledStatus.rig).some(j => j.phone === canceledCustomer.phone)
+          : null;
+
+        return { skip: null, afterState, afterLifecycle, afterHistLen, beforeHistLen, entryOutcome, canceledInRig, name: c.firstName };
+      });
+
+      if (result.skip) {
+        warn('Cancel job — state set to canceled', result.skip);
+      } else {
+        if (result.afterState === 'canceled')
+          pass('Cancel job — scheduledStatus.state = canceled', `${result.name}`);
+        else
+          fail('Cancel job — scheduledStatus.state = canceled', `Got: ${result.afterState}`);
+        if (result.afterLifecycle === 'did_not_service')
+          pass('Cancel job — quoteLifecycle = did_not_service (auto-DNS enroll)');
+        else
+          fail('Cancel job — quoteLifecycle = did_not_service', `Got: ${result.afterLifecycle}`);
+        if (result.afterHistLen > result.beforeHistLen && result.entryOutcome === 'did_not_service')
+          pass('Cancel job — quoteHistory entry pushed with outcome=did_not_service');
+        else
+          fail('Cancel job — quoteHistory entry pushed', `histLen: ${result.beforeHistLen}→${result.afterHistLen}, outcome: ${result.entryOutcome}`);
+        if (result.canceledInRig === null)
+          warn('Cancel job — canceled card not rendered by getScheduledForRig', 'no existing canceled customer to test against');
+        else if (result.canceledInRig === false)
+          pass('Cancel job — canceled card excluded from getScheduledForRig (no render)');
+        else
+          fail('Cancel job — canceled card excluded from getScheduledForRig', 'canceled customer still appears in rig render list');
+      }
+    });
+
+    // ── PAYMENT BUTTON — updates immediately after submitPayment ─────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-button-update', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(async () => {
+        // Find a completed customer without paymentInfo
+        const c = (dbRecord?.customers||[]).find(x =>
+          x.scheduledStatus?.state === 'completed' && !x.paymentInfo?.paidAt && x.phone && !x.isTest
+        );
+        if (!c) return { skip: 'no completed customer without payment found' };
+
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+
+        // Stub fetch to return success without hitting the real API
+        const origFetch = window.fetch;
+        window.fetch = () => Promise.resolve(new Response(JSON.stringify({ success: true }), { status: 200 }));
+        const origSaveDb = window.saveDb;
+        window.saveDb = () => Promise.resolve();
+
+        openPaymentModal(ph);
+        await new Promise(r => setTimeout(r, 50));
+
+        // Set amount and method
+        const amtEl = document.getElementById('payTotal');
+        if (amtEl) amtEl.value = '300';
+        const zelleRadio = document.querySelector('input[name="payMethod"][value="zelle"]');
+        if (zelleRadio) zelleRadio.checked = true;
+
+        await submitPayment();
+        await new Promise(r => setTimeout(r, 100));
+
+        const hasPaidAt = !!(c.paymentInfo?.paidAt);
+        const paidMethod = c.paymentInfo?.method || null;
+
+        // Restore
+        window.fetch = origFetch;
+        window.saveDb = origSaveDb;
+        // Restore customer
+        c.paymentInfo = null;
+
+        return { hasPaidAt, paidMethod, name: c.firstName };
+      });
+
+      if (result.skip) {
+        warn('Payment button — c.paymentInfo.paidAt set after submitPayment', result.skip);
+      } else {
+        if (result.hasPaidAt)
+          pass('Payment button — c.paymentInfo.paidAt set after submitPayment', `${result.name}`);
+        else
+          fail('Payment button — c.paymentInfo.paidAt set after submitPayment', 'paymentInfo.paidAt is null after submitPayment');
+        if (result.paidMethod === 'zelle')
+          pass('Payment button — payment method written correctly', `method=${result.paidMethod}`);
+        else
+          fail('Payment button — payment method written correctly', `Expected zelle, got ${result.paidMethod}`);
+      }
+    });
+
     // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
       await page.waitForTimeout(5000); // API call + render
