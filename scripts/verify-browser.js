@@ -1211,7 +1211,7 @@ async function main() {
       await page.waitForTimeout(2000);
 
       // Inject two records with the same phone: one completed, one needs_scheduling.
-      // Then call executeDeleteFromQueue and verify only the queue record is cleared.
+      // Stub saveDb() to prevent test data from being written to production KV.
       const result = await page.evaluate(async () => {
         const testPhone = '0000000099';
         const completedRec = {
@@ -1225,6 +1225,11 @@ async function main() {
           scheduledStatus: { state: 'needs_scheduling' },
           jobHistory: [], quoteStatus: null, totalJobs: 0, lifetimeSpend: 0,
         };
+
+        // Stub saveDb so test data never reaches KV
+        const origSaveDb = window.saveDb;
+        window.saveDb = () => Promise.resolve();
+
         // Inject both into dbRecord
         dbRecord.customers.push(completedRec, queueRec);
 
@@ -1235,8 +1240,9 @@ async function main() {
         const completedOk = completedRec.scheduledStatus?.state === 'completed';
         const queueCleared = queueRec.scheduledStatus === null;
 
-        // Cleanup
+        // Cleanup before restoring saveDb
         dbRecord.customers = dbRecord.customers.filter(c => c.phone !== testPhone);
+        window.saveDb = origSaveDb;
 
         return { completedOk, queueCleared };
       });
@@ -1265,6 +1271,44 @@ async function main() {
       const bannerVisible = await page.locator('#matchBanner').isVisible().catch(() => false);
       if (bannerVisible) pass('New Customer — match banner appears for duplicate phone');
       else warn('New Customer — match banner appears for duplicate phone', 'matchBanner not visible after typing known duplicate — detection may have timing issue');
+    });
+
+    // ── NEW CUSTOMER — no phantom double after save (double-push bug fix) ────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-no-double-push', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(() => {
+        const countBefore = dbRecord.customers.length;
+        const allBefore   = allCustomers.length;
+
+        // Simulate adding a new customer: call the same path as submitPhonePath's else branch
+        const testPhone = '8880009999';
+        const c = { phone: testPhone, firstName: 'NoDupe', lastName: 'Test', totalJobs: 0, lifetimeSpend: 0, jobHistory: [], scheduledStatus: null };
+        if (!dbRecord.customers) dbRecord.customers = [];
+        dbRecord.customers.push(c);
+        // allCustomers is the same reference — do NOT push again
+
+        const countAfter = dbRecord.customers.length;
+        const allAfter   = allCustomers.length;
+        const phoneCount = dbRecord.customers.filter(x => x.phone === testPhone).length;
+        // Check reference equality BEFORE cleanup (filter creates a new array)
+        const referenceMatch = allCustomers === dbRecord.customers;
+
+        // Cleanup — splice out test records (preserves reference, unlike filter)
+        const testIdx = dbRecord.customers.findIndex(x => x.phone === testPhone);
+        if (testIdx !== -1) dbRecord.customers.splice(testIdx, 1);
+
+        return { countBefore, allBefore, countAfter, allAfter, phoneCount, referenceMatch };
+      });
+
+      if (result.referenceMatch) pass('New Customer — allCustomers and dbRecord.customers are same reference');
+      else fail('New Customer — allCustomers and dbRecord.customers are same reference', 'They diverged — double-push bug may have returned');
+
+      if (result.phoneCount === 1) pass('New Customer — one push creates exactly 1 record (no phantom double)');
+      else fail('New Customer — one push creates exactly 1 record', `Found ${result.phoneCount} records with test phone — double-push bug still active`);
+
+      if (result.countAfter === result.countBefore + 1) pass('New Customer — customer count increases by exactly 1');
+      else fail('New Customer — customer count increases by exactly 1', `Before: ${result.countBefore}, after: ${result.countAfter}`);
     });
 
     // ── NEW CUSTOMER — 3-option post-save modal ────────────────────────────────
