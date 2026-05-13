@@ -924,6 +924,94 @@ async function main() {
       else pass('Per-job address — billing address not shown on job cards');
     });
 
+    // ── MULTI-PROPERTY DEDUP: same-day same-rig distinct jobs render separately ─
+    // Tests getExtraCompletedJobsForRig directly (more reliable than DOM nav to past dates).
+    // Total cards per customer = getScheduledForRig count + getExtraCompletedJobsForRig count.
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'multipropty-dedup', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(() => {
+        const testPhone = '7770001234';
+        const dblPhone  = '7770005678';
+        const DATE = '2026-05-05';
+        const RIG  = 'rig_2';
+
+        // Multi-property: two completed jobs, same date/rig, different addresses
+        const multiPropCust = {
+          phone: testPhone, firstName: 'Multi', lastName: 'Prop',
+          totalJobs: 2, lifetimeSpend: 600, alerts: [],
+          scheduledStatus: { state: 'completed', scheduledDate: DATE, rig: RIG, approvedAmount: 300 },
+          jobHistory: [
+            { jobId: 'test_monroe', date: DATE, address: '5501 Monroe St', rig: RIG,
+              status: 'completed', amount: 300, source: 'calendar_completion', completedAt: null },
+            { jobId: 'test_hope', date: DATE, address: '7000 Hope St', rig: RIG,
+              status: 'completed', amount: 300, source: 'manual_backfill', completedAt: '2026-05-05T20:00:00.000Z' },
+          ],
+          quoteStatus: { mainAmount: 300 },
+        };
+
+        // Double-completion: two jh entries, same address, same amount — should dedup to ONE card
+        const dblCompCust = {
+          phone: dblPhone, firstName: 'Dbl', lastName: 'Comp',
+          totalJobs: 1, lifetimeSpend: 375, alerts: [],
+          scheduledStatus: { state: 'completed', scheduledDate: DATE, rig: RIG, approvedAmount: 375 },
+          jobHistory: [
+            { jobId: 'test_dbl1', date: DATE, address: '100 Oak St', rig: RIG,
+              status: 'completed', amount: 375, source: 'calendar_completion', completedAt: '2026-05-05T17:00:00.000Z' },
+            { jobId: 'test_dbl2', date: DATE, address: '100 Oak St', rig: RIG,
+              status: 'completed', amount: 375, source: 'calendar_completion', completedAt: '2026-05-05T17:01:00.000Z' },
+          ],
+          quoteStatus: { mainAmount: 375 },
+        };
+
+        dbRecord.customers.push(multiPropCust, dblCompCust);
+
+        // Primary cards (from getScheduledForRig)
+        const schedMulti = getScheduledForRig(DATE, RIG).filter(c => c.phone === testPhone).length;
+        const schedDbl   = getScheduledForRig(DATE, RIG).filter(c => c.phone === dblPhone).length;
+
+        // Extra cards (from getExtraCompletedJobsForRig)
+        const extrasAll = getExtraCompletedJobsForRig(DATE, RIG);
+        const extraMulti  = extrasAll.filter(e => e.customer.phone === testPhone);
+        const extraDbl    = extrasAll.filter(e => e.customer.phone === dblPhone);
+
+        const multiTotal = schedMulti + extraMulti.length;
+        const dblTotal   = schedDbl  + extraDbl.length;
+        const extraAddrs = extraMulti.map(e => e.jhEntry.address || '');
+
+        // Cleanup (splice to preserve reference for allCustomers)
+        [testPhone, dblPhone].forEach(ph => {
+          const idx = dbRecord.customers.findIndex(c => c.phone === ph);
+          if (idx !== -1) dbRecord.customers.splice(idx, 1);
+          const idx2 = dbRecord.customers.findIndex(c => c.phone === ph);
+          if (idx2 !== -1) dbRecord.customers.splice(idx2, 1);
+        });
+
+        return { multiTotal, dblTotal, extraAddrs };
+      });
+
+      // Multi-property: 1 primary + 1 extra = 2 total
+      if (result.multiTotal === 2) {
+        pass('Multi-property dedup — two distinct jobs produce 2 cards (1 primary + 1 extra)');
+      } else {
+        fail('Multi-property dedup — two distinct jobs produce 2 cards (1 primary + 1 extra)',
+          `Got ${result.multiTotal} total (extra addrs: ${result.extraAddrs.join(', ')})`);
+      }
+
+      const hasMonroe = result.extraAddrs.some(a => a.includes('Monroe'));
+      if (hasMonroe) pass('Multi-property dedup — 5501 Monroe St rendered as extra card');
+      else warn('Multi-property dedup — 5501 Monroe St rendered as extra card',
+        `Extra addresses found: ${result.extraAddrs.join(', ') || 'none'}`);
+
+      // Double-completion: 1 primary + 0 extras = 1 total
+      if (result.dblTotal === 1) {
+        pass('Multi-property dedup — double-completion same-address deduped to 1 card');
+      } else {
+        fail('Multi-property dedup — double-completion same-address deduped to 1 card',
+          `Got ${result.dblTotal} — double-completion guard regression`);
+      }
+    });
+
     // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
       await page.waitForTimeout(5000); // API call + render

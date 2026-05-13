@@ -3106,10 +3106,21 @@ function getExtraCompletedJobsForRig(date, rig) {
     });
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
-    // If scheduledStatus already covers this customer/date as completed, suppress all extra history cards
-    // (prevents duplicate cards from double-completion entries with undefined source)
     const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
-    if (ssCovers) continue;
+    if (ssCovers) {
+      // Primary jobCardScheduled already renders the last jh entry for this date (same logic as _jhMatch).
+      // Suppress only that entry; push any remaining distinct jobs as extras.
+      // Also suppress entries that look like double-completions of the same job (same address ±$5 amount).
+      const primaryEntry = c.jobHistory.slice().reverse().find(j => j.date === date);
+      for (const jhEntry of matching) {
+        if (jhEntry === primaryEntry) continue;
+        const sameJob = Math.abs((jhEntry.amount || 0) - (primaryEntry?.amount || 0)) <= 5
+                     && (jhEntry.address || '') === (primaryEntry?.address || '');
+        if (sameJob) continue;
+        result.push({ customer: c, jhEntry });
+      }
+      continue;
+    }
     for (const jhEntry of matching) {
       result.push({ customer: c, jhEntry });
     }
