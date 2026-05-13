@@ -3116,6 +3116,13 @@ function initSortables() {
 async function handleDropToRig(phone, date, rig) {
   const c = findCustomer(phone);
   if (!c) return;
+  // Completed jobs cannot be re-rigged by drag — drag is for scheduling future work.
+  // Use ✏️ Edit to correct historical rig attribution (also updates jobHistory rigId).
+  if (c.scheduledStatus?.state === 'completed') {
+    showToast('Job completed — use ✏️ Edit to change rig');
+    render(); // snap card back to original position
+    return;
+  }
   const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
   // Clear saved order for old rig/date so the job doesn't stay there
   const prevDate = prev.scheduledDate, prevRig = prev.rig;
@@ -5073,7 +5080,15 @@ async function saveFullEdit() {
   if (svc) { ss.jobNotes = svc; qs.mainServices = svc; }
   if (price) { ss.approvedAmount = price; qs.mainAmount = price; qs.approvedAmount = price; }
   if (date) ss.scheduledDate = date;
+  const prevRig = ss.rig;
   ss.rig = rig || null;
+
+  // For completed jobs: also update the matching jobHistory entry's rigId.
+  // This is the one clean path for fixing historical rig attribution.
+  if (ss.state === 'completed' && ss.scheduledDate && ss.rig !== prevRig) {
+    const jhEntry = (c.jobHistory || []).find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill');
+    if (jhEntry) jhEntry.rigId = ss.rig || null;
+  }
 
   const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
   if (isRoof) {

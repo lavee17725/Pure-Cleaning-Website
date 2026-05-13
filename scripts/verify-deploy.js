@@ -70,6 +70,8 @@ const HTML_FILES = [
       'saveFullEdit',                                     // Regression: full edit save function
       'fePhone',                                          // Regression: phone field in full edit modal
       'DAY_DRAG_PX',                                      // Regression: day-by-day drag constant
+      "state === 'completed'",                            // Regression: drag guard on completed jobs
+      'jhEntry.rigId = ss.rig',                           // Regression: pencil edit updates jobHistory rigId
     ],
   },
   {
