@@ -875,6 +875,55 @@ async function main() {
       else warn('Mini Quote Builder — "Quote price" label present', 'Label not found in rendered text — may be hidden until customer loads');
     });
 
+    // ── PER-JOB ADDRESS: Christina Seeber multi-property ────────────────────
+    // 9542493300 has two May 5 completed jobs at different Hollywood addresses.
+    // The calendar should show job-level address, not her billing address (2419 Marathon Lane).
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'per-job-address', async page => {
+      await page.waitForTimeout(2000);
+
+      // Navigate to May 5, 2026 (use dayOffset to reach it — relative to today)
+      const result = await page.evaluate(async () => {
+        // Jump to 2026-05-05 by setting dayOffset
+        const today = new Date('2026-05-13');
+        const target = new Date('2026-05-05');
+        const diff = Math.round((target - today) / 86400000); // -8 days
+        window.dayOffset = diff;
+        render();
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Find cards for Christina Seeber (9542493300)
+        const cards = [...document.querySelectorAll('.job-scheduled, .job-card-extra')].filter(el =>
+          el.dataset.phone === '9542493300'
+        );
+
+        const addresses = cards.map(el => {
+          const addrEl = el.querySelector('.js-addr');
+          return addrEl ? addrEl.textContent.replace('📍','').trim() : null;
+        }).filter(Boolean);
+
+        return { cardCount: cards.length, addresses };
+      });
+
+      if (result.cardCount < 2) {
+        warn('Per-job address — Christina Seeber shows 2 cards for May 5', `Only ${result.cardCount} card(s) visible — may need May 5 in view`);
+      } else {
+        pass('Per-job address — Christina Seeber shows 2 cards for May 5', `${result.cardCount} cards`);
+      }
+
+      const hasMonroe  = result.addresses.some(a => a.includes('Monroe'));
+      const hasHope    = result.addresses.some(a => a.includes('Hope'));
+      const hasMarathon = result.addresses.some(a => a.includes('Marathon')); // billing address — should NOT appear
+
+      if (hasMonroe) pass('Per-job address — 5501 Monroe St visible on card');
+      else warn('Per-job address — 5501 Monroe St visible on card', `Addresses found: ${result.addresses.join(', ')}`);
+
+      if (hasHope) pass('Per-job address — 7000 Hope St visible on card');
+      else warn('Per-job address — 7000 Hope St visible on card', `Addresses found: ${result.addresses.join(', ')}`);
+
+      if (hasMarathon) fail('Per-job address — billing address NOT shown on job card', '2419 Marathon Lane (billing) showing instead of job address');
+      else pass('Per-job address — billing address not shown on job cards');
+    });
+
     // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
       await page.waitForTimeout(5000); // API call + render

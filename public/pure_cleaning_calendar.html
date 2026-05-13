@@ -2809,12 +2809,16 @@ function jobCardScheduled(c) {
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
     <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
-    ${c.address ? (() => {
-        const paUrl = getPropertyAppraiserUrl(c.city, c.address);
-        const paLbl = paUrl ? getPaLabel(c.city) : null;
+    ${(() => {
+        // For completed jobs, prefer the per-job address from the matching jobHistory entry
+        const _dispAddr = (state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address;
+        const _dispCity = (state === 'completed' && _jhMatch?.city)    ? _jhMatch.city    : c.city;
+        if (!_dispAddr) return '';
+        const paUrl = getPropertyAppraiserUrl(_dispCity, _dispAddr);
+        const paLbl = paUrl ? getPaLabel(_dispCity) : null;
         const paBtn = paUrl ? `<a href="${paUrl}" target="_blank" onclick="event.stopPropagation()" class="pa-link">🏠 ${paLbl}</a>` : '';
-        return `<div class="js-addr">📍 ${esc(c.address)}${paBtn}</div>`;
-      })() : ''}
+        return `<div class="js-addr">📍 ${esc(_dispAddr)}${paBtn}</div>`;
+      })()}
     ${(() => {
         const hd = homeDistMi(c);
         if (!hd || state === 'completed') return '';
