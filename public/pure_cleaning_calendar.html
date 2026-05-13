@@ -310,6 +310,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .mbtn-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
 .mbtn-save{flex:2;padding:11px;border:none;border-radius:10px;background:var(--sky);color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
 .mbtn-save:hover{background:#2470c0;}
+.modal-section-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);padding:10px 0 4px;margin-top:2px;border-top:1px solid var(--border);}
+.modal-section-hdr:first-child{border-top:none;padding-top:0;}
 .mbtn-danger{flex:1;padding:11px;border:none;border-radius:10px;background:#fef2f2;color:var(--red);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
 .mbtn-green{flex:1;padding:11px;border:none;border-radius:10px;background:#d1fae5;color:#047857;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
 .js-edit-btn{display:block;width:100%;padding:4px 8px;border:1px solid #dbeafe;border-radius:5px;background:#eff6ff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
@@ -1067,6 +1069,104 @@ body{background:#f0f2f5;}
       <button class="mbtn-cancel" onclick="closeEditModal()">Cancel</button>
       <button class="mbtn-save"  onclick="saveEditServices(false)">💾 Save</button>
       <button class="mbtn-green" onclick="saveEditServices(true)">💾 Save &amp; Notify</button>
+    </div>
+  </div>
+</div>
+
+<!-- FULL EDIT MODAL (pencil on scheduled job card) -->
+<div class="overlay hidden" id="fullEditModal" onclick="if(event.target===this)closeFullEditModal()">
+  <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto;">
+    <div class="modal-title">✏️ Edit — <span id="feModalName" style="color:var(--sky);"></span></div>
+
+    <div class="modal-section-hdr" style="border-top:none;padding-top:0;">Customer Info</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="modal-field"><label>First Name *</label><input id="feFn" class="modal-input" placeholder="First name"></div>
+      <div class="modal-field"><label>Last Name *</label><input id="feLn" class="modal-input" placeholder="Last name"></div>
+    </div>
+    <div class="modal-field">
+      <label>Phone * <span id="fePhoneNote" style="display:none;font-size:10px;color:#d97706;font-weight:700;text-transform:none;letter-spacing:0;">⚠ Phone is primary key — will update record</span></label>
+      <input id="fePhone" class="modal-input" type="tel" placeholder="(555) 555-5555" oninput="formatFePhone(this);checkFePhoneNote()">
+    </div>
+    <div class="modal-field"><label>Email</label><input id="feEmail" class="modal-input" type="email" placeholder="email@example.com"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="modal-field"><label>Street Address</label><input id="feAddr" class="modal-input" placeholder="Street address"></div>
+      <div class="modal-field"><label>City</label><input id="feCity" class="modal-input" placeholder="City"></div>
+    </div>
+    <div class="modal-field">
+      <label>How did they hear about us?</label>
+      <select id="feLeadSrc" class="modal-input">
+        <option value="">— select —</option>
+        <option value="google">Google search</option>
+        <option value="referral">Friend or family referred me</option>
+        <option value="truck">Saw the truck</option>
+        <option value="angi">Angi</option>
+        <option value="nextdoor">Nextdoor</option>
+        <option value="repeat">I've used Pure Cleaning before</option>
+        <option value="other">Other</option>
+        <option value="didnt_ask">Didn't ask / Unknown</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><input id="feSqFt" class="modal-input" type="number" min="0" placeholder="e.g. 2500"></div>
+
+    <div class="modal-section-hdr">Service Details</div>
+    <div class="modal-field"><label>Services *</label><input id="feServices" class="modal-input" placeholder="e.g. Roof Softwash, Driveway…" oninput="checkFeRoof()"></div>
+    <div id="feRoofFields" style="display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="modal-field">
+          <label>Roof Type</label>
+          <select id="feRoofType" class="modal-input">
+            <option value="">Select type…</option>
+            <option value="shingle">Shingle</option>
+            <option value="barrel_tile">Barrel tile</option>
+            <option value="large_barrel">Large Barrel tile</option>
+            <option value="short_barrel">Short Barrel tile</option>
+            <option value="flat_tile">Flat tile</option>
+            <option value="v_shape">V-shape</option>
+            <option value="venezuelan_tile">Venezuelan tile</option>
+            <option value="metal">Metal</option>
+          </select>
+        </div>
+        <div class="modal-field">
+          <label>Roof Stories</label>
+          <div style="display:flex;gap:16px;padding:10px 0;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text);"><input type="radio" name="feRoofStories" value="1" id="feStories1"> 1-Story</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text);"><input type="radio" name="feRoofStories" value="2" id="feStories2"> 2-Story</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-field">
+      <label>Price ($)</label>
+      <div style="position:relative;">
+        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
+        <input type="number" id="fePrice" class="modal-input" style="padding-left:26px;" min="0" placeholder="0">
+      </div>
+    </div>
+
+    <div class="modal-section-hdr">Scheduling</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="modal-field"><label>Job Date</label><input id="feDate" class="modal-input" type="date"></div>
+      <div class="modal-field">
+        <label>Rig</label>
+        <select id="feRig" class="modal-input">
+          <option value="">Day Pool (unassigned)</option>
+          <option value="rig_1">Old Tacoma</option>
+          <option value="rig_2">New Tacoma</option>
+          <option value="rig_3">Chevy</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-section-hdr">Notes</div>
+    <div class="modal-field"><textarea id="feNotes" class="modal-input" rows="2" placeholder="Any notes…" style="resize:vertical;"></textarea></div>
+
+    <div id="feError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
+    <div class="modal-footer" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <a id="feMoreLink" href="#" style="font-size:13px;color:var(--sky);font-weight:600;white-space:nowrap;" onclick="event.preventDefault();openFeMoreOptions()">More options →</a>
+      <div style="display:flex;gap:8px;flex:1;justify-content:flex-end;">
+        <button class="mbtn-cancel" onclick="closeFullEditModal()">Cancel</button>
+        <button class="mbtn-save" id="feSaveBtn" onclick="saveFullEdit()">💾 Save</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2560,7 +2660,7 @@ function jobCardScheduled(c) {
   }
 
   const editBtnHtml = (!c.isTest && phone)
-    ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}')">✏️ Edit services</button>`
+    ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}')" title="Edit all customer &amp; job details">✏️ Edit</button>`
     : '';
 
   const delBtnHtml = (state !== 'completed' && phone)
@@ -4835,23 +4935,176 @@ let _editPhone  = null;
 let _editCust   = null;
 let _editAddons = [];
 
+// ── Full edit modal state ─────────────────────────────────────────────────────
+let _fePhone = null; // original phone (10 digits) when modal opened
+let _feCust  = null; // reference to customer object in dbRecord
+
 function openEditModal(phone) {
   const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
   if (!c) return;
   _editPhone = phone;
   _editCust  = c;
+  _fePhone   = phone;
+  _feCust    = c;
 
   const ss = c.scheduledStatus || {};
   const qs = c.quoteStatus    || {};
+  const svcAgreed = qs.servicesAgreed || {};
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
 
-  document.getElementById('editModalName').textContent = name;
-  document.getElementById('editServices').value  = qs.mainServices || ss.jobNotes || qs.notes || '';
-  document.getElementById('editBasePrice').value  = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
-  document.getElementById('editNotes').value     = '';
-  _buildEditAddons(c);
-  updateEditTotal();
-  document.getElementById('editServicesModal').classList.remove('hidden');
+  document.getElementById('feModalName').textContent = name;
+  document.getElementById('feFn').value    = (c.firstName||c.fn||'').trim();
+  document.getElementById('feLn').value    = (c.lastName ||c.ln||'').trim();
+  document.getElementById('fePhone').value = _fmtPhDisplay(phone);
+  document.getElementById('feEmail').value = c.email || '';
+  document.getElementById('feAddr').value  = c.address || '';
+  document.getElementById('feCity').value  = c.city || '';
+  document.getElementById('feSqFt').value  = c.sqFt || ss.sqFt || svcAgreed.roofSqFt || '';
+  document.getElementById('feLeadSrc').value = c.leadSource?.primary || '';
+
+  const svc = (ss.jobNotes || qs.mainServices || qs.notes || '').trim();
+  document.getElementById('feServices').value = svc;
+  checkFeRoof();
+
+  const roofType = svcAgreed.roofType || '';
+  document.getElementById('feRoofType').value = roofType;
+  const stories = ss.roofStories || 1;
+  const stEl = document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2));
+  if (stEl) stEl.checked = true;
+
+  document.getElementById('fePrice').value = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  document.getElementById('feDate').value  = ss.scheduledDate || '';
+  document.getElementById('feRig').value   = ss.rig || '';
+  document.getElementById('feNotes').value = c.notes || '';
+
+  document.getElementById('feMoreLink').dataset.phone = phone;
+  document.getElementById('fePhoneNote').style.display = 'none';
+  document.getElementById('feError').style.display     = 'none';
+  const saveBtn = document.getElementById('feSaveBtn');
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+
+  document.getElementById('fullEditModal').classList.remove('hidden');
+}
+
+// ── Full edit modal helpers ───────────────────────────────────────────────────
+function _fmtPhDisplay(ph) {
+  const d = (ph||'').replace(/\D/g,'').slice(-10);
+  if (d.length !== 10) return ph || '';
+  return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+}
+
+function formatFePhone(input) {
+  let v = input.value.replace(/\D/g,'').slice(0,10);
+  if (v.length >= 6) v = '(' + v.slice(0,3) + ') ' + v.slice(3,6) + '-' + v.slice(6);
+  else if (v.length >= 3) v = '(' + v.slice(0,3) + ') ' + v.slice(3);
+  input.value = v;
+}
+
+function checkFePhoneNote() {
+  const np  = document.getElementById('fePhone').value.replace(/\D/g,'').slice(-10);
+  const note = document.getElementById('fePhoneNote');
+  if (note) note.style.display = (np && np !== _fePhone) ? 'inline' : 'none';
+}
+
+function checkFeRoof() {
+  const svc = (document.getElementById('feServices')?.value || '').toLowerCase();
+  const isRoof = /roof|soft\s*wash|softwash/.test(svc);
+  const rf = document.getElementById('feRoofFields');
+  if (rf) rf.style.display = isRoof ? '' : 'none';
+}
+
+function openFeMoreOptions() {
+  const phone = document.getElementById('feMoreLink')?.dataset.phone || _fePhone || '';
+  window.location.href = '/pure_cleaning_customer_profile.html?phone=' + encodeURIComponent(phone);
+}
+
+function closeFullEditModal() {
+  document.getElementById('fullEditModal').classList.add('hidden');
+  _fePhone = null;
+  _feCust  = null;
+}
+
+async function saveFullEdit() {
+  if (!_fePhone || !_feCust) return;
+
+  const fn      = document.getElementById('feFn').value.trim();
+  const ln      = document.getElementById('feLn').value.trim();
+  const newPhone = document.getElementById('fePhone').value.replace(/\D/g,'').slice(-10);
+  const email   = document.getElementById('feEmail').value.trim();
+  const addr    = document.getElementById('feAddr').value.trim();
+  const city    = document.getElementById('feCity').value.trim();
+  const sqFt    = parseInt(document.getElementById('feSqFt').value) || null;
+  const leadSrc = document.getElementById('feLeadSrc').value;
+  const svc     = document.getElementById('feServices').value.trim();
+  const price   = parseFloat(document.getElementById('fePrice').value) || 0;
+  const date    = document.getElementById('feDate').value;
+  const rig     = document.getElementById('feRig').value;
+  const notes   = document.getElementById('feNotes').value.trim();
+  const errEl   = document.getElementById('feError');
+
+  if (!fn || !ln) { errEl.textContent = 'First and last name required.'; errEl.style.display = 'block'; return; }
+  if (newPhone.length !== 10) { errEl.textContent = 'Valid 10-digit phone required.'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+
+  const phoneChanged = newPhone !== _fePhone;
+  if (phoneChanged) {
+    const conflict = (dbRecord.customers||[]).find(x => x !== _feCust && (x.phone||'').replace(/\D/g,'').slice(-10) === newPhone);
+    if (conflict) {
+      errEl.textContent = `Phone ${_fmtPhDisplay(newPhone)} already belongs to ${conflict.firstName||''} ${conflict.lastName||''}. Use a different number.`;
+      errEl.style.display = 'block'; return;
+    }
+  }
+
+  const c  = _feCust;
+  const ss = c.scheduledStatus || (c.scheduledStatus = {});
+  const qs = c.quoteStatus    || (c.quoteStatus = {});
+
+  c.firstName = fn; c.lastName = ln;
+  if (email) c.email = email;
+  if (addr)  c.address = addr;
+  if (city)  c.city = city;
+  if (sqFt)  c.sqFt = sqFt;
+  c.notes = notes;
+  if (leadSrc) {
+    const _LS = {google:'Google search',referral:'Friend or family referred me',truck:'Saw the truck',angi:'Angi',nextdoor:'Nextdoor',repeat:'Returning customer',other:'Other',didnt_ask:"Didn't ask / Unknown"};
+    c.leadSource = { ...(c.leadSource||{}), primary: leadSrc, label: _LS[leadSrc] || leadSrc };
+  }
+
+  if (svc) { ss.jobNotes = svc; qs.mainServices = svc; }
+  if (price) { ss.approvedAmount = price; qs.mainAmount = price; qs.approvedAmount = price; }
+  if (date) ss.scheduledDate = date;
+  ss.rig = rig || null;
+
+  const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
+  if (isRoof) {
+    const roofType = document.getElementById('feRoofType').value;
+    const stories  = parseInt(document.querySelector('input[name=feRoofStories]:checked')?.value || '1');
+    ss.roofStories = stories;
+    if (!qs.servicesAgreed) qs.servicesAgreed = {};
+    if (roofType) qs.servicesAgreed.roofType = roofType;
+  }
+
+  if (phoneChanged) {
+    const oldPhone = _fePhone;
+    c.phone = newPhone;
+    fetch(`${PCPC_API}/events`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ id:'ops_'+Date.now(), timestamp: new Date().toISOString(), eventType:'phone_changed', metadata: { oldPhone, newPhone, changedBy:'admin' } })
+    }).catch(() => {});
+  }
+
+  const saveBtn = document.getElementById('feSaveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+
+  try {
+    await saveDb();
+    closeFullEditModal();
+    render();
+  } catch(e) {
+    errEl.textContent = 'Save failed — check connection.';
+    errEl.style.display = 'block';
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+  }
 }
 
 function _buildEditAddons(c) {
@@ -6073,11 +6326,9 @@ document.addEventListener('keydown', e => {
       const g = grid(); if (g) g.classList.add('wv-dragging');
     }
     _totalDx = dx;
-    const sc = scroller();
-    if (sc) sc.scrollLeft = _scrollX0 - dx;
-    // Visual feedback: translate proportionally to how many days are being dragged
+    // 1:1 cursor-follow during drag — no scroll, no parallax resistance
     const g = grid();
-    if (g) g.style.transform = 'translateX(' + (dx * 0.5) + 'px)';
+    if (g) { g.style.transition = 'none'; g.style.transform = 'translateX(' + dx + 'px)'; }
     updateFades();
   });
 
@@ -6086,44 +6337,30 @@ document.addEventListener('keydown', e => {
     _dragging = false;
     const g = grid();
     if (g) g.classList.remove('wv-dragging');
-    if (!_isH) return;
+    if (!_isH) { if (g) { g.style.transition = 'none'; g.style.transform = ''; } return; }
     const dx = _totalDx;
     _totalDx = 0;
 
-    // Compute day shift: drag right = backward, drag left = forward
-    const days = Math.round(-dx / DAY_DRAG_PX);
+    // Below 50px counts as no-intent drag — snap back, no day shift
+    const days = Math.abs(dx) < 50 ? 0 : Math.round(-dx / DAY_DRAG_PX);
+
+    // Suppress synthetic click after any horizontal drag (even sub-threshold),
+    // so dragging on a day-header doesn't accidentally open day view on release.
+    document.addEventListener('click', function suppressClick(e) {
+      e.stopPropagation(); e.preventDefault();
+      document.removeEventListener('click', suppressClick, true);
+    }, { capture: true, once: true });
+
+    // Snap transform back to 0 with ease-out; update content immediately
+    if (g) {
+      g.style.transition = 'transform 150ms ease-out';
+      g.style.transform  = '';
+      setTimeout(() => { if (g) g.style.transition = ''; }, 160);
+    }
 
     if (days !== 0) {
-      // Suppress synthetic click on day-header so day-view doesn't open
-      document.addEventListener('click', function suppressClick(e) {
-        e.stopPropagation(); e.preventDefault();
-        document.removeEventListener('click', suppressClick, true);
-      }, { capture: true, once: true });
-      // Fly grid off-screen in drag direction, then slide to new window
-      if (g) {
-        g.style.transition = 'transform 0.12s ease';
-        g.style.transform  = 'translateX(' + (dx > 0 ? 280 : -280) + 'px)';
-        setTimeout(() => {
-          if (g) { g.style.transition = ''; g.style.transform = ''; }
-          dayOffset += days; render(); updateBlockWeekBtn();
-        }, 110);
-      } else {
-        dayOffset += days; render(); updateBlockWeekBtn();
-      }
-      return;
+      dayOffset += days; render(); updateBlockWeekBtn();
     }
-
-    // No day shift — snap transform back and snap scroll to nearest column
-    if (g) {
-      g.style.transition = 'transform 0.2s ease';
-      g.style.transform  = '';
-      setTimeout(() => { if (g) g.style.transition = ''; }, 220);
-    }
-    const sc = scroller();
-    if (!sc) return;
-    const cw = colWidth();
-    sc.scrollTo({ left: Math.round(sc.scrollLeft / cw) * cw, behavior: 'smooth' });
-    setTimeout(updateFades, 350);
   }
 
   document.addEventListener('mouseup',    stopDrag);

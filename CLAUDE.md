@@ -311,6 +311,10 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 12, 2026 | Phone-quote intake flow simplified. After Save Customer on 'Quoted on phone' path, Mom sees a 3-option modal: Schedule it now (date picker → sets scheduledStatus.state='scheduled' + auto-Chevy for roof → redirect to calendar), Add to Incoming Queue (no date → sets quoteLifecycle='verbal_pending' + creates incoming request entry + shows phone-success state), Build mini quote (existing digital quote builder). Removes duplicate 'Add Verbal Quote' button from incoming page since all verbal entries now flow through new_customer.html. Verbal quote lifecycle (Did Not Service tab, follow-up chips) unchanged — continues to work for entries flowing in via Option B. |
 
+| May 13, 2026 | Calendar drag: fluid 1:1 translateX during pointermove (replaced 50% parallax), snap-back transition 150ms ease-out on release, 50px dead zone (no day shift below threshold). Any horizontal drag now suppresses the post-release click so day-view doesn't accidentally open. changeWeek buttons still move 7 days; drag still moves 1 day per 150px. |
+
+| May 13, 2026 | Calendar pencil → full edit modal (fullEditModal). Replaces "Edit services" mini-modal with a full 14-field editor: customer info (name, phone, email, address, city, lead source, sq ft), service details (services, roof type, roof stories, price), scheduling (date, rig), and notes. Phone is primary key — changing it updates customer.phone and logs phone_changed audit event. Conflict check prevents overwriting an existing customer's phone. "More options →" link opens customer profile. Save does one PUT /customers then render(). Hart's Painting placeholder can now be corrected via this modal. |
+
 *Append future decisions below this line.*
 
 ---

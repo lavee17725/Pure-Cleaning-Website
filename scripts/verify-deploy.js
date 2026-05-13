@@ -66,6 +66,10 @@ const HTML_FILES = [
       "'morning'",                                        // Regression: slot key 'morning' (not '~9-10am')
       'tapSchedStorySel',                                 // Regression: story selector in tap-schedule modal
       'checkUnschRoof',                                   // Regression: story selector in add-unscheduled modal
+      'fullEditModal',                                    // Regression: full edit modal present
+      'saveFullEdit',                                     // Regression: full edit save function
+      'fePhone',                                          // Regression: phone field in full edit modal
+      'DAY_DRAG_PX',                                      // Regression: day-by-day drag constant
     ],
   },
   {

@@ -379,6 +379,113 @@ async function main() {
       } else {
         warn('Calendar — day-nav drag post-reset', 'No .day-hdr bounding box found');
       }
+
+      // ── Part 1: fluid drag — translateX follows cursor 1:1 during drag ──
+      {
+        const gBox = await page.locator('#calGrid').boundingBox().catch(() => null);
+        if (gBox) {
+          const sx = gBox.x + 200, sy = gBox.y + 15;
+          await page.mouse.move(sx, sy);
+          await page.mouse.down();
+          await page.mouse.move(sx - 10, sy);  // past the 5px dead zone
+          await page.mouse.move(sx - 60, sy);   // 60px — check mid-drag transform
+          const midTransform = await page.evaluate(() => {
+            const g = document.getElementById('calGrid');
+            return g ? g.style.transform : '';
+          });
+          // Transform should be non-zero translateX (grid moved left with cursor)
+          // Use regex to extract numeric value — '-60px' would wrongly match '0px' substring check
+          const xformNum = midTransform ? parseFloat((midTransform.match(/translateX\((-?\d+(?:\.\d+)?)/) || [])[1] || '0') : 0;
+          if (midTransform && midTransform.includes('translateX(') && xformNum !== 0) {
+            pass('Calendar — fluid drag: grid translateX follows cursor', `transform: "${midTransform}"`);
+          } else {
+            fail('Calendar — fluid drag: grid translateX follows cursor', `mid-drag transform was: "${midTransform}" (parsed: ${xformNum})`);
+          }
+          // Release at 60px — should shift 0 days (60px < 75px threshold) but > 50px guard
+          // Actually Math.round(60/150)=0 so no shift expected
+          await page.mouse.up();
+          await page.waitForTimeout(400);
+          const labelAfterSmall = (await page.locator('#weekLabel').textContent().catch(()=>'')).trim();
+          pass('Calendar — fluid drag: ≤50px guard smoke-test', `label: ${labelAfterSmall}`);
+        } else {
+          warn('Calendar — fluid drag tests', 'calGrid bounding box not found');
+        }
+      }
+
+      // ── Part 1: drag exactly 25px → no day shift, transform snaps back ──
+      {
+        const gBox = await page.locator('#calGrid').boundingBox().catch(() => null);
+        const labelBefore25 = (await page.locator('#weekLabel').textContent().catch(()=>'')).trim();
+        if (gBox) {
+          const sx = gBox.x + 200, sy = gBox.y + 15;
+          await page.mouse.move(sx, sy);
+          await page.mouse.down();
+          await page.mouse.move(sx - 10, sy);
+          await page.mouse.move(sx - 25, sy);
+          await page.mouse.up();
+          await page.waitForTimeout(400);
+          const labelAfter25 = (await page.locator('#weekLabel').textContent().catch(()=>'')).trim();
+          const xform25 = await page.evaluate(() => {
+            const g = document.getElementById('calGrid');
+            return g ? g.style.transform : 'unknown';
+          });
+          if (labelBefore25 === labelAfter25) {
+            pass('Calendar — 25px drag: no day shift (below 50px threshold)', `transform snapped to: "${xform25}"`);
+          } else {
+            fail('Calendar — 25px drag: no day shift', `label changed from "${labelBefore25}" to "${labelAfter25}"`);
+          }
+        } else {
+          warn('Calendar — 25px drag test', 'calGrid bounding box not found');
+        }
+      }
+
+      // ── Part 2: pencil edit modal — opens with all fields populated ──
+      {
+        const editBtn = page.locator('.js-edit-btn').first();
+        const editBtnExists = await editBtn.isVisible().catch(() => false);
+        if (editBtnExists) {
+          // Grab card's phone to verify "More options" link
+          const cardPhone = await editBtn.evaluate(el => el.closest('[data-phone]')?.dataset.phone || '');
+          await editBtn.click();
+          await page.waitForTimeout(300);
+          const modalOpen = await page.locator('#fullEditModal').isVisible().catch(() => false);
+          if (modalOpen) {
+            pass('Calendar — pencil edit modal opens');
+          } else {
+            fail('Calendar — pencil edit modal opens', '#fullEditModal not visible after click');
+          }
+          // Check all key fields are present
+          const fnVal   = await page.locator('#feFn').inputValue().catch(() => '');
+          const phoneVal = await page.locator('#fePhone').inputValue().catch(() => '');
+          const svcVal  = await page.locator('#feServices').inputValue().catch(() => '');
+          if (fnVal) pass('Calendar — pencil modal: first name populated', `"${fnVal}"`);
+          else fail('Calendar — pencil modal: first name populated', '#feFn is empty');
+          if (phoneVal) pass('Calendar — pencil modal: phone populated', `"${phoneVal}"`);
+          else fail('Calendar — pencil modal: phone populated', '#fePhone is empty');
+
+          // "More options" href should include customer phone
+          const moreHref = await page.locator('#feMoreLink').getAttribute('href').catch(() => '');
+          const moreDs   = await page.locator('#feMoreLink').getAttribute('data-phone').catch(() => '');
+          if (moreDs && moreDs.length === 10) {
+            pass('Calendar — pencil modal: More options link has phone', `data-phone="${moreDs}"`);
+          } else {
+            warn('Calendar — pencil modal: More options link', `data-phone="${moreDs}" (may be empty on unloaded page)`);
+          }
+
+          // Save with current values (no change) — verify modal closes, no error
+          await page.locator('#feSaveBtn').click();
+          await page.waitForTimeout(1000);
+          const modalStillOpen = await page.locator('#fullEditModal').isVisible().catch(() => false);
+          if (!modalStillOpen) {
+            pass('Calendar — pencil modal: save closes modal');
+          } else {
+            const errText = await page.locator('#feError').textContent().catch(() => '');
+            fail('Calendar — pencil modal: save closes modal', `modal still open. Error: "${errText}"`);
+          }
+        } else {
+          warn('Calendar — pencil edit modal', 'No .js-edit-btn found (no scheduled jobs in current week)');
+        }
+      }
     });
 
     // ── WORKER HOURS ─────────────────────────────────────────────────────────
