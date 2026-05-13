@@ -2845,14 +2845,23 @@ function jobCardScheduled(c) {
 }
 
 function jobCardHistoryExtra(c, jhEntry) {
-  const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
-  const city   = c.city ? esc(formatCity(c.city)) : '';
-  const addr   = jhEntry.address ? esc(jhEntry.address) : (c.address ? esc(c.address) : '');
-  const amt    = jhEntry.amount || jhEntry.approvedAmount || 0;
-  const amtHtml = amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
-  const svcText = (jhEntry.services || jhEntry.jobNotes || jhEntry.notes || '').trim();
-  const svcLine = svcText ? `<div class="js-svc">📋 ${esc(svcText)}</div>` : '';
+  const name     = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
+  const jobId    = jhEntry.jobId || '';
+  const city     = esc(formatCity(jhEntry.city || c.city || ''));
+  const addr     = jhEntry.address ? esc(jhEntry.address) : (c.address ? esc(c.address) : '');
+  const addrCity = jhEntry.city || c.city || '';
+  const amt      = jhEntry.amount || jhEntry.approvedAmount || 0;
+  const amtHtml  = amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
+  const svcText  = (jhEntry.services || jhEntry.jobNotes || jhEntry.notes || '').trim();
+  const svcLine  = svcText ? `<div class="js-svc">📋 ${esc(svcText)}</div>` : '';
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
+  const hasCmpt  = !c.isTest && isComplaintLogged(phone);
+  const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
+  const complaintLink = (!c.isTest && phone)
+    ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
+    : '';
+
   let gpsHtml = '';
   if (jhEntry.actualArrival) {
     const arr = new Date(jhEntry.actualArrival).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
@@ -2860,15 +2869,64 @@ function jobCardHistoryExtra(c, jhEntry) {
     const dur = jhEntry.actualDuration > 0 ? `${Math.floor(jhEntry.actualDuration/60)}h ${jhEntry.actualDuration%60}m` : null;
     gpsHtml = `<div class="js-gps-time">⏱ ${arr}${dep?' – '+dep:''}${dur?' ('+dur+')':''}</div>`;
   }
-  const pmFmt = jhEntry.payment ? esc(jhEntry.payment) : null;
-  return `<div class="job-scheduled completed job-card-extra" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
-    <div class="js-name"><span>✓ ${name}${vipBadge}</span><span>${amtHtml}</span></div>
+
+  // BCPA chip for job address
+  const _paUrl = getPropertyAppraiserUrl(addrCity, jhEntry.address || '');
+  const _paLbl = _paUrl ? getPaLabel(addrCity) : null;
+  const _paBtn = _paUrl ? `<a href="${_paUrl}" target="_blank" onclick="event.stopPropagation()" class="pa-link">🏠 ${_paLbl}</a>` : '';
+
+  // Payment button — reads jhEntry.paymentInfo (per-job level)
+  const jhPaid = jhEntry.paymentInfo?.paidAt;
+  const jhPayMethod = jhEntry.paymentMethod || jhEntry.payment;
+  let paymentBtnHtml = '';
+  let zelleReqBtnHtml = '';
+  let receiptBtnHtml = '';
+  if (phone) {
+    if (jhPaid) {
+      paymentBtnHtml = `<button class="js-pay-btn paid" onclick="event.stopPropagation()">✓ Paid via ${esc(jhPayMethod||'cash')}</button>`;
+    } else {
+      const _jqStr = jobId ? `,'${jobId}'` : '';
+      paymentBtnHtml = `<button class="js-pay-btn" onclick="event.stopPropagation();openPaymentModal('${phone}'${_jqStr})">💰 Log Payment</button>`;
+      const _pm  = (jhPayMethod || c.paymentMethod || 'zelle').toLowerCase();
+      const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
+      zelleReqBtnHtml = `<button class="js-zelle-btn" onclick="event.stopPropagation();requestPayment('${phone}',this${_jqStr})">${_zLbl}</button>`;
+    }
+    // Send Receipt — uses same receipt URL (Phase 2 will scope per-property)
+    const rcptSent = !!(c.receiptInfo?.sentAt);
+    if (rcptSent) {
+      const d = new Date(c.receiptInfo.sentAt).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      receiptBtnHtml = `<button class="js-receipt-btn sent" onclick="event.stopPropagation()">✓ Receipt Sent ${d}</button>`;
+    } else if (jhPaid) {
+      receiptBtnHtml = `<button class="js-receipt-btn" onclick="event.stopPropagation();sendReceiptText('${phone}')">📄 Send Receipt</button>`;
+    } else {
+      receiptBtnHtml = `<button class="js-receipt-btn" disabled onclick="event.stopPropagation()" title="Log payment first">📄 Send Receipt</button>`;
+    }
+  }
+
+  // Print + Email — pass jobId so they use jhEntry data
+  const _jqStr2 = jobId ? `,'${jobId}'` : '';
+  const printBtnHtml = (!c.isTest && phone)
+    ? `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}'${_jqStr2})">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}'${_jqStr2})">📧 Email</button></div>`
+    : '';
+
+  // Edit button — passes jobId so fullEditModal populates from jhEntry
+  const editBtnHtml = (!c.isTest && phone)
+    ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}','${jobId}')" title="Edit this job's details">✏️ Edit</button>`
+    : '';
+
+  return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}" onclick="if(!wasDragging)openJobModal('${phone}')">
+    <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}</span><span>${amtHtml}</span></div>
     <div class="js-meta">${[city].filter(Boolean).join(' · ')}</div>
-    ${addr ? `<div class="js-addr">📍 ${addr}</div>` : ''}
+    ${addr ? `<div class="js-addr">📍 ${addr}${_paBtn}</div>` : ''}
     ${gpsHtml}
     ${svcLine}
-    ${pmFmt ? `<div style="font-size:10px;color:var(--muted);margin-top:2px;">💵 ${pmFmt}</div>` : ''}
-    <div class="js-extra-label" style="font-size:9px;color:var(--muted);margin-top:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">2nd same-day job</div>
+    ${printBtnHtml}
+    ${complaintLink}
+    ${zelleReqBtnHtml}
+    ${paymentBtnHtml}
+    ${receiptBtnHtml}
+    ${editBtnHtml}
+    <div class="js-extra-label" style="font-size:9px;color:var(--muted);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">2nd same-day job</div>
   </div>`;
 }
 
@@ -4464,18 +4522,24 @@ function _openPrintWin(html, title) {
 }
 
 // ── INVOICE ───────────────────────────────────────────────────────────────────
-function printInvoice(phone) {
+function printInvoice(phone, jhJobId) {
   const c = findCustomer(phone);
   if (!c) return;
   const ss   = c.scheduledStatus || {};
   const qs   = c.quoteStatus || {};
+  const _jh  = jhJobId ? _findJhByJobId(c, jhJobId) : null;
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   const yr   = new Date().getFullYear();
   const invNum = `PC-${yr}-${(c.phone||'').slice(-4)}-${Date.now().toString().slice(-3)}`;
   const dateFmt  = d => d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-  const compDate = dateFmt(ss.completedDate);
-  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services';
-  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const compDate = _jh ? dateFmt(_jh.completedAt?.slice(0,10) || _jh.date) : dateFmt(ss.completedDate);
+  const services = _jh
+    ? (_jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')
+    : (ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
+  const amount   = _jh ? (_jh.amount || 0) : (ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0);
+  // For address display: use jhEntry address if available
+  const _printAddr = _jh?.address || c.address;
+  const _printCity = _jh?.city    || c.city;
   const addOns   = c.addOns || [];
   const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
 
@@ -4501,8 +4565,8 @@ function printInvoice(phone) {
 <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:8pt;">Bill To</div>
 <div style="font-size:12pt;margin-bottom:20pt;">
   <strong>${esc(name)}</strong><br>
-  ${c.address ? esc(c.address)+'<br>' : '<span style="color:#c2410c;font-style:italic;">Address not on file</span><br>'}
-  ${c.city ? esc(c.city)+', FL'+(c.zip?' '+c.zip:'')+'<br>' : ''}
+  ${_printAddr ? esc(_printAddr)+'<br>' : '<span style="color:#c2410c;font-style:italic;">Address not on file</span><br>'}
+  ${_printCity ? esc(_printCity)+', FL'+(c.zip?' '+c.zip:'')+'<br>' : ''}
   ${c.phone ? fmtPh(c.phone) : '<span style="font-style:italic;">No phone on file</span>'}
 </div>
 
@@ -4538,22 +4602,28 @@ function printInvoice(phone) {
   pcpcApi.logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
 }
 
-function emailInvoice(phone) {
+function emailInvoice(phone, jhJobId) {
   const c = findCustomer(phone);
   if (!c) return;
   const ss   = c.scheduledStatus || {};
   const qs   = c.quoteStatus || {};
+  const _jh  = jhJobId ? _findJhByJobId(c, jhJobId) : null;
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   const fn   = name.split(' ')[0] || 'there';
   const yr   = new Date().getFullYear();
   const invNum   = `PC-${yr}-${(c.phone||'').slice(-4)}-${Date.now().toString().slice(-3)}`;
-  const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
-  const compDate = ss.completedDate
-    ? new Date(ss.completedDate+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+  const amount   = _jh ? (_jh.amount || 0) : (ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0);
+  const _rawDate = _jh ? (_jh.completedAt?.slice(0,10) || _jh.date) : ss.completedDate;
+  const compDate = _rawDate
+    ? new Date(_rawDate+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
     : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services';
+  const services = _jh
+    ? (_jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')
+    : (ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
   const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  • ${s}`).join('\n');
-  const addrLine = [c.address, c.city ? c.city+', FL'+(c.zip?' '+c.zip:'') : ''].filter(Boolean).join(', ');
+  const _emailAddr = _jh?.address || c.address;
+  const _emailCity = _jh?.city    || c.city;
+  const addrLine = [_emailAddr, _emailCity ? _emailCity+', FL'+(c.zip?' '+c.zip:'') : ''].filter(Boolean).join(', ');
   const payStatus = ss.paymentCollected ? '✓ PAID — Thank you!' : 'Payment due upon receipt.';
 
   const subject = `${PRINT_CO} — Invoice ${invNum}`;
@@ -4858,13 +4928,14 @@ function sendArrivalText(phone, name, slot, date, rig, btn, service) {
 // ── PAYMENT MODAL ────────────────────────────────────────────────────────────
 let _payPhone = null;
 
-function requestPayment(phone, el) {
+function requestPayment(phone, el, jhJobId) {
   const c = findCustomer(phone);
   if (!c) return;
   const fn  = (c.firstName||c.fn||'').trim().split(' ')[0] || 'there';
   const ss  = c.scheduledStatus || {};
-  const pm  = c.paymentMethod || ss.paymentMethod || 'zelle';
-  const rawAmt = ss.approvedAmount ? Number(ss.approvedAmount) : 0;
+  const _jh = jhJobId ? _findJhByJobId(c, jhJobId) : null;
+  const pm  = (_jh?.paymentMethod || _jh?.payment || c.paymentMethod || ss.paymentMethod || 'zelle').toLowerCase();
+  const rawAmt = _jh ? (_jh.amount || 0) : (ss.approvedAmount ? Number(ss.approvedAmount) : 0);
   const amtFmt = '$' + rawAmt.toFixed(2);
 
   let body;
@@ -4891,22 +4962,27 @@ function requestPayment(phone, el) {
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
 }
 
-function openPaymentModal(phone) {
+function openPaymentModal(phone, jhJobId) {
   const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
   if (!c) return;
-  _payPhone = phone;
+  _payPhone   = phone;
+  _payJhJobId = jhJobId || null;
+  const _jh   = _payJhJobId ? _findJhByJobId(c, _payJhJobId) : null;
 
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
   document.getElementById('paymentModalTitle').textContent = `💰 Log Payment — ${name}`;
 
-  // Pre-fill total from scheduledStatus
-  const total = (c.scheduledStatus||{}).approvedAmount || (c.quoteStatus||{}).approvedAmount || (c.quoteStatus||{}).mainAmount || 0;
+  // Pre-fill total — jhEntry amount if available, else scheduledStatus
+  const total = _jh
+    ? (_jh.amount || 0)
+    : ((c.scheduledStatus||{}).approvedAmount || (c.quoteStatus||{}).approvedAmount || (c.quoteStatus||{}).mainAmount || 0);
   document.getElementById('payTotal').value = total || '';
 
-  // Pre-select customer's known payment preference (fallback: cash)
-  const _pref = (c.preferredPaymentMethod || c.paymentMethod || 'cash').toLowerCase();
+  // Pre-select payment preference — jhEntry method if available, else customer default
+  const _rawPref = (_jh?.paymentMethod || _jh?.payment || c.preferredPaymentMethod || c.paymentMethod || 'cash').toLowerCase();
   const _knownPm = ['zelle','check','cash','venmo','other'];
-  const _defaultPm = _knownPm.includes(_pref) ? _pref : 'cash';
+  const _defaultPm = _knownPm.includes(_rawPref) ? _rawPref : 'cash';
+  const _pref = _defaultPm; // keep variable name for compat below
   const radios = document.querySelectorAll('input[name="payMethod"]');
   radios.forEach(r => { r.checked = r.value === _defaultPm; });
   document.getElementById('payMethodOther').value = '';
@@ -4920,7 +4996,8 @@ function openPaymentModal(phone) {
 
 function closePaymentModal() {
   document.getElementById('paymentModal').classList.add('hidden');
-  _payPhone = null;
+  _payPhone   = null;
+  _payJhJobId = null;
 }
 
 async function submitPayment() {
@@ -4945,22 +5022,33 @@ async function submitPayment() {
     // Update local record
     const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
     if (c) {
-      c.paymentInfo = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
       if (method) c.paymentMethod = method; // update preferred default for next job pre-fill
 
-      // Update matching jobHistory entry (per-job payment tracking)
-      const ss = c.scheduledStatus || {};
-      const jhMatch = (c.jobHistory || []).find(j =>
-        (ss._lastJobId && j.jobId === ss._lastJobId) ||
-        (j.date === (ss.scheduledDate || paidDate) && j.status === 'completed' && !j.payment)
-      );
-      if (jhMatch) {
-        jhMatch.payment       = method;
-        jhMatch.paymentMethod = method;
-        jhMatch.paidAt        = new Date().toISOString();
-        if (notes) jhMatch.paymentNotes = notes;
+      if (_payJhJobId) {
+        // jhEntry mode: write payment to specific jobHistory entry only
+        const _jhPay = _findJhByJobId(c, _payJhJobId);
+        if (_jhPay) {
+          _jhPay.paymentInfo   = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
+          _jhPay.payment       = method;
+          _jhPay.paymentMethod = method;
+          _jhPay.paidAt        = new Date().toISOString();
+          if (notes) _jhPay.paymentNotes = notes;
+        }
+      } else {
+        // Normal mode: write to customer-level paymentInfo + matching jh entry
+        c.paymentInfo = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
+        const ss = c.scheduledStatus || {};
+        const jhMatch = (c.jobHistory || []).find(j =>
+          (ss._lastJobId && j.jobId === ss._lastJobId) ||
+          (j.date === (ss.scheduledDate || paidDate) && j.status === 'completed' && !j.payment)
+        );
+        if (jhMatch) {
+          jhMatch.payment       = method;
+          jhMatch.paymentMethod = method;
+          jhMatch.paidAt        = new Date().toISOString();
+          if (notes) jhMatch.paymentNotes = notes;
+        }
       }
-      // Persist jobHistory update (saveDb writes full DB including jobHistory + paymentInfo)
       saveDb().catch(() => {});
     }
 
@@ -5021,19 +5109,29 @@ let _editCust   = null;
 let _editAddons = [];
 
 // ── Full edit modal state ─────────────────────────────────────────────────────
-let _fePhone = null; // original phone (10 digits) when modal opened
-let _feCust  = null; // reference to customer object in dbRecord
+let _fePhone   = null; // original phone (10 digits) when modal opened
+let _feCust    = null; // reference to customer object in dbRecord
+let _feJhJobId = null; // when editing a specific jhEntry (extra card), its jobId; null = edit via scheduledStatus
 
-function openEditModal(phone) {
+// ── Payment modal jhEntry mode ────────────────────────────────────────────────
+let _payJhJobId = null; // jobId of specific jhEntry being paid; null = whole-customer paymentInfo
+
+function _findJhByJobId(c, jobId) {
+  return (c.jobHistory || []).find(j => j.jobId === jobId) || null;
+}
+
+function openEditModal(phone, jhJobId) {
   const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
   if (!c) return;
   _editPhone = phone;
   _editCust  = c;
   _fePhone   = phone;
   _feCust    = c;
+  _feJhJobId = jhJobId || null; // null = normal scheduledStatus mode
 
   const ss = c.scheduledStatus || {};
   const qs = c.quoteStatus    || {};
+  const _jh = _feJhJobId ? _findJhByJobId(c, _feJhJobId) : null; // specific jhEntry when editing extra card
   const svcAgreed = qs.servicesAgreed || {};
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
 
@@ -5042,33 +5140,38 @@ function openEditModal(phone) {
   document.getElementById('feLn').value    = (c.lastName ||c.ln||'').trim();
   document.getElementById('fePhone').value = _fmtPhDisplay(phone);
   document.getElementById('feEmail').value = c.email || '';
-  document.getElementById('feAddr').value  = c.address || '';
-  document.getElementById('feCity').value  = c.city || '';
+  // In jhEntry mode: address/city/services/price/date/rig come from the specific jhEntry
+  document.getElementById('feAddr').value  = _jh ? (_jh.address || '') : (c.address || '');
+  document.getElementById('feCity').value  = _jh ? (_jh.city    || '') : (c.city    || '');
   updateFeCopyBtn();
   document.getElementById('feSqFt').value  = c.sqFt || ss.sqFt || svcAgreed.roofSqFt || '';
   document.getElementById('feLeadSrc').value = c.leadSource?.primary || '';
 
-  const svc = (ss.jobNotes || qs.mainServices || qs.notes || '').trim();
+  const svc = _jh
+    ? (_jh.services || _jh.jobNotes || '').trim()
+    : (ss.jobNotes || qs.mainServices || qs.notes || '').trim();
   document.getElementById('feServices').value = svc;
   checkFeRoof();
 
-  const roofType = svcAgreed.roofType || '';
+  const roofType = _jh ? '' : (svcAgreed.roofType || '');
   document.getElementById('feRoofType').value = roofType;
-  const stories = ss.roofStories || 1;
+  const stories = _jh ? (_jh.roofStories || 1) : (ss.roofStories || 1);
   const stEl = document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2));
   if (stEl) stEl.checked = true;
 
-  document.getElementById('fePrice').value = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
-  document.getElementById('feDate').value  = ss.scheduledDate || '';
-  document.getElementById('feRig').value   = ss.rig || '';
+  document.getElementById('fePrice').value = _jh
+    ? (_jh.amount || 0)
+    : (ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0);
+  document.getElementById('feDate').value  = _jh ? (_jh.date || '') : (ss.scheduledDate || '');
+  document.getElementById('feRig').value   = _jh ? (_jh.rig || _jh.rigId || '') : (ss.rig || '');
   document.getElementById('feNotes').value = c.notes || '';
 
-  // Payment field — only visible for completed jobs
-  const _feCompleted = ss.state === 'completed';
+  // Payment field — visible for completed jobs or any jhEntry (always completed)
+  const _feCompleted = _jh ? true : ss.state === 'completed';
   document.getElementById('fePaymentHdr').style.display   = _feCompleted ? '' : 'none';
   document.getElementById('fePaymentField').style.display = _feCompleted ? '' : 'none';
   if (_feCompleted) {
-    const _jhForPay = (c.jobHistory || []).find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill');
+    const _jhForPay = _jh || (c.jobHistory || []).find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill');
     const _curPm = (_jhForPay?.paymentMethod || _jhForPay?.payment || c.paymentMethod || '').toLowerCase();
     const _pmSel = document.getElementById('fePayMethod');
     if (_pmSel) _pmSel.value = ['zelle','check','cash','venmo','other'].includes(_curPm) ? _curPm : '';
@@ -5117,8 +5220,9 @@ function openFeMoreOptions() {
 
 function closeFullEditModal() {
   document.getElementById('fullEditModal').classList.add('hidden');
-  _fePhone = null;
-  _feCust  = null;
+  _fePhone   = null;
+  _feCust    = null;
+  _feJhJobId = null;
 }
 function updateFeCopyBtn() {
   const btn = document.getElementById('feCopyAddrBtn');
@@ -5171,6 +5275,52 @@ async function saveFullEdit() {
   const c  = _feCust;
   const ss = c.scheduledStatus || (c.scheduledStatus = {});
   const qs = c.quoteStatus    || (c.quoteStatus = {});
+
+  // ── jhEntry mode: editing a specific jobHistory entry (extra card) ──────────
+  if (_feJhJobId) {
+    const _jh = _findJhByJobId(c, _feJhJobId);
+    if (_jh) {
+      c.firstName = fn; c.lastName = ln;
+      if (email) c.email = email;
+      c.notes = notes;
+      // addr/city go to the job entry (not billing address)
+      if (addr) _jh.address = addr;
+      if (city) _jh.city    = city;
+      if (svc)  _jh.services = svc;
+      if (price) _jh.amount = price;
+      if (date)  _jh.date   = date;
+      if (rig)  { _jh.rig = rig; _jh.rigId = rig; }
+      if (fePayMethod) {
+        const _oldPm = _jh.paymentMethod || _jh.payment || null;
+        if (_oldPm !== fePayMethod) {
+          _jh.paymentMethod = fePayMethod;
+          _jh.payment       = fePayMethod;
+          if (_jh.paymentInfo) _jh.paymentInfo = { ..._jh.paymentInfo, method: fePayMethod, correctedAt: new Date().toISOString(), correctedBy: 'admin' };
+          c.paymentMethod = fePayMethod;
+          logEvent('payment_method_corrected', newPhone, { oldMethod: _oldPm, newMethod: fePayMethod, jobDate: _jh.date, jobId: _feJhJobId, correctedBy: 'admin' });
+        }
+      }
+      if (phoneChanged) {
+        const oldPhone = _fePhone;
+        c.phone = newPhone;
+        logEvent('phone_changed', newPhone, { oldPhone, newPhone, changedBy: 'admin' });
+      }
+    }
+    const saveBtn = document.getElementById('feSaveBtn');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    const errEl2 = document.getElementById('feError');
+    try {
+      await saveDb();
+      closeFullEditModal();
+      render();
+    } catch(e) {
+      errEl2.textContent = 'Save failed — check connection.';
+      errEl2.style.display = 'block';
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+    }
+    return;
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   c.firstName = fn; c.lastName = ln;
   if (email) c.email = email;

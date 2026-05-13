@@ -1012,6 +1012,93 @@ async function main() {
       }
     });
 
+    // ── EXTRA CARD FULL CONTROLS ─────────────────────────────────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'extra-card-controls', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(() => {
+        const orig = window.saveDb; window.saveDb = () => Promise.resolve();
+        const testPhone = '7770009999';
+        const JOB_ID = 'test_extra_control_abc';
+        const cust = {
+          phone: testPhone, firstName: 'Extra', lastName: 'Ctrl',
+          totalJobs: 2, lifetimeSpend: 600, alerts: [],
+          scheduledStatus: { state: 'completed', scheduledDate: '2026-05-05', rig: 'rig_2', approvedAmount: 300 },
+          jobHistory: [
+            { jobId: JOB_ID, date: '2026-05-05', address: '5501 Monroe St', rig: 'rig_2',
+              status: 'completed', amount: 300, services: 'Rinse Walls / Driveway', source: 'calendar_completion', completedAt: null },
+            { jobId: 'test_hope_ctrl', date: '2026-05-05', address: '7000 Hope St', rig: 'rig_2',
+              status: 'completed', amount: 300, services: 'Patio / Sidewalk', source: 'manual_backfill', completedAt: '2026-05-05T20:00:00.000Z' },
+          ],
+          quoteStatus: { mainAmount: 300 }, paymentMethod: 'zelle',
+        };
+        dbRecord.customers.push(cust);
+
+        // Render extra card HTML for the Monroe entry (first jh entry = primary entry in reverse = last, so use direct call)
+        const html = jobCardHistoryExtra(cust, cust.jobHistory[0]);
+        const div = document.createElement('div');
+        div.innerHTML = html;
+
+        const hasEdit    = !!div.querySelector('.js-edit-btn');
+        const hasPrint   = !!div.querySelector('.js-print-btn');
+        const hasEmail   = !!div.querySelector('.js-email-btn');
+        const hasPay     = !!div.querySelector('.js-pay-btn');
+        const hasZelle   = !!div.querySelector('.js-zelle-btn');
+        const hasReceipt = !!div.querySelector('.js-receipt-btn');
+        const hasBadge   = div.innerHTML.includes('2nd same-day');
+        const hasAddr    = div.innerHTML.includes('Monroe');
+        const hasNoRevert = !div.querySelector('.js-revert-btn');
+
+        // Edit button should pass jobId
+        const editOnclick = div.querySelector('.js-edit-btn')?.getAttribute('onclick') || '';
+        const editHasJobId = editOnclick.includes(JOB_ID);
+
+        // Pay button should pass jobId
+        const payOnclick = div.querySelector('.js-pay-btn')?.getAttribute('onclick') || '';
+        const payHasJobId = payOnclick.includes(JOB_ID);
+
+        // Test openEditModal in jhEntry mode
+        openEditModal(testPhone, JOB_ID);
+        const feAddrVal = document.getElementById('feAddr')?.value || '';
+        const feSvcVal  = document.getElementById('feServices')?.value || '';
+        closeFullEditModal();
+
+        // Cleanup
+        dbRecord.customers = dbRecord.customers.filter(c => c.phone !== testPhone);
+        window.saveDb = orig;
+
+        return { hasEdit, hasPrint, hasEmail, hasPay, hasZelle, hasReceipt, hasBadge, hasAddr,
+                 hasNoRevert, editHasJobId, payHasJobId, feAddrVal, feSvcVal };
+      });
+
+      if (result.hasEdit)    pass('Extra card controls — Edit button present');
+      else                   fail('Extra card controls — Edit button present', '.js-edit-btn missing from jobCardHistoryExtra');
+      if (result.hasPrint)   pass('Extra card controls — Print button present');
+      else                   fail('Extra card controls — Print button present', '.js-print-btn missing');
+      if (result.hasEmail)   pass('Extra card controls — Email button present');
+      else                   fail('Extra card controls — Email button present', '.js-email-btn missing');
+      if (result.hasPay)     pass('Extra card controls — Payment button present');
+      else                   fail('Extra card controls — Payment button present', '.js-pay-btn missing');
+      if (result.hasZelle)   pass('Extra card controls — Zelle request button present');
+      else                   fail('Extra card controls — Zelle request button present', '.js-zelle-btn missing');
+      if (result.hasReceipt) pass('Extra card controls — Send Receipt button present');
+      else                   fail('Extra card controls — Send Receipt button present', '.js-receipt-btn missing');
+      if (result.hasBadge)   pass('Extra card controls — "2nd same-day job" badge present');
+      else                   fail('Extra card controls — "2nd same-day job" badge present', 'badge label missing');
+      if (result.hasAddr)    pass('Extra card controls — card shows Monroe St address');
+      else                   fail('Extra card controls — card shows Monroe St address', 'address not rendered');
+      if (result.hasNoRevert) pass('Extra card controls — Revert button absent (correct)');
+      else                    fail('Extra card controls — Revert button absent (correct)', '.js-revert-btn found on extra card — should be absent');
+      if (result.editHasJobId) pass('Extra card controls — Edit onclick passes jobId');
+      else                     fail('Extra card controls — Edit onclick passes jobId', `onclick: ${result.editHasJobId}`);
+      if (result.payHasJobId)  pass('Extra card controls — Pay onclick passes jobId');
+      else                     warn('Extra card controls — Pay onclick passes jobId', 'jobId not found in pay onclick — check when payment not yet logged');
+      if (result.feAddrVal.includes('Monroe')) pass('Extra card Edit — openEditModal populates Monroe St address');
+      else fail('Extra card Edit — openEditModal populates Monroe St address', `feAddr was: "${result.feAddrVal}"`);
+      if (result.feSvcVal.includes('Rinse')) pass('Extra card Edit — openEditModal populates Monroe services');
+      else fail('Extra card Edit — openEditModal populates Monroe services', `feServices was: "${result.feSvcVal}"`);
+    });
+
     // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
       await page.waitForTimeout(5000); // API call + render

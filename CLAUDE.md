@@ -329,6 +329,8 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 | May 13, 2026 | Payment logging silent failure diagnosed and fixed. `_weekNavDrag`'s click suppressor (intended to prevent post-drag accidental day-view click) fired on ANY next click — including inside modals. Symptom: drag calendar to navigate → click 'Log Payment' button → click silently eaten → modal stays open. Fix: suppressor now excludes clicks inside `.overlay, .modal, .crew-pop, [role="dialog"], .popover, .dropdown-menu`. When a modal click is passed through, suppressor re-registers itself so day-header protection stays active for the next non-modal click. Day-header protection preserved. Affects all calendar modals (payment, edit, post-save, date picker, payroll, day-off). `{ once: true }` consumes the listener even on early `return` — re-registration inside the handler is required to keep protection active after a modal click passes through. |
 
+| May 13, 2026 | jobCardHistoryExtra now renders with full action controls (tactical fix before Phase 2 schema refactor). Previously compact chip with zero buttons. Now: Print, Email, Complaint, Zelle request, Log Payment / Paid status, Send Receipt, Edit button — all targeting the specific jobHistory entry via jhEntry.jobId. openEditModal(phone, jhJobId) branches on jhJobId: populates feAddr/feCity from jhEntry, saves back to jhEntry (not scheduledStatus). openPaymentModal(phone, jhJobId) branches: writes to jhEntry.paymentInfo (not c.paymentInfo). requestPayment, printInvoice, emailInvoice all extended with optional jhJobId param for jhEntry-specific data. Revert and Review skipped on extra cards (semantically wrong / per-customer). "2nd same-day job" badge retained as label. Christina Seeber's Monroe St card now has equal controls to Hope St card. |
+
 | May 13, 2026 | Calendar render dedup refined. Previous logic skipped ALL extra jobHistory entries for any customer whose scheduledStatus matched date+rig+state=completed — eating legitimate multi-property same-day jobs. Christina Seeber (real estate agent paying for cleaning at 5501 Monroe + 7000 Hope same day, both rig_2) saw only one card. New logic in getExtraCompletedJobsForRig: when ssCovers fires, skip only the specific entry the primary card represents (matched by reference via c.jobHistory.slice().reverse().find()) and suppress additional entries only when they match on same-address + amount within ±$5 (double-completion defense). All other entries rendered as extras. Maintains Jim New single-completion behavior and Seeber double-completion defense, while correctly rendering multi-property same-day same-rig jobs. |
 
 | May 13, 2026 | Double-push phantom cleanup executed. 4 records deleted: ED Mendez phantom (9548038318, created 2026-05-12), Pravin Basnyet phantom (9549099618, created 2026-05-13), and both Queue Test records (0000000099, leaked from verify-browser test). Real records for ED Mendez and Pravin Basnyet preserved. 1243 → 1239 customers. Zero duplicate-phone pairs remain. Snapshot: customer_db_backup_2026-05-13T20-05-38. Verify-browser queue-delete test fixed to stub saveDb() so test data never reaches production KV. |
@@ -860,3 +862,27 @@ Projects that are scoped, justified, and ready to execute — but intentionally 
 **Priority:** High leverage. Every future strategy conversation benefits from instant business-state access. Pairs well with ML analysis sessions.
 
 **Deferred:** May 11, 2026
+
+---
+
+### PROJECT: Multi-Property Customer Schema (properties[] + scheduledStatuses[])
+
+**Full design:** `docs/SCHEMA_MULTI_PROPERTY.md`
+
+**Problem:** Current schema has one `scheduledStatus` per customer. Multi-property customers (realtors, property managers) scheduling same-day jobs at different addresses collide — only one renders as a full primary card, others show as stripped-down extra chips with no action buttons.
+
+**Current workaround shipped May 13:** Per-job address on jobHistory entries + dedup logic in `getExtraCompletedJobsForRig` + full controls on `jobCardHistoryExtra` (tactical fix). Works for today's volume (1 genuinely multi-property customer — Kristina Seeber).
+
+**Schema changes:**
+- `customer.properties[]` — canonical address array (primary + additional)
+- `customer.scheduledStatuses[]` — replaces `scheduledStatus` singular; one entry per property with active work
+- `jobHistory[N].propertyId` — links each job to a property
+- Each `scheduledStatuses` entry renders as its own full primary card in the calendar (no more extra-card path for multi-property)
+
+**Scope:** 152 references in calendar.html, 17 in customer_profile.html, 24 in worker — ~16h across 2 sessions. Migration script must be idempotent.
+
+**Current data:** 1 genuine multi-property customer (Kristina Seeber). 1,237 customers are single-address. Keith Wolf false-positive (job address = substring of customer.address).
+
+**Trigger window:** When property manager clients become more common OR when the extra-card tactical workaround causes friction. Do NOT start mid-week during active job days — calendar must ship atomically with worker changes.
+
+**Deferred:** May 13, 2026
