@@ -5022,17 +5022,14 @@ async function submitPayment() {
     // Update local record
     const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
     if (c) {
-      if (method) c.paymentMethod = method; // update preferred default for next job pre-fill
-
       if (_payJhJobId) {
         // jhEntry mode: write payment to specific jobHistory entry only
         const _jhPay = _findJhByJobId(c, _payJhJobId);
         if (_jhPay) {
-          _jhPay.paymentInfo   = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
-          _jhPay.payment       = method;
-          _jhPay.paymentMethod = method;
-          _jhPay.paidAt        = new Date().toISOString();
+          _jhPay.paymentInfo = { totalPaid: total, method, methodOther, paidDate, paidAt: new Date().toISOString(), notes };
+          _jhPay.paidAt = new Date().toISOString();
           if (notes) _jhPay.paymentNotes = notes;
+          _applyPaymentMethod(c, _jhPay, method);
         }
       } else {
         // Normal mode: write to customer-level paymentInfo + matching jh entry
@@ -5042,12 +5039,9 @@ async function submitPayment() {
           (ss._lastJobId && j.jobId === ss._lastJobId) ||
           (j.date === (ss.scheduledDate || paidDate) && j.status === 'completed' && !j.payment)
         );
-        if (jhMatch) {
-          jhMatch.payment       = method;
-          jhMatch.paymentMethod = method;
-          jhMatch.paidAt        = new Date().toISOString();
-          if (notes) jhMatch.paymentNotes = notes;
-        }
+        if (jhMatch) jhMatch.paidAt = new Date().toISOString();
+        if (notes && jhMatch) jhMatch.paymentNotes = notes;
+        _applyPaymentMethod(c, jhMatch, method);
       }
       saveDb().catch(() => {});
     }
@@ -5118,6 +5112,19 @@ let _payJhJobId = null; // jobId of specific jhEntry being paid; null = whole-cu
 
 function _findJhByJobId(c, jobId) {
   return (c.jobHistory || []).find(j => j.jobId === jobId) || null;
+}
+
+// Write payment method to all five fields atomically so every read path sees the correct value.
+// Calendar reads c.paymentInfo.method; correction paths historically only wrote c.paymentMethod and jh fields.
+function _applyPaymentMethod(c, jhEntry, method) {
+  if (!method) return;
+  c.paymentMethod = method;
+  if (c.paymentInfo) c.paymentInfo.method = method;
+  if (jhEntry) {
+    jhEntry.paymentMethod = method;
+    jhEntry.payment       = method;
+    if (jhEntry.paymentInfo) jhEntry.paymentInfo.method = method;
+  }
 }
 
 function openEditModal(phone, jhJobId) {
@@ -5293,10 +5300,8 @@ async function saveFullEdit() {
       if (fePayMethod) {
         const _oldPm = _jh.paymentMethod || _jh.payment || null;
         if (_oldPm !== fePayMethod) {
-          _jh.paymentMethod = fePayMethod;
-          _jh.payment       = fePayMethod;
-          if (_jh.paymentInfo) _jh.paymentInfo = { ..._jh.paymentInfo, method: fePayMethod, correctedAt: new Date().toISOString(), correctedBy: 'admin' };
-          c.paymentMethod = fePayMethod;
+          _applyPaymentMethod(c, _jh, fePayMethod);
+          if (_jh.paymentInfo) { _jh.paymentInfo.correctedAt = new Date().toISOString(); _jh.paymentInfo.correctedBy = 'admin'; }
           logEvent('payment_method_corrected', newPhone, { oldMethod: _oldPm, newMethod: fePayMethod, jobDate: _jh.date, jobId: _feJhJobId, correctedBy: 'admin' });
         }
       }
@@ -5349,22 +5354,16 @@ async function saveFullEdit() {
   // For completed jobs: persist payment method correction if changed
   if (ss.state === 'completed' && fePayMethod) {
     const _jhPay = (c.jobHistory || []).find(j => j.date === (date || ss.scheduledDate) && j.source !== 'csv_backfill');
-    if (_jhPay) {
-      const _oldPm = _jhPay.paymentMethod || _jhPay.payment || null;
-      if (_oldPm !== fePayMethod) {
-        _jhPay.paymentMethod = fePayMethod;
-        _jhPay.payment       = fePayMethod;
-        if (_jhPay.paymentInfo) {
-          _jhPay.paymentInfo = { ..._jhPay.paymentInfo, method: fePayMethod, correctedAt: new Date().toISOString(), correctedBy: 'admin' };
-        }
-        c.paymentMethod = fePayMethod;
-        logEvent('payment_method_corrected', newPhone, {
-          oldMethod: _oldPm,
-          newMethod: fePayMethod,
-          jobDate:   date || ss.scheduledDate,
-          correctedBy: 'admin',
-        });
-      }
+    const _oldPm = (_jhPay?.paymentMethod || _jhPay?.payment || c.paymentMethod || null);
+    if (_oldPm !== fePayMethod) {
+      _applyPaymentMethod(c, _jhPay || null, fePayMethod);
+      if (_jhPay?.paymentInfo) { _jhPay.paymentInfo.correctedAt = new Date().toISOString(); _jhPay.paymentInfo.correctedBy = 'admin'; }
+      logEvent('payment_method_corrected', newPhone, {
+        oldMethod: _oldPm,
+        newMethod: fePayMethod,
+        jobDate:   date || ss.scheduledDate,
+        correctedBy: 'admin',
+      });
     }
   }
 

@@ -1381,6 +1381,70 @@ async function main() {
       }
     });
 
+    // ── PENCIL EDIT — three-field payment write (c.paymentInfo.method) ──────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'pencil-payment-three-field', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(async () => {
+        // Find a completed customer with paymentInfo set (the 3rd field that was missing)
+        const c = (dbRecord?.customers||[]).find(x =>
+          x.scheduledStatus?.state === 'completed' &&
+          x.paymentInfo?.paidAt &&
+          x.phone && !x.isReferralOnly
+        );
+        if (!c) return { skip: 'no completed customer with paymentInfo found' };
+
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+        const oldMethod = c.paymentInfo.method || 'cash';
+        const newMethod = oldMethod === 'zelle' ? 'cash' : 'zelle';
+
+        // Stub saveDb and render to avoid live writes and re-navigation
+        const origSaveDb = window.saveDb;
+        const origRender = window.render;
+        window.saveDb = () => Promise.resolve();
+        window.render = () => {};
+
+        openEditModal(ph);
+        await new Promise(r => setTimeout(r, 100));
+
+        const sel = document.getElementById('fePayMethod');
+        if (!sel) {
+          window.saveDb = origSaveDb; window.render = origRender;
+          return { skip: 'fePayMethod dropdown not found' };
+        }
+        sel.value = newMethod;
+
+        await saveFullEdit();
+
+        const resultMethod = c.paymentInfo.method;
+        const resultCPM    = c.paymentMethod;
+
+        window.saveDb = origSaveDb;
+        window.render = origRender;
+
+        // Restore original values so we don't leave stale in-memory state
+        c.paymentInfo.method = oldMethod;
+        c.paymentMethod      = oldMethod;
+        const jh = (c.jobHistory||[]).find(j => j.date === c.scheduledStatus?.scheduledDate && j.source !== 'csv_backfill');
+        if (jh) { jh.paymentMethod = oldMethod; jh.payment = oldMethod; if (jh.paymentInfo) jh.paymentInfo.method = oldMethod; }
+
+        return { oldMethod, newMethod, resultMethod, resultCPM, name: c.firstName };
+      });
+
+      if (result.skip) {
+        warn('Pencil edit — three-field payment write (c.paymentInfo.method)', result.skip);
+      } else {
+        if (result.resultMethod === result.newMethod)
+          pass('Pencil edit — three-field payment write: c.paymentInfo.method updated', `${result.oldMethod} → ${result.newMethod} for ${result.name}`);
+        else
+          fail('Pencil edit — three-field payment write: c.paymentInfo.method updated', `Expected ${result.newMethod}, got ${result.resultMethod}`);
+        if (result.resultCPM === result.newMethod)
+          pass('Pencil edit — three-field payment write: c.paymentMethod updated', `${result.oldMethod} → ${result.newMethod}`);
+        else
+          fail('Pencil edit — three-field payment write: c.paymentMethod updated', `Expected ${result.newMethod}, got ${result.resultCPM}`);
+      }
+    });
+
     // ── QUEUE DELETE — targets queue-eligible record, not first phone match ─────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'queue-delete-targeted', async page => {
       await page.waitForTimeout(2000);
