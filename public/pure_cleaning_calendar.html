@@ -3970,7 +3970,14 @@ function promptDeleteFromQueue(phone) {
 }
 
 function executeDeleteFromQueue(phone) {
-  const c = findCustomer(phone);
+  // Target the queue-eligible record specifically — not just the first phone match.
+  // Prevents wiping a completed job when two records share the same phone (duplicate entry).
+  const c = (dbRecord.customers||[]).find(x =>
+    x.phone === phone && (
+      x.scheduledStatus?.state === 'needs_scheduling' ||
+      (x.scheduledStatus?.state === 'scheduled' && !x.scheduledStatus?.rig)
+    )
+  ) || findCustomer(phone);
   if (!c) return;
   _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();

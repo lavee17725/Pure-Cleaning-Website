@@ -1206,6 +1206,67 @@ async function main() {
       }
     });
 
+    // ── QUEUE DELETE — targets queue-eligible record, not first phone match ─────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'queue-delete-targeted', async page => {
+      await page.waitForTimeout(2000);
+
+      // Inject two records with the same phone: one completed, one needs_scheduling.
+      // Then call executeDeleteFromQueue and verify only the queue record is cleared.
+      const result = await page.evaluate(async () => {
+        const testPhone = '0000000099';
+        const completedRec = {
+          phone: testPhone, firstName: 'Queue', lastName: 'Test',
+          scheduledStatus: { state: 'completed', scheduledDate: '2026-05-01', rig: 'rig_1', approvedAmount: 300 },
+          jobHistory: [{ date: '2026-05-01', amount: 300, status: 'completed', source: 'calendar_completion' }],
+          quoteStatus: { mainAmount: 300 }, totalJobs: 1, lifetimeSpend: 300,
+        };
+        const queueRec = {
+          phone: testPhone, firstName: 'Queue', lastName: 'Test',
+          scheduledStatus: { state: 'needs_scheduling' },
+          jobHistory: [], quoteStatus: null, totalJobs: 0, lifetimeSpend: 0,
+        };
+        // Inject both into dbRecord
+        dbRecord.customers.push(completedRec, queueRec);
+
+        // Execute the targeted delete
+        executeDeleteFromQueue(testPhone);
+
+        // Check results: completedRec should be untouched, queueRec should have null scheduledStatus
+        const completedOk = completedRec.scheduledStatus?.state === 'completed';
+        const queueCleared = queueRec.scheduledStatus === null;
+
+        // Cleanup
+        dbRecord.customers = dbRecord.customers.filter(c => c.phone !== testPhone);
+
+        return { completedOk, queueCleared };
+      });
+
+      if (result.completedOk) pass('Queue delete — completed record untouched when duplicate phone exists');
+      else fail('Queue delete — completed record untouched when duplicate phone exists', 'completedRec.scheduledStatus was modified');
+
+      if (result.queueCleared) pass('Queue delete — only queue-eligible record cleared');
+      else fail('Queue delete — only queue-eligible record cleared', 'queueRec.scheduledStatus was not nulled');
+    });
+
+    // ── NEW CUSTOMER — match banner shows for duplicate phone ────────────────
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-duplicate-detection', async page => {
+      await page.waitForTimeout(2000);
+
+      // Inject a test customer into allCustomers
+      await page.evaluate(() => {
+        allCustomers.push({ phone: '9990001111', firstName: 'Dupe', lastName: 'Test', scheduledStatus: null, jobHistory: [], alerts: [] });
+      });
+
+      // Type that phone into the form
+      await page.fill('#nPhone', '(999) 000-1111');
+      await page.dispatchEvent('#nPhone', 'input');
+      await page.waitForTimeout(500);
+
+      const bannerVisible = await page.locator('#matchBanner').isVisible().catch(() => false);
+      if (bannerVisible) pass('New Customer — match banner appears for duplicate phone');
+      else warn('New Customer — match banner appears for duplicate phone', 'matchBanner not visible after typing known duplicate — detection may have timing issue');
+    });
+
     // ── NEW CUSTOMER — 3-option post-save modal ────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-postsave', async page => {
       // Trigger modal directly without a real DB save
