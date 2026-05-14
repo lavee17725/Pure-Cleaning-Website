@@ -1012,6 +1012,97 @@ async function main() {
       }
     });
 
+    // ── LATE-COMPLETION DEDUP (_lastJobId suppression) ───────────────────────
+    // Regression test: jobs completed on a different day than scheduled (ss.scheduledDate ≠ jh.date)
+    // should NOT produce orphan extra cards on the completion date.
+    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'late-completion-dedup', async page => {
+      await page.waitForTimeout(2000);
+
+      const result = await page.evaluate(() => {
+        const PH = '0000000088';
+        const SCHED_DATE = '2026-05-07';
+        const COMPLETE_DATE = '2026-05-13';
+        const PRIMARY_JOB_ID = 'lc_test_primary_001';
+        const EXTRA_JOB_ID   = 'lc_test_extra_002';
+
+        // Test 1: single late completion — the primary jobId must be suppressed on completion date
+        const cust1 = {
+          phone: PH, firstName: 'LateComp', lastName: 'Test', totalJobs: 1, lifetimeSpend: 400,
+          scheduledStatus: {
+            state: 'completed', scheduledDate: SCHED_DATE, rig: 'rig_1',
+            approvedAmount: 400, _lastJobId: PRIMARY_JOB_ID,
+          },
+          jobHistory: [
+            { jobId: PRIMARY_JOB_ID, date: COMPLETE_DATE, status: 'completed', amount: 400,
+              rig: 'rig_1', source: 'calendar_completion', completedAt: COMPLETE_DATE + 'T18:00:00Z' },
+          ],
+        };
+
+        // Test 2: primary (suppressed) + a second distinct job on the same completion date
+        const cust2 = {
+          phone: '0000000087', firstName: 'LateComp', lastName: 'Two', totalJobs: 2, lifetimeSpend: 800,
+          scheduledStatus: {
+            state: 'completed', scheduledDate: SCHED_DATE, rig: 'rig_1',
+            approvedAmount: 400, _lastJobId: PRIMARY_JOB_ID,
+          },
+          jobHistory: [
+            { jobId: PRIMARY_JOB_ID, date: COMPLETE_DATE, status: 'completed', amount: 400,
+              rig: 'rig_1', source: 'calendar_completion', completedAt: COMPLETE_DATE + 'T18:00:00Z' },
+            { jobId: EXTRA_JOB_ID, date: COMPLETE_DATE, status: 'completed', amount: 350,
+              rig: 'rig_1', address: '999 Other St', source: 'calendar_completion',
+              completedAt: COMPLETE_DATE + 'T17:00:00Z' },
+          ],
+        };
+
+        // Test 3: legacy completion (no _lastJobId) — ssCovers fallback, same date
+        const cust3 = {
+          phone: '0000000086', firstName: 'Legacy', lastName: 'Comp', totalJobs: 1, lifetimeSpend: 300,
+          scheduledStatus: {
+            state: 'completed', scheduledDate: SCHED_DATE, rig: 'rig_1', approvedAmount: 300,
+            // no _lastJobId
+          },
+          jobHistory: [
+            { date: SCHED_DATE, status: 'completed', amount: 300, rig: 'rig_1',
+              source: 'calendar_completion', completedAt: SCHED_DATE + 'T16:00:00Z' },
+          ],
+        };
+
+        dbRecord.customers.push(cust1, cust2, cust3);
+
+        const extrasOnCompleteDate_1 = getExtraCompletedJobsForRig(COMPLETE_DATE, 'rig_1')
+          .filter(({customer}) => customer.phone === PH);
+        const extrasOnCompleteDate_2 = getExtraCompletedJobsForRig(COMPLETE_DATE, 'rig_1')
+          .filter(({customer}) => customer.phone === '0000000087');
+        const extrasOnSchedDate_3 = getExtraCompletedJobsForRig(SCHED_DATE, 'rig_1')
+          .filter(({customer}) => customer.phone === '0000000086');
+
+        // Cleanup
+        dbRecord.customers = dbRecord.customers.filter(c => !['0000000088','0000000087','0000000086'].includes(c.phone));
+
+        return {
+          test1_extras: extrasOnCompleteDate_1.length,  // should be 0 (primary suppressed)
+          test2_extras: extrasOnCompleteDate_2.length,  // should be 1 (extra job passes)
+          test2_extraJobId: extrasOnCompleteDate_2[0]?.jhEntry?.jobId || null, // should be EXTRA_JOB_ID
+          test3_extras: extrasOnSchedDate_3.length,     // should be 0 (ssCovers fallback suppresses)
+        };
+      });
+
+      if (result.test1_extras === 0)
+        pass('Late-completion dedup — primary jobId suppressed on completion date (no orphan extra)');
+      else
+        fail('Late-completion dedup — primary jobId suppressed on completion date', `Got ${result.test1_extras} extra cards, expected 0`);
+
+      if (result.test2_extras === 1 && result.test2_extraJobId === 'lc_test_extra_002')
+        pass('Late-completion dedup — distinct job on same completion date still renders as extra');
+      else
+        fail('Late-completion dedup — distinct job renders as extra', `extras=${result.test2_extras} jobId=${result.test2_extraJobId}`);
+
+      if (result.test3_extras === 0)
+        pass('Late-completion dedup — legacy completion (no _lastJobId) suppressed by ssCovers fallback');
+      else
+        fail('Late-completion dedup — legacy ssCovers fallback', `Got ${result.test3_extras} extras, expected 0`);
+    });
+
     // ── EXTRA CARD FULL CONTROLS ─────────────────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'extra-card-controls', async page => {
       await page.waitForTimeout(2000);

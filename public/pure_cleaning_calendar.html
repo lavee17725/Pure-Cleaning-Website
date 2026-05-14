@@ -3165,6 +3165,21 @@ function getExtraCompletedJobsForRig(date, rig) {
     });
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
+
+    // Primary dedup: suppress the specific completion identified by ss._lastJobId.
+    // Handles both same-day completions AND late completions where jh.date ≠ ss.scheduledDate
+    // (e.g., a job scheduled May 7 but completed May 13 — ssCovers would miss the date mismatch).
+    if (ss?.state === 'completed' && ss._lastJobId) {
+      for (const jhEntry of matching) {
+        if (jhEntry.jobId !== ss._lastJobId) {
+          result.push({ customer: c, jhEntry }); // distinct job (different property, etc.) — render as extra
+        }
+        // jobId === _lastJobId → primary card already shows it on ss.scheduledDate — skip
+      }
+      continue;
+    }
+
+    // Fallback for legacy completions that predate _lastJobId: dedup by date match (ssCovers).
     const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
     if (ssCovers) {
       // Primary jobCardScheduled already renders the last jh entry for this date (same logic as _jhMatch).
