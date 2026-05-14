@@ -210,6 +210,10 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 **Field naming** — the schema uses `firstName`/`lastName` (camelCase), not `first_name`/`fn`. When in doubt, grep the customer record before writing a new accessor.
 
+**Date format policy:** All dates are stored and compared as `YYYY-MM-DD` strings. Accepted input formats: `5/6/26`, `5/6/2026`, `YYYY-MM-DD`. Any of those is parsed to canonical `YYYY-MM-DD`. All other formats are rejected — never silently coerced. This applies to migration scripts, CSV importers, and form validators uniformly.
+
+**Migration and schema-change cutover windows:** Saturday morning OR weekday after 8 PM ET. Never Tuesday–Thursday AM — those are Mom's heaviest call hours and breaking customer lookup during those windows is the worst-case outcome. This applies to any change that touches the schema, the worker handler, or the calendar render path simultaneously.
+
 **KV access policy — all reads and writes go through the worker API, never wrangler CLI.** `wrangler kv key get/put` and the worker runtime `env.DATA` access different Cloudflare KV edge states even when given the same namespace ID. They do not reliably converge via eventual consistency.
 
 - **Reads:** `GET /customers` (admin API) or `GET /import/snapshots`  
