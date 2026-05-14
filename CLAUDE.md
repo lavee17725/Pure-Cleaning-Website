@@ -210,6 +210,15 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 **Field naming** — the schema uses `firstName`/`lastName` (camelCase), not `first_name`/`fn`. When in doubt, grep the customer record before writing a new accessor.
 
+**KV access policy — all reads and writes go through the worker API, never wrangler CLI.** `wrangler kv key get/put` and the worker runtime `env.DATA` access different Cloudflare KV edge states even when given the same namespace ID. They do not reliably converge via eventual consistency.
+
+- **Reads:** `GET /customers` (admin API) or `GET /import/snapshots`  
+- **Writes:** `PUT /customers` (full replace), any admin API endpoint that mutates a record  
+- **Snapshots:** `POST /import/snapshot` → `GET /import/snapshots` to verify  
+- **Wrangler kv commands:** READ-ONLY diagnostic tools only — never write with them
+
+Verified May 14, 2026: 14 hours of wrangler-path repairs (Jim New payment, Keith Wolf payment, Seeber Hope payment, two phantom deletions) appeared successful at the shell level but were silently overwritten by subsequent `saveDb()` calls from Tyler's browser. None of those repairs landed in production. All data repairs must go through the admin API so they enter the same edge state the worker runtime reads.
+
 ---
 
 ## Section 7: Working With Tyler
