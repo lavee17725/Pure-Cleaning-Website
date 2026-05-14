@@ -3941,6 +3941,14 @@ function _doCompleteJob(log) {
   if (!_isDuplicate) {
     c.jobHistory.push(_jhEntry);
     ss._lastJobId = _jhJobId; // link for payment logging
+  } else {
+    // Duplicate detected — don't push again, but still update _lastJobId to point at the
+    // existing matching entry so getExtraCompletedJobsForRig can suppress the phantom card.
+    const _existingEntry = c.jobHistory.find(j =>
+      j.date === completedDate && j.status === 'completed' &&
+      Math.abs((j.amount || 0) - (ss.approvedAmount || 0)) <= 5
+    );
+    if (_existingEntry?.jobId) ss._lastJobId = _existingEntry.jobId;
   }
 
   saveDb().catch(()=>{});
