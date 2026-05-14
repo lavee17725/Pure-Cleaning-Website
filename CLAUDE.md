@@ -890,3 +890,56 @@ Projects that are scoped, justified, and ready to execute — but intentionally 
 **Trigger window:** When property manager clients become more common OR when the extra-card tactical workaround causes friction. Do NOT start mid-week during active job days — calendar must ship atomically with worker changes.
 
 **Deferred:** May 13, 2026
+
+---
+
+### PROJECT: Calendar Dedup Architecture Rework
+
+**Status:** Blocked on schema decision — do not ship more tactical patches.
+
+**Context:** May 13, 2026 was a full-day calendar dedup session. Four patches shipped:
+1. Christina Seeber multi-property dedup (commit 6047be8) — `ssCovers` branch refined
+2. Per-job address on primary cards (commit 6f66abf) — `_jhMatch.address` fallback
+3. `_lastJobId`-based late-completion dedup (commit 1c67f09) — Option A
+4. Cancel job + DNS auto-enroll (commit 7ef17b2)
+
+**What each patch fixed, and why it's incomplete:**
+
+| Fix | Worked for | Fails for |
+|-----|-----------|-----------|
+| ssCovers date-match | Same-day completions | Late completions (ss.scheduledDate ≠ jh.date) |
+| _lastJobId (Option A) | Future completions done via app | ALL existing completed records (no _lastJobId in DB) |
+| primaryEntry selection | N/A — still broken | Completed customers w/ csv_backfill same date |
+
+**Root problem:** The dedup logic requires discriminators (`jobId`, `_lastJobId`, address match, source distinction) that are **not reliably present** across the 1,235 customer records. Specifically:
+- 7 completed customers, 0 have `_lastJobId` set
+- Multiple jh `source` values: `calendar_completion`, `csv_backfill`, `manual_repair`, `None` — inconsistency makes source-based guards fragile
+- `ss.scheduledDate` may differ from `jh.date` for late completions — date-based ssCovers breaks
+- The `primaryEntry` bug (selects csv_backfill as primary, pushes real completion as extra) still exists for all 7 completed customers (May 4–6) — latent, will surface if Tyler navigates to those weeks
+
+**Latent bug still unresolved (primaryEntry regression):** For Kristina Seeber, Keith Wolf, Jim New, Maria Correnti, Keith Beckler, Tara & Aldo Rodriguez — each has a real `calendar_completion` jh entry AND a `csv_backfill` entry for the same date. The ssCovers branch picks the csv_backfill as `primaryEntry` (because it was appended last during the bulk backfill), which means the real completion entry is pushed as an extra card on the primary card's date. Tyler hasn't seen these yet because they appear on May 4–6 (prior weeks).
+
+**Real fix:** Path 2 schema (`properties[]` + `scheduledStatuses[]` + `jobHistory[N].propertyId`) eliminates the ambiguity architecturally — each job has a unique primary key (propertyId), no date-based or source-based guessing required. See `docs/SCHEMA_MULTI_PROPERTY.md`.
+
+**Decision rule:** Do NOT ship more `getExtraCompletedJobsForRig` patches until Path 2 target schema is decided. Each patch addresses one symptom and introduces risk of breaking the others.
+
+**Recommended start window:** Fresh session tomorrow morning. Read `docs/SCHEMA_MULTI_PROPERTY.md` first. Open questions in that doc (Section "Open Questions") must be resolved before implementation begins.
+
+**Deferred:** May 13, 2026 (end of session)
+
+---
+
+### NOTE: Bob Kirk record lost — check before next session
+
+**Status:** Customer record for "Bob Kirk" (address 804 Heritage Dr) is not in the current DB at any phone number. No "Kirk" surname anywhere in the 1,235-record database.
+
+**What's known:** Bob Kirk appeared in the Playwright diagnostic session (May 13) as a scheduled/completed customer with `ss.scheduledDate='2026-05-05'`, `rig='rig_1'`. He was one of 5 late-completion phantoms visible on May 13. He appeared at phone 9543490771 in the Playwright in-memory view, but that phone does not exist in KV.
+
+**Earlier session:** A "Bob Kirk phantom record" was deleted in the Bob Kirk duplicate-cleanup session today. The real record was supposed to be preserved. It may not have been.
+
+**Critical: No KV snapshots exist.** The `customer_db_snapshots` key and all `customer_db_backup_*` keys are absent from the KV namespace (only `customer_db` exists). The snapshot restoration safety net documented in Section 6 is not in place. Investigate: did `POST /import/snapshot` ever succeed? Are snapshots stored in a different namespace?
+
+**Action before next session:** Tyler should check his phone contacts for Bob Kirk's number and look him up in the calendar to see if he appears under a different name or phone.
+
+**Deferred:** May 13, 2026 (end of session)
+
