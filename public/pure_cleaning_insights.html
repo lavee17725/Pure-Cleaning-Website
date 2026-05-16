@@ -239,14 +239,20 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
     <button class="period-tab" data-p="month">This Month</button>
     <button class="period-tab" data-p="quarter">This Quarter</button>
     <button class="period-tab" data-p="ytd">YTD</button>
+    <button class="period-tab" data-p="lastyear">Last Year</button>
     <button class="period-tab active" data-p="all">All Time</button>
   </div>
+</div>
+<div style="display:flex;align-items:center;gap:8px;padding:6px 0 2px 2px;">
+  <button id="sourceToggleBtn" onclick="toggleSource()" style="padding:4px 12px;border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;white-space:nowrap;">All historical data</button>
+  <span style="font-size:11px;color:#94a3b8;" id="sourceToggleHint">Includes CSV-imported records</span>
 </div>
 
 <main>
 
   <!-- ── T1: HERO METRICS ── -->
   <div class="sec-hdr" style="margin-top:0;">Performance · <span id="periodLabel">All Time</span></div>
+  <div id="dataDisclosure" style="font-size:11px;color:#888;margin:-6px 0 8px 2px;">Showing D1-canonical data · <span id="migrationDateLbl">migration date loading…</span> · Some historical records pending backfill</div>
   <div class="hero-grid" id="heroGrid"></div>
   <div id="dataNote" style="margin-top:.5rem;padding:.625rem 1rem;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;font-size:12px;color:#92400e;display:none;">
     ⚠️ <strong>Revenue shows $0 or blank?</strong> Revenue is attributed to each customer's most recent service date. Switch to <strong>All Time</strong> to see all historical data.
@@ -458,6 +464,8 @@ const PCPC_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
 let dbRecord   = null;
 let eventsData = [];
 let activePeriod = 'all';
+let insightsData = null;
+let activeSource = 'all';
 let charts = {};
 
 const TODAY = new Date();
@@ -692,6 +700,8 @@ function getPeriodBounds(p) {
     }
     case 'ytd':
       return { start: new Date(y,0,1), end: TODAY };
+    case 'lastyear':
+      return { start: new Date(y-1,0,1), end: new Date(y-1,11,31,23,59,59) };
     default: // all
       return { start: new Date(2010,0,1), end: TODAY };
   }
@@ -824,6 +834,50 @@ async function loadData(force=false) {
     const custs = dbRecord.customers || [];
     document.getElementById('lastUpdLbl').textContent = custs.length + ' customers loaded';
   }
+}
+
+async function loadInsights() {
+  const bounds = getPeriodBounds(activePeriod);
+  const fmt = d => d.toISOString().slice(0,10);
+  const url = new URL(`${PCPC_BASE}/admin/insights`);
+  url.searchParams.set('start',  fmt(bounds.start));
+  url.searchParams.set('end',    fmt(bounds.end));
+  url.searchParams.set('source', activeSource);
+  try {
+    const res = await fetch(url.toString());
+    if (!res.ok) throw new Error(`insights endpoint returned ${res.status}`);
+    insightsData = await res.json();
+  } catch (e) {
+    console.error('loadInsights failed:', e);
+    insightsData = null;
+    return;
+  }
+  const migEl = document.getElementById('migrationDateLbl');
+  if (migEl && insightsData?.migrationDate) {
+    const d = new Date(insightsData.migrationDate + 'T12:00:00');
+    migEl.textContent = 'migrated ' + d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  }
+}
+
+async function toggleSource() {
+  activeSource = activeSource === 'all' ? 'live' : 'all';
+  const btn  = document.getElementById('sourceToggleBtn');
+  const hint = document.getElementById('sourceToggleHint');
+  if (activeSource === 'live') {
+    btn.textContent = 'Live data only';
+    btn.style.background = '#fef3c7';
+    btn.style.borderColor = '#fbbf24';
+    btn.style.color = '#92400e';
+    if (hint) hint.textContent = 'Excludes CSV-imported records';
+  } else {
+    btn.textContent = 'All historical data';
+    btn.style.background = '#f1f5f9';
+    btn.style.borderColor = '#e2e8f0';
+    btn.style.color = '#475569';
+    if (hint) hint.textContent = 'Includes CSV-imported records';
+  }
+  await loadInsights();
+  renderAll();
 }
 
 // ─── S1: Hero Metrics ────────────────────────────────────────────────────────
@@ -2071,11 +2125,11 @@ document.querySelectorAll('details.insight-section').forEach(det => {
 
 // ─── Period tabs ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.period-tab').forEach(tab=>{
-  tab.addEventListener('click',()=>{
+  tab.addEventListener('click', async ()=>{
     activePeriod=tab.dataset.p;
     document.querySelectorAll('.period-tab').forEach(t=>t.classList.remove('active'));
     tab.classList.add('active');
-    if(dbRecord) renderAll();
+    if(dbRecord) { await loadInsights(); renderAll(); }
   });
 });
 
@@ -2091,7 +2145,7 @@ async function refresh() {
 async function init() {
   renderSkeletons();
   try {
-    await loadData();
+    await Promise.all([loadData(), loadInsights()]);
     renderAll();
   } catch(e) {
     console.error('Insights error:', e);
