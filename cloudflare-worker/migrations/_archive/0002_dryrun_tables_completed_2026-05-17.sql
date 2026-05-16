@@ -1,3 +1,5 @@
+-- Archived 2026-05-17. Dryrun tables were dropped after canonical write verification. Kept for historical reference.
+
 -- Pure Cleaning CRM — Dry-run shadow tables
 -- Migration: 0002_dryrun_tables
 -- Purpose: Receive identity-resolution dry-run output.

@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-Pure Cleaning CRM — Migration Script
-Hour 3: Identity Resolution + Manifest Preview
+DAY 1 MIGRATION LOADER — ONE-SHOT TOOL (DO NOT RE-RUN)
 
-v3 schema locked May 13, 2026.
-DO NOT WRITE TO D1 — this script produces a manifest preview only.
+Purpose: Load Pure Cleaning's historical KV customer_db data into D1's
+canonical tables. Ran successfully on 2026-05-17 (migration ID c9acb27c).
 
-Usage:
-  python3 scripts/migration_skeleton.py [snapshot_path]
+THIS SCRIPT WILL FAIL IF RE-RUN against a populated D1 because the canonical
+INSERT statements will hit PRIMARY KEY conflicts. That's intentional —
+re-running by accident shouldn't silently duplicate data.
 
-If snapshot_path omitted, uses the latest pre_migration_*.json in snapshots/.
+For Day 2 (2026-05-24), use a separate dual-write script. For incremental
+migrations (e.g., adding a new field), use proper D1 ALTER TABLE migrations
+in cloudflare-worker/migrations/.
+
+Last run: 2026-05-16T14:19:58Z
+Result: 1,239 Persons / 1,218 Properties / 1,240 PersonProperty / 1,825 Jobs
 """
 
 import json, re, sys, uuid, os, subprocess, tempfile
