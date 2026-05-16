@@ -964,6 +964,40 @@ export default {
         return await handleDayRouteAverages(request, env, corsHeaders, url);
       }
 
+      // ── Insights: D1 revenue/job aggregates (protected) ──────────────────────
+      if (path === 'admin/insights' && request.method === 'GET') {
+        const today       = new Date().toISOString().slice(0, 10);
+        const currentYear = today.slice(0, 4);
+        const start       = url.searchParams.get('start')     || '2010-01-01';
+        const end         = url.searchParams.get('end')       || today;
+        const prevStart   = url.searchParams.get('prevStart') || null;
+        const prevEnd     = url.searchParams.get('prevEnd')   || null;
+        const source      = url.searchParams.get('source')    || 'all';
+        // source values in D1 are csv_backfill_2024/2025/2026 — use LIKE prefix match
+        const srcFilter   = source === 'live' ? " AND source NOT LIKE 'csv_backfill%'" : '';
+
+        const ytdStart = `${currentYear}-01-01`;
+        const completedSQL = `SELECT COUNT(*) AS jobCount, COALESCE(SUM(amount),0) AS revenue FROM Job WHERE state='completed' AND scheduledDate BETWEEN ? AND ? AND amount > 0${srcFilter}`;
+        const pipelineSQL  = `SELECT COUNT(*) AS jobCount, COALESCE(SUM(amount),0) AS revenue FROM Job WHERE state='scheduled' AND scheduledDate BETWEEN ? AND ?${srcFilter}`;
+        const migrationSQL = `SELECT completedAt FROM MigrationManifest ORDER BY completedAt DESC LIMIT 1`;
+
+        const [completed, pipeline, ytd, prevCompleted, migration] = await Promise.all([
+          env.DB.prepare(completedSQL).bind(start, end).first(),
+          env.DB.prepare(pipelineSQL).bind(start, end).first(),
+          env.DB.prepare(completedSQL).bind(ytdStart, today).first(),
+          prevStart && prevEnd ? env.DB.prepare(completedSQL).bind(prevStart, prevEnd).first() : Promise.resolve(null),
+          env.DB.prepare(migrationSQL).first(),
+        ]);
+
+        return jsonResponse({
+          completed:     { jobCount: completed?.jobCount     ?? 0, revenue: completed?.revenue     ?? 0 },
+          pipeline:      { jobCount: pipeline?.jobCount      ?? 0, revenue: pipeline?.revenue      ?? 0 },
+          ytd:           { jobCount: ytd?.jobCount           ?? 0, revenue: ytd?.revenue           ?? 0 },
+          prevCompleted: prevStart && prevEnd ? { jobCount: prevCompleted?.jobCount ?? 0, revenue: prevCompleted?.revenue ?? 0 } : null,
+          migrationDate: migration?.completedAt ? migration.completedAt.slice(0, 10) : null,
+        }, corsHeaders);
+      }
+
       // ── Worker hours: per-customer attribution (protected) ───────────────────
       if (/^admin\/worker-hours\/customer\/[^/]+$/.test(path) && request.method === 'GET') {
         const phone = path.split('/').pop().replace(/\D/g, '').slice(-10);
