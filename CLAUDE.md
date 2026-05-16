@@ -230,6 +230,8 @@ Verified May 14, 2026: 14 hours of wrangler-path repairs (Jim New payment, Keith
 - **The spec_key footgun (discovered May 16, 2026):** `re.sub(r'\D', '', e164)` on `"+19542493300"` returns `"19542493300"` (11 digits). Config dicts keyed on `"9542493300"` (10 digits) silently miss. Always strip the leading `1` when mapping E.164 back to a KV-format key.
 - **In migration scripts:** use `normalize_phone()` (migration_skeleton.py) for KV→E.164, and the `spec_key` strip pattern for E.164→KV-format dict lookups.
 
+**Number input fields in admin forms must not pre-fill with '0'.** Price, amount, sqft, and quote total inputs must use placeholder text (e.g. `placeholder="Enter amount"`) instead of `value="0"`. A zero default causes two problems: (1) data-entry friction — the user must delete it before typing — and (2) silent data corruption when the field is skipped entirely, producing $0 jobs. The Schedule it now modal enforces this with required-field validation that blocks the Schedule button until a positive number is entered. Apply the same pattern to every number input that represents a billable quantity or measurement.
+
 ---
 
 ## Section 7: Working With Tyler
