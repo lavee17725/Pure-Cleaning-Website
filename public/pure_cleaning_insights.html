@@ -1499,6 +1499,15 @@ function renderLifecycle() {
 
 
 // ─── S8: Reactivation Health ─────────────────────────────────────────────────
+// Extract ISO timestamp from a reactivation contact entry.
+// Old format: plain string. New format: { contactedAt, cooldownUntil }.
+// Returns null for anything else.
+function isoOf(entry) {
+  if (typeof entry === 'string') return entry;
+  if (entry && typeof entry === 'object') return entry.contactedAt || null;
+  return null;
+}
+
 function renderReactivation() {
   const el=document.getElementById('reactivationMetrics'); if(!el)return;
   const custs=dbRecord.customers||[];
@@ -1507,9 +1516,9 @@ function renderReactivation() {
   const now=new Date();
   const todayStr=now.toISOString().slice(0,10);
   const weekAgo=new Date(now-7*864e5), monthAgo=new Date(now-30*864e5);
-  const sentToday =Object.values(contacts).filter(iso=>iso&&iso.slice(0,10)===todayStr).length;
-  const sentWeek  =Object.values(contacts).filter(iso=>iso&&new Date(iso)>=weekAgo).length;
-  const sentMonth =Object.values(contacts).filter(iso=>iso&&new Date(iso)>=monthAgo).length;
+  const sentToday =Object.values(contacts).filter(e=>{const iso=isoOf(e);return iso&&iso.slice(0,10)===todayStr;}).length;
+  const sentWeek  =Object.values(contacts).filter(e=>{const iso=isoOf(e);return iso&&new Date(iso)>=weekAgo;}).length;
+  const sentMonth =Object.values(contacts).filter(e=>{const iso=isoOf(e);return iso&&new Date(iso)>=monthAgo;}).length;
 
   const evSent=eventsData.filter(e=>e.eventType==='sent').length;
   const evView=eventsData.filter(e=>e.eventType==='viewed').length;
