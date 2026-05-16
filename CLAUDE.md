@@ -223,6 +223,13 @@ This pattern saved a full recovery session after a test PUT wiped 1,233 customer
 
 Verified May 14, 2026: 14 hours of wrangler-path repairs (Jim New payment, Keith Wolf payment, Seeber Hope payment, two phantom deletions) appeared successful at the shell level but were silently overwritten by subsequent `saveDb()` calls from Tyler's browser. None of those repairs landed in production. All data repairs must go through the admin API so they enter the same edge state the worker runtime reads.
 
+**E.164 phone format — Person.primaryPhone is always stored and compared as E.164 (+1XXXXXXXXXX).** KV stores raw 10-digit phones (no leading 1, no plus). D1 stores E.164. Never compare them directly.
+
+- **KV → E.164:** prepend `+1` to the 10-digit raw phone string
+- **E.164 → KV-format lookup key:** strip leading `+1` — `re.sub(r'\D','',e164)[1:]` — to get the 10-digit key used in KV records and any dict/map keyed on KV phones
+- **The spec_key footgun (discovered May 16, 2026):** `re.sub(r'\D', '', e164)` on `"+19542493300"` returns `"19542493300"` (11 digits). Config dicts keyed on `"9542493300"` (10 digits) silently miss. Always strip the leading `1` when mapping E.164 back to a KV-format key.
+- **In migration scripts:** use `normalize_phone()` (migration_skeleton.py) for KV→E.164, and the `spec_key` strip pattern for E.164→KV-format dict lookups.
+
 ---
 
 ## Section 7: Working With Tyler
@@ -361,6 +368,8 @@ Verified May 14, 2026: 14 hours of wrangler-path repairs (Jim New payment, Keith
 | May 13, 2026 | Three-field payment write bug fixed: c.paymentInfo.method now updated by all correction paths via `_applyPaymentMethod()` helper | Calendar renders "Paid via X" from `c.paymentInfo.method`; all three correction paths (submitPayment normal mode, submitPayment jhEntry mode, saveFullEdit scheduledStatus mode, saveFullEdit jhEntry mode) previously only wrote `c.paymentMethod` and `jh.*` fields — never `c.paymentInfo.method`. Jim New and Keith Wolf both showed "Paid via cash" on their cards despite being Zelle customers. Fix: `_applyPaymentMethod(c, jhEntry, method)` helper writes all 5 fields atomically (c.paymentMethod, c.paymentInfo.method, jhEntry.paymentMethod, jhEntry.payment, jhEntry.paymentInfo.method); audit `correctedAt`/`correctedBy` fields preserved in calling blocks. verify-browser test added: opens pencil modal, swaps payment method, calls saveFullEdit(), asserts c.paymentInfo.method updated. |
 
 | May 13, 2026 | Late-completion phantom card bug fixed. _doCompleteJob writes jhEntry.date=isoToday() but never updates ss.scheduledDate. When today ≠ scheduledDate (jobs completed late), ssCovers (which compared dates) failed to suppress the jh entry, and it rendered as an orphaned extra card on today's column. Five customers affected (Erik Chafin, Lissette Lorenzo, Cara, Bob Kirk, Carmen/Patricia) — all completed today for jobs scheduled May 5-7. Fix: getExtraCompletedJobsForRig now dedupes by ss._lastJobId (job identity) before the date-based ssCovers check. If _lastJobId is set, the matching jhEntry is suppressed and only distinct jobs (different jobId) render as extras. Legacy completions without _lastJobId fall through to ssCovers. Christina Seeber multi-property preserved: only the primary (_lastJobId) entry is suppressed; the other property's jhEntry (different jobId) still renders as extra. No data mutation — primary cards still render on ss.scheduledDate. |
+
+| May 16, 2026 | D1 migration Day 1 complete — v3 schema loaded from KV snapshot | KV snapshot pre_migration_2026-05-16T044311 (1,239 customers) → D1 pure-cleaning-crm-v1: 1,239 Persons / 1,218 Properties / 1,240 PersonProperty links / 1,825 Jobs. All counts verified against manifest preview. 5-point spot-check passed (Kristina Seeber aliases, Property Keepers manager, Audrey & Frank Seeber separate, Bob Fishman 3-year job span, orphaned job placeholder). Migration ID: c9acb27c-9268-4296-8de3-7c38aff10bdd. KV remains canonical for production. D1 ready for Day 2 dual-write (target: Saturday May 23 or weekday after 8 PM ET). Recovery baseline: wrangler d1 time-travel restore pure-cleaning-crm-v1 --timestamp=2026-05-16T14:11:42Z |
 
 *Append future decisions below this line.*
 
