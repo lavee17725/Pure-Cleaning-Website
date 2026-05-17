@@ -134,18 +134,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 /* ── Context Blocks ── */
 .ctx-blocks{max-width:1100px;margin:0 auto;padding:0 16px;display:flex;flex-direction:column;gap:10px;}
 .ctx-block{background:var(--white);border:1.5px solid var(--border);border-radius:12px;padding:13px 15px;display:flex;align-items:flex-start;gap:10px;}
-.ctx-block-amber{border-left:4px solid #f59e0b;}
-.ctx-block-purple{border-left:4px solid #8b5cf6;}
-.ctx-block-gold{border-left:4px solid #d97706;}
 .ctx-block-red{border-left:4px solid #ef4444;}
 .ctx-block-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:3px;}
 .ctx-block-text{font-size:13px;color:var(--muted);line-height:1.5;}
-.ctx-block-btn{display:inline-flex;align-items:center;gap:5px;margin-top:9px;padding:7px 13px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;color:var(--white);border:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:opacity .15s;}
-.ctx-block-btn:hover{opacity:.85;}
-.ctx-btn-amber{background:#f59e0b;}
-.ctx-btn-purple{background:#8b5cf6;}
-.ctx-btn-gold{background:#d97706;}
-.ctx-btn-blue{background:var(--sky);}
 .action-btn{
   display:inline-flex;align-items:center;gap:6px;
   padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;
@@ -271,11 +262,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .qa-btn:last-child{margin-bottom:0;}
 .qa-btn:hover{border-color:var(--sky);background:var(--bg);}
 
-.health-bar-track{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;margin-top:8px;}
-.health-bar-fill{height:100%;border-radius:4px;transition:width .5s;}
-.health-score-num{font-size:28px;font-weight:800;color:var(--navy);}
-.health-label{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;}
-
 /* ── Notes Section ── */
 .notes-section{margin-top:20px;}
 .note-entry{
@@ -379,7 +365,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 /* Override inner max-widths — page container already constrains to 820px */
 .zone-secondary .main-content{max-width:100%;margin:16px 0 0;padding:0;}
 .zone-history .ctx-blocks{padding:0;max-width:100%;margin:8px 0 0;}
-.zone-history #customerInsightsPanel{max-width:100%;padding:0;}
 </style>
 </head>
 <body>
@@ -422,7 +407,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="zone-stub-msg">🔨 Service history rebuild in progress — Phase 2</div>
     <div id="serviceHistorySection"></div>
     <div id="ctxBlocks" class="ctx-blocks" style="margin-top:0;margin-bottom:4px;"></div>
-    <div id="customerInsightsPanel"></div>
   </div>
 
   <!-- ═══ ZONE 3 — Secondary (stub — Phase 3 will rebuild) ═════════════════ -->
@@ -508,68 +492,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </div>
 </div>
 
-<!-- LOG REPLY MODAL -->
-<div id="logReplyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:center;justify-content:center;padding:1rem;">
-  <div style="background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,.25);">
-    <div style="font-size:17px;font-weight:700;color:#0a1628;margin-bottom:1rem;">📥 Log Customer Reply</div>
-    <div style="margin-bottom:.875rem;">
-      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Reply Method</label>
-      <select id="replyMethod" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
-        <option value="sms">SMS / Text</option>
-        <option value="call">Phone Call</option>
-        <option value="email">Email</option>
-      </select>
-    </div>
-    <div style="margin-bottom:.875rem;">
-      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Sentiment</label>
-      <select id="replySentiment" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
-        <option value="positive">😊 Positive — interested / booked</option>
-        <option value="neutral">😐 Neutral — maybe later</option>
-        <option value="negative">😞 Negative — not interested</option>
-        <option value="optout">🚫 Opted out / stop</option>
-      </select>
-    </div>
-    <div style="margin-bottom:1.25rem;">
-      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">What did they say? (optional)</label>
-      <textarea id="replyText" rows="3" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;resize:none;" placeholder="e.g. Said to call back in May…"></textarea>
-    </div>
-    <div style="display:flex;gap:10px;">
-      <button onclick="closeLogReplyModal()" style="flex:1;padding:12px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
-      <button onclick="saveLogReply()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#7c3aed;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Reply</button>
-    </div>
-  </div>
-</div>
-
-<!-- LOG FEEDBACK MODAL -->
-<div id="logFeedbackModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:900;align-items:center;justify-content:center;padding:1rem;">
-  <div style="background:#fff;border-radius:18px;padding:1.5rem;width:100%;max-width:400px;box-shadow:0 16px 48px rgba(0,0,0,.25);">
-    <div style="font-size:17px;font-weight:700;color:#0a1628;margin-bottom:1rem;">⭐ Log Post-Job Feedback</div>
-    <div style="margin-bottom:.875rem;">
-      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Did they leave a Google review?</label>
-      <div style="display:flex;gap:8px;">
-        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px;border:1.5px solid #e8e2d8;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><input type="radio" name="fbReview" value="yes"> ✅ Yes</label>
-        <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px;border:1.5px solid #e8e2d8;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;"><input type="radio" name="fbReview" value="no" checked> ❌ No</label>
-      </div>
-    </div>
-    <div style="margin-bottom:.875rem;">
-      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">Satisfaction</label>
-      <select id="fbSentiment" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
-        <option value="positive">😊 Happy / Would recommend</option>
-        <option value="neutral">😐 OK — no major issues</option>
-        <option value="negative">😞 Unhappy / Had concerns</option>
-      </select>
-    </div>
-    <div style="margin-bottom:1.25rem;">
-      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:5px;">What did they say? (optional)</label>
-      <textarea id="fbText" rows="3" style="width:100%;padding:10px 12px;border:1.5px solid #e8e2d8;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;resize:none;" placeholder="e.g. Said the roof looks amazing…"></textarea>
-    </div>
-    <div style="display:flex;gap:10px;">
-      <button onclick="closeLogFeedbackModal()" style="flex:1;padding:12px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:#6b7280;">Cancel</button>
-      <button onclick="saveLogFeedback()" style="flex:2;padding:12px;border:none;border-radius:10px;background:#16a34a;color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">Save Feedback</button>
-    </div>
-  </div>
-</div>
-
 <!-- PHOTO LIGHTBOX -->
 <div id="photoLightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:1000;flex-direction:column;align-items:center;justify-content:center;" onclick="if(event.target===this)closeLightbox()">
   <div style="position:absolute;top:12px;right:14px;display:flex;gap:8px;">
@@ -591,15 +513,6 @@ let _customer = null;
 let _allEvents = [];
 let _tlFilter = 'all';
 
-// ── Intelligence Scoring Functions (Phase 4) ──────────────────────────────────
-function normCity(city) {
-  if (!city || !city.trim()) return 'Other';
-  let c = city.trim();
-  if (/^(sw\s*ranches?|s\.?\s*w\.?\s*ranches?|southwest\s+ranches?|south\s+west\s+ranches?)$/i.test(c)) return 'Southwest Ranches';
-  if (/^(ft\.?\s*lauderdale|fort\s+lauderdale)$/i.test(c)) return 'Fort Lauderdale';
-  return (c.replace(/\s*[-–—]\s*.+$/,'').trim()) || 'Other';
-}
-
 function getEffectiveStats(c) {
   const jh = c.jobHistory || [];
   if (jh.length > 0) {
@@ -620,95 +533,6 @@ function getRebookWindow(c) {
     (c.quoteStatus || {}).mainServices || '',
   ].join(' ');
   return ROOF_RE.test(allSvc) ? { lo: 18, hi: 36 } : { lo: 6, hi: 18 };
-}
-
-function estimateCycleDays(c) {
-  const { lifetimeSpend: spend, totalJobs } = getEffectiveStats(c);
-  const jobs = Math.max(totalJobs || 1, 1);
-  const avg  = spend / jobs;
-  if (c.hasSealHistory) return 365;
-  if (avg > 400) return 480;
-  if (avg > 250) return 365;
-  return 270;
-}
-
-function calcChurnRisk(c) {
-  if (c.movedAway) return 100;
-  if (c.optOut) return 90;
-  const { lastService, lifetimeSpend, totalJobs } = getEffectiveStats(c);
-  if (!lastService) return lifetimeSpend > 0 ? 55 : 50;
-  const daysSince = (Date.now() - new Date(lastService + 'T12:00:00').getTime()) / 86400000;
-  const cycleDays = estimateCycleDays(c);
-  const ratio     = daysSince / cycleDays;
-  let score = 0;
-  if      (ratio < 0.7) score = 5;
-  else if (ratio < 1.0) score = 15;
-  else if (ratio < 1.5) score = 30;
-  else if (ratio < 2.0) score = 50;
-  else if (ratio < 3.0) score = 70;
-  else                  score = 85;
-  if (c.sealingInterest) score -= 15;
-  if (totalJobs >= 5) score -= 5;
-  const qs = c.quoteStatus || {};
-  if (['phone_quoted_pending_mini_quote','phone_quoted_mini_quote_sent'].includes(qs.state)) score -= 10;
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
-
-function churnLabel(score) {
-  if (score <= 20) return { label: 'HEALTHY', color: '#16a34a' };
-  if (score <= 50) return { label: 'WATCH',   color: '#d97706' };
-  if (score <= 75) return { label: 'AT RISK', color: '#ea580c' };
-  return { label: 'CRITICAL', color: '#dc2626' };
-}
-
-function calcSealingReceptivity(c) {
-  if (c.hasSealHistory)  return 95;
-  if (c.sealingInterest) return 85;
-  let score = 20;
-  const { lifetimeSpend: spend, totalJobs: jobs } = getEffectiveStats(c);
-  if (spend >= 1500) score += 20;
-  else if (spend >= 800) score += 10;
-  if (jobs >= 4) score += 15;
-  else if (jobs >= 2) score += 8;
-  const city = normCity(c.city || '').toLowerCase();
-  const premiumCities = ['weston','southwest ranches','davie','plantation','parkland','coral springs','pembroke pines'];
-  if (premiumCities.some(pc => city.includes(pc))) score += 15;
-  return Math.min(100, score);
-}
-
-function predictNextService(c) {
-  const { lastService, totalJobs } = getEffectiveStats(c);
-  if (!lastService) return null;
-  const cycleDays   = estimateCycleDays(c);
-  const lastMs      = new Date(lastService + 'T12:00:00').getTime();
-  const predictedMs = lastMs + cycleDays * 86400000;
-  const daysUntil   = Math.round((predictedMs - Date.now()) / 86400000);
-  return { predictedMs, daysUntil, cycleDays, confidence: totalJobs >= 3 ? 'MEDIUM' : 'LOW' };
-}
-
-function renderPredictions(c) {
-  const churnScore  = calcChurnRisk(c);
-  const { label: churnLbl, color: churnColor } = churnLabel(churnScore);
-  const sealScore   = calcSealingReceptivity(c);
-  const sealLbl     = sealScore >= 70 ? 'HIGH' : sealScore >= 50 ? 'MODERATE' : 'LOW';
-  const nextSvc     = predictNextService(c);
-
-  const chips = [
-    { label: 'Churn Risk',   val: `${churnScore}/100 ${churnLbl}`, color: churnColor,  icon: '🚨' },
-    { label: 'Sealing',      val: `${sealScore}/100 ${sealLbl}`,   color: sealScore >= 70 ? '#7c3aed' : '#6b7280', icon: '💎' },
-    { label: 'Next Service', val: nextSvc ? (nextSvc.daysUntil > 0 ? `In ${nextSvc.daysUntil}d` : `${Math.abs(nextSvc.daysUntil)}d overdue`) : '—', color: nextSvc && nextSvc.daysUntil < 0 ? '#dc2626' : '#2d7dd2', icon: '📅' },
-  ];
-
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:.75rem;margin-bottom:.75rem;">
-    ${chips.map(chip => `
-      <div style="background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;flex:1;min-width:120px;border-top:3px solid ${chip.color};">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:3px;">${chip.icon} ${chip.label}</div>
-        <div style="font-size:13px;font-weight:700;color:${chip.color};">${chip.val}</div>
-      </div>`).join('')}
-    <div style="width:100%;font-size:11px;color:var(--muted);text-align:right;margin-top:2px;">
-      <a href="/pure_cleaning_insights.html" style="color:#2d7dd2;font-weight:600;text-decoration:none;">View Insights →</a>
-    </div>
-  </div>`;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -764,21 +588,6 @@ function getTier(c) {
   if (isRepeat && mo <= 6)   return { label: 'LOYAL',    emoji: '💚', color: '#16a34a', vip };
   if (!isRepeat && mo <= 6)  return { label: 'NEW',      emoji: '🌱', color: '#10b981', vip };
   return                            { label: 'DORMANT',  emoji: '💤', color: '#8b5cf6', vip };
-}
-
-// ── Health Score ──────────────────────────────────────────────────────────────
-function calcHealthScore(c){
-  let s=5;
-  if(c.lastService){
-    const mo=monthsAgo(c.lastService+'T12:00:00');
-    if(mo<=3)s+=2; else if(mo<=6)s+=1; else if(mo>=24)s-=2; else if(mo>=12)s-=1;
-  } else { s-=1; }
-  if((c.lifetimeSpend||0)>=1500)s+=2; else if((c.lifetimeSpend||0)>=500)s+=1;
-  if((c.totalJobs||0)>3)s+=1;
-  if(c.hasSealHistory)s+=0.5;
-  if(c.sealingInterest)s+=0.5;
-  if(c.optOut||c.movedAway)s-=3;
-  return Math.min(10,Math.max(0,Math.round(s*10)/10));
 }
 
 // ── Timeline builder ──────────────────────────────────────────────────────────
@@ -937,8 +746,7 @@ function renderHeroBanner(c) {
   const _paBtn_p = _paUrl_p ? `<a href="${_paUrl_p.url}" target="_blank" style="font-size:11px;font-weight:700;color:var(--sky);background:#eff6ff;border-radius:4px;padding:2px 7px;margin-left:8px;text-decoration:none;white-space:nowrap;" title="Open ${_paUrl_p.label} property search">🏠 ${_paUrl_p.label}</a>` : '';
   let addrHtml = '';
   if (c.address && c.city) {
-    const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`;
-    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a>${_paBtn_p}</div>`;
+    addrHtml = `<div class="hero-contact-line">📍 ${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}${_paBtn_p}</div>`;
   } else if (c.city) {
     addrHtml = `<div class="hero-contact-line">📍 ${esc(c.city)}, FL${_paBtn_p}</div>`;
   }
@@ -1294,53 +1102,14 @@ function renderContextBlocks(c) {
   const el = document.getElementById('ctxBlocks');
   if (!el) return;
   const blocks = [];
-  const now = new Date();
-  const fn  = c.firstName || 'This customer';
-  const { totalJobs: effJobs, lifetimeSpend: effSpend, lastService: effLastSvc } = getEffectiveStats(c);
+  const { lastService: effLastSvc } = getEffectiveStats(c);
   const _moSince = effLastSvc ? Math.round((Date.now() - new Date(effLastSvc+'T12:00:00').getTime()) / (30*24*60*60*1000)) : null;
-
-  // ── Reactivation ──
-  if (effLastSvc && !c.optOut && !c.movedAway) {
-    const qs = c.quoteStatus || {};
-    const mainSvc = (qs.mainServices || (c.scheduledStatus||{}).jobNotes || '').toLowerCase();
-    const intervalMonths = /roof/.test(mainSvc) ? 18 : 6;
-    const dueMs = new Date(effLastSvc+'T12:00:00').getTime() + intervalMonths*30*24*60*60*1000;
-    const monthsUntil = Math.round((dueMs - now.getTime())/(30*24*60*60*1000));
-    if (monthsUntil <= 2) {
-      const dueDateStr = new Date(dueMs).toLocaleDateString('en-US',{month:'long',year:'numeric'});
-      const urgency = monthsUntil < 0 ? `was due` : monthsUntil === 0 ? `is due this month` : `is due around ${dueDateStr}`;
-      const smsBody = `Hi ${fn}! It's been a while since your last Pure Cleaning service. Ready to get everything looking fresh again? Reply to schedule!\n\n— Pure Cleaning\n954-389-2642`;
-      blocks.push({ cls:'ctx-block-amber', icon:'⏰', title:'Reactivation Due',
-        text:`${esc(fn)} ${urgency} for service (${intervalMonths}-month cadence).`,
-        btnCls:'ctx-btn-amber', btnLabel:'Send reminder text →',
-        btnHref:`sms:+1${c.phone}?&body=${encodeURIComponent(smsBody)}` });
-    }
-  }
 
   // ── At-Risk ──
   if (_moSince !== null && _moSince > 12 && !c.optOut && !c.movedAway) {
     blocks.push({ cls:'ctx-block-red', icon:'🔴', title:'At-Risk Customer',
       text:`Last service was ${_moSince} month${_moSince === 1 ? '' : 's'} ago — overdue for reactivation outreach.`,
       btnCls:null, btnLabel:null, btnHref:null });
-  }
-
-  // ── Sealing Opportunity ──
-  if (effJobs >= 3 && !c.hasSealHistory && !c.sealingInterest && !c.optOut) {
-    const smsBody = `Hi ${fn}! After ${effJobs} cleanings with us, your surfaces are in great shape for sealing — it locks in that clean look and protects against stains. Want Tony to give you a quick quote when he's next out there?\n\n— Pure Cleaning\n954-389-2642`;
-    blocks.push({ cls:'ctx-block-purple', icon:'💡', title:'Sealing Opportunity',
-      text:`${esc(fn)} has had ${effJobs} surface cleanings but never sealing. Likely high-interest.`,
-      btnCls:'ctx-btn-purple', btnLabel:'Send sealing pitch text →',
-      btnHref:`sms:+1${c.phone}?&body=${encodeURIComponent(smsBody)}` });
-  }
-
-  // ── Referral Potential ──
-  if ((effSpend >= 5000 || effJobs >= 5) && !c.optOut) {
-    const spendStr = effSpend >= 5000 ? `$${effSpend.toLocaleString()} lifetime` : `${effJobs} jobs`;
-    const smsBody = `Hi ${fn}! It was a pleasure servicing your home. If you have a moment, a quick 5-star Google review would mean the world to our family business 🙏\n\nClick here: https://g.page/r/CRQZRl3rokhmEAE/review\n\nMentioning the service (like soft wash or driveway) and your city helps us grow.\n\nThanks so much for your support!\n\n— The Fumero Family\nPure Cleaning Pressure Cleaning`;
-    blocks.push({ cls:'ctx-block-gold', icon:'🌟', title:'Referral Opportunity',
-      text:`${esc(fn)} is a top customer (${spendStr}). Worth asking for a referral or Google review.`,
-      btnCls:'ctx-btn-gold', btnLabel:'Send review request →',
-      btnHref:`sms:+1${c.phone}?&body=${encodeURIComponent(smsBody)}` });
   }
 
   // ── Operational Alerts ──
@@ -1374,69 +1143,6 @@ function toggleRecentActivity() {
   const btn  = document.getElementById('recentActivityToggle');
   if (body) body.style.display = _recentActivityExpanded ? 'block' : 'none';
   if (btn)  btn.textContent = _recentActivityExpanded ? '▲' : '▼';
-}
-
-// ── Customer Insights collapsible ────────────────────────────────────────────
-let _insightsExpanded = false;
-
-function renderGpsInsights(c) {
-  const jh = (c.jobHistory || []).filter(j => j.status !== 'canceled' && j.status !== 'no_show');
-  const chips = [];
-
-  // Average job duration
-  const durs = jh.filter(j => j.actualDuration > 0).map(j => j.actualDuration);
-  if (durs.length > 0) {
-    const avg = Math.round(durs.reduce((s,d) => s+d, 0) / durs.length);
-    chips.push({ label:'Avg Duration', val:`${Math.floor(avg/60)}h ${avg%60}m`, icon:'⏱', color:'#2563eb' });
-  }
-
-  // Preferred rig
-  const rigCounts = {};
-  jh.forEach(j => { const r = j.actualRig || j.rig; if (r) rigCounts[r] = (rigCounts[r]||0) + 1; });
-  const topRig = Object.entries(rigCounts).sort((a,b) => b[1]-a[1])[0];
-  if (topRig) chips.push({ label:'Preferred Rig', val:RIG_LABELS_P[topRig[0]]||topRig[0], icon:'🚛', color:RIG_COLORS_P[topRig[0]]||'#6b7280' });
-
-  // Typical arrival window
-  const hours = jh.filter(j => j.actualArrival).map(j => new Date(j.actualArrival).getHours());
-  if (hours.length > 0) {
-    const avg = hours.reduce((s,h) => s+h, 0) / hours.length;
-    const label = avg < 11.5 ? 'Morning' : avg < 14 ? 'Early afternoon' : 'Late afternoon';
-    chips.push({ label:'Typical Arrival', val:label, icon:'🕐', color:'#6b7280' });
-  }
-
-  if (!chips.length) return '';
-  return `<div style="margin-top:10px;">
-    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;">📍 GPS Patterns (${durs.length} tracked job${durs.length!==1?'s':''})</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      ${chips.map(ch => `<div style="background:var(--white);border:1.5px solid var(--border);border-radius:10px;padding:7px 11px;flex:1;min-width:100px;border-top:3px solid ${ch.color};">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:2px;">${ch.icon} ${ch.label}</div>
-        <div style="font-size:12px;font-weight:700;color:${ch.color};">${ch.val}</div>
-      </div>`).join('')}
-    </div>
-  </div>`;
-}
-
-function _renderInsightsPanel(el, c) {
-  el.innerHTML = `
-    <div style="background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;margin-top:8px;margin-bottom:4px;">
-      <div style="padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;-webkit-tap-highlight-color:transparent;user-select:none;"
-           onclick="toggleInsights()">
-        <div style="font-size:14px;font-weight:700;color:var(--navy);">🔍 Customer Insights</div>
-        <span style="font-size:14px;color:var(--muted);" id="insightsChevron">${_insightsExpanded ? '▲' : '▼'}</span>
-      </div>
-      <div id="insightsBody" style="display:${_insightsExpanded ? 'block' : 'none'};padding:0 16px 12px;">
-        ${renderPredictions(c)}
-        ${renderGpsInsights(c)}
-      </div>
-    </div>`;
-}
-
-function toggleInsights() {
-  _insightsExpanded = !_insightsExpanded;
-  const body = document.getElementById('insightsBody');
-  const chev = document.getElementById('insightsChevron');
-  if (body) body.style.display = _insightsExpanded ? 'block' : 'none';
-  if (chev) chev.textContent = _insightsExpanded ? '▲' : '▼';
 }
 
 // ── Render Page ───────────────────────────────────────────────────────────────
@@ -1537,10 +1243,6 @@ function renderProfile(customer, events){
   renderServiceHistory(c);
   renderContextBlocks(c);
 
-  // ── Customer Insights (collapsible, targets static div) ──
-  const insightsPanel = document.getElementById('customerInsightsPanel');
-  if (insightsPanel) _renderInsightsPanel(insightsPanel, c);
-
   // ── Timeline ──
   const entries=buildTimeline(c, events);
   const filters=[
@@ -1589,7 +1291,6 @@ function setTlFilter(key){
 }
 
 function renderSidebar(c){
-  const mapAddr=c.address&&c.city?`https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`:'';
   const sourceLabel={'phone_quoted':'Phone Quoted','reactivation':'Reactivation','legacy':'Legacy Import'}[c.source]||c.source||'Unknown';
 
   // Lead source — human-readable, handles both old and new schema
@@ -1612,7 +1313,7 @@ function renderSidebar(c){
   const contactRows=[
     {icon:'📞',label:'Phone',val:`<a href="tel:+1${c.phone}">${fmtPh(c.phone)}</a>`},
     c.email?{icon:'📧',label:'Email',val:`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`}:null,
-    (c.address||c.city)?{icon:'📍',label:'Address',val:mapAddr?`<a href="${mapAddr}" target="_blank">${esc(c.address||'')}${c.address&&c.city?', ':''}${esc(c.city||'')}</a>`:`${esc(c.address||'')} ${esc(c.city||'')}`}:null,
+    (c.address||c.city)?{icon:'📍',label:'Address',val:`${esc(c.address||'')}${c.address&&c.city?', ':''}${esc(c.city||'')}`}:null,
     {icon:'🏷️',label:'Source',val:`<span class="source-badge">${esc(sourceLabel)}</span>`},
     leadSourceRow,
     c.zip?{icon:'📮',label:'ZIP',val:esc(c.zip)}:null,
@@ -1629,21 +1330,13 @@ function renderSidebar(c){
   ).join('');
 
   const qaButtons=[
-    {icon:'📱',label:'Text Customer',   href:`sms:+1${c.phone}`},
-    {icon:'📞',label:'Call Customer',   href:`tel:+1${c.phone}`},
-    {icon:'📋',label:'Build Mini Quote',href:`/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}`},
-    {icon:'📅',label:'Open in Calendar',href:'/pure_cleaning_calendar.html'},
-    {icon:'💬',label:'Send Reactivation SMS',href:'/pure_cleaning_bulk_reactivation.html'},
+    {icon:'📱',label:'Text Customer', href:`sms:+1${c.phone}`},
+    {icon:'📞',label:'Call Customer', href:`tel:+1${c.phone}`},
   ];
-  const followUpSmsBtn = `<button class="qa-btn" onclick="openFollowUpSms()">📱 Follow-up SMS Template</button>`;
 
   const qaHtml=qaButtons.map(b=>
-    `<a class="qa-btn" href="${b.href}" ${b.href.startsWith('/')?' target="_blank"':''}>${b.icon} ${b.label}</a>`
-  ).join('') + followUpSmsBtn;
-
-  const hs=calcHealthScore(c);
-  const hsColor=hs>=7?'#1d9e75':hs>=4?'#d97706':'#e53e3e';
-  const hsEmoji=hs>=7?'💚':hs>=4?'🟡':'🔴';
+    `<a class="qa-btn" href="${b.href}">${b.icon} ${b.label}</a>`
+  ).join('');
 
   document.getElementById('sidebarStack').innerHTML=`
     <div class="panel">
@@ -1651,18 +1344,8 @@ function renderSidebar(c){
       <div class="panel-body">${contactHtml}</div>
     </div>
     <div class="panel">
-      <div class="panel-header"><div class="panel-title">Get Things Done</div></div>
+      <div class="panel-header"><div class="panel-title">Quick Actions</div></div>
       <div class="panel-body">${qaHtml}</div>
-    </div>
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title">Health Score</div></div>
-      <div class="panel-body">
-        <div class="health-score-num" style="color:${hsColor};">${hsEmoji} ${hs}/10</div>
-        <div class="health-label">Customer Health Score</div>
-        <div class="health-bar-track">
-          <div class="health-bar-fill" style="width:${hs*10}%;background:${hsColor};"></div>
-        </div>
-      </div>
     </div>`;
 }
 
@@ -2093,52 +1776,6 @@ function renderExtendedSections(c, events) {
   const smsBody = smsRows.length ? smsRows.join('') : `<div class="xsec-empty">No communication events logged yet.</div>`;
   sections.push(makeXSec('sms', '💬', 'Communication History', smsEvents.length ? String(smsEvents.length) : null, smsBody, false));
 
-  // ── Reactivation Status ────────────────────────────────────────────────────
-  const lastReact = events.filter(e => e.eventType === 'reactivation_sms_sent').sort((a,b) => new Date(b.loggedAt||0) - new Date(a.loggedAt||0))[0];
-  const EXCL_LABELS2 = {opted_out:'Opted out',moved_away:'Moved away',deceased:'Deceased',friend_family:'Friend / family',do_not_contact:'Do not contact',commercial:'Commercial account'};
-  const ex = c.reactivationExcluded || {};
-  const reactRows = [
-    {label:'Last reactivation text', val: lastReact ? fmtDateTime(lastReact.loggedAt||lastReact.sentAt) + (lastReact.variant ? ` (Variant ${lastReact.variant})` : '') : 'Never sent'},
-    {label:'Opt-out status', val: c.optOut ? `Opted out · ${c.optOut.at ? fmtDate(c.optOut.at) : ''}` : 'Active'},
-    {label:'Excluded from campaigns', val: ex.excluded ? `Yes — ${EXCL_LABELS2[ex.reason] || ex.reason || 'Unknown reason'}${ex.excludedAt?' · '+fmtDate(ex.excludedAt):''}` : 'No'},
-  ].map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${esc(r.val)}</span></div>`).join('');
-  const reactActionHtml = !c.optOut && !ex.excluded
-    ? `<div class="xsec-action-row"><a class="xsec-action-btn" href="/pure_cleaning_bulk_reactivation.html" target="_blank">📤 Open Reactivation Queue</a></div>`
-    : '';
-  sections.push(makeXSec('reactivation', '🔄', 'Reactivation Status', null, reactRows + reactActionHtml, false));
-
-  // ── Sealing & Rust Interest ────────────────────────────────────────────────
-  const si = c.sealingInterest || {};
-  const ri = c.rustInterest || c.rustInterestRequested || {};
-  const hasSealData = si.expressed || c.hasSealHistory || c.sealingInterestRequested;
-  const hasRustData = ri.expressed || c.rustInterestRequested;
-  if (hasSealData || hasRustData) {
-    let srBody = '';
-    if (hasSealData) {
-      const surfaces = si.surfaces?.length ? si.surfaces.join(', ') : '—';
-      const sand = si.paverJointSand ? 'Yes' : '—';
-      srBody += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;">💎 Sealing</div>`;
-      srBody += [
-        {label:'Interest expressed', val: si.expressed || c.sealingInterestRequested ? 'Yes' : 'No'},
-        {label:'Date expressed', val: si.expressedAt || c.sealingInterestRequested?.at ? fmtDate(si.expressedAt || c.sealingInterestRequested?.at) : '—'},
-        {label:'Surfaces of interest', val: surfaces},
-        {label:'Paver joint sand', val: sand},
-        {label:'History (sealing done)', val: c.hasSealHistory ? 'Yes' : 'No'},
-      ].map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${esc(r.val)}</span></div>`).join('');
-    }
-    if (hasRustData) {
-      const rustSource = typeof ri === 'object' ? ri : {};
-      srBody += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:12px;margin-bottom:8px;">🔧 Rust Removal</div>`;
-      srBody += [
-        {label:'Interest expressed', val: 'Yes'},
-        {label:'Date expressed', val: rustSource.at || rustSource.expressedAt ? fmtDate(rustSource.at || rustSource.expressedAt) : '—'},
-        {label:'Surface', val: rustSource.surface || '—'},
-        {label:'Notes', val: rustSource.notes || '—'},
-      ].map(r => `<div class="xsec-row"><span class="xsec-row-label">${r.label}</span><span class="xsec-row-val">${esc(r.val)}</span></div>`).join('');
-    }
-    sections.push(makeXSec('sealrust', '💎', 'Sealing & Rust Interest', null, srBody, false));
-  }
-
   // ── Payment History ────────────────────────────────────────────────────────
   const payEvents = events.filter(e => e.eventType === 'payment_recorded').sort((a,b) => new Date(b.loggedAt||0) - new Date(a.loggedAt||0));
   const ss = c.scheduledStatus || {};
@@ -2260,98 +1897,6 @@ function renderExtendedSections(c, events) {
 
   el.innerHTML = sections.join('');
 }
-// ── Follow-up SMS ─────────────────────────────────────────────────────────────
-function openFollowUpSms() {
-  if (!_customer) return;
-  const fn = _customer.firstName || 'there';
-  const body = `Hi ${fn}! It was a pleasure servicing your home. If you have a moment, a quick 5-star Google review would mean the world to our family business 🙏\n\nClick here: https://g.page/r/CRQZRl3rokhmEAE/review\n\nMentioning the service (like soft wash or driveway) and your city helps us grow.\n\nThanks so much for your support!\n\n— The Fumero Family\nPure Cleaning Pressure Cleaning`;
-  window.location.href = `sms:+1${_customer.phone}?&body=${encodeURIComponent(body)}`;
-}
-
-// ── Log Reply Modal ───────────────────────────────────────────────────────────
-function openLogReplyModal() {
-  const m = document.getElementById('logReplyModal');
-  m.style.display = 'flex';
-  document.getElementById('replyText').value = '';
-  document.getElementById('replyMethod').value = 'sms';
-  document.getElementById('replySentiment').value = 'positive';
-}
-function closeLogReplyModal() { document.getElementById('logReplyModal').style.display = 'none'; }
-
-async function saveLogReply() {
-  if (!_customer) return;
-  const method    = document.getElementById('replyMethod').value;
-  const sentiment = document.getElementById('replySentiment').value;
-  const text      = document.getElementById('replyText').value.trim();
-  const evt = {
-    eventType: 'customer_reply_logged',
-    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
-    replyMethod: method, replyText: text, sentiment, loggedBy: 'operator', loggedAt: new Date().toISOString()
-  };
-  closeLogReplyModal();
-  try {
-    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
-    });
-    _allEvents.unshift(evt);
-    renderTimeline(buildTimeline(_customer, _allEvents));
-    showToast('Reply logged ✓');
-  } catch(e) { showToast('Error saving: ' + e.message); }
-}
-
-// ── Log Feedback Modal ────────────────────────────────────────────────────────
-function openLogFeedbackModal() {
-  const m = document.getElementById('logFeedbackModal');
-  m.style.display = 'flex';
-  document.getElementById('fbText').value = '';
-  document.getElementById('fbSentiment').value = 'positive';
-  const r = document.querySelector('input[name="fbReview"][value="no"]');
-  if (r) r.checked = true;
-}
-function closeLogFeedbackModal() { document.getElementById('logFeedbackModal').style.display = 'none'; }
-
-// ── Mark Google Review Received ───────────────────────────────────────────────
-async function markReviewReceived() {
-  if (!_customer) return;
-  if (!confirm(`Mark that ${_customer.firstName || 'this customer'} left a Google review?`)) return;
-  const evt = {
-    eventType: 'review_received',
-    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
-    loggedBy: 'operator',
-    loggedAt: new Date().toISOString()
-  };
-  try {
-    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
-    });
-    _allEvents.unshift(evt);
-    renderTimeline(buildTimeline(_customer, _allEvents));
-    showToast('⭐ Review received logged — great job!');
-  } catch(e) { showToast('Error saving: ' + e.message); }
-}
-
-async function saveLogFeedback() {
-  if (!_customer) return;
-  const reviewLeft = document.querySelector('input[name="fbReview"]:checked')?.value === 'yes';
-  const sentiment  = document.getElementById('fbSentiment').value;
-  const text       = document.getElementById('fbText').value.trim();
-  const evt = {
-    eventType: 'post_job_feedback',
-    customer: { fn: _customer.firstName||'', ln: _customer.lastName||'', ph: _customer.phone },
-    reviewLeft, reviewRating: reviewLeft ? 5 : null, sentiment, feedback: text,
-    loggedBy: 'operator', loggedAt: new Date().toISOString()
-  };
-  closeLogFeedbackModal();
-  try {
-    await fetch('https://purecleaning-api.tylerfumero.workers.dev/events', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(evt)
-    });
-    _allEvents.unshift(evt);
-    renderTimeline(buildTimeline(_customer, _allEvents));
-    showToast('Feedback logged ✓');
-  } catch(e) { showToast('Error saving: ' + e.message); }
-}
-
 // ── CUSTOMER DELETE ───────────────────────────────────────────────────────────
 const PROTECTED_PHONE_PROFILE = '9546843614'; // Keith Wolf
 

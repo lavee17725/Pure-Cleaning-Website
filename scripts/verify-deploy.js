@@ -85,7 +85,7 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_customer_profile.html',
-    markers: ['const API', 'function buildTimeline', 'function calcChurnRisk'],
+    markers: ['const API', 'function buildTimeline', 'function renderServiceHistory'],
   },
   {
     file: 'pure_cleaning_worker_hours.html',
