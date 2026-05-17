@@ -46,6 +46,10 @@ Key protected resources:
 - `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active, google-drive/status, export-weekly)
 - `GET /admin/day-route?date=YYYY-MM-DD&rig=rig_1|rig_2|rig_3` — per-rig operational timeline from Bouncie GPS + jobHistory
 - `GET /admin/insights?start=YYYY-MM-DD&end=YYYY-MM-DD&prevStart=&prevEnd=&source=all|live` — D1 revenue/job aggregates for insights page; returns completed, pipeline, ytd, prevCompleted, migrationDate
+- `POST /admin/crew` — create a new CrewMember; body { name, phone, email?, hiredAt?, role?, notes? }; returns { crewMemberId, ...created fields }
+- `GET /admin/crew` — list all CrewMembers (active + inactive); optional ?activeOnly=true to filter; returns { crew: [...] }
+- `PATCH /admin/crew/:crewMemberId` — update a CrewMember; body any of { name, phone, email, hiredAt, role, notes, active }; returns updated record
+- `DELETE /admin/crew/:crewMemberId` — soft-delete (sets active=0 + modifiedAt); returns { crewMemberId, active: 0 }
 - `POST /admin/export-weekly` — triggers weekly Google Drive export (with optional `?from=&to=` params)
 - `POST /admin/google-drive/set-folder` — stores Drive folder ID in KV
 - `GET /events` — audit/event log

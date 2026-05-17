@@ -998,6 +998,95 @@ export default {
         }, corsHeaders);
       }
 
+      // ── CrewMember CRUD (protected) ──────────────────────────────────────────
+      {
+        const normalizeE164 = (raw) => {
+          if (!raw) return null;
+          if (raw.startsWith('+')) return raw.replace(/\s/g, '');
+          const digits = raw.replace(/\D/g, '');
+          if (digits.length === 10) return `+1${digits}`;
+          if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+          return null;
+        };
+
+        // POST /admin/crew — create
+        if (path === 'admin/crew' && request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          if (!body.name || !String(body.name).trim()) return jsonResponse({ error: 'name is required' }, corsHeaders, 400);
+          if (!body.phone || !String(body.phone).trim()) return jsonResponse({ error: 'phone is required' }, corsHeaders, 400);
+          const phone = normalizeE164(String(body.phone).trim());
+          if (!phone) return jsonResponse({ error: 'phone must be a US number' }, corsHeaders, 400);
+          const crewMemberId = crypto.randomUUID();
+          const now = new Date().toISOString();
+          const record = {
+            crewMemberId,
+            name:       String(body.name).trim(),
+            active:     1,
+            role:       body.role       || 'field_worker',
+            phone,
+            email:      body.email      || null,
+            hiredAt:    body.hiredAt    || null,
+            notes:      body.notes      || null,
+            createdAt:  now,
+            modifiedAt: now,
+          };
+          await env.DB.prepare(
+            `INSERT INTO CrewMember (crewMemberId,name,active,role,phone,email,hiredAt,notes,createdAt,modifiedAt)
+             VALUES (?,?,?,?,?,?,?,?,?,?)`
+          ).bind(record.crewMemberId, record.name, record.active, record.role, record.phone,
+                 record.email, record.hiredAt, record.notes, record.createdAt, record.modifiedAt).run();
+          return jsonResponse(record, corsHeaders, 201);
+        }
+
+        // GET /admin/crew — list
+        if (path === 'admin/crew' && request.method === 'GET') {
+          const activeOnly = url.searchParams.get('activeOnly') === 'true';
+          const sql = activeOnly
+            ? `SELECT * FROM CrewMember WHERE active = 1 ORDER BY name ASC`
+            : `SELECT * FROM CrewMember ORDER BY active DESC, name ASC`;
+          const { results } = await env.DB.prepare(sql).all();
+          return jsonResponse({ crew: results }, corsHeaders);
+        }
+
+        // PATCH /admin/crew/:crewMemberId — update
+        if (/^admin\/crew\/[^/]+$/.test(path) && request.method === 'PATCH') {
+          const crewMemberId = path.split('/').pop();
+          const body = await request.json().catch(() => ({}));
+          const allowed = ['name', 'phone', 'email', 'hiredAt', 'role', 'notes', 'active'];
+          const setClauses = [];
+          const values = [];
+          for (const field of allowed) {
+            if (!(field in body)) continue;
+            if (field === 'phone') {
+              const phone = normalizeE164(String(body.phone).trim());
+              if (!phone) return jsonResponse({ error: 'phone must be a US number' }, corsHeaders, 400);
+              setClauses.push(`phone = ?`); values.push(phone);
+            } else {
+              setClauses.push(`${field} = ?`); values.push(body[field]);
+            }
+          }
+          if (setClauses.length === 0) return jsonResponse({ error: 'No valid fields to update' }, corsHeaders, 400);
+          setClauses.push(`modifiedAt = ?`); values.push(new Date().toISOString());
+          values.push(crewMemberId);
+          const result = await env.DB.prepare(
+            `UPDATE CrewMember SET ${setClauses.join(', ')} WHERE crewMemberId = ?`
+          ).bind(...values).run();
+          if ((result.meta?.changes ?? 0) === 0) return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
+          const updated = await env.DB.prepare(`SELECT * FROM CrewMember WHERE crewMemberId = ?`).bind(crewMemberId).first();
+          return jsonResponse(updated, corsHeaders);
+        }
+
+        // DELETE /admin/crew/:crewMemberId — soft delete
+        if (/^admin\/crew\/[^/]+$/.test(path) && request.method === 'DELETE') {
+          const crewMemberId = path.split('/').pop();
+          const result = await env.DB.prepare(
+            `UPDATE CrewMember SET active = 0, modifiedAt = ? WHERE crewMemberId = ?`
+          ).bind(new Date().toISOString(), crewMemberId).run();
+          if ((result.meta?.changes ?? 0) === 0) return jsonResponse({ error: 'Not found' }, corsHeaders, 404);
+          return jsonResponse({ crewMemberId, active: 0 }, corsHeaders);
+        }
+      }
+
       // ── Worker hours: per-customer attribution (protected) ───────────────────
       if (/^admin\/worker-hours\/customer\/[^/]+$/.test(path) && request.method === 'GET') {
         const phone = path.split('/').pop().replace(/\D/g, '').slice(-10);
