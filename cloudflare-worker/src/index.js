@@ -297,6 +297,7 @@ export default {
         (path === 'service-frequency' && request.method === 'GET') ||
         (path === 'addons-config'   && request.method === 'GET')  ||
         path.startsWith('oauth/google/')  ||  // Google OAuth flow — browser redirect, no token yet
+        path.startsWith('oauth/bouncie/') ||  // Bouncie OAuth flow — same reason, Bouncie can't send our token
         path.startsWith('quote/')   ||
         (path.startsWith('agreement/') && (
           path.endsWith('/confirm')       ||
