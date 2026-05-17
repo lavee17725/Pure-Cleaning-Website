@@ -829,7 +829,6 @@ export default {
         const date = url.searchParams.get('date') || new Date().toISOString().split('T')[0];
         const imei = url.searchParams.get('imei');
         try {
-          const token = await getBouncieAccessToken(env);
           const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
           const targets = imei
             ? [{ rig: 'custom', imei }]
@@ -838,9 +837,9 @@ export default {
           const endsBefore  = `${date}T23:59:59.000Z`;
           const out = {};
           for (const t of targets) {
-            const res = await fetch(
+            const res = await bouncieFetchWithRetry(
               `${BOUNCIE_API_BASE}/trips?imei=${t.imei}&gpsFormat=geojson&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
-              { headers: { Authorization: token } }
+              env
             );
             const trips = res.ok ? await res.json() : { error: `HTTP ${res.status}` };
             const raw = url.searchParams.get('raw') === '1';
@@ -2472,10 +2471,12 @@ async function handleGoogleCallback(request, env, url) {
 }
 
 // Get a valid access token, refreshing if expired
-async function getBouncieAccessToken(env) {
-  const cached = await env.DATA.get(KV_BOUNCIE_ACCESS, 'json');
-  if (cached?.access_token && cached.expires_at > Date.now() + 300_000) {
-    return cached.access_token; // 5-min buffer before expiry
+async function getBouncieAccessToken(env, { forceRefresh = false } = {}) {
+  if (!forceRefresh) {
+    const cached = await env.DATA.get(KV_BOUNCIE_ACCESS, 'json');
+    if (cached?.access_token && cached.expires_at > Date.now() + 300_000) {
+      return cached.access_token; // 5-min buffer before expiry
+    }
   }
 
   const refreshToken = await env.DATA.get(KV_BOUNCIE_REFRESH);
@@ -2506,6 +2507,18 @@ async function getBouncieAccessToken(env) {
   ]);
 
   return tokens.access_token;
+}
+
+// Fetch a Bouncie API URL with one automatic retry on 403 (expired access token).
+// Retry force-refreshes via getBouncieAccessToken so the new token persists in KV.
+async function bouncieFetchWithRetry(url, env, fetchOpts = {}) {
+  let token = await getBouncieAccessToken(env);
+  let res = await fetch(url, { ...fetchOpts, headers: { ...(fetchOpts.headers || {}), Authorization: token } });
+  if (res.status === 403) {
+    token = await getBouncieAccessToken(env, { forceRefresh: true });
+    res   = await fetch(url, { ...fetchOpts, headers: { ...(fetchOpts.headers || {}), Authorization: token } });
+  }
+  return res;
 }
 
 async function bouncieKeepalive(env) {
@@ -2933,9 +2946,9 @@ async function handleDayRoute(request, env, corsHeaders, url) {
 
   await Promise.all(rigsToProcess.map(async ([rig, rigEntry]) => {
     try {
-      const res = await fetch(
+      const res = await bouncieFetchWithRetry(
         `${BOUNCIE_API_BASE}/trips?imei=${rigEntry.imei}&gpsFormat=geojson&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
-        { headers: { Authorization: accessToken } }
+        env
       );
       const trips = res.ok ? await res.json() : [];
       const sortedTrips = Array.isArray(trips) ? trips.sort((a, b) => a.startTime < b.startTime ? -1 : 1) : [];
@@ -3072,9 +3085,9 @@ async function bouncieJobDurationMatcher(date, env) {
   const rigTripsMap = {};
   await Promise.all(allRigEntries.map(async ([rig, rigEntry]) => {
     try {
-      const res = await fetch(
+      const res = await bouncieFetchWithRetry(
         `${BOUNCIE_API_BASE}/trips?imei=${rigEntry.imei}&gpsFormat=geojson&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
-        { headers: { Authorization: accessToken } }
+        env
       );
       const trips = res.ok ? await res.json() : [];
       rigTripsMap[rig] = Array.isArray(trips)
