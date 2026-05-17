@@ -1213,15 +1213,16 @@ function renderServiceHistory(c) {
       if (e.rigLabel) detailRows.push(`<span class="svc-detail-key">🚛 Rig</span><span class="svc-detail-val" style="color:${e.rigColor||'inherit'};font-weight:700;">${esc(e.rigLabel)}</span>`);
       if (e.services && e.services !== '—') {
         const _isRoofSvc = /roof|soft\s*wash|softwash/i.test(e.services);
+        // Structured field is canonical (populated by R1+R2 backfill).
+        // Text parser is safety net for new jobs before R3 ships or if field is null.
         const _parseStoriesFromText = (svc) => {
           if (!svc) return null;
           if (/\b2[\s\-]*stor(y|ies)\b/i.test(svc)) return 2;
           if (/\b1[\s\-]*stor(y|ies)\b/i.test(svc))  return 1;
           return null;
         };
-        const _parsedStories = _parseStoriesFromText(e.services);
-        const _storiesValue  = e.roofStories || _parsedStories || null;
-        const _storyLabel    = _isRoofSvc ? (_storiesValue ? `${_storiesValue}-story` : null) : null;
+        const _storiesValue = e.roofStories || _parseStoriesFromText(e.services) || null;
+        const _storyLabel   = _isRoofSvc && _storiesValue ? `${_storiesValue}-story` : null;
         const _storySuffix = _storyLabel ? ` <span style="display:inline-block;font-size:10px;font-weight:700;background:rgba(194,65,12,.1);color:#c2410c;border-radius:10px;padding:1px 7px;margin-left:4px;">${_storyLabel}</span>` : '';
         const _svcFormatted = esc(e.services).replace(/ \/ /g, ' · ');
         detailRows.push(`<span class="svc-detail-key">📋 Services</span><span class="svc-detail-val" style="font-size:14px;line-height:1.55;">${_svcFormatted}${_storySuffix}</span>`);
