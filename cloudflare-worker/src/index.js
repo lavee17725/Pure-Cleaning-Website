@@ -193,6 +193,9 @@ export default {
     } else if (event.cron === '0 4 * * *') {
       // Nightly backup — 4 AM UTC (runs after Bouncie matcher)
       ctx.waitUntil(runNightlyBackup(env));
+    } else if (event.cron === '0 */12 * * *') {
+      // Bouncie auth keepalive — noon + midnight UTC, keeps refresh token exercised
+      ctx.waitUntil(bouncieKeepalive(env).catch(e => console.error('bouncie keepalive error:', e.message)));
     } else {
       // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
       const today = new Date().toISOString().split('T')[0];
@@ -621,6 +624,11 @@ export default {
       if (path === 'admin/cron-heartbeat' && request.method === 'GET') {
         const hb = await env.DATA.get('bouncie:last_cron_run', 'json');
         return jsonResponse(hb || { status: 'never_run' }, corsHeaders);
+      }
+
+      if (path === 'admin/bouncie-keepalive-status' && request.method === 'GET') {
+        const ks = await env.DATA.get('bouncie:keepalive_status', 'json');
+        return jsonResponse(ks || { ts: null, status: 'never_run' }, corsHeaders);
       }
 
       if (path === 'admin/recently-deleted' && request.method === 'GET')
@@ -2400,6 +2408,21 @@ async function getBouncieAccessToken(env) {
   ]);
 
   return tokens.access_token;
+}
+
+async function bouncieKeepalive(env) {
+  const ts = new Date().toISOString();
+  const statusKey = 'bouncie:keepalive_status';
+  try {
+    const token = await getBouncieAccessToken(env);
+    const res = await fetch(`${BOUNCIE_API_BASE}/vehicles`, { headers: { Authorization: token } });
+    if (!res.ok) throw new Error(`Vehicles endpoint returned HTTP ${res.status}`);
+    await env.DATA.put(statusKey, JSON.stringify({ ts, status: 'healthy' }));
+    return { ts, status: 'healthy' };
+  } catch(e) {
+    await env.DATA.put(statusKey, JSON.stringify({ ts, status: 'failed', error: e.message }));
+    return { ts, status: 'failed', error: e.message };
+  }
 }
 
 // Return vehicles list — 1-hour KV cache
