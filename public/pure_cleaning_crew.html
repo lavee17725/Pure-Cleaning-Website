@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="pragma" content="no-cache">
+<meta http-equiv="expires" content="0">
+<title>Pure Cleaning · Crew</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --terra:#c2410c;--terra-d:#9a3412;--terra-l:#ea580c;
+  --navy:#0f172a;--navy2:#1e293b;--navy3:#334155;
+  --sky:#0ea5e9;--green:#16a34a;--amber:#d97706;--red:#dc2626;--purple:#7c3aed;
+  --bg:#f1f0ed;--card:#ffffff;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+/* ── Header ── */
+#stickyHeader{position:sticky;top:0;z-index:100;background:var(--navy);border-bottom:1px solid rgba(255,255,255,.08);padding:.75rem 1.25rem;}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.nav-back{color:#94a3b8;text-decoration:none;font-size:13px;font-weight:500;white-space:nowrap;}
+.nav-back:hover{color:#e2e8f0;}
+.hdr-title{font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;letter-spacing:1px;flex:1;}
+.hdr-title span{color:#f97316;}
+
+/* ── Buttons ── */
+.btn-ghost{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#94a3b8;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;transition:background .15s,color .15s;white-space:nowrap;}
+.btn-ghost:hover{background:rgba(255,255,255,.14);color:#e2e8f0;}
+.btn-sm{padding:5px 13px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;border:none;transition:background .15s;}
+.btn-edit{background:rgba(14,165,233,.12);color:var(--sky);}
+.btn-edit:hover{background:rgba(14,165,233,.22);}
+.btn-deact{background:rgba(220,38,38,.1);color:var(--red);}
+.btn-deact:hover{background:rgba(220,38,38,.2);}
+.btn-react{background:rgba(22,163,74,.12);color:var(--green);}
+.btn-react:hover{background:rgba(22,163,74,.22);}
+
+/* ── Layout ── */
+main{max-width:860px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
+.sec-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.875rem;margin-top:2.25rem;display:flex;align-items:center;gap:8px;}
+.sec-hdr::after{content:'';flex:1;height:1px;background:var(--border);}
+.sec-hdr:first-child{margin-top:0;}
+
+/* ── Toolbar ── */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:1.25rem;flex-wrap:wrap;}
+.toggle-label{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);cursor:pointer;font-weight:500;user-select:none;}
+.toggle-label input[type=checkbox]{accent-color:var(--terra);width:15px;height:15px;cursor:pointer;}
+#crewCount{font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;}
+
+/* ── Crew cards ── */
+.crew-list{display:flex;flex-direction:column;gap:10px;}
+.crew-card{background:var(--card);border-radius:14px;padding:1rem 1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.07),0 4px 12px rgba(0,0,0,.04);border-left:4px solid var(--terra);display:flex;align-items:center;gap:1rem;}
+.crew-card.inactive{border-left-color:var(--border);opacity:.6;}
+.crew-avatar{width:42px;height:42px;border-radius:50%;background:var(--terra);color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0;letter-spacing:-.5px;}
+.crew-card.inactive .crew-avatar{background:var(--muted);}
+.crew-info{flex:1;min-width:0;}
+.crew-name{font-size:16px;font-weight:700;color:var(--text);}
+.crew-phone{font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+.crew-meta{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;}
+.role-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 8px;border-radius:5px;background:rgba(194,65,12,.1);color:var(--terra);}
+.inactive-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 8px;border-radius:5px;background:rgba(100,116,139,.12);color:var(--muted);}
+.crew-actions{display:flex;gap:7px;flex-shrink:0;}
+
+/* ── Empty state ── */
+.empty-state{text-align:center;padding:3rem 1rem;color:var(--muted);}
+.empty-icon{font-size:42px;margin-bottom:.75rem;}
+.empty-title{font-size:16px;font-weight:600;color:var(--text);margin-bottom:.4rem;}
+.empty-body{font-size:13px;line-height:1.65;}
+
+/* ── Modal ── */
+.moverlay{position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem;}
+.moverlay.hidden{display:none;}
+.modal-card{background:var(--card);border-radius:18px;padding:1.75rem;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,.25);max-height:90vh;overflow-y:auto;}
+.modal-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:1.25rem;}
+.form-group{margin-bottom:1rem;}
+.form-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:.35rem;}
+.form-input{width:100%;padding:.6rem .875rem;border:1.5px solid var(--border);border-radius:9px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--text);background:#fff;transition:border-color .15s;}
+.form-input:focus{outline:none;border-color:var(--terra);}
+select.form-input{cursor:pointer;}
+textarea.form-input{resize:vertical;min-height:80px;}
+.form-hint{font-size:11px;color:var(--muted);margin-top:.3rem;}
+.form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:1.5rem;}
+.btn-cancel{background:var(--bg);border:1.5px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-cancel:hover{background:var(--border);}
+.btn-save{background:var(--terra);color:#fff;border:none;padding:8px 22px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-save:hover{background:var(--terra-d);}
+.btn-save:disabled{opacity:.5;cursor:default;}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:.6rem 1.25rem;border-radius:10px;font-size:13px;font-weight:600;z-index:300;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
+.toast.hidden{opacity:0;}
+
+@media(max-width:560px){
+  .crew-card{flex-wrap:wrap;}
+  .crew-actions{width:100%;padding-top:4px;}
+}
+</style>
+</head>
+<body>
+
+<div id="stickyHeader">
+  <div class="hdr-top">
+    <a href="/pure_cleaning_admin.html" class="nav-back">← Admin</a>
+    <div class="hdr-title">Pure <span>Cleaning</span> · Crew</div>
+    <button class="btn-ghost" onclick="openAddModal()">+ Add Crew Member</button>
+  </div>
+</div>
+
+<main>
+  <div class="sec-hdr">Crew Members</div>
+
+  <div class="toolbar">
+    <label class="toggle-label">
+      <input type="checkbox" id="showInactive" onchange="renderCrew()">
+      Show inactive
+    </label>
+    <span id="crewCount"></span>
+  </div>
+
+  <div class="crew-list" id="crewList">
+    <div class="empty-state">
+      <div class="empty-icon">👷</div>
+      <div class="empty-title">Loading…</div>
+    </div>
+  </div>
+</main>
+
+<!-- Add / Edit modal -->
+<div class="moverlay hidden" id="modalOverlay" onclick="handleOverlayClick(event)">
+  <div class="modal-card">
+    <div class="modal-title" id="modalTitle">Add Crew Member</div>
+    <form id="crewForm" onsubmit="handleFormSubmit(event)">
+      <div class="form-group">
+        <label class="form-label" for="fieldName">Name *</label>
+        <input class="form-input" type="text" id="fieldName" placeholder="Full name" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fieldPhone">Phone *</label>
+        <input class="form-input" type="tel" id="fieldPhone" placeholder="(954) 610-3843" required>
+        <div class="form-hint">Displayed as (xxx) xxx-xxxx · stored as E.164</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fieldEmail">Email</label>
+        <input class="form-input" type="email" id="fieldEmail" placeholder="Optional">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fieldHiredAt">Hire Date</label>
+        <input class="form-input" type="date" id="fieldHiredAt">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fieldRole">Role</label>
+        <select class="form-input" id="fieldRole">
+          <option value="field_worker">Field Worker</option>
+          <option value="owner_operator">Owner / Operator</option>
+          <option value="owner">Owner</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="fieldNotes">Notes</label>
+        <textarea class="form-input" id="fieldNotes" placeholder="Optional"></textarea>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn-save" id="saveBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+let allCrew  = [];
+let editingId = null;
+
+const ROLE_LABELS = {
+  field_worker:   'Field Worker',
+  owner_operator: 'Owner / Operator',
+  owner:          'Owner',
+};
+
+// ── Phone helpers ─────────────────────────────────────────────────────────────
+function fmtPhoneDisplay(e164) {
+  if (!e164) return '—';
+  const d = e164.replace(/\D/g, '');
+  if (d.length === 11 && d.startsWith('1')) {
+    const n = d.slice(1);
+    return `(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`;
+  }
+  if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+  return e164;
+}
+
+function fmtPhoneInput(raw) {
+  const d = raw.replace(/\D/g, '').slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `(${d.slice(0,3)}) ${d.slice(3)}`;
+  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+}
+
+function toE164(display) {
+  const d = display.replace(/\D/g, '');
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+  return display;
+}
+
+document.getElementById('fieldPhone').addEventListener('input', function() {
+  const pos = this.selectionStart;
+  const formatted = fmtPhoneInput(this.value);
+  this.value = formatted;
+  this.setSelectionRange(Math.min(pos, formatted.length), Math.min(pos, formatted.length));
+});
+
+// ── Data loading ──────────────────────────────────────────────────────────────
+async function loadCrew() {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/crew`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    allCrew = data.crew || [];
+    renderCrew();
+  } catch(e) {
+    document.getElementById('crewList').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-title">Failed to load crew</div>
+        <div class="empty-body">${e.message}</div>
+      </div>`;
+  }
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+function renderCrew() {
+  const showInactive = document.getElementById('showInactive').checked;
+  const visible = showInactive ? allCrew : allCrew.filter(c => c.active === 1);
+  const activeCount = allCrew.filter(c => c.active === 1).length;
+
+  document.getElementById('crewCount').textContent =
+    `${activeCount} active · ${allCrew.length} total`;
+
+  if (!visible.length) {
+    document.getElementById('crewList').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">👷</div>
+        <div class="empty-title">${allCrew.length ? 'No active crew members' : 'No crew members yet'}</div>
+        <div class="empty-body">${
+          allCrew.length
+            ? 'Toggle "Show inactive" to see deactivated records.'
+            : 'Click "+ Add Crew Member" to add your first crew member.'
+        }</div>
+      </div>`;
+    return;
+  }
+
+  document.getElementById('crewList').innerHTML = visible.map(c => {
+    const initials = (c.name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+    const isInactive = c.active !== 1;
+    const roleLabel  = ROLE_LABELS[c.role] || c.role || '—';
+    const id = esc(c.crewMemberId);
+    const name = esc(c.name);
+    const actions = isInactive
+      ? `<button class="btn-sm btn-react" onclick="reactivate('${id}','${name}')">Reactivate</button>`
+      : `<button class="btn-sm btn-edit" onclick="openEditModal('${id}')">Edit</button>
+         <button class="btn-sm btn-deact" onclick="deactivate('${id}','${name}')">Deactivate</button>`;
+    return `<div class="crew-card${isInactive ? ' inactive' : ''}">
+      <div class="crew-avatar">${initials}</div>
+      <div class="crew-info">
+        <div class="crew-name">${name}</div>
+        <div class="crew-phone">${fmtPhoneDisplay(c.phone)}</div>
+        <div class="crew-meta">
+          <span class="role-badge">${esc(roleLabel)}</span>
+          ${isInactive ? '<span class="inactive-badge">Inactive</span>' : ''}
+        </div>
+      </div>
+      <div class="crew-actions">${actions}</div>
+    </div>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Add Crew Member';
+  document.getElementById('crewForm').reset();
+  document.getElementById('fieldRole').value = 'field_worker';
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('fieldName').focus(), 50);
+}
+
+function openEditModal(id) {
+  const c = allCrew.find(x => x.crewMemberId === id);
+  if (!c) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Edit Crew Member';
+  document.getElementById('fieldName').value    = c.name    || '';
+  document.getElementById('fieldPhone').value   = fmtPhoneDisplay(c.phone);
+  document.getElementById('fieldEmail').value   = c.email   || '';
+  document.getElementById('fieldHiredAt').value = c.hiredAt || '';
+  document.getElementById('fieldRole').value    = c.role    || 'field_worker';
+  document.getElementById('fieldNotes').value   = c.notes   || '';
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('fieldName').focus(), 50);
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.add('hidden');
+  editingId = null;
+}
+
+function handleOverlayClick(e) {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+}
+
+// ── Form submit ───────────────────────────────────────────────────────────────
+async function handleFormSubmit(e) {
+  e.preventDefault();
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const payload = {
+    name:    document.getElementById('fieldName').value.trim(),
+    phone:   toE164(document.getElementById('fieldPhone').value.trim()),
+    email:   document.getElementById('fieldEmail').value.trim()  || null,
+    hiredAt: document.getElementById('fieldHiredAt').value       || null,
+    role:    document.getElementById('fieldRole').value,
+    notes:   document.getElementById('fieldNotes').value.trim()  || null,
+  };
+
+  try {
+    const res = editingId
+      ? await fetch(`${PCPC_API}/admin/crew/${editingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      : await fetch(`${PCPC_API}/admin/crew`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    closeModal();
+    await loadCrew();
+    showToast(editingId ? 'Crew member updated.' : 'Crew member added.');
+  } catch(err) {
+    showToast(`Error: ${err.message}`, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+async function deactivate(id, name) {
+  if (!confirm(`Deactivate ${name}?\n\nThey'll be hidden from the active list but not deleted.`)) return;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/crew/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadCrew();
+    showToast(`${name} deactivated.`);
+  } catch(err) {
+    showToast(`Error: ${err.message}`, true);
+  }
+}
+
+async function reactivate(id, name) {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/crew/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: 1 }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadCrew();
+    showToast(`${name} reactivated.`);
+  } catch(err) {
+    showToast(`Error: ${err.message}`, true);
+  }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, isErr = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = isErr ? 'var(--red)' : 'var(--navy)';
+  t.classList.remove('hidden');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.add('hidden'), 3000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadCrew();
+</script>
+</body>
+</html>
