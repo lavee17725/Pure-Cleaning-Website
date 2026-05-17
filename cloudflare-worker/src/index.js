@@ -317,6 +317,7 @@ export default {
       // ── End auth gate ─────────────────────────────────────────────────────────
 
       if (path === 'customers') {
+        if (request.method === 'PUT') return await handleCustomersPut(request, env, corsHeaders);
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);
       }
 
@@ -662,6 +663,10 @@ export default {
           return await handleReviewStatus(request, env, cPhone, corsHeaders);
         if (action === 'allow-asking-again' && request.method === 'POST')
           return await handleAllowAskingAgain(env, cPhone, corsHeaders);
+        if (action === 'never-ask-review' && request.method === 'POST')
+          return await handleNeverAskReview(env, cPhone, corsHeaders, true);
+        if (action === 'clear-never-ask-review' && request.method === 'POST')
+          return await handleNeverAskReview(env, cPhone, corsHeaders, false);
       }
 
       // ════════════════════════════════════════════════════════════════════════
@@ -1366,6 +1371,55 @@ async function handleIncomingSubmit(request, env, corsHeaders) {
   return jsonResponse({ success: true, entry: body }, corsHeaders);
 }
 
+// PUT /customers — full-blob replace with completedAt guard.
+// Belt-and-suspenders for Phase 2 client-side fix: if any write path sends
+// state='completed' without completedAt, fill it in server-side before persist.
+// State='completed' without completedAt is always incoherent — no legitimate
+// path intentionally omits it.
+async function handleCustomersPut(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'Invalid JSON' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  const customers = body.customers || [];
+
+  for (const c of customers) {
+    const ss = c.scheduledStatus;
+    if (!ss || ss.state !== 'completed' || ss.completedAt) continue;
+
+    ss.completedAt = now;
+
+    // Append a minimal jobHistory entry if none already covers this date+amount
+    const completedDate = ss.scheduledDate || now.slice(0, 10);
+    const amount = ss.approvedAmount || 0;
+    const norm = (p) => (p || '').replace(/\D/g, '');
+    if (!c.jobHistory) c.jobHistory = [];
+    const hasEntry = c.jobHistory.some(j =>
+      j.date === completedDate && j.status === 'completed' &&
+      Math.abs((j.amount || 0) - amount) <= 5
+    );
+    if (!hasEntry) {
+      c.jobHistory.push({
+        jobId:       `${norm(c.phone)}_${completedDate}_${Math.round(amount * 100)}_srv`,
+        date:        completedDate,
+        services:    ss.jobNotes || '',
+        amount,
+        rig:         ss.rig || null,
+        rigId:       ss.rig || null,
+        city:        c.city || null,
+        address:     c.address || null,
+        status:      'completed',
+        completedAt: now,
+        crew:        ss.crew || [],
+        source:      'server_guard',
+      });
+    }
+  }
+
+  await env.DATA.put(KV_KEYS.customers, JSON.stringify(body));
+  return jsonResponse({ success: true }, corsHeaders);
+}
+
 async function handleResource(request, env, kvKey, corsHeaders) {
   if (request.method === 'GET') {
     const data = await env.DATA.get(kvKey, 'json');
@@ -1788,7 +1842,7 @@ const DEFAULT_TEMPLATES = [
   {
     id: 'tpl_fumero_family',
     name: 'Fumero Family (default)',
-    body: `Hi {firstName}! It was a pleasure servicing your home. If you have a moment, a quick 5-star Google review would mean the world to our family business 🙏\n\nClick here: {reviewLink}\n\nMentioning the service (like soft wash or driveway) and your city helps us grow.\n\nThanks so much for your support!\n\n— The Fumero Family\nPure Cleaning Pressure Cleaning`,
+    body: `Hi {firstName}! It was a pleasure working on your {service} in {city}. If you were happy with the job, it would mean a lot if you left us a quick 5-star Google review 🙏\n\nJust click here: {reviewLink}\n\nFeel free to mention {service} and {city} — that really helps us grow!\n\nThank you again,\nThe Fumero Family\nPure Cleaning Pressure Cleaning`,
     isActive: true, createdAt: '2026-05-07T00:00:00.000Z', timesUsed: 0, reviewsGenerated: 0
   },
   {
@@ -1811,18 +1865,21 @@ const DEFAULT_TEMPLATES = [
   },
 ];
 
-const REVIEW_ELIGIBLE_CUTOFF = '2026-05-01';
+const REVIEW_ELIGIBLE_CUTOFF    = '2026-05-01';
+const NO_RESPONSE_REASK_DAYS    = 30;
 
 function reviewIsReadyToRequest(c, nowIso, sevenDaysAgo, thirtyDaysAgo) {
   if (c.deleted) return false;
   if (c.isReferralOnly) return false;                              // referral source markers, not real customers
   if (c.optOut) return false;                                      // customer opted out of outreach
   if ((c.phone || '').startsWith('REFERRAL_')) return false;       // placeholder phone = referral-only record
+  if (c.neverAskReview === true) return false;                     // permanent per-person exclusion
   const gr = c.googleReview || {};
   const st = gr.status || 'never_asked';
   if (st === 'left' || st === 'do_not_ask') return false;
   if (st === 'asked') return false;
-  if (st === 'declined' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) return false;
+  if (st === 'declined'    && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) return false;
+  if (st === 'no_response' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) return false;
   if (gr.lastRequestSentAt && gr.lastRequestSentAt > thirtyDaysAgo) return false;
 
   // Must have a completed job on or after the cutoff date.
@@ -1882,11 +1939,12 @@ async function handleReviewsHub(env, corsHeaders) {
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
   const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
 
-  const readyToRequest = [], awaitingConfirmation = [], reviewed = [], wontAsk = [];
+  const readyToRequest = [], awaitingConfirmation = [], reviewed = [], wontAsk = [], permanentExclusions = [];
   let totalAsked = 0, thisMonthReviewed = 0, lastMonthReviewed = 0;
   const byTemplate = {};
 
   for (const c of customers) {
+    if (c.neverAskReview === true) { permanentExclusions.push(c); continue; }
     const gr = c.googleReview || {};
     const st = gr.status || 'never_asked';
 
@@ -1899,7 +1957,9 @@ async function handleReviewsHub(env, corsHeaders) {
       if (gr.templateUsedId) byTemplate[gr.templateUsedId].reviewed++;
     } else if (st === 'do_not_ask') {
       wontAsk.push(c);
-    } else if (st === 'declined' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) {
+    } else if (st === 'declined'    && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) {
+      wontAsk.push(c);
+    } else if (st === 'no_response' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) {
       wontAsk.push(c);
     } else if (st === 'asked') {
       awaitingConfirmation.push(c);
@@ -1924,6 +1984,7 @@ async function handleReviewsHub(env, corsHeaders) {
     awaitingConfirmation,
     reviewed,
     wontAsk,
+    permanentExclusions,
     templates: tpls,
     actualCount,
     insights: {
@@ -2016,8 +2077,8 @@ async function handleReviewRequestSent(request, env, phone, corsHeaders) {
 
 async function handleReviewStatus(request, env, phone, corsHeaders) {
   const body = await request.json().catch(() => ({}));
-  const { status, noteAboutReview } = body;
-  const VALID = ['left','declined','do_not_ask','never_asked','asked'];
+  const { status, noteAboutReview, starRating } = body;
+  const VALID = ['left','declined','do_not_ask','never_asked','asked','no_response'];
   if (!VALID.includes(status)) return jsonResponse({ error: 'Invalid status' }, corsHeaders, 400);
 
   const norm = p => (p||'').replace(/\D/g,'').slice(-10);
@@ -2028,9 +2089,13 @@ async function handleReviewStatus(request, env, phone, corsHeaders) {
   const now = new Date().toISOString();
   const gr  = cust.googleReview || {};
   gr.status = status;
-  if (status === 'left')     { gr.leftAt = now; }
-  if (status === 'declined') { gr.declinedAt = now; gr.reaskEligibleAt = new Date(Date.now() + 180 * 86400000).toISOString(); }
-  if (status === 'do_not_ask') { gr.doNotAskAt = now; }
+  if (status === 'left') {
+    gr.leftAt = now;
+    if (Number.isInteger(starRating) && starRating >= 1 && starRating <= 5) gr.starRating = starRating;
+  }
+  if (status === 'declined')    { gr.declinedAt = now; gr.reaskEligibleAt = new Date(Date.now() + 180 * 86400000).toISOString(); }
+  if (status === 'do_not_ask')  { gr.doNotAskAt = now; }
+  if (status === 'no_response') { gr.noResponseAt = now; gr.reaskEligibleAt = new Date(Date.now() + NO_RESPONSE_REASK_DAYS * 86400000).toISOString(); }
   if (noteAboutReview !== undefined) gr.noteAboutReview = noteAboutReview;
   cust.googleReview = gr;
 
@@ -2056,6 +2121,22 @@ async function handleAllowAskingAgain(env, phone, corsHeaders) {
   cust.googleReview = { ...(cust.googleReview || {}), status: 'never_asked', reaskEligibleAt: null, doNotAskAt: null };
   await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
   return jsonResponse({ success: true }, corsHeaders);
+}
+
+async function handleNeverAskReview(env, phone, corsHeaders, set) {
+  const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+  const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+  const cust = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
+  if (!cust) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
+  if (set) {
+    cust.neverAskReview = true;
+    cust.neverAskReviewAt = new Date().toISOString();
+  } else {
+    delete cust.neverAskReview;
+    delete cust.neverAskReviewAt;
+  }
+  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  return jsonResponse({ success: true, neverAskReview: set }, corsHeaders);
 }
 
 // ── Customer soft-delete / restore / hard-delete ────────────────────────────
