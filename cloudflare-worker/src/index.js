@@ -2913,16 +2913,18 @@ async function bouncieJobDurationMatcher(date, env) {
   const customers = (db?.customers || []).filter(Boolean);
 
   // Match any customer with a completed job on this date, via:
-  //   a) scheduledStatus.state=completed + scheduledDate=date (calendar-scheduled jobs)
-  //   b) jobHistory entry with date=date + status=completed (CSV-imported historical jobs)
+  //   a) scheduledStatus.state=completed + scheduledDate=date (calendar-scheduled jobs still active)
+  //   b) jobHistory entry with date=date + rigId present (archived calendar jobs, status may be absent)
   const completedToday = customers.filter(c => {
     const ss = c.scheduledStatus;
     if (ss && ss.state === 'completed') {
       if (ss.scheduledDate === date) return true;
       if (ss.completedAt?.startsWith(date)) return true;
     }
-    // Also include customers whose jobHistory has a completed entry for this date
-    return (c.jobHistory || []).some(j => j.date === date && j.status === 'completed');
+    // Archived jobs: status may be 'completed' or absent; require rigId to exclude stale CSV backfill rows
+    return (c.jobHistory || []).some(j =>
+      j.date === date && (!j.status || j.status === 'completed') && j.rigId
+    );
   });
   if (!completedToday.length) {
     return { date, total: 0, matched: 0, message: `No completed jobs on ${date}` };
