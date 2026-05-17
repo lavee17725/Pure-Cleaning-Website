@@ -127,7 +127,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .svc-gps-badge.rig-1{color:#1d4ed8;background:#dbeafe;}
 .svc-gps-badge.rig-2{color:#15803d;background:#dcfce7;}
 .svc-gps-badge.rig-3{color:#c2410c;background:#ffedd5;}
-.svc-detail-grid{display:grid;grid-template-columns:max-content 1fr;gap:3px 10px;margin-top:8px;font-size:12px;}
+.svc-detail-grid{display:grid;grid-template-columns:max-content 1fr;gap:4px 10px;margin-top:8px;font-size:13px;}
 .svc-detail-key{color:var(--muted);font-weight:600;white-space:nowrap;padding-top:1px;}
 .svc-detail-val{color:var(--text);line-height:1.45;}
 
@@ -918,12 +918,10 @@ function renderHeroBanner(c) {
     return null;
   })();
   const _paBtn_p = _paUrl_p ? `<a href="${_paUrl_p.url}" target="_blank" style="font-size:11px;font-weight:700;color:var(--sky);background:#eff6ff;border-radius:4px;padding:2px 7px;margin-left:8px;text-decoration:none;white-space:nowrap;" title="Open ${_paUrl_p.label} property search">🏠 ${_paUrl_p.label}</a>` : '';
-  const _copyAddrStr_p = JSON.stringify(`${c.address}, ${c.city}, FL`);
-  const _copyBtn_p = (c.address && c.city) ? `<button onclick="navigator.clipboard.writeText(${_copyAddrStr_p}).then(()=>showToast('Address copied — paste into BCPA')).catch(()=>{})" style="font-size:11px;font-weight:600;color:var(--sky);background:#eff6ff;border:none;border-radius:4px;padding:2px 8px;cursor:pointer;margin-left:6px;white-space:nowrap;">📋 Copy</button>` : '';
   let addrHtml = '';
   if (c.address && c.city) {
     const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(c.address+' '+c.city+' FL')}`;
-    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a>${_paBtn_p}${_copyBtn_p}</div>`;
+    addrHtml = `<div class="hero-contact-line">📍 <a href="${mapUrl}" target="_blank">${esc(c.address)}, ${esc(c.city)}${c.zip?' '+c.zip:''}</a>${_paBtn_p}</div>`;
   } else if (c.city) {
     addrHtml = `<div class="hero-contact-line">📍 ${esc(c.city)}, FL${_paBtn_p}</div>`;
   }
@@ -990,7 +988,6 @@ function renderHeroBanner(c) {
     `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
     `<a class="action-btn" style="background:#1d9e75;color:#fff;" href="/pure_cleaning_calendar.html?phone=${encodeURIComponent(c.phone)}" target="_blank">📋 Schedule Job</a>`,
     `<a class="action-btn" style="background:#0a1628;color:#f4a620;" href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" target="_blank">✨ Build Quote</a>`,
-    `<a class="action-btn" style="background:#1d4ed8;color:#fff;" href="/pure_cleaning_bulk_reactivation.html" target="_blank">📤 Reactivation</a>`,
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Note</button>`,
     `<button class="action-btn" style="background:#7c3aed;color:#fff;" onclick="openLogReplyModal()">📥 Log Reply</button>`,
     `<button class="action-btn" style="background:#16a34a;color:#fff;" onclick="openLogFeedbackModal()">⭐ Feedback</button>`,
@@ -1216,9 +1213,18 @@ function renderServiceHistory(c) {
       if (e.rigLabel) detailRows.push(`<span class="svc-detail-key">🚛 Rig</span><span class="svc-detail-val" style="color:${e.rigColor||'inherit'};font-weight:700;">${esc(e.rigLabel)}</span>`);
       if (e.services && e.services !== '—') {
         const _isRoofSvc = /roof|soft\s*wash|softwash/i.test(e.services);
-        const _storyLabel = _isRoofSvc ? (e.roofStories ? `${e.roofStories}-story` : '1-story') : null;
+        const _parseStoriesFromText = (svc) => {
+          if (!svc) return null;
+          if (/\b2[\s\-]*stor(y|ies)\b/i.test(svc)) return 2;
+          if (/\b1[\s\-]*stor(y|ies)\b/i.test(svc))  return 1;
+          return null;
+        };
+        const _parsedStories = _parseStoriesFromText(e.services);
+        const _storiesValue  = e.roofStories || _parsedStories || null;
+        const _storyLabel    = _isRoofSvc ? (_storiesValue ? `${_storiesValue}-story` : null) : null;
         const _storySuffix = _storyLabel ? ` <span style="display:inline-block;font-size:10px;font-weight:700;background:rgba(194,65,12,.1);color:#c2410c;border-radius:10px;padding:1px 7px;margin-left:4px;">${_storyLabel}</span>` : '';
-        detailRows.push(`<span class="svc-detail-key">📋 Services</span><span class="svc-detail-val">${esc(e.services)}${_storySuffix}</span>`);
+        const _svcFormatted = esc(e.services).replace(/ \/ /g, ' · ');
+        detailRows.push(`<span class="svc-detail-key">📋 Services</span><span class="svc-detail-val" style="font-size:14px;line-height:1.55;">${_svcFormatted}${_storySuffix}</span>`);
       }
       if (e.address)  detailRows.push(`<span class="svc-detail-key">📍 Address</span><span class="svc-detail-val">${esc(e.address)}</span>`);
       if (e.sqFt)     detailRows.push(`<span class="svc-detail-key">📐 Sq ft</span><span class="svc-detail-val">${Number(e.sqFt).toLocaleString()} sq ft</span>`);
@@ -1275,6 +1281,7 @@ function renderContextBlocks(c) {
   const now = new Date();
   const fn  = c.firstName || 'This customer';
   const { totalJobs: effJobs, lifetimeSpend: effSpend, lastService: effLastSvc } = getEffectiveStats(c);
+  const _moSince = effLastSvc ? Math.round((Date.now() - new Date(effLastSvc+'T12:00:00').getTime()) / (30*24*60*60*1000)) : null;
 
   // ── Reactivation ──
   if (effLastSvc && !c.optOut && !c.movedAway) {
@@ -1292,6 +1299,13 @@ function renderContextBlocks(c) {
         btnCls:'ctx-btn-amber', btnLabel:'Send reminder text →',
         btnHref:`sms:+1${c.phone}?&body=${encodeURIComponent(smsBody)}` });
     }
+  }
+
+  // ── At-Risk ──
+  if (_moSince !== null && _moSince > 12 && !c.optOut && !c.movedAway) {
+    blocks.push({ cls:'ctx-block-red', icon:'🔴', title:'At-Risk Customer',
+      text:`Last service was ${_moSince} month${_moSince === 1 ? '' : 's'} ago — overdue for reactivation outreach.`,
+      btnCls:null, btnLabel:null, btnHref:null });
   }
 
   // ── Sealing Opportunity ──
@@ -1465,7 +1479,6 @@ function renderProfile(customer, events){
     callouts.push({cls:'callout-gray', text:'🚫 Do not ask for Google review'});
   }
 
-  if(mo!==null&&mo>12) callouts.push({cls:'callout-red',   text:`🔴 At-risk — last service was ${Math.round(mo)} months ago`});
   if(c.hasSealHistory&&mo!==null&&mo>=18&&mo<=36) callouts.push({cls:'callout-purple',text:'💎 VIP Seal renewal window — Tony should quote'});
   if(c.sealingInterest) callouts.push({cls:'callout-purple',text:'💎 Signaled sealing interest — bring samples to next job'});
   if(effSpend>=1500) callouts.push({cls:'callout-green', text:'🎯 High-value customer — top tier'});
