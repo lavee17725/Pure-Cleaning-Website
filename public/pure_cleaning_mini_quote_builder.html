@@ -286,7 +286,15 @@ let defaults         = {};
 let sealingOffered   = true;  // default ON — show sealing offer on agreement page
 let rustOffered      = true;  // default ON — show rust offer on agreement page
 let _addonRoofMethod  = null;  // roof method when roof offered as add-on
-let _addonRoofStories = 1;     // roof story count (1 or 2)
+let _addonRoofStories = null;  // roof story count (1, 2, or null = unknown)
+
+function getLastKnownRoofStories(cust) {
+  if (!cust || !Array.isArray(cust.jobHistory)) return null;
+  const roofJobs = cust.jobHistory
+    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
+}
 let customRows       = [];
 let customIdCounter  = 0;
 let _dateSuggestions = []; // [{date,display,dayName,rig,rigLabel,reason,label,enabled,custom}]
@@ -310,6 +318,8 @@ async function init() {
     customer = matches.find(c => c.quoteStatus?.state === 'phone_quoted_pending_mini_quote')
             || matches.find(c => c.quoteStatus?.mainServices || c.quoteStatus?.servicesAgreed)
             || matches[matches.length - 1]; // last-inserted as final fallback
+    // Pre-populate stories from history (R2 KV sync populated jobHistory[].roofStories)
+    _addonRoofStories = getLastKnownRoofStories(customer);
 
     // Set back link → new_customer pre-loaded for this phone
     const backEl = document.getElementById('backLink');
@@ -547,8 +557,9 @@ function populateAddonSections() {
         </div>
         <div style="display:inline-flex;align-items:center;gap:14px;padding:6px 10px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;margin-top:8px;">
           <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;">Stories:</span>
-          <label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="addonRoofStories" value="1"${(_addonRoofStories||1)===1?' checked':''} onclick="event.stopPropagation();_addonRoofStories=1" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
+          <label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="addonRoofStories" value="1"${_addonRoofStories===1?' checked':''} onclick="event.stopPropagation();_addonRoofStories=1" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
           <label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="addonRoofStories" value="2"${_addonRoofStories===2?' checked':''} onclick="event.stopPropagation();_addonRoofStories=2" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 2-Story</label>
+          <label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="addonRoofStories" value=""${!_addonRoofStories?' checked':''} onclick="event.stopPropagation();_addonRoofStories=null" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> Unknown</label>
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:5px;font-style:italic;">Automatically includes Rinse Walls &amp; Windows</div>
       </div>`;
@@ -931,7 +942,7 @@ async function saveMiniQuote(sendText) {
       rustOffered,
       sealingInterest: sealingOffered ? 'sealing_only' : 'none', // backward compat for profile
       addonRoofMethod: _addonRoofMethod || null,
-      addonRoofStories: booked.has('roof_cleaning') ? (_addonRoofStories || 1) : null,
+      addonRoofStories: booked.has('roof_cleaning') ? (() => { const lastKnown = getLastKnownRoofStories(customer); if (lastKnown && _addonRoofStories && lastKnown !== _addonRoofStories && !confirm(`${customer?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${_addonRoofStories}-story.\n\nClick OK to use ${_addonRoofStories}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return _addonRoofStories || null; })() : null,
       customNote,
       dateSuggestions,
       builtAt: now,

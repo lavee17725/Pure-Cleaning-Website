@@ -316,8 +316,9 @@ select option{background:var(--white);}
   <div id="v2StorySel" style="display:none;padding:0 0 4px 0;">
     <div style="display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;">
       <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;">Stories:</span>
-      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2Stories1" value="1" checked style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2Stories1" value="1" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
       <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" value="2" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 2-Story</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2StoriesUnk" value="" checked style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> Unknown</label>
     </div>
   </div>
 
@@ -475,6 +476,14 @@ const FLOOR_ADDONS = [{id:'walls',label:'Rinse Walls',icon:'🧱',desc:'Add full
 
 let services = [];
 let quotes = JSON.parse(localStorage.getItem('pureCleaningQuotesV2') || '[]');
+
+function getLastKnownRoofStories(cust) {
+  if (!cust || !Array.isArray(cust.jobHistory)) return null;
+  const roofJobs = cust.jobHistory
+    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
+}
 let pendingRequest = JSON.parse(localStorage.getItem('pendingQuoteRequest') || 'null');
 let generatedUrl = '';
 let incomingReqId = null; // set when opened from Incoming Requests inbox
@@ -542,6 +551,12 @@ function checkCustomerAlerts(phone) {
   getCachedCustomerDB().then(data => {
     const c = ((data||{}).customers||[]).find(x => x.phone === phone);
     if (!c) return;
+    // Pre-populate stories from history when selector is visible
+    const lastKnown = getLastKnownRoofStories(c);
+    if (lastKnown) {
+      const r = document.querySelector(`input[name=v2RoofStories][value="${lastKnown}"]`);
+      if (r) r.checked = true;
+    }
     if (c.movedAway) {
       const loc = c.movedAway.location ? ` Last known location: ${c.movedAway.location}.` : '';
       let mbox = document.getElementById('movedAwayWarningBox');
@@ -598,7 +613,7 @@ function renderChips() {
   const hasRoof = services.some(s => /roof|soft\s*wash|softwash/i.test(s));
   const storySel = document.getElementById('v2StorySel');
   if (storySel) storySel.style.display = hasRoof ? '' : 'none';
-  if (!hasRoof) { const r1 = document.getElementById('v2Stories1'); if (r1) r1.checked = true; }
+  if (!hasRoof) { const rUnk = document.getElementById('v2StoriesUnk'); if (rUnk) rUnk.checked = true; }
   renderAddons();
   saveDraft();
 }
@@ -805,7 +820,8 @@ async function generateQuote() {
   };
 
   const hasRoofV2 = services.some(s => /roof|soft\s*wash|softwash/i.test(s));
-  const v2RoofStories = hasRoofV2 ? parseInt(document.querySelector('input[name=v2RoofStories]:checked')?.value || '1') : null;
+  const _v2StoryVal = hasRoofV2 ? document.querySelector('input[name=v2RoofStories]:checked')?.value : null;
+  const v2RoofStories = _v2StoryVal ? parseInt(_v2StoryVal) : null;
   const quotePayload = {
     fn, ln, ph, address, city: extractCityFromAddr(address), services: serviceStr, mainServices: serviceStr,
     mainAmount: priceNum, approvedAmount: priceNum, addOns: [],

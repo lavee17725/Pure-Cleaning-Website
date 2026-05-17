@@ -373,8 +373,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
           <label class="re-label">Stories</label>
           <div class="story-sel">
             <span class="story-sel-lbl">Stories:</span>
-            <label><input type="radio" name="nRoofStories" value="1" id="nStories1" checked> 1-Story</label>
+            <label><input type="radio" name="nRoofStories" value="1" id="nStories1"> 1-Story</label>
             <label><input type="radio" name="nRoofStories" value="2"> 2-Story</label>
+            <label><input type="radio" name="nRoofStories" value="" id="nStoriesUnk" checked> Unknown</label>
           </div>
         </div>
       </div>
@@ -576,8 +577,12 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   <div class="msheet" style="max-width:380px;">
     <div class="msheet-title">📅 What date?</div>
     <div class="field" style="margin-bottom:1rem;">
+      <label>Price *</label>
+      <input id="schedPrice" type="number" class="fi" min="0" step="1" placeholder="Enter amount" inputmode="decimal" style="font-size:15px;" oninput="_validateSchedModal()">
+    </div>
+    <div class="field" style="margin-bottom:1rem;">
       <label>Scheduled date *</label>
-      <input id="schedDate" type="date" class="fi" style="font-size:15px;">
+      <input id="schedDate" type="date" class="fi" style="font-size:15px;" oninput="_validateSchedModal()">
     </div>
     <div class="field" style="margin-bottom:1rem;">
       <label>Notes (optional)</label>
@@ -586,7 +591,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     <div id="schedError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
     <div class="mfoot">
       <button class="mbtn-c" onclick="closeScheduleModal()">← Back</button>
-      <button class="mbtn-a" onclick="submitScheduleNow()">📅 Schedule it</button>
+      <button class="mbtn-a" id="schedBtn" onclick="submitScheduleNow()" disabled>📅 Schedule it</button>
     </div>
   </div>
 </div>
@@ -714,7 +719,15 @@ let _svcSel          = new Set();
 let _svcSecExp       = false;
 let _svcCustExp      = false;
 let _roofMethod      = null;
-let _roofStories     = 1;
+let _roofStories     = null;
+
+function getLastKnownRoofStories(customer) {
+  if (!customer || !Array.isArray(customer.jobHistory)) return null;
+  const roofJobs = customer.jobHistory
+    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
+}
 let _roofSubLocked   = false;
 let _gutterTypes     = new Set();
 let _roofType        = null;  // 'shingle'|'large_barrel'|'short_barrel'|'flat_tile'|'v_shape'|'venezuelan_tile'|'metal'|'other'
@@ -881,7 +894,7 @@ function toggleService(id) {
     if (id==='walkway')      _bundleFlags.walkway     = false;
   } else {
     _svcSel.delete(id);
-    if (id==='roof_cleaning') { _roofMethod=null; _roofSubLocked=false; _roofStories=1; const r1=document.getElementById('nStories1'); if(r1) r1.checked=true; }
+    if (id==='roof_cleaning') { _roofMethod=null; _roofSubLocked=false; _roofStories=null; const rUnk=document.getElementById('nStoriesUnk'); if(rUnk) rUnk.checked=true; }
     if (id==='gutters')       { _gutterTypes.clear(); _gutterSubLocked=false; }
     // Auto-unbundle
     if (id==='roof_cleaning' && _bundleFlags.rinseWalls)  { _svcSel.delete('rinse_walls'); _bundleFlags.rinseWalls=false; }
@@ -1023,7 +1036,7 @@ function getServicesAgreedValue() {
   return {
     structured,
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
-    roofStories:      isRoofSel ? (parseInt(document.querySelector('input[name=nRoofStories]:checked')?.value||'1')) : null,
+    roofStories:      isRoofSel ? (() => { const v = document.querySelector('input[name=nRoofStories]:checked')?.value; const s = v ? parseInt(v) : null; const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === (ph||'').replace(/\D/g,'').slice(-10)); const lastKnown = getLastKnownRoofStories(existing); if (lastKnown && s && lastKnown !== s && !confirm(`${existing?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${s}-story.\n\nClick OK to use ${s}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return s; })() : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
     roofSqFt:         parseInt(document.getElementById('nRoofSqFt')?.value) || null,
@@ -1822,11 +1835,37 @@ function buildMQFromSuccess() {
 }
 
 // ── Option A: Schedule it now ─────────────────────────────────────────────────
+function _validateSchedModal() {
+  const price   = parseFloat(document.getElementById('schedPrice').value);
+  const date    = document.getElementById('schedDate').value;
+  const priceEl = document.getElementById('schedPrice');
+  const errEl   = document.getElementById('schedError');
+  const btn     = document.getElementById('schedBtn');
+  if (!price || price <= 0) {
+    priceEl.classList.add('err');
+    errEl.textContent = 'Price must be greater than $0';
+    errEl.style.display = 'block';
+    btn.disabled = true;
+  } else if (!date) {
+    priceEl.classList.remove('err');
+    errEl.textContent = 'Scheduled date is required';
+    errEl.style.display = 'block';
+    btn.disabled = true;
+  } else {
+    priceEl.classList.remove('err');
+    errEl.style.display = 'none';
+    btn.disabled = false;
+  }
+}
+
 function openScheduleModal() {
   const tom = new Date(); tom.setDate(tom.getDate() + 1);
   document.getElementById('schedDate').value = tom.toISOString().slice(0, 10);
+  document.getElementById('schedPrice').value = '';
+  document.getElementById('schedPrice').classList.remove('err');
   document.getElementById('schedNotes').value = '';
   document.getElementById('schedError').style.display = 'none';
+  _validateSchedModal();
   document.getElementById('schedDateModal').classList.remove('hidden');
 }
 
@@ -1835,7 +1874,9 @@ function closeScheduleModal() {
 }
 
 async function submitScheduleNow() {
-  const date = document.getElementById('schedDate').value;
+  const date  = document.getElementById('schedDate').value;
+  const price = parseFloat(document.getElementById('schedPrice').value);
+  if (!price || price <= 0) { document.getElementById('schedError').textContent = 'Price must be greater than $0'; document.getElementById('schedError').style.display = 'block'; return; }
   if (!date) { document.getElementById('schedError').textContent = 'Date required.'; document.getElementById('schedError').style.display = 'block'; return; }
   document.getElementById('schedError').style.display = 'none';
 
@@ -1849,7 +1890,7 @@ async function submitScheduleNow() {
   Object.assign(c.scheduledStatus, {
     state: 'scheduled', scheduledDate: date,
     rig: isRoof ? 'rig_3' : null,
-    jobNotes: svc, approvedAmount: c.quoteStatus?.mainAmount || 0, window: 'morning',
+    jobNotes: svc, approvedAmount: price, window: 'morning',
     ...(notes ? { scheduleNote: notes } : {})
   });
   c.quoteLifecycle = 'confirmed';

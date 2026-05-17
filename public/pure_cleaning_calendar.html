@@ -1136,6 +1136,7 @@ body{background:#f0f2f5;}
           <div style="display:flex;gap:16px;padding:10px 0;">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text);"><input type="radio" name="feRoofStories" value="1" id="feStories1"> 1-Story</label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text);"><input type="radio" name="feRoofStories" value="2" id="feStories2"> 2-Story</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text);"><input type="radio" name="feRoofStories" value="" id="feStoriesUnk" checked> Unknown</label>
           </div>
         </div>
       </div>
@@ -1284,8 +1285,9 @@ body{background:#f0f2f5;}
         <input id="unschServices" type="text" placeholder="e.g. Roof + Driveway" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;" oninput="checkUnschRoof()">
         <div id="unschStorySel" style="display:none;">
           <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
-            <label><input type="radio" name="unschStories" value="1" checked> 1-Story</label>
+            <label><input type="radio" name="unschStories" value="1"> 1-Story</label>
             <label><input type="radio" name="unschStories" value="2"> 2-Story</label>
+            <label><input type="radio" name="unschStories" value="" checked> Unknown</label>
           </div>
         </div>
       </div>
@@ -1337,8 +1339,9 @@ body{background:#f0f2f5;}
     <div style="font-size:11px;color:var(--muted);margin-top:8px;">🛰 Rig will be auto-assigned by GPS when job runs — no need to pick one now.</div>
     <div id="tapSchedStorySel" style="display:none;margin-top:10px;">
       <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
-        <label><input type="radio" name="tapSchedStories" value="1" checked> 1-Story</label>
+        <label><input type="radio" name="tapSchedStories" value="1"> 1-Story</label>
         <label><input type="radio" name="tapSchedStories" value="2"> 2-Story</label>
+        <label><input type="radio" name="tapSchedStories" value="" checked> Unknown</label>
       </div>
     </div>
     <div class="modal-footer" style="margin-top:1.25rem;">
@@ -1854,6 +1857,16 @@ function highlightSidebarJob(phone) {
     card.classList.add('pulse-highlight');
     setTimeout(() => card.classList.remove('pulse-highlight'), 2500);
   }, 300);
+}
+
+// Returns the most recent completed roof job's roofStories for this customer,
+// or null if no roof history exists. Used to pre-populate stories selectors.
+function getLastKnownRoofStories(customer) {
+  if (!customer || !Array.isArray(customer.jobHistory)) return null;
+  const roofJobs = customer.jobHistory
+    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
 }
 
 async function saveDb() {
@@ -4553,7 +4566,7 @@ function _printCss() {
   return `<style>
     @page{size:letter;margin:.5in;}
     *{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:Arial,Helvetica,sans-serif;font-size:11pt;color:#1a1a1a;line-height:1.5;}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:14pt;color:#1a1a1a;line-height:1.4;}
     table{width:100%;border-collapse:collapse;}
     td,th{vertical-align:top;}
     @media print{.no-print{display:none!important;}}
@@ -4715,84 +4728,70 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const addOns   = c.addOns || [];
   const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
   const rigLabel = RIG_LABELS[rig] || rig;
-  const mapsUrl  = c.address ? `https://maps.google.com/?q=${encodeURIComponent([c.address,c.city,'FL'].filter(Boolean).join(', '))}` : '';
-  const notes    = (c.notes||'') + (ss.customerNotes ? (c.notes?'\n':'')+ss.customerNotes : '');
-  const alertsHtml = (c.alerts||[]).map(a=>`<div style="color:#c2410c;font-weight:bold;font-size:10pt;margin-top:4pt;">⚠ ${esc(a.label||a||'')}</div>`).join('');
+  const rawNotes = (c.notes||'') + (ss.customerNotes ? (c.notes?'\n':'')+ss.customerNotes : '');
+  const alertsHtml = (c.alerts||[]).map(a=>`<div style="color:#c2410c;font-weight:bold;font-size:12pt;margin-top:6pt;">⚠ ${esc(a.label||a||'')}</div>`).join('');
+
+  const noteLines = rawNotes ? rawNotes.split(/\n/).map(l=>l.trim()).filter(Boolean) : [];
+  const _entryRx  = /\b(gate|lockbox|keypad|access\s*code|entry\s*code|\bcode\s*[:#]?\s*\d)/i;
+  const gateLines = noteLines.filter(l => _entryRx.test(l));
+  const regLines  = noteLines.filter(l => !_entryRx.test(l));
+  const hasNotes  = noteLines.length > 0 || (c.alerts||[]).length > 0;
 
   return `
 <div style="max-width:7.5in;margin:0 auto;">
 
   <!-- Header bar -->
-  <table style="background:#0a1628;color:#fff;margin-bottom:14pt;">
+  <table style="background:#0a1628;color:#fff;margin-bottom:20pt;">
     <tr>
-      <td style="padding:10pt 14pt;">
+      <td style="padding:12pt 16pt;">
         <div style="font-size:14pt;font-weight:bold;letter-spacing:.5pt;">PURE CLEANING · JOB SHEET</div>
-        <div style="font-size:9pt;opacity:.75;margin-top:2pt;">${dateStr}</div>
+        <div style="font-size:10pt;opacity:.75;margin-top:3pt;">${dateStr}</div>
       </td>
-      <td style="padding:10pt 14pt;text-align:right;font-size:10pt;opacity:.85;">
+      <td style="padding:12pt 16pt;text-align:right;font-size:11pt;opacity:.85;">
         ${esc(rigLabel)}<br>
         <strong>Job ${jobOrder} of ${totalJobs}</strong>
       </td>
     </tr>
   </table>
 
-  <!-- Customer block -->
-  <table style="border:1.5pt solid #1a1a1a;margin-bottom:12pt;">
-    <tr>
-      <td style="padding:10pt 14pt;width:62%;border-right:1pt solid #ddd;">
-        <div style="font-size:20pt;font-weight:bold;margin-bottom:4pt;">${esc(name)}</div>
-        <div style="font-size:14pt;font-weight:bold;color:#0a1628;margin-bottom:6pt;">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
-        <div style="font-size:12pt;">
-          ${c.address ? `${esc(c.address)}<br>${esc(c.city||'')}${c.city?', FL':''}${c.zip?' '+c.zip:''}` : '<span style="color:#c2410c;font-weight:bold;">⚠ Address pending</span>'}
-        </div>
-      </td>
-      <td style="padding:10pt 14pt;text-align:center;">
-        ${mapsUrl ? `<div style="margin-bottom:10pt;"><a href="${mapsUrl}" style="color:#0a1628;font-weight:bold;font-size:10pt;text-decoration:none;">🗺 Open in Maps</a></div>` : '<div style="font-size:9pt;color:#aaa;margin-bottom:10pt;">No address</div>'}
-        <div style="font-size:8pt;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:3pt;">Quoted Total</div>
-        <div style="font-size:20pt;font-weight:bold;color:#c2410c;">$${Number(amount).toFixed(0)}</div>
-        <div style="font-size:9pt;color:#888;margin-top:3pt;">Zelle · Check · Cash · Venmo</div>
-      </td>
-    </tr>
-  </table>
+  <!-- Customer info — single column, no Maps link -->
+  <div style="border:1.5pt solid #1a1a1a;padding:14pt 18pt;margin-bottom:0;">
+    <div style="font-size:28pt;font-weight:bold;line-height:1.2;margin-bottom:6pt;">${esc(name)}</div>
+    <div style="font-size:18pt;color:#0a1628;margin-bottom:10pt;">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+    <div style="font-size:20pt;font-weight:bold;">
+      ${c.address ? `${esc(c.address)}<br>${esc(c.city||'')}${c.city?', FL':''}${c.zip?' '+c.zip:''}` : '<span style="color:#c2410c;">⚠ Address pending</span>'}
+    </div>
+  </div>
+
+  <!-- Quoted total — own row, right-aligned, 36pt -->
+  <div style="text-align:right;padding:16pt 18pt 14pt 18pt;border:1.5pt solid #1a1a1a;border-top:none;margin-bottom:22pt;">
+    <span style="font-size:36pt;font-weight:bold;color:#c2410c;">Total: $${Number(amount).toFixed(0)}</span>
+    <div style="font-size:10pt;color:#888;margin-top:4pt;">Zelle · Check · Cash · Venmo</div>
+  </div>
 
   <!-- Services + Notes -->
-  <table style="margin-bottom:12pt;border-spacing:8pt;border-collapse:separate;">
+  <table style="margin-bottom:22pt;border-spacing:10pt;border-collapse:separate;">
     <tr>
-      <td style="width:52%;border:1pt solid #ccc;padding:10pt 12pt;">
-        <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Services</div>
-        ${items.map(s=>`<div style="padding:3pt 0;font-size:11pt;">☐ ${esc(s)}</div>`).join('')}
-        ${addOns.length ? `<div style="margin-top:6pt;padding-top:6pt;border-top:.5pt solid #eee;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:4pt;">Add-ons</div>${addOns.map(a=>`<div style="padding:2pt 0;font-size:11pt;">☐ ${esc(a.name||'')} (+$${a.bundle||0})</div>`).join('')}` : ''}
+      <td style="width:${hasNotes?'55%':'100%'};border:1pt solid #ccc;padding:12pt 16pt;vertical-align:top;">
+        <div style="font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#333;padding-bottom:6pt;border-bottom:1pt solid #ccc;margin-bottom:10pt;">Services</div>
+        ${items.map(s=>`<div style="padding:5pt 0;font-size:16pt;">☐ ${esc(s)}</div>`).join('')}
+        ${addOns.length ? `<div style="margin-top:10pt;padding-top:8pt;border-top:.5pt solid #eee;font-size:12pt;font-weight:bold;text-transform:uppercase;letter-spacing:1pt;color:#888;margin-bottom:6pt;">Add-ons</div>${addOns.map(a=>`<div style="padding:4pt 0;font-size:16pt;">☐ ${esc(a.name||'')} (+$${a.bundle||0})</div>`).join('')}` : ''}
       </td>
-      <td style="width:48%;border:1pt solid #ccc;padding:10pt 12pt;">
-        <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Notes / Gate Codes</div>
-        <div style="font-size:11pt;line-height:1.7;min-height:55pt;color:${notes?'#1a1a1a':'#bbb'};">${notes ? esc(notes).replace(/\n/g,'<br>') : '(none)'}</div>
+      ${hasNotes ? `
+      <td style="width:45%;border:1pt solid #ccc;padding:12pt 16pt;vertical-align:top;">
+        ${gateLines.map(l=>`<div style="font-size:18pt;font-weight:bold;margin-bottom:8pt;">${esc(l)}</div>`).join('')}
+        ${regLines.length ? `
+          ${gateLines.length ? `<div style="border-top:1pt solid #ddd;margin-top:4pt;margin-bottom:10pt;"></div>` : ''}
+          <div style="font-size:12pt;font-weight:bold;text-transform:uppercase;letter-spacing:1pt;color:#555;margin-bottom:6pt;">Notes</div>
+          <div style="font-size:14pt;line-height:1.5;">${regLines.map(l=>esc(l)).join('<br>')}</div>
+        ` : ''}
         ${alertsHtml}
-      </td>
+      </td>` : ''}
     </tr>
   </table>
 
-  <!-- Completion checklist -->
-  <table style="border:1.5pt solid #1a1a1a;margin-bottom:10pt;">
-    <tr><td colspan="3" style="background:#0a1628;color:#fff;padding:5pt 12pt;font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;">Completion Checklist</td></tr>
-    <tr>
-      <td style="padding:6pt 12pt;font-size:10pt;width:34%;border-right:.5pt solid #ddd;">
-        ☐ Property inspected before starting<br>
-        ☐ Plants/landscaping protected<br>
-        ☐ All services completed
-      </td>
-      <td style="padding:6pt 12pt;font-size:10pt;width:33%;border-right:.5pt solid #ddd;">
-        ☐ Walkthrough with customer<br>
-        ☐ Payment collected<br>
-        ☐ Customer satisfied
-      </td>
-      <td style="padding:6pt 12pt;font-size:10pt;">
-        <div style="margin-bottom:10pt;">Crew sign-off: ______________________</div>
-        <div>Time finished: ____________________</div>
-      </td>
-    </tr>
-  </table>
-
-  <div style="font-size:8pt;color:#aaa;text-align:center;">${PRINT_CO} · ${PRINT_PHONE} · Printed ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
+  <!-- Footer -->
+  <div style="font-size:10pt;color:#666;text-align:center;border-top:1pt solid #eee;padding-top:8pt;">${PRINT_CO} · ${PRINT_PHONE} · Printed ${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
 
 </div>`;
 }
@@ -5208,8 +5207,9 @@ function openEditModal(phone, jhJobId) {
 
   const roofType = _jh ? '' : (svcAgreed.roofType || '');
   document.getElementById('feRoofType').value = roofType;
-  const stories = _jh ? (_jh.roofStories || 1) : (ss.roofStories || 1);
-  const stEl = document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2));
+  const stories = _jh ? _jh.roofStories : (ss.roofStories || getLastKnownRoofStories(c) || null);
+  const stEl = stories ? document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2))
+                       : document.getElementById('feStoriesUnk');
   if (stEl) stEl.checked = true;
 
   document.getElementById('fePrice').value = _jh
@@ -5416,8 +5416,14 @@ async function saveFullEdit() {
   const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
   if (isRoof) {
     const roofType = document.getElementById('feRoofType').value;
-    const stories  = parseInt(document.querySelector('input[name=feRoofStories]:checked')?.value || '1');
-    ss.roofStories = stories;
+    const _feStoryVal = document.querySelector('input[name=feRoofStories]:checked')?.value;
+    const stories  = _feStoryVal ? parseInt(_feStoryVal) : null;
+    const _feLastKnown = getLastKnownRoofStories(c);
+    if (_feLastKnown && stories && _feLastKnown !== stories) {
+      const ok = confirm(`${c.firstName || 'Customer'}'s most recent roof job had ${_feLastKnown}-story.\nYou're saving ${stories}-story.\n\nIf this property is genuinely ${stories}-story, click OK.\nTo keep the historical value (${_feLastKnown}-story), click Cancel.`);
+      if (!ok) return;
+    }
+    if (stories) ss.roofStories = stories;
     if (!qs.servicesAgreed) qs.servicesAgreed = {};
     if (roofType) qs.servicesAgreed.roofType = roofType;
   }
@@ -5642,7 +5648,16 @@ async function saveAddUnscheduled() {
   const dt  = document.getElementById('unschDate').value || null;
   if (!ph || ph.length < 10) { showToast('Enter a valid phone number'); return; }
   const isUnschRoof = /roof|soft\s*wash|softwash/i.test(svc);
-  const unschStories = isUnschRoof ? parseInt(document.querySelector('input[name=unschStories]:checked')?.value || '1') : null;
+  const _unschStoryVal = isUnschRoof ? (document.querySelector('input[name=unschStories]:checked')?.value) : null;
+  const unschStories = _unschStoryVal ? parseInt(_unschStoryVal) : null;
+  if (isUnschRoof && unschStories) {
+    const _unschExisting = findCustomer(ph);
+    const _unschLastKnown = getLastKnownRoofStories(_unschExisting);
+    if (_unschLastKnown && _unschLastKnown !== unschStories) {
+      const ok = confirm(`${_unschExisting?.firstName || 'Customer'}'s most recent roof job had ${_unschLastKnown}-story.\nYou're saving ${unschStories}-story.\n\nIf this property is genuinely ${unschStories}-story, click OK.\nTo keep the historical value (${_unschLastKnown}-story), click Cancel.`);
+      if (!ok) return;
+    }
+  }
 
   const existing = findCustomer(ph);
   if (existing) {
@@ -5737,8 +5752,8 @@ function openTapScheduleModal(phone) {
   const storySel = document.getElementById('tapSchedStorySel');
   if (storySel) storySel.style.display = isTapRoof ? '' : 'none';
   if (isTapRoof) {
-    const existing = c?.scheduledStatus?.roofStories || 1;
-    const r = document.querySelector(`input[name=tapSchedStories][value="${existing}"]`);
+    const existing = c?.scheduledStatus?.roofStories || getLastKnownRoofStories(c) || null;
+    const r = document.querySelector(`input[name=tapSchedStories][value="${existing ?? ''}"]`);
     if (r) r.checked = true;
   }
   document.getElementById('tapScheduleModal').classList.remove('hidden');
@@ -5769,7 +5784,14 @@ async function confirmTapSchedule() {
   // Save story count if selector is visible
   const _tapStorySel = document.getElementById('tapSchedStorySel');
   if (_tapStorySel && _tapStorySel.style.display !== 'none') {
-    c.scheduledStatus.roofStories = parseInt(document.querySelector('input[name=tapSchedStories]:checked')?.value || '1');
+    const _tapStoryVal = document.querySelector('input[name=tapSchedStories]:checked')?.value;
+    const _tapStories = _tapStoryVal ? parseInt(_tapStoryVal) : null;
+    const _tapLastKnown = getLastKnownRoofStories(c);
+    if (_tapLastKnown && _tapStories && _tapLastKnown !== _tapStories) {
+      const ok = confirm(`${c.firstName || 'Customer'}'s most recent roof job had ${_tapLastKnown}-story.\nYou're saving ${_tapStories}-story.\n\nIf this property is genuinely ${_tapStories}-story, click OK.\nTo keep the historical value (${_tapLastKnown}-story), click Cancel.`);
+      if (!ok) return;
+    }
+    if (_tapStories) c.scheduledStatus.roofStories = _tapStories;
   }
   await saveDb();
   closeTapScheduleModal();
