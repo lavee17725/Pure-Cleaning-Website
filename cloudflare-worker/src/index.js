@@ -1371,17 +1371,34 @@ async function handleIncomingSubmit(request, env, corsHeaders) {
   return jsonResponse({ success: true, entry: body }, corsHeaders);
 }
 
-// PUT /customers — full-blob replace with completedAt guard.
-// Belt-and-suspenders for Phase 2 client-side fix: if any write path sends
-// state='completed' without completedAt, fill it in server-side before persist.
-// State='completed' without completedAt is always incoherent — no legitimate
-// path intentionally omits it.
+// PUT /customers — full-blob replace with completedAt guard + blast-radius guard.
+// completedAt guard: fills in missing ss.completedAt when state='completed' (Phase 2 belt-and-suspenders).
+// blast-radius guard: rejects writes that would lose >50% of existing records — catches accidental
+//   small-payload PUTs (smoke tests, migration scripts, manual curl). Use ?force=true to override.
+//   NOT applied to /import/rollback (intentional full replacement via separate handler).
 async function handleCustomersPut(request, env, corsHeaders) {
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'Invalid JSON' }, corsHeaders, 400);
 
   const now = new Date().toISOString();
   const customers = body.customers || [];
+
+  // ── Blast-radius guard ────────────────────────────────────────────────────
+  const url        = new URL(request.url);
+  const force      = url.searchParams.get('force') === 'true';
+  const currentDb  = await env.DATA.get(KV_KEYS.customers, 'json') || {};
+  const currentCount  = (currentDb.customers || []).length;
+  const incomingCount = customers.length;
+  if (currentCount > 100 && incomingCount < currentCount * 0.5 && !force) {
+    return jsonResponse({
+      error:   'blast_radius_guard',
+      message: `Incoming write has ${incomingCount} customers but KV has ${currentCount}. `+
+               `This write would lose more than 50% of records. Use ?force=true to override if intentional.`,
+      currentCount,
+      incomingCount,
+    }, corsHeaders, 400);
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   for (const c of customers) {
     const ss = c.scheduledStatus;
