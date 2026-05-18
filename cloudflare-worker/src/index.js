@@ -31,7 +31,7 @@ const DEFAULT_SERVICE_FREQUENCY = {
     { id: 'driveway',      name: 'Driveway',            count: 965,  pct: 52.1 },
     { id: 'roof_cleaning', name: 'Roof Cleaning',       count: 944,  pct: 51.0 },
     { id: 'patio',         name: 'Patio',               count: 943,  pct: 50.9 },
-    { id: 'walkway',       name: 'Walkway / Sidewalk',  count: 802,  pct: 43.3 },
+    { id: 'walkway',       name: 'Sidewalk',             count: 802,  pct: 43.3 },
   ],
   secondary: [
     { id: 'fence',         name: 'Fence',               count: 89,   pct: 4.8 },
@@ -52,7 +52,7 @@ const DEFAULT_ADDONS_CONFIG = {
   addons: [
     { id: 'driveway',   name: 'Driveway Cleaning',            bundle: 150, standalone: 200, icon: '🛣️', description: '' },
     { id: 'patio',      name: 'Patio Cleaning',               bundle: 100, standalone: 150, icon: '🪨', description: '' },
-    { id: 'walkways',   name: 'Walkways / Sidewalks',         bundle: 75,  standalone: 125, icon: '🚶', description: '' },
+    { id: 'walkways',   name: 'Sidewalks',                    bundle: 75,  standalone: 125, icon: '🚶', description: '' },
     { id: 'paver_sand', name: 'Paver Joint Sand Replacement', bundle: 200, standalone: 275, icon: '🧱', description: 'Stops weeds. Restores the clean look between pavers. We do this right after cleaning while they\'re prepped.' },
     { id: 'rust',       name: 'Rust Removal',                 bundle: 50,  standalone: 75,  icon: '🔧', description: '' },
     { id: 'awnings',    name: 'Awning Cleaning',              bundle: 100, standalone: 150, icon: '🏠', description: '' },
