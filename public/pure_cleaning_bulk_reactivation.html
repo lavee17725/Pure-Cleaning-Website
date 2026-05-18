@@ -146,11 +146,19 @@ thead th.sorted .sort-ind{opacity:1;color:var(--sky);}
 tbody tr{border-top:1px solid var(--border);transition:background .1s;cursor:pointer;}
 tbody tr:hover{background:rgba(45,125,210,.08);}
 tbody tr:active{background:rgba(45,125,210,.15);}
-td{padding:8px 8px;vertical-align:middle;white-space:nowrap;}
+td{padding:0 8px;height:80px;vertical-align:middle;white-space:nowrap;}
 @media(max-width:1100px){.col-city{display:none;}}
-@media(max-width:750px){.col-jobs{display:none;}}
-td.name{font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
-td.phone{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}
+/* Option A row redesign — name+meta cell */
+.td-name-cell{max-width:240px;}
+.name-big{font-size:17px;font-weight:700;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.meta-row{font-size:11px;color:var(--muted);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* Urgency age badges in Last Service cell */
+.age-badge{display:inline-block;border-radius:5px;padding:2px 6px;font-size:10px;font-weight:700;margin-top:3px;}
+.age-red{background:#fee2e2;color:#7f1d1d;}
+.age-amber{background:#fed7aa;color:#9a3412;}
+.age-warn{background:#fef3c7;color:#92400e;}
+.last-svc-cell{display:flex;flex-direction:column;justify-content:center;}
+.last-svc-date{font-size:13px;font-weight:600;}
 td.money{font-family:'DM Mono',monospace;}
 .tier-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;}
 
@@ -240,7 +248,7 @@ td.money{font-family:'DM Mono',monospace;}
 .alert-badge-more{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;}
 
 /* text-now column */
-.text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
+.text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:background .15s;}
 .text-now-btn:hover{background:#2470c0;}
 .texted-badge{background:rgba(29,158,117,.2);color:#5de0b3;border:1px solid var(--green);border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .test-send-btn{background:none;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;letter-spacing:.2px;}
@@ -424,6 +432,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .texted-badge{background:rgba(29,158,117,.1);color:#065f46;border-color:var(--green);}
 .test-send-btn{color:var(--muted);border-color:var(--border);}
 .test-send-btn:hover{border-color:var(--sky);color:var(--sky);}
+.name-big{color:var(--navy);}.age-red{background:#fee2e2;color:#7f1d1d;}.age-amber{background:#fed7aa;color:#9a3412;}.age-warn{background:#fef3c7;color:#92400e;}
 .sel-info{color:var(--muted);}
 .sel-info strong{color:var(--text);}
 .undo-btn{color:var(--muted);border-color:var(--border);}
@@ -599,17 +608,13 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
       <thead>
         <tr>
           <th style="width:32px;cursor:default;"></th>
-          <th style="width:120px;cursor:default;">Text Now</th>
-          <th data-sort="name" onclick="clickSort('name')">Name <span class="sort-ind">▲▼</span></th>
-          <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sort-ind">▲▼</span></th>
+          <th style="width:138px;cursor:default;">Text Now</th>
+          <th data-sort="name" onclick="clickSort('name')">Customer <span class="sort-ind">▲▼</span></th>
           <th data-sort="city" onclick="clickSort('city')" class="col-city">City <span class="sort-ind">▲▼</span></th>
           <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sort-ind">▲▼</span></th>
-          <th data-sort="totalJobs" onclick="clickSort('totalJobs')" class="col-jobs">Jobs <span class="sort-ind">▲▼</span></th>
           <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sort-ind">▲▼</span></th>
-          <th data-sort="avgTicket" onclick="clickSort('avgTicket')">Avg Ticket <span class="sort-ind">▲▼</span></th>
-          <th data-sort="monthsSince" onclick="clickSort('monthsSince')">Months Since <span class="sort-ind">▲▼</span></th>
           <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sort-ind">▲▼</span></th>
-          <th style="width:70px;cursor:default;"></th>
+          <th style="width:50px;cursor:default;"></th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -1809,7 +1814,7 @@ function renderTable() {
   // ── DNS tab: special card-style rendering ─────────────────────────────────
   if (poolTab === 'dns') {
     if (filteredCustomers.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">No Did Not Service customers yet. When a verbal quote is declined, it moves here for follow-up.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">No Did Not Service customers yet. When a verbal quote is declined, it moves here for follow-up.</td></tr>`;
       updateSelInfo(); return;
     }
     tbody.innerHTML = filteredCustomers.map(c => {
@@ -1846,7 +1851,7 @@ function renderTable() {
   const emptyTabs = ['today','week','opted_out','moved_away','excluded'];
   if (filteredCustomers.length === 0 && emptyTabs.includes(poolTab)) {
     const msgs = {today:'No customers texted today yet.',week:'No customers texted this week yet.',opted_out:'No opted-out customers.',moved_away:'No customers marked as moved away.',excluded:'No excluded customers — looking good!'};
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msgs[poolTab]}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--muted);font-size:14px;">${msgs[poolTab]}</td></tr>`;
     updateSelInfo();
     document.getElementById('selectAll').checked = false;
     return;
@@ -1869,14 +1874,10 @@ function renderTable() {
       return `<tr style="opacity:.7;" onclick="goToProfile('${c.phone}')">
         <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
         <td onclick="event.stopPropagation()">${textBtn}</td>
-        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
-        <td class="phone">${formatPhone(c.phone)}</td>
-        <td class="col-city">${c.city || '—'}</td>
-        <td>${c.lastServiceStr}</td>
-        <td class="money col-jobs">${c.totalJobs}</td>
+        <td class="td-name-cell"><div class="name-big">${sealIcon}${c.fn} ${c.ln}${alertBadge}</div><div class="meta-row">${formatPhone(c.phone)} · ${c.city||'—'} · ${c.totalJobs} job${c.totalJobs!==1?'s':''}</div></td>
+        <td class="col-city" style="font-size:12px;color:var(--muted);">${c.city||'—'}</td>
+        <td class="last-svc-cell"><div class="last-svc-date">${c.lastServiceStr}</div></td>
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
-        <td class="money">$${Math.round(c.avgTicket)}</td>
-        <td class="money">${mo}</td>
         <td>${tBadgeHtml}</td>
         <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
       </tr>`;
@@ -1892,14 +1893,10 @@ function renderTable() {
       return `<tr style="opacity:.65;" onclick="goToProfile('${c.phone}')">
         <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
         <td onclick="event.stopPropagation()">${textBtn}</td>
-        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
-        <td class="phone">${formatPhone(c.phone)}</td>
-        <td class="col-city">${c.city || '—'}</td>
-        <td>${c.lastServiceStr}</td>
-        <td class="money col-jobs">${c.totalJobs}</td>
+        <td class="td-name-cell"><div class="name-big">${sealIcon}${c.fn} ${c.ln}${alertBadge}</div><div class="meta-row">${formatPhone(c.phone)} · ${c.city||'—'} · ${c.totalJobs} job${c.totalJobs!==1?'s':''}</div></td>
+        <td class="col-city" style="font-size:12px;color:var(--muted);">${c.city||'—'}</td>
+        <td class="last-svc-cell"><div class="last-svc-date">${c.lastServiceStr}</div></td>
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
-        <td class="money">$${Math.round(c.avgTicket)}</td>
-        <td class="money">${mo}</td>
         <td>${tBadgeHtml}</td>
         <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
       </tr>`;
@@ -1913,14 +1910,10 @@ function renderTable() {
       return `<tr style="opacity:.7;" onclick="goToProfile('${c.phone}')">
         <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
         <td onclick="event.stopPropagation()">${textBtn}</td>
-        <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
-        <td class="phone">${formatPhone(c.phone)}</td>
-        <td class="col-city">${c.city || '—'}</td>
-        <td>${c.lastServiceStr}</td>
-        <td class="money col-jobs">${c.totalJobs}</td>
+        <td class="td-name-cell"><div class="name-big">${sealIcon}${c.fn} ${c.ln}${alertBadge}</div><div class="meta-row">${formatPhone(c.phone)} · ${c.city||'—'} · ${c.totalJobs} job${c.totalJobs!==1?'s':''}</div></td>
+        <td class="col-city" style="font-size:12px;color:var(--muted);">${c.city||'—'}</td>
+        <td class="last-svc-cell"><div class="last-svc-date">${c.lastServiceStr}</div></td>
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
-        <td class="money">$${Math.round(c.avgTicket)}</td>
-        <td class="money">${mo}</td>
         <td>${tBadgeHtml}</td>
         <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
       </tr>`;
@@ -1943,23 +1936,22 @@ function renderTable() {
     } else {
       textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
     }
+    const _ageM = c.monthsSince < 999 ? Math.round(c.monthsSince) : null;
+    const _ageCls = _ageM !== null ? (_ageM >= 24 ? 'age-red' : _ageM >= 18 ? 'age-amber' : _ageM >= 12 ? 'age-warn' : '') : '';
+    const _ageBadge = _ageM !== null ? `<span class="age-badge ${_ageCls}">${_ageM} mo ago</span>` : '';
+    const _lastSvcDate = poolTab === 'booked' && c.scheduledStatus?.scheduledDate
+      ? '📅 ' + new Date(c.scheduledStatus.scheduledDate + 'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+      : c.lastServiceStr;
+    const _spend = poolTab === 'booked' && c.scheduledStatus?.approvedAmount
+      ? c.scheduledStatus.approvedAmount.toLocaleString('en-US')
+      : c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
     return `<tr onclick="goToProfile('${c.phone}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
       <td onclick="event.stopPropagation()">${textBtn}</td>
-      <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
-      <td class="phone">${formatPhone(c.phone)}</td>
-      <td class="col-city">${c.city || '—'}</td>
-      <td>${(() => {
-        if (poolTab === 'booked' && c.scheduledStatus?.scheduledDate) {
-          const d = new Date(c.scheduledStatus.scheduledDate + 'T12:00:00');
-          return '📅 ' + d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-        }
-        return c.lastServiceStr;
-      })()}</td>
-      <td class="money col-jobs">${c.totalJobs}</td>
-      <td class="money">$${poolTab === 'booked' && c.scheduledStatus?.approvedAmount ? c.scheduledStatus.approvedAmount.toLocaleString('en-US') : c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
-      <td class="money">$${Math.round(c.avgTicket)}</td>
-      <td class="money">${mo}</td>
+      <td class="td-name-cell"><div class="name-big">${sealIcon}${c.fn} ${c.ln}${alertBadge}</div><div class="meta-row">${formatPhone(c.phone)} · ${c.city||'—'} · ${c.totalJobs} job${c.totalJobs!==1?'s':''}</div></td>
+      <td class="col-city" style="font-size:12px;color:var(--muted);">${c.city||'—'}</td>
+      <td class="last-svc-cell"><div class="last-svc-date">${_lastSvcDate}</div>${_ageBadge}</td>
+      <td class="money">$${_spend}</td>
       <td><span class="tier-badge ${tc}">${tierLabel(c.tier)}</span></td>
       <td onclick="event.stopPropagation()"><button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${c.phone}', this)" title="More actions">⋯</button></td>
     </tr>`;
@@ -1970,7 +1962,7 @@ function renderTable() {
   } catch(e) {
     // Law 9: render errors get a visible in-table message + forwarded to error tracker.
     // Do NOT rethrow — stats/filter bar stay functional.
-    tbody.innerHTML = `<tr><td colspan="12" class="render-error">⚠️ Render error — check /pure_cleaning_errors.html for details. (${e.message})</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="render-error">⚠️ Render error — check /pure_cleaning_errors.html for details. (${e.message})</td></tr>`;
     _fwdError('bulk_reactivation_renderTable', e);
     console.error('[renderTable]', e);
   }
