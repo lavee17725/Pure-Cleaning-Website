@@ -90,9 +90,18 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .match-yes{flex:1;min-width:0;min-height:40px;padding:8px 10px;background:var(--gold);color:var(--navy);border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
 .match-no{min-height:40px;padding:8px 12px;background:none;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);}
 .match-view{display:inline-flex;align-items:center;min-height:40px;padding:8px 10px;font-size:13px;font-weight:600;color:var(--sky);text-decoration:none;}
-/* ── Alt phone row ── */
+/* ── Alt phone row (legacy) ── */
 .alt-phone-remove{min-height:36px;padding:8px 10px;background:none;border:2px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);white-space:nowrap;flex-shrink:0;}
 .alt-phone-remove:hover{border-color:var(--red);color:var(--red);}
+/* ── Alternate contacts ── */
+.alt-contact-entry{background:#f0f6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:12px 14px;margin-top:10px;}
+.alt-contact-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.alt-contact-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--sky);}
+.alt-contact-remove{background:none;border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;padding:0;}
+.alt-contact-remove:hover{color:var(--red);}
+.field-sub-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.add-alt-btn{display:inline-flex;align-items:center;gap:6px;background:none;border:1.5px dashed var(--border);border-radius:10px;padding:8px 14px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;margin-top:10px;}
+.add-alt-btn:hover{border-color:var(--sky);color:var(--sky);}
 /* ── Prior job history ── */
 .jh-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);}
 .jh-row:last-child{border-bottom:none;}
@@ -266,15 +275,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
     </div>
     <div class="field">
-      <label style="display:flex;align-items:center;justify-content:space-between;">
-        <span>📞 Phone<span class="field-req">*</span></span>
-        <button type="button" id="altPhoneToggle" onclick="showAltPhone()" class="add-link" style="font-size:12px;font-weight:600;">+ Add alt phone</button>
-      </label>
+      <label>📞 Phone<span class="field-req">*</span></label>
       <input id="nPhone" class="fi" type="tel" placeholder="(954) 555-1234" oninput="onPhoneInput(this)">
-      <div id="altPhoneRow" style="display:none;margin-top:6px;gap:8px;align-items:center;">
-        <input id="nAltPhone" class="fi" type="tel" placeholder="Alt phone (spouse, work, etc.)" oninput="fmtAltPhone(this)" style="flex:1;font-size:15px;">
-        <button type="button" class="alt-phone-remove" onclick="hideAltPhone()">× Remove</button>
-      </div>
+      <div id="altContactsContainer"></div>
+      <button type="button" class="add-alt-btn" onclick="addAltContact()">+ Add another contact</button>
     </div>
     <div class="field">
       <label>📍 Street address<span class="field-req">*</span></label>
@@ -994,7 +998,7 @@ function getServicesAgreedValue() {
   return {
     structured,
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
-    roofStories:      isRoofSel ? (() => { const v = document.querySelector('input[name=nRoofStories]:checked')?.value; const s = v ? parseInt(v) : null; const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === (ph||'').replace(/\D/g,'').slice(-10)); const lastKnown = getLastKnownRoofStories(existing); if (lastKnown && s && lastKnown !== s && !confirm(`${existing?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${s}-story.\n\nClick OK to use ${s}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return s; })() : null,
+    roofStories:      isRoofSel ? (() => { const v = document.querySelector('input[name=nRoofStories]:checked')?.value; const s = v ? parseInt(v) : null; const _nph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(0,10); const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === _nph); const lastKnown = getLastKnownRoofStories(existing); if (lastKnown && s && lastKnown !== s && !confirm(`${existing?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${s}-story.\n\nClick OK to use ${s}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return s; })() : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
     roofSqFt:         parseInt(document.getElementById('nRoofSqFt')?.value) || null,
@@ -1172,6 +1176,7 @@ function preloadCustomerForEdit(c) {
   }
   const _lsElP = document.getElementById('nLeadSource');
   if (_lsElP && c.leadSource?.primary) { _lsElP.value = c.leadSource.primary; onLeadSourceChange(_lsElP); }
+  restoreAltContacts(c);
   renderNewAlerts();
   checkReq();
 }
@@ -1225,12 +1230,7 @@ function resetForm() {
   const now2 = document.getElementById('nLeadOtherWrap'); if (now2) now2.style.display = 'none';
   const not2 = document.getElementById('nLeadOtherText'); if (not2) not2.value = '';
   document.getElementById('dupCallout').classList.remove('show');
-  const apEl = document.getElementById('nAltPhone');
-  if (apEl) { apEl.value=''; apEl.readOnly=false; apEl.style.cssText=''; }
-  const apRow = document.getElementById('altPhoneRow');
-  if (apRow) apRow.style.display='none';
-  const apTgl = document.getElementById('altPhoneToggle');
-  if (apTgl) apTgl.style.display='';
+  resetAltContacts();
   hideMatchBanner(); _matchResults=[];
   const jhSec = document.getElementById('jhSection');
   if (jhSec) jhSec.style.display='none';
@@ -1326,6 +1326,89 @@ function skipDuplicate() {
 }
 
 // ── Alt phone ─────────────────────────────────────────────────────────────────
+// ── Alternate contacts ────────────────────────────────────────────────────────
+function addAltContact(data) {
+  const container = document.getElementById('altContactsContainer');
+  if (!container) return;
+  const idx = container.children.length;
+  const rel  = data?.relationship || '';
+  const name = data?.name || '';
+  const phRaw = (data?.phone||'').replace(/\D/g,'').slice(0,10);
+  const phFmt = phRaw.length === 10 ? `(${phRaw.slice(0,3)}) ${phRaw.slice(3,6)}-${phRaw.slice(6)}` : phRaw;
+  const div = document.createElement('div');
+  div.className = 'alt-contact-entry';
+  div.dataset.idx = idx;
+  div.innerHTML = `
+    <div class="alt-contact-header">
+      <span class="alt-contact-label">Alt contact ${idx + 1}</span>
+      <button type="button" class="alt-contact-remove" onclick="removeAltContact(this)">× Remove</button>
+    </div>
+    <div class="field-row" style="margin-bottom:8px;">
+      <div>
+        <label class="field-sub-label">Relationship</label>
+        <select class="fi" style="font-size:14px;padding:10px 12px;">
+          <option value="">Select…</option>
+          <option value="spouse"${rel==='spouse'?' selected':''}>Spouse</option>
+          <option value="family"${rel==='family'?' selected':''}>Family member</option>
+          <option value="property_manager"${rel==='property_manager'?' selected':''}>Property manager</option>
+          <option value="tenant"${rel==='tenant'?' selected':''}>Tenant</option>
+          <option value="other"${rel==='other'?' selected':''}>Other</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-sub-label">Contact name</label>
+        <input class="fi" type="text" placeholder="Full name" style="font-size:14px;padding:10px 12px;" value="${esc(name)}">
+      </div>
+    </div>
+    <div>
+      <label class="field-sub-label">Contact phone</label>
+      <input class="fi" type="tel" placeholder="(954) 555-0000" style="font-size:14px;padding:10px 12px;" value="${esc(phFmt)}" oninput="fmtAltPhone(this)">
+    </div>`;
+  container.appendChild(div);
+}
+
+function removeAltContact(btn) {
+  const entry = btn.closest('.alt-contact-entry');
+  if (entry) entry.remove();
+  const container = document.getElementById('altContactsContainer');
+  if (!container) return;
+  Array.from(container.children).forEach((el, i) => {
+    const lbl = el.querySelector('.alt-contact-label');
+    if (lbl) lbl.textContent = `Alt contact ${i + 1}`;
+    el.dataset.idx = i;
+  });
+}
+
+function buildAltContacts() {
+  const container = document.getElementById('altContactsContainer');
+  if (!container) return [];
+  return Array.from(container.children).map(entry => {
+    const relSel  = entry.querySelector('select');
+    const nameInp = entry.querySelector('input[type=text]');
+    const phInp   = entry.querySelector('input[type=tel]');
+    const name    = (nameInp?.value||'').trim();
+    const phone   = (phInp?.value||'').replace(/\D/g,'').slice(0,10);
+    const relationship = relSel?.value || '';
+    return { name, phone, relationship };
+  }).filter(e => e.name || e.phone);
+}
+
+function restoreAltContacts(c) {
+  resetAltContacts();
+  const alts = c.alternateContacts;
+  if (Array.isArray(alts) && alts.length) {
+    alts.forEach(a => addAltContact(a));
+  } else if (c.altPhone) {
+    const d = (c.altPhone||'').replace(/\D/g,'').slice(0,10);
+    if (d.length === 10) addAltContact({ phone: d });
+  }
+}
+
+function resetAltContacts() {
+  const container = document.getElementById('altContactsContainer');
+  if (container) container.innerHTML = '';
+}
+
 function showAltPhone() {
   const row = document.getElementById('altPhoneRow');
   if (row) row.style.display = 'flex';
@@ -1351,7 +1434,8 @@ function fmtAltPhone(input) {
   _altPhoneTimer = setTimeout(() => {
     const match = allCustomers.find(c =>
       (c.altPhone||'').replace(/\D/g,'').slice(0,10) === d ||
-      (c.phone||'').replace(/\D/g,'').slice(0,10) === d
+      (c.phone||'').replace(/\D/g,'').slice(0,10) === d ||
+      (c.alternateContacts||[]).some(a => (a.phone||'').replace(/\D/g,'').slice(0,10) === d)
     );
     if (match && !match.optOut && !match.movedAway) showMatchBanner([match]);
   }, 300);
@@ -1423,14 +1507,7 @@ function useMatch(idx) {
   document.getElementById('nEmail').value = c.email||'';
   document.getElementById('nZip').value   = c.zip||'';
   document.getElementById('nNotes').value = c.notes||'';
-  if (c.altPhone) {
-    const apd = (c.altPhone||'').replace(/\D/g,'').slice(0,10);
-    if (apd.length === 10) {
-      showAltPhone();
-      const apEl = document.getElementById('nAltPhone');
-      if (apEl) { apEl.value=`(${apd.slice(0,3)}) ${apd.slice(3,6)}-${apd.slice(6)}`; apEl.readOnly=true; apEl.style.background='#f5f3ef'; }
-    }
-  }
+  restoreAltContacts(c);
   hideMatchBanner();
   const _lsElM = document.getElementById('nLeadSource');
   if (_lsElM && c.leadSource?.primary) { _lsElM.value = c.leadSource.primary; onLeadSourceChange(_lsElM); }
@@ -1538,8 +1615,8 @@ function checkReq() {
 
   if (currentPath === 'phone') {
     const ls = (document.getElementById('nLeadSource')?.value||'');
-    const svc = getServicesAgreedValue();
-    if (!svc.fullDescription) {
+    const _customSvc = (document.getElementById('customServiceText')?.value||'').trim();
+    if (_svcSel.size === 0 && !_customSvc) {
       missing.push('At least one service');
     } else {
       if (_svcSel.has('roof_cleaning') && !_roofType) missing.push('Roof type');
@@ -1634,7 +1711,6 @@ async function submitPhonePath() {
   const email   = document.getElementById('nEmail').value.trim();
   const zip     = document.getElementById('nZip').value.trim();
   const notes   = document.getElementById('nNotes').value.trim();
-  const altPhoneRaw = (document.getElementById('nAltPhone')?.value||'').replace(/\D/g,'').slice(0,10);
   const svcAgreed = getServicesAgreedValue();
   const services  = svcAgreed.fullDescription;
   try {
@@ -1697,7 +1773,8 @@ async function submitPhonePath() {
       }
     }
     _lastSavedCustomer = customer;
-    if (customer && altPhoneRaw) customer.altPhone = altPhoneRaw;
+    const _altContacts = buildAltContacts();
+    if (customer && _altContacts.length) customer.alternateContacts = _altContacts;
     if (customer && !isNew && currentCustomer) {
       if (!customer.auditLog) customer.auditLog = [];
       customer.auditLog.push({ event:'existing_customer_updated', via:'new_customer_page', at:new Date().toISOString() });
@@ -1726,6 +1803,8 @@ async function submitDigitalPath() {
     if (!isNew && currentCustomer) {
       customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
       if (customer) { customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city; if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts]; }
+      const _altC = buildAltContacts();
+      if (customer && _altC.length) customer.alternateContacts = _altC;
     } else {
       const isTestChecked = document.getElementById('isTestRecord')?.checked;
       customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
