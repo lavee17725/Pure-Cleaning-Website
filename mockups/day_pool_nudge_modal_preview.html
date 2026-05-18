@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Day Pool Nudge Modal Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'DM Sans',Arial,sans-serif;background:#f1f5f9;padding:24px;color:#1e293b;}
+h2{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+.badge{display:inline-block;background:#c2410c;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:16px;}
+
+/* Calendar background simulation */
+.cal-bg{background:#f8fafc;border-radius:12px;padding:32px;max-width:700px;display:flex;align-items:center;justify-content:center;min-height:220px;position:relative;}
+
+/* Overlay + modal */
+.overlay-sim{position:relative;width:100%;display:flex;align-items:center;justify-content:center;}
+.modal{background:#fff;border-radius:14px;padding:20px 24px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.18);}
+.modal-title{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:12px;}
+.modal-body{font-size:13px;color:#374151;line-height:1.55;margin-bottom:16px;}
+.modal-body strong{color:#0a1628;}
+.mbtn-save{width:100%;padding:11px;background:#0a1628;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
+.mbtn-save:hover{background:#1a2f4a;}
+
+/* Flow diagram */
+.flow{max-width:700px;margin-top:20px;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;}
+.flow-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#64748b;margin-bottom:12px;}
+.flow-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;font-size:12px;}
+.flow-trigger{background:#f0fdf4;border:1.5px solid #86efac;border-radius:7px;padding:5px 10px;color:#166534;font-weight:600;white-space:nowrap;}
+.flow-arrow{font-size:16px;color:#94a3b8;padding-top:3px;}
+.flow-result{background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:7px;padding:5px 10px;color:#1d4ed8;font-weight:600;}
+.flow-result.new{background:#fef9c3;border-color:#fbbf24;color:#92400e;}
+.flow-label{font-size:11px;color:#94a3b8;margin-top:3px;}
+
+.change-highlight{background:#fef9c3;border:1.5px solid #fbbf24;border-radius:8px;padding:8px 12px;font-size:12px;color:#92400e;margin-top:16px;max-width:700px;}
+</style></head><body>
+
+<h2>Day Pool Nudge Modal Preview</h2>
+<p class="sub">Shown when Mom clicks 📅 on a non-roof job that's already in the Day Pool</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<!-- Modal render -->
+<div class="cal-bg">
+  <div class="overlay-sim">
+    <div class="modal">
+      <div class="modal-title">Already in Day Pool</div>
+      <div class="modal-body">
+        <strong>Aimee Lewinter</strong> is already scheduled for <strong>Tuesday, May 20, 2026</strong> and is waiting for a rig assignment.<br><br>
+        To assign a truck, use the <strong>↔ Rig</strong> button on their card in the Day Pool, or drag the card onto a rig column.
+      </div>
+      <button class="mbtn-save">Got it</button>
+    </div>
+  </div>
+</div>
+
+<!-- Trigger flow -->
+<div class="flow">
+  <div class="flow-title">When the nudge fires vs. when normal flow proceeds</div>
+
+  <div class="flow-row">
+    <div>
+      <div class="flow-trigger">📅 tap-schedule on non-roof job<br>already scheduled + rig:null</div>
+      <div class="flow-label">e.g. Aimee — Driveway/Patio, already in Day Pool</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-result new">Nudge modal (NEW)<br>"Already in Day Pool"</div>
+  </div>
+
+  <div class="flow-row">
+    <div>
+      <div class="flow-trigger">📅 tap-schedule on non-roof job<br>NOT yet scheduled (no date)</div>
+      <div class="flow-label">e.g. new lead with no date set</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-result">Normal tap-schedule modal<br>(unchanged)</div>
+  </div>
+
+  <div class="flow-row">
+    <div>
+      <div class="flow-trigger">📅 tap-schedule on ROOF job<br>any state</div>
+      <div class="flow-label">e.g. softwash, roof cleaning</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-result">Normal tap-schedule modal<br>(unchanged — Chevy auto-assigned)</div>
+  </div>
+</div>
+
+<div class="change-highlight">
+  ✏️ <strong>What changed:</strong> <code>openTapScheduleModal()</code> now checks if the job is already in the Day Pool before opening. Non-roof + already-scheduled + rig:null → nudge modal instead. No data is written on "Got it."
+</div>
+
+</body></html>

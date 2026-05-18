@@ -1317,6 +1317,14 @@ body{background:#f0f2f5;}
   </div>
 </div>
 
+<div class="overlay hidden" id="dayPoolNudgeModal" onclick="if(event.target===this)closeDayPoolNudge()">
+  <div class="modal" style="max-width:340px;">
+    <div class="modal-title">Already in Day Pool</div>
+    <div id="dayPoolNudgeBody" style="font-size:13px;color:var(--text);line-height:1.55;padding:4px 0 12px;"></div>
+    <button class="mbtn-save" onclick="closeDayPoolNudge()" style="width:100%;">Got it</button>
+  </div>
+</div>
+
 <div class="overlay hidden" id="tapScheduleModal" onclick="if(event.target===this)closeTapScheduleModal()">
   <div class="modal" style="max-width:380px;">
     <div class="modal-title" id="tapScheduleTitle">📅 Schedule Job</div>
@@ -1336,7 +1344,7 @@ body{background:#f0f2f5;}
       <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Note <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label>
       <input id="tapSchedNote" type="text" placeholder="e.g. call ahead, gate code…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px;">🛰 Rig will be auto-assigned by GPS when job runs — no need to pick one now.</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;">No rig selected? Job goes to the Day Pool. Assign a truck using the ↔ Rig button on the card or by dragging it onto a rig column.</div>
     <div id="tapSchedStorySel" style="display:none;margin-top:10px;">
       <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
         <label><input type="radio" name="tapSchedStories" value="1"> 1-Story</label>
@@ -5804,10 +5812,31 @@ function selectMiniCalDay(iso) {
   if (btn) btn.disabled = false;
 }
 
+function openDayPoolNudge(name, date) {
+  const dateLabel = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : 'their scheduled date';
+  document.getElementById('dayPoolNudgeBody').innerHTML =
+    `<strong>${esc(name)}</strong> is already scheduled for <strong>${dateLabel}</strong> and is waiting for a rig assignment.<br><br>` +
+    `To assign a truck, use the <strong>↔ Rig</strong> button on their card in the Day Pool, or drag the card onto a rig column.`;
+  document.getElementById('dayPoolNudgeModal').classList.remove('hidden');
+}
+function closeDayPoolNudge() {
+  document.getElementById('dayPoolNudgeModal').classList.add('hidden');
+}
+
 function openTapScheduleModal(phone) {
   _tapSchedPhone = phone;
   const c    = findCustomer(phone);
   const name = c ? ((c.firstName||'') + ' ' + (c.lastName||'')).trim() : phone;
+
+  // Nudge: if job is already in Day Pool (scheduled, no rig, not a roof), redirect
+  const ss = c?.scheduledStatus;
+  if (ss && ss.state === 'scheduled' && !ss.rig && ss.scheduledDate) {
+    const svcText = (ss.jobNotes || c?.quoteStatus?.mainServices || '').toLowerCase();
+    if (!/roof|soft\s*wash|softwash/.test(svcText)) {
+      openDayPoolNudge(name, ss.scheduledDate);
+      return;
+    }
+  }
   document.getElementById('tapScheduleTitle').textContent = `📅 Schedule — ${esc(name)}`;
   const proposed = c?.scheduledStatus?.scheduledDate || '';
   _tapSchedSelectedDate = proposed || null;
@@ -6225,6 +6254,7 @@ function renderDayPool(date) {
         📅 Day Pool — Rig TBD
         <span style="font-size:11px;font-weight:500;color:#818cf8;">${jobs.length} job${jobs.length !== 1 ? 's' : ''} · drag to a rig column to assign</span>
       </div>
+      <div style="font-size:11px;color:#818cf8;font-style:italic;padding:0 2px 6px;">Jobs scheduled but awaiting rig assignment. Click ↔ Rig on a card to assign a truck, or drag the card onto a rig column.</div>
       <div class="day-pool-lane${jobs.length ? '' : ' empty-hint'}" id="dayPoolLane" data-date="${date}" data-rig="pool">
         ${cardsHtml}
       </div>
