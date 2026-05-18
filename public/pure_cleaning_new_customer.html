@@ -414,7 +414,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 
 
       <div class="field" style="margin-top:.5rem;">
-        <label>How did they hear about us?<span class="field-req">*</span></label>
+        <label>How did they hear about us? <span style="font-weight:400;font-size:12px;color:var(--muted);">(optional)</span></label>
         <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="onLeadSourceChange(this)">
           <option value="">Select one…</option>
           <option value="google">Google search</option>
@@ -422,11 +422,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
           <option value="truck">Saw the truck</option>
           <option value="angi">Angi</option>
           <option value="nextdoor">Nextdoor</option>
-          <option value="repeat">I've used Pure Cleaning before</option>
+          <option value="repeat">Existing customer</option>
           <option value="other">Other</option>
           <option value="didnt_ask">Didn't ask / Unknown</option>
         </select>
-        <div id="nLeadSourceError" style="font-size:11px;color:#e53e3e;font-weight:600;margin-top:5px;display:none;">Please select how the customer heard about us.</div>
         <div id="nReferrerWrap" style="display:none;margin-top:6px;">
           <input id="nReferrerDetail" class="fi" type="text" placeholder="Who referred them? (optional)" style="font-size:15px;">
         </div>
@@ -1171,6 +1170,8 @@ function preloadCustomerForEdit(c) {
     }
     renderServicePicker();
   }
+  const _lsElP = document.getElementById('nLeadSource');
+  if (_lsElP && c.leadSource?.primary) { _lsElP.value = c.leadSource.primary; onLeadSourceChange(_lsElP); }
   renderNewAlerts();
   checkReq();
 }
@@ -1223,7 +1224,6 @@ function resetForm() {
   const nrd = document.getElementById('nReferrerDetail'); if (nrd) nrd.value = '';
   const now2 = document.getElementById('nLeadOtherWrap'); if (now2) now2.style.display = 'none';
   const not2 = document.getElementById('nLeadOtherText'); if (not2) not2.value = '';
-  const nle  = document.getElementById('nLeadSourceError'); if (nle) nle.style.display = 'none';
   document.getElementById('dupCallout').classList.remove('show');
   const apEl = document.getElementById('nAltPhone');
   if (apEl) { apEl.value=''; apEl.readOnly=false; apEl.style.cssText=''; }
@@ -1432,6 +1432,8 @@ function useMatch(idx) {
     }
   }
   hideMatchBanner();
+  const _lsElM = document.getElementById('nLeadSource');
+  if (_lsElM && c.leadSource?.primary) { _lsElM.value = c.leadSource.primary; onLeadSourceChange(_lsElM); }
   showJobHistory(c);
   renderNewAlerts(); checkReq();
 }
@@ -1536,7 +1538,6 @@ function checkReq() {
 
   if (currentPath === 'phone') {
     const ls = (document.getElementById('nLeadSource')?.value||'');
-    if (!ls) missing.push('How they heard about us');
     const svc = getServicesAgreedValue();
     if (!svc.fullDescription) {
       missing.push('At least one service');
@@ -1585,16 +1586,13 @@ const _LEAD_LABELS_NC = {
   truck:    'Saw the truck',
   angi:     'Angi',
   nextdoor: 'Nextdoor',
-  repeat:     'Returning customer',
+  repeat:     'Existing customer',
   other:      'Other',
   didnt_ask:  "Didn't ask / Unknown"
 };
 
 function onLeadSourceChange(sel) {
   const v = sel.value;
-  sel.classList.toggle('err', !v);
-  const errEl = document.getElementById('nLeadSourceError');
-  if (errEl) errEl.style.display = !v ? 'block' : 'none';
   const refWrap = document.getElementById('nReferrerWrap');
   if (refWrap) refWrap.style.display = v === 'referral' ? 'block' : 'none';
   const othWrap = document.getElementById('nLeadOtherWrap');

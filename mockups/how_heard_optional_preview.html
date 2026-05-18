@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>How Heard Optional Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'DM Sans',Arial,sans-serif;background:#f1f5f9;padding:24px;color:#1e293b;font-size:14px;}
+h2{font-size:16px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+.badge{display:inline-block;background:#c2410c;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:16px;}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;max-width:420px;margin-bottom:20px;}
+.card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#64748b;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;}
+label{display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase;letter-spacing:.4pt;}
+label .opt{font-weight:400;text-transform:none;letter-spacing:0;color:#94a3b8;font-size:11px;}
+select{width:100%;padding:10px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;background:#fff;margin-bottom:8px;}
+.fi{width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;background:#fff;margin-bottom:8px;}
+.btn{width:100%;padding:11px;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-top:8px;}
+.btn-save{background:#0a1628;color:#fff;}
+.btn-save:disabled{background:#cbd5e1;cursor:not-allowed;}
+.check{color:#16a34a;font-weight:700;}
+.row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;}
+.change-box{background:#fef9c3;border:1.5px solid #fbbf24;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:20px;max-width:420px;}
+</style></head><body>
+
+<h2>How Heard — Optional + Rename Preview</h2>
+<p class="sub">3 fixes: field optional · "Existing customer" label · leadSource preloads for existing customers</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<div class="change-box">
+  <strong>Changes:</strong><br>
+  ✏️ "I've used Pure Cleaning before" → <strong>Existing customer</strong><br>
+  ✏️ Asterisk removed, "(optional)" label added<br>
+  ✏️ Error div removed, .err class toggle removed<br>
+  ✏️ useMatch() + preloadCustomerForEdit() now restore dropdown from c.leadSource.primary
+</div>
+
+<!-- Scenario 1: field blank — should allow submit -->
+<div class="card">
+  <div class="card-title">Scenario 1 — Field blank (new customer, didn't ask)</div>
+  <label>How did they hear about us? <span class="opt">(optional)</span></label>
+  <select>
+    <option value="" selected>Select one…</option>
+    <option value="google">Google search</option>
+    <option value="referral">Friend or family referred me</option>
+    <option value="truck">Saw the truck</option>
+    <option value="angi">Angi</option>
+    <option value="nextdoor">Nextdoor</option>
+    <option value="repeat">Existing customer</option>
+    <option value="other">Other</option>
+    <option value="didnt_ask">Didn't ask / Unknown</option>
+  </select>
+  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">No asterisk. No error. Form can submit without selection.</div>
+  <button class="btn btn-save">Save Customer</button>
+</div>
+
+<!-- Scenario 2: "Existing customer" selected -->
+<div class="card">
+  <div class="card-title">Scenario 2 — "Existing customer" selected</div>
+  <label>How did they hear about us? <span class="opt">(optional)</span></label>
+  <select>
+    <option value="">Select one…</option>
+    <option value="google">Google search</option>
+    <option value="referral">Friend or family referred me</option>
+    <option value="truck">Saw the truck</option>
+    <option value="angi">Angi</option>
+    <option value="nextdoor">Nextdoor</option>
+    <option value="repeat" selected>Existing customer</option>
+    <option value="other">Other</option>
+    <option value="didnt_ask">Didn't ask / Unknown</option>
+  </select>
+  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">Old label was "I've used Pure Cleaning before". Stored value stays "repeat" in KV.</div>
+  <button class="btn btn-save">Save Customer</button>
+</div>
+
+<!-- Verification checklist -->
+<div class="card">
+  <div class="card-title">Verification</div>
+  <div class="row"><span class="check">✓</span> No asterisk on label</div>
+  <div class="row"><span class="check">✓</span> "(optional)" shown instead</div>
+  <div class="row"><span class="check">✓</span> Option renamed to "Existing customer"</div>
+  <div class="row"><span class="check">✓</span> No red error div in DOM</div>
+  <div class="row"><span class="check">✓</span> "How they heard about us" removed from missing[] list</div>
+  <div class="row"><span class="check">✓</span> useMatch() restores leadSource from c.leadSource.primary</div>
+  <div class="row"><span class="check">✓</span> preloadCustomerForEdit() also restores leadSource</div>
+  <div class="row"><span class="check">✓</span> Value "repeat" stored in KV unchanged — no data migration needed</div>
+</div>
+
+</body></html>
