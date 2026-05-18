@@ -3192,10 +3192,22 @@ function getExtraCompletedJobsForRig(date, rig) {
     // (e.g., a job scheduled May 7 but completed May 13 — ssCovers would miss the date mismatch).
     if (ss?.state === 'completed' && ss._lastJobId) {
       for (const jhEntry of matching) {
-        if (jhEntry.jobId !== ss._lastJobId) {
-          result.push({ customer: c, jhEntry }); // distinct job (different property, etc.) — render as extra
+        if (jhEntry.jobId === ss._lastJobId) continue; // primary card covers this — skip
+        // Defense-in-depth: suppress backfill/server_guard entries that match the primary job by
+        // date + amount ±$5 and same property address (or no address). These are double-write
+        // artifacts from the server_guard and backfill_may11_15 bugs. Entries with a DIFFERENT
+        // address are legitimate distinct jobs (e.g., multi-property commercial) and render normally.
+        const _isBackfillSource = jhEntry.source === 'server_guard' ||
+          jhEntry.source === 'backfill_may11_15' ||
+          (typeof jhEntry.source === 'string' && jhEntry.source.startsWith('backfill_'));
+        if (_isBackfillSource &&
+            jhEntry.date === ss.scheduledDate &&
+            Math.abs((jhEntry.amount || 0) - (ss.approvedAmount || 0)) <= 5) {
+          const _jhAddr  = (jhEntry.address || '').trim().toLowerCase();
+          const _custAddr = (c.address || '').trim().toLowerCase();
+          if (!_jhAddr || _jhAddr === _custAddr) continue; // same property — phantom, suppress
         }
-        // jobId === _lastJobId → primary card already shows it on ss.scheduledDate — skip
+        result.push({ customer: c, jhEntry }); // distinct job (different property, etc.) — render as extra
       }
       continue;
     }

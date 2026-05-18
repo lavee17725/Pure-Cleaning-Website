@@ -1414,7 +1414,15 @@ async function handleCustomersPut(request, env, corsHeaders) {
       j.date === completedDate && j.status === 'completed' &&
       Math.abs((j.amount || 0) - amount) <= 5
     );
-    if (!hasEntry) {
+    // Skip server_guard write if a calendar_completion already covers this date+amount.
+    // Prevents the double-write pattern where the calendar writes calendar_completion
+    // and this guard subsequently writes a redundant server_guard entry.
+    const calendarCompletionExists = c.jobHistory.some(j =>
+      j.source === 'calendar_completion' &&
+      j.date === completedDate &&
+      Math.abs((j.amount || 0) - amount) <= 5
+    );
+    if (!hasEntry && !calendarCompletionExists) {
       c.jobHistory.push({
         jobId:       `${norm(c.phone)}_${completedDate}_${Math.round(amount * 100)}_srv`,
         date:        completedDate,
