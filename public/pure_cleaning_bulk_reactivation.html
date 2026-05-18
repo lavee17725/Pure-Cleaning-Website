@@ -130,12 +130,15 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
 .table-wrap::-webkit-scrollbar-track{background:var(--navy2);}
 .table-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
 .table-wrap::-webkit-scrollbar-thumb:hover{background:var(--muted);}
-table{width:100%;min-width:960px;border-collapse:collapse;font-size:13px;}
-thead th{background:var(--navy2);padding:10px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0;z-index:10;}
-/* sticky name column */
-thead th:nth-child(3){position:sticky;left:0;z-index:15;background:var(--navy2);}
-tbody td:nth-child(3){position:sticky;left:0;z-index:2;background:var(--navy);}
-tbody tr:hover td:nth-child(3){background:#0f1e35;}
+table{width:100%;min-width:680px;border-collapse:collapse;font-size:13px;}
+thead th{background:var(--navy2);padding:9px 8px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none;position:sticky;top:0;z-index:10;}
+/* sticky checkbox + TEXT NOW columns */
+thead th:nth-child(1){position:sticky;left:0;z-index:15;background:var(--navy2);}
+tbody td:nth-child(1){position:sticky;left:0;z-index:2;background:var(--navy);}
+tbody tr:hover td:nth-child(1){background:#0f1e35;}
+thead th:nth-child(2){position:sticky;left:32px;z-index:15;background:var(--navy2);box-shadow:2px 0 6px rgba(0,0,0,.3);}
+tbody td:nth-child(2){position:sticky;left:32px;z-index:2;background:var(--navy);box-shadow:2px 0 6px rgba(0,0,0,.2);}
+tbody tr:hover td:nth-child(2){background:#0f1e35;}
 thead th:hover{color:var(--sky);}
 thead th.sorted{color:var(--sky);}
 thead th .sort-ind{font-size:9px;color:var(--muted);opacity:.5;margin-left:2px;letter-spacing:-1px;}
@@ -143,7 +146,9 @@ thead th.sorted .sort-ind{opacity:1;color:var(--sky);}
 tbody tr{border-top:1px solid var(--border);transition:background .1s;cursor:pointer;}
 tbody tr:hover{background:rgba(45,125,210,.08);}
 tbody tr:active{background:rgba(45,125,210,.15);}
-td{padding:9px 12px;vertical-align:middle;white-space:nowrap;}
+td{padding:8px 8px;vertical-align:middle;white-space:nowrap;}
+@media(max-width:1100px){.col-city{display:none;}}
+@media(max-width:750px){.col-jobs{display:none;}}
 td.name{font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
 td.phone{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}
 td.money{font-family:'DM Mono',monospace;}
@@ -373,8 +378,10 @@ thead th.sorted .sort-ind{color:var(--gold);}
 tbody tr{border-top:1px solid var(--border);}
 tbody tr:hover{background:#f0f7ff;}
 tbody tr:active{background:#dbeafe;}
-tbody td:nth-child(3){background:var(--card);}
-tbody tr:hover td:nth-child(3){background:#f0f7ff;}
+tbody td:nth-child(1){background:var(--card);}
+tbody tr:hover td:nth-child(1){background:#f0f7ff;}
+tbody td:nth-child(2){background:var(--card);box-shadow:2px 0 6px rgba(0,0,0,.08);}
+tbody tr:hover td:nth-child(2){background:#f0f7ff;}
 .tbl-fade-r{background:linear-gradient(to right,transparent,var(--bg));}
 .tbl-fade-l{background:linear-gradient(to left,transparent,var(--bg));}
 td{color:var(--text);}
@@ -595,9 +602,9 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
           <th style="width:120px;cursor:default;">Text Now</th>
           <th data-sort="name" onclick="clickSort('name')">Name <span class="sort-ind">▲▼</span></th>
           <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sort-ind">▲▼</span></th>
-          <th data-sort="city" onclick="clickSort('city')">City <span class="sort-ind">▲▼</span></th>
+          <th data-sort="city" onclick="clickSort('city')" class="col-city">City <span class="sort-ind">▲▼</span></th>
           <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sort-ind">▲▼</span></th>
-          <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sort-ind">▲▼</span></th>
+          <th data-sort="totalJobs" onclick="clickSort('totalJobs')" class="col-jobs">Jobs <span class="sort-ind">▲▼</span></th>
           <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sort-ind">▲▼</span></th>
           <th data-sort="avgTicket" onclick="clickSort('avgTicket')">Avg Ticket <span class="sort-ind">▲▼</span></th>
           <th data-sort="monthsSince" onclick="clickSort('monthsSince')">Months Since <span class="sort-ind">▲▼</span></th>
@@ -1864,9 +1871,9 @@ function renderTable() {
         <td onclick="event.stopPropagation()">${textBtn}</td>
         <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
         <td class="phone">${formatPhone(c.phone)}</td>
-        <td>${c.city || '—'}</td>
+        <td class="col-city">${c.city || '—'}</td>
         <td>${c.lastServiceStr}</td>
-        <td class="money">${c.totalJobs}</td>
+        <td class="money col-jobs">${c.totalJobs}</td>
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
         <td class="money">$${Math.round(c.avgTicket)}</td>
         <td class="money">${mo}</td>
@@ -1887,9 +1894,9 @@ function renderTable() {
         <td onclick="event.stopPropagation()">${textBtn}</td>
         <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
         <td class="phone">${formatPhone(c.phone)}</td>
-        <td>${c.city || '—'}</td>
+        <td class="col-city">${c.city || '—'}</td>
         <td>${c.lastServiceStr}</td>
-        <td class="money">${c.totalJobs}</td>
+        <td class="money col-jobs">${c.totalJobs}</td>
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
         <td class="money">$${Math.round(c.avgTicket)}</td>
         <td class="money">${mo}</td>
@@ -1908,9 +1915,9 @@ function renderTable() {
         <td onclick="event.stopPropagation()">${textBtn}</td>
         <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
         <td class="phone">${formatPhone(c.phone)}</td>
-        <td>${c.city || '—'}</td>
+        <td class="col-city">${c.city || '—'}</td>
         <td>${c.lastServiceStr}</td>
-        <td class="money">${c.totalJobs}</td>
+        <td class="money col-jobs">${c.totalJobs}</td>
         <td class="money">$${c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
         <td class="money">$${Math.round(c.avgTicket)}</td>
         <td class="money">${mo}</td>
@@ -1941,7 +1948,7 @@ function renderTable() {
       <td onclick="event.stopPropagation()">${textBtn}</td>
       <td class="name" title="${c.fn} ${c.ln}">${sealIcon}${c.fn} ${c.ln}${alertBadge}</td>
       <td class="phone">${formatPhone(c.phone)}</td>
-      <td>${c.city || '—'}</td>
+      <td class="col-city">${c.city || '—'}</td>
       <td>${(() => {
         if (poolTab === 'booked' && c.scheduledStatus?.scheduledDate) {
           const d = new Date(c.scheduledStatus.scheduledDate + 'T12:00:00');
@@ -1949,7 +1956,7 @@ function renderTable() {
         }
         return c.lastServiceStr;
       })()}</td>
-      <td class="money">${c.totalJobs}</td>
+      <td class="money col-jobs">${c.totalJobs}</td>
       <td class="money">$${poolTab === 'booked' && c.scheduledStatus?.approvedAmount ? c.scheduledStatus.approvedAmount.toLocaleString('en-US') : c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</td>
       <td class="money">$${Math.round(c.avgTicket)}</td>
       <td class="money">${mo}</td>

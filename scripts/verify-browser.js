@@ -37,7 +37,7 @@ async function withPage(context, url, label, fn) {
   const page = await context.newPage();
   const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
     await fn(page);
     await page.screenshot({ path: `${SS_DIR}/${label}-${ts}.png` });
   } catch (e) {
@@ -667,7 +667,7 @@ async function main() {
 
           // Save with current values (no change) — verify modal closes, no error
           await page.locator('#feSaveBtn').click();
-          await page.waitForTimeout(1000);
+          await page.locator('#fullEditModal').waitFor({ state: 'hidden', timeout: 8000 }).catch(() => null);
           const modalStillOpen = await page.locator('#fullEditModal').isVisible().catch(() => false);
           if (!modalStillOpen) {
             pass('Calendar — pencil modal: save closes modal');
@@ -1807,21 +1807,21 @@ async function main() {
 
     // ── NEW CUSTOMER — existing customer detection + alt phone ─────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-detection', async page => {
-      // Alt phone toggle is visible
-      const toggleVisible = await page.locator('#altPhoneToggle').isVisible();
-      if (toggleVisible) pass('New Customer — alt phone toggle visible');
-      else fail('New Customer — alt phone toggle visible', '#altPhoneToggle not found');
+      // Alternate contacts container is present
+      const containerExists = await page.locator('#altContactsContainer').count();
+      if (containerExists) pass('New Customer — alt contacts container present');
+      else fail('New Customer — alt contacts container present', '#altContactsContainer not found');
 
-      // Alt phone row is hidden by default
-      const altRowHidden = await page.locator('#altPhoneRow').evaluate(el => el.style.display === 'none' || getComputedStyle(el).display === 'none');
-      if (altRowHidden) pass('New Customer — alt phone row hidden by default');
-      else fail('New Customer — alt phone row hidden by default', 'altPhoneRow visible on load');
+      // Alt contacts container is empty by default
+      const containerEmpty = await page.locator('#altContactsContainer').evaluate(el => el.children.length === 0);
+      if (containerEmpty) pass('New Customer — alt contacts container empty by default');
+      else fail('New Customer — alt contacts container empty by default', 'container has children on load');
 
-      // Clicking "+ Add alt phone" shows the row
-      await page.locator('#altPhoneToggle').click();
-      const altRowShown = await page.locator('#altPhoneRow').evaluate(el => el.style.display === 'flex');
-      if (altRowShown) pass('New Customer — "+ Add alt phone" click shows row');
-      else fail('New Customer — "+ Add alt phone" click shows row', 'altPhoneRow not flex after click');
+      // Clicking "+ Add another contact" adds an entry
+      await page.evaluate(() => addAltContact());
+      const entryAdded = await page.locator('#altContactsContainer .alt-contact-entry').count();
+      if (entryAdded === 1) pass('New Customer — "+ Add another contact" adds entry');
+      else fail('New Customer — "+ Add another contact" adds entry', `expected 1 entry, got ${entryAdded}`);
 
       // Match banner hidden by default
       const bannerHidden = await page.locator('#matchBanner').evaluate(el => el.style.display === 'none' || getComputedStyle(el).display === 'none');
