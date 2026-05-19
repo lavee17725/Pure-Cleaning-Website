@@ -332,7 +332,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-zelle-btn.sent{background:#f0fdf4;border-color:#86efac;color:#166534;cursor:default;}
 
 /* ── CREW POPOVER ── */
-.crew-pop{position:fixed;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;box-shadow:0 8px 30px rgba(0,0,0,.2);z-index:500;}
+.crew-pop-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:499;}
+.crew-pop-backdrop.hidden{display:none;}
+.crew-pop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);min-width:0;background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1rem;width:240px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.35);z-index:500;}
 .crew-pop.hidden{display:none;}
 .cp-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:.75rem;}
 .cp-crew-item{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:8px;cursor:pointer;transition:background .1s;}
@@ -791,6 +793,7 @@ body{background:#f0f2f5;}
 </div>
 
 <!-- ── CREW ASSIGNMENT POPOVER ── -->
+<div class="crew-pop-backdrop hidden" id="crewPopBackdrop" onclick="closeCrewPop()"></div>
 <div class="crew-pop hidden" id="crewPop">
   <div class="cp-title" id="cpTitle">Assign Crew</div>
   <div style="margin-bottom:.75rem;padding-bottom:.625rem;border-bottom:1px solid var(--border);">
@@ -3489,10 +3492,9 @@ function openCrewPop(date, rig, el) {
   }).join('');
 
   const pop = document.getElementById('crewPop');
-  const rect = el.getBoundingClientRect();
-  pop.style.top  = Math.min(rect.bottom + 4, window.innerHeight - 320) + 'px';
-  pop.style.left = Math.min(rect.left, window.innerWidth - 256) + 'px';
+  document.getElementById('crewPopBackdrop').classList.remove('hidden');
   pop.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
   document.addEventListener('click', crewPopOutside, true);
 }
 
@@ -3523,6 +3525,8 @@ function saveCrewPop() {
 
 function closeCrewPop() {
   document.getElementById('crewPop').classList.add('hidden');
+  document.getElementById('crewPopBackdrop').classList.add('hidden');
+  document.body.style.overflow = '';
   document.removeEventListener('click', crewPopOutside, true);
 }
 
