@@ -277,7 +277,10 @@ export default {
       }));
     } else {
       // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
-      const today = new Date().toISOString().split('T')[0];
+      // Use previous calendar day (UTC-24h) so ET-scheduled jobs (2 PM-9 PM UTC = same UTC day)
+      // are queried with the correct date. Without the offset the cron would use tomorrow's UTC
+      // date and Bouncie would return no matching trips.
+      const today = new Date(Date.now() - 86400000).toISOString().split('T')[0];
       ctx.waitUntil((async () => {
         const startMs = Date.now();
         const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
