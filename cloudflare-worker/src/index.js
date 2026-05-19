@@ -3434,15 +3434,16 @@ async function bouncieJobDurationMatcher(date, env) {
 
 // ── Per-property avg time/worker metric ──────────────────────────────────────
 // TODO(Forward Queue 3.2): swap DEFAULT_CREW_COUNT per-job when DailyRigAssignment
-// table ships. Tyler confirmed: all rigs run 1 or 2 crew depending on the day —
-// defaulting to 2 (old Tacoma usually 2) until actual crew data is available.
+// table ships. Crew modal stores per-rig-per-day assignments in browser localStorage
+// (calState.rigCrew[date][rig]) — not accessible from the worker. Default 2 until
+// actual crew data is persisted server-side.
 const DEFAULT_CREW_COUNT = 2;
 
 function computeBouncieMetrics(customer) {
   const address = (customer.address || '').trim();
   if (!address) return;
 
-  // Collect all matched durations from jobHistory entries + active scheduledStatus
+  // Collect all Bouncie-matched durations from jobHistory + active scheduledStatus
   const matched = [];
   for (const j of (customer.jobHistory || [])) {
     if (j.actualDuration > 0) {
@@ -3460,14 +3461,15 @@ function computeBouncieMetrics(customer) {
   }
 
   matched.sort((a, b) => a.date < b.date ? -1 : 1);
-  const perWorker = matched.map(j => Math.round(j.minutes / DEFAULT_CREW_COUNT));
-  const avg  = Math.round(perWorker.reduce((a, b) => a + b, 0) / perWorker.length);
-  const last = perWorker[perWorker.length - 1];
+  // Labor hours = duration × crew count (a 2h job with 2 workers = 4 worker-hours billed/paid)
+  const laborMin = matched.map(j => Math.round(j.minutes * DEFAULT_CREW_COUNT));
+  const avg  = Math.round(laborMin.reduce((a, b) => a + b, 0) / laborMin.length);
+  const last = laborMin[laborMin.length - 1];
 
   customer.bouncieMetrics = {
     [address]: {
-      avgMinPerWorker:  avg,
-      lastMinPerWorker: last,
+      avgLaborMinutes:  avg,
+      lastLaborMinutes: last,
       lastServiceDate:  matched[matched.length - 1].date,
       matchedJobCount:  matched.length,
     },

@@ -155,7 +155,7 @@ td.muted{color:var(--muted);}
               <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
               <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
               <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
-              <th data-sort="avgTimePerWorker" onclick="clickSort('avgTimePerWorker')" class="col-avg-time">Avg Time/Worker <span class="sind">▲▼</span></th>
+              <th data-sort="avgLaborPerJob" onclick="clickSort('avgLaborPerJob')" class="col-avg-time">Avg Labor/Job <span class="sind">▲▼</span></th>
               <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
               <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
               <th class="no-sort">Status</th>
@@ -223,7 +223,7 @@ function _saveSortState() {
 const _sortInit = _loadSortState();
 let _sortCol = _sortInit.col;
 let _sortAsc = _sortInit.asc;
-const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:false, avgTimePerWorker:false, totalJobs:false, lifetimeSpend:false };
+const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:false, avgLaborPerJob:false, totalJobs:false, lifetimeSpend:false };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
@@ -232,17 +232,17 @@ function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T1
 function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
 function _computeAvgTPW(c){
   const bm=c.bouncieMetrics;
-  if(!bm||!Object.keys(bm).length) return { avgTimePerWorker:null, _avgTPWLabel:'—', _avgTPWLabelCard:'' };
+  if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'' };
   const entries=Object.values(bm);
   let totalWeighted=0,totalCount=0;
   for(const e of entries){
-    totalWeighted+=(e.avgMinPerWorker||0)*(e.matchedJobCount||1);
+    totalWeighted+=(e.avgLaborMinutes||0)*(e.matchedJobCount||1);
     totalCount+=(e.matchedJobCount||1);
   }
   const avg=Math.round(totalWeighted/totalCount);
   const label=totalCount>=2?'Avg':'Last';
   const str=`${label}: ${fmtMin(avg)}`;
-  return { avgTimePerWorker:avg, _avgTPWLabel:str, _avgTPWLabelCard:`${str}/worker` };
+  return { avgLaborPerJob:avg, _avgTPWLabel:str, _avgTPWLabelCard:str };
 }
 
 function normCity(city){
@@ -552,7 +552,7 @@ function buildRow(c){
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
-    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgTimePerWorker?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}</td>
+    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}</td>
     <td>${c.totalJobs||'—'}</td>
     <td class="money">${c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—'}</td>
     <td>${statusBadge(c)}</td>
