@@ -158,8 +158,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .rig-icon{font-size:14px;}
 .rig-name{flex:1;}
 .rig-crew-label{font-size:11px;color:var(--sky);font-weight:600;}
-.rig-jobs{min-height:160px;padding:8px;background:transparent;}
+.rig-jobs{min-height:40px;padding:5px 6px;background:transparent;}
 .rig-jobs.empty-hint{background:repeating-linear-gradient(45deg,transparent,transparent 8px,rgba(0,0,0,.015) 8px,rgba(0,0,0,.015) 16px);}
+/* ── Condensed card: detail hidden until expanded ── */
+.jc-detail{display:none;padding-top:5px;border-top:1px solid #e5e7eb;margin-top:4px;}
+.job-scheduled.jc-expanded .jc-detail{display:block;}
+.jc-chevron{font-size:8px;color:#c4c9d4;margin-left:5px;vertical-align:middle;transition:transform .15s;}
+.job-scheduled.jc-expanded .jc-chevron{transform:rotate(180deg);}
+.jc-modal-btn{display:block;width:100%;margin-top:6px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:#f9f9f7;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:10px;font-weight:600;cursor:pointer;text-align:center;}
+.jc-modal-btn:hover{background:#eff3f9;color:var(--sky);border-color:var(--sky);}
 
 /* ── SCHEDULED JOB CARD ── */
 .job-scheduled{background:var(--white);border:1.5px solid #dbeafe;border-left:4px solid var(--sky);border-radius:10px;padding:7px 9px;margin-bottom:5px;cursor:pointer;transition:box-shadow .15s;user-select:none;font-size:12px;}
@@ -2830,11 +2837,13 @@ function jobCardScheduled(c) {
   const svcLine  = _svcRaw
     ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || 1) : null; const _storyBadge = _stories ? `<span class="story-badge">${_stories}-story</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
     : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="if(!wasDragging)openJobModal('${c.phone}')">
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
-    <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}</div>
+    <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
+    ${svcLine}
+    <div class="jc-detail">
     ${(() => {
         // For completed jobs, prefer the per-job address from the matching jobHistory entry
         const _dispAddr = (state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address;
@@ -2852,7 +2861,6 @@ function jobCardScheduled(c) {
         return `<div class="js-home-dist${cls?' '+cls:''}">🚗 ~${hd.toFixed(1)} mi from home</div>`;
       })()}
     ${(() => { const et = _estTimeMap.get(phone); return et && !gpsHtml && (state === 'scheduled' || state === 'in_progress') ? `<div class="js-est-time">est. ${minsToTime(et.startMin)} – ${minsToTime(et.endMin)}</div>` : ''; })()}
-    ${svcLine}
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
@@ -2866,6 +2874,8 @@ function jobCardScheduled(c) {
     ${editBtnHtml}
     ${delBtnHtml}
     ${revertBtnHtml}
+    <button class="jc-modal-btn" onclick="event.stopPropagation();openJobModal('${phone}')">📋 Full details</button>
+    </div>
   </div>`;
 }
 
@@ -2940,18 +2950,21 @@ function jobCardHistoryExtra(c, jhEntry) {
     ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}','${jobId}')" title="Edit this job's details">✏️ Edit</button>`
     : '';
 
-  return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}" onclick="if(!wasDragging)openJobModal('${phone}')">
+  return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}</span><span>${amtHtml}</span></div>
-    <div class="js-meta">${[city].filter(Boolean).join(' · ')}</div>
+    <div class="js-meta">${[city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
+    ${svcLine}
+    <div class="jc-detail">
     ${addr ? `<div class="js-addr">📍 ${addr}${_paBtn}</div>` : ''}
     ${gpsHtml}
-    ${svcLine}
     ${printBtnHtml}
     ${complaintLink}
     ${zelleReqBtnHtml}
     ${paymentBtnHtml}
     ${receiptBtnHtml}
     ${editBtnHtml}
+    <button class="jc-modal-btn" onclick="event.stopPropagation();openJobModal('${phone}')">📋 Full details</button>
+    </div>
     <div class="js-extra-label" style="font-size:9px;color:var(--muted);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">2nd same-day job</div>
   </div>`;
 }
@@ -3435,6 +3448,11 @@ function toggleCrewQe(phone) {
   const el = document.getElementById('crew-qe-' + phone);
   if (!el) return;
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleJobCard(el) {
+  if (wasDragging) return;
+  el.classList.toggle('jc-expanded');
 }
 
 function toggleCrewChip(phone, crewId, el) {
