@@ -62,7 +62,7 @@ const HTML_FILES = [
       'openDayRouteView',                                 // Regression: Day Route button in topbar
       'story-badge',                                      // Regression: roof story badge in job cards
       'friendlyServiceDesc',                              // Regression: ETA text uses natural-language service description
-      'tomorrow around',                                  // Regression: ETA message hardcoded "tomorrow" for night-before send
+      'tomorrow in the',                                  // Regression: night-prior confirmation SMS uses "tomorrow in the {window}"
       "'morning'",                                        // Regression: slot key 'morning' (not '~9-10am')
       'tapSchedStorySel',                                 // Regression: story selector in tap-schedule modal
       'checkUnschRoof',                                   // Regression: story selector in add-unscheduled modal
@@ -150,15 +150,17 @@ const HTML_FILES = [
       'submitScheduleNow',     // Regression: Schedule it now option present
       'openScheduleModal',     // Regression: date picker for Option A
       'matchBanner',           // Existing customer detection — rich match banner
-      'altPhoneRow',           // Alt phone toggle row
-      'nAltPhone',             // Alt phone input field
+      'altContactsContainer',  // Alternate contacts container
+      'addAltContact',         // Add alternate contact function
+      'buildAltContacts',      // Build alternateContacts array
+      'restoreAltContacts',    // Restore alt contacts on edit
       'showMatchBanner',       // Match banner JS function
       'useMatch',              // "Yes, use existing" handler
       'onNameInput',           // Name detection debounce trigger
       'onAddressInput',        // Address detection debounce trigger
       'showJobHistory',        // Job history section renderer
       'jhSection',             // Job history container
-      'customer.altPhone',     // altPhone persisted to customer record
+      'alternateContacts',     // alternateContacts persisted to customer record
       'existing_customer_updated', // audit event on existing customer update
     ],
   },

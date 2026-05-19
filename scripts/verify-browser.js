@@ -1530,16 +1530,21 @@ async function main() {
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-modal-prefill', async page => {
       await page.waitForTimeout(2000);
 
-      // 1. Kristina Seeber (9542493300) has preferredPaymentMethod=zelle → modal should pre-select Zelle
+      // 1. Inject preferredPaymentMethod=zelle onto any customer, open modal, confirm pre-selection
       const zellePreSelected = await page.evaluate(() => {
-        const c = (dbRecord?.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === '9542493300');
+        const c = (dbRecord?.customers||[]).find(x => x.phone && x.scheduledStatus);
         if (!c) return null;
-        openPaymentModal('9542493300');
+        const prev = c.preferredPaymentMethod;
+        c.preferredPaymentMethod = 'zelle';
+        const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+        openPaymentModal(ph);
         const checked = document.querySelector('input[name="payMethod"]:checked');
-        return checked?.value || null;
+        const val = checked?.value || null;
+        c.preferredPaymentMethod = prev; // restore
+        return val;
       });
       if (zellePreSelected === null) {
-        warn('Payment modal — Zelle pre-selected for preferredPaymentMethod=zelle', 'Kristina Seeber not found in DB');
+        warn('Payment modal — Zelle pre-selected for preferredPaymentMethod=zelle', 'No scheduled customer found in DB');
       } else if (zellePreSelected === 'zelle') {
         pass('Payment modal — Zelle pre-selected for preferredPaymentMethod=zelle');
       } else {
