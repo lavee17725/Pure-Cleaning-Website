@@ -802,9 +802,7 @@ function renderHeroBanner(c) {
   // Action buttons (Log Reply + Feedback moved to Zone 3 — Phase 3)
   const actionsHtml = [
     `<a class="action-btn action-btn-call" href="tel:+1${c.phone}">📞 Call</a>`,
-    c.optOut
-      ? `<button class="action-btn action-btn-text" style="opacity:.4;cursor:not-allowed;" disabled title="Customer opted out — do not contact">💬 Text</button>`
-      : `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
+    `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
     `<a class="action-btn" style="background:#1d9e75;color:#fff;" href="/pure_cleaning_calendar.html?phone=${encodeURIComponent(c.phone)}" target="_blank">📋 Schedule</a>`,
     `<a class="action-btn" style="background:#0a1628;color:#f4a620;" href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" target="_blank">✨ Quote</a>`,
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Note</button>`,
@@ -834,23 +832,8 @@ function renderHeroBanner(c) {
     }
   }
 
-  const _EXCL_LABELS = {opted_out:'Opted out',moved_away:'Moved away',deceased:'Deceased',friend_family:'Friend / family',do_not_contact:'Do not contact',commercial:'Commercial account'};
-  const _dncEx = c.reactivationExcluded;
-  const _dncDate = _dncEx?.excludedAt ? new Date(_dncEx.excludedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
-  const _dncReason = _dncEx?.reason ? (_EXCL_LABELS[_dncEx.reason] || _dncEx.reason) : (c.optOut ? 'Opted out' : '');
-  const _dncNotes = _dncEx?.reasonNotes ? `<div style="font-size:11px;opacity:.85;margin-top:3px;font-style:italic;">"${esc(_dncEx.reasonNotes)}"</div>` : '';
-  const dncBanner = c.optOut ? `
-    <div style="background:#dc2626;color:#fff;padding:11px 14px;border-radius:8px;margin-bottom:12px;display:flex;align-items:flex-start;gap:9px;">
-      <span style="font-size:17px;flex-shrink:0;margin-top:1px;">🚫</span>
-      <div>
-        <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;line-height:1.2;">DO NOT CONTACT</div>
-        <div style="font-size:11px;opacity:.9;margin-top:3px;">${_dncReason}${_dncDate ? ' · Excluded ' + _dncDate : ''}</div>
-        ${_dncNotes}
-      </div>
-    </div>` : '';
-
   document.getElementById('heroBanner').innerHTML = `
-    ${dncBanner}${badge?`<div class="hero-badge" style="${badge.style}">${badge.emoji} ${badge.label}</div>`:''}
+    ${badge?`<div class="hero-badge" style="${badge.style}">${badge.emoji} ${badge.label}</div>`:''}
     <div class="hero-name">${esc(fullName)}${tierChip}</div>
     ${addrHtml}${contactHtml}${emailEditHtml}
     <div class="hero-divider"></div>
@@ -1337,23 +1320,8 @@ function renderSidebar(c){
   const leadSourceRow = lsDisplay && lsDisplay !== 'Unknown'
     ? {icon:'📣', label:'How they found us', val: esc(lsDisplay)} : null;
 
-  const _altContacts = Array.isArray(c.alternateContacts) ? c.alternateContacts : [];
-  const _legacyAlt   = !_altContacts.length && c.altPhone ? [{ phone: (c.altPhone||'').replace(/\D/g,'').slice(0,10), name:'', relationship:'' }] : [];
-  const _allAlts     = [..._altContacts, ..._legacyAlt].filter(a => a.phone || a.name);
-  const _relLabel    = {spouse:'Spouse',family:'Family member',property_manager:'Property manager',tenant:'Tenant',other:'Other'};
-  const _altHtml = _allAlts.map(a => {
-    const ph10  = (a.phone||'').replace(/\D/g,'').slice(0,10);
-    const phFmt = ph10.length===10 ? `(${ph10.slice(0,3)}) ${ph10.slice(3,6)}-${ph10.slice(6)}` : (a.phone||'');
-    const rel   = a.relationship ? _relLabel[a.relationship] || a.relationship : '';
-    const label = [a.name ? esc(a.name) : null, rel ? `<span style="color:var(--muted);font-size:11px;">${esc(rel)}</span>` : null].filter(Boolean).join(' · ');
-    const phLink = ph10.length===10 ? `<a href="tel:+1${ph10}" style="color:var(--sky);text-decoration:none;">${esc(phFmt)}</a>` : esc(phFmt);
-    return `<div style="margin-top:5px;padding-top:5px;border-top:1px solid var(--border);font-size:12px;line-height:1.5;">${label ? label + ' — ' : ''}${phLink}</div>`;
-  }).join('');
-
-  const _phoneVal = `<a href="tel:+1${c.phone}">${fmtPh(c.phone)}</a>${_altHtml}`;
-
   const contactRows=[
-    {icon:'📞',label:'Phone',val:_phoneVal},
+    {icon:'📞',label:'Phone',val:`<a href="tel:+1${c.phone}">${fmtPh(c.phone)}</a>`},
     c.email?{icon:'📧',label:'Email',val:`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`}:null,
     (c.address||c.city)?{icon:'📍',label:'Address',val:`${esc(c.address||'')}${c.address&&c.city?', ':''}${esc(c.city||'')}`}:null,
     {icon:'🏷️',label:'Source',val:`<span class="source-badge">${esc(sourceLabel)}</span>`},
@@ -1371,12 +1339,14 @@ function renderSidebar(c){
     </div>`
   ).join('');
 
-  const qaHtml = [
-    c.optOut
-      ? `<div class="qa-btn" style="opacity:.4;cursor:not-allowed;pointer-events:none;" title="Customer opted out — do not contact">📱 Text Customer <span style="font-size:10px;font-weight:700;color:#dc2626;margin-left:4px;">OPTED OUT</span></div>`
-      : `<a class="qa-btn" href="sms:+1${c.phone}">📱 Text Customer</a>`,
-    `<a class="qa-btn" href="tel:+1${c.phone}">📞 Call Customer</a>`,
-  ].join('');
+  const qaButtons=[
+    {icon:'📱',label:'Text Customer', href:`sms:+1${c.phone}`},
+    {icon:'📞',label:'Call Customer', href:`tel:+1${c.phone}`},
+  ];
+
+  const qaHtml=qaButtons.map(b=>
+    `<a class="qa-btn" href="${b.href}">${b.icon} ${b.label}</a>`
+  ).join('');
 
   document.getElementById('sidebarStack').innerHTML=`
     <div class="panel">

@@ -2665,11 +2665,9 @@ function jobCardScheduled(c) {
   const etaSlot  = getCardEtaSlot(phone, ss);
   const etaSent  = phone ? isArrivalSent(jobDate, jobRig, phone) : false;
   const etaSvc   = friendlyServiceDesc(c);
-  const etaBtnHtml = (state === 'scheduled' || state === 'in_progress') && !c.isTest && phone && !c.optOut
+  const etaBtnHtml = (state === 'scheduled' || state === 'in_progress') && !c.isTest && phone
     ? `<button class="arrival-btn js-eta-btn${etaSent ? ' sent' : ''}" ${etaSent ? 'disabled ' : ''}data-svc="${esc(etaSvc)}" onclick="event.stopPropagation();sendArrivalText('${phone}','${esc(firstName)}','${etaSlot}','${jobDate}','${jobRig}',this)"><span class="arrival-btn-icon">${etaSent ? '✅' : '📍'}</span><span class="arrival-btn-text">Text ETA<span class="arrival-btn-slot"> · ${ARRIVAL_SLOTS[etaSlot]?.label || etaSlot}</span></span></button>`
-    : (c.optOut && (state === 'scheduled' || state === 'in_progress') && !c.isTest && phone)
-      ? `<button class="arrival-btn no-phone" disabled title="Customer opted out — do not contact"><span class="arrival-btn-icon">🚫</span><span class="arrival-btn-text">Opted out</span></button>`
-      : '';
+    : '';
   const rigPickBtnHtml = state !== 'completed' && !c.isTest && phone
     ? `<button class="rig-pick-btn" onclick="event.stopPropagation();openRigPickModal('${phone}')">↔ Rig</button>`
     : '';
@@ -5043,12 +5041,11 @@ function renderArrivalButtons(date, rig, jobs) {
     const firstName = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim().split(' ')[0] || 'there';
     const sent = phone ? isArrivalSent(date, rig, phone) : false;
     const noPhone = !phone;
-    const isOptedOut = !!(c.optOut);
     const slotLabel = ARRIVAL_SLOTS[slot]?.label || slot;
-    const cls = `arrival-btn${sent ? ' sent' : ''}${(noPhone || isOptedOut) ? ' no-phone' : ''}`;
+    const cls = `arrival-btn${sent ? ' sent' : ''}${noPhone ? ' no-phone' : ''}`;
     const svcDesc = friendlyServiceDesc(c);
-    const handler = (!noPhone && !sent && !isOptedOut) ? `onclick="sendArrivalText('${phone}','${esc(firstName)}','${slot}','${date}','${rig}',this,'${esc(svcDesc)}')"` : '';
-    const noPhoneTitle = noPhone ? 'title="No phone on file"' : isOptedOut ? 'title="Customer opted out — do not contact"' : '';
+    const handler = (!noPhone && !sent) ? `onclick="sendArrivalText('${phone}','${esc(firstName)}','${slot}','${date}','${rig}',this,'${esc(svcDesc)}')"` : '';
+    const noPhoneTitle = noPhone ? 'title="No phone on file"' : '';
     return `<button class="${cls}" ${handler} ${noPhoneTitle}>
       <span class="arrival-btn-icon">${sent ? '✅' : '📍'}</span>
       <span class="arrival-btn-text"><span class="arrival-btn-name">${esc(firstName)}</span><span class="arrival-btn-slot"> · ${slotLabel}</span></span>
