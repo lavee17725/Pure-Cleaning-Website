@@ -814,6 +814,23 @@ body{background:#f0f2f5;}
   </div>
 </div>
 
+<!-- ── AMOUNT MISMATCH WARNING (payment ≠ job price during completion) ── -->
+<div class="overlay hidden" id="amtMismatchModal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-title">⚠ Payment ≠ Job Price</div>
+    <p style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:1.25rem;">
+      Payment <strong id="amtMismatchPaid"></strong> differs from job price <strong id="amtMismatchApproved"></strong>.<br><br>
+      <strong>Update Job Price + Record Payment</strong> — if the job was actually <span id="amtMismatchPaid2"></span>. Updates price everywhere (jobHistory, lifetime spend) and records the payment.<br><br>
+      <strong>Record Payment Only</strong> — if collecting a different amount than the agreed price (partial payment, discount after the fact). Price stays at <span id="amtMismatchApproved2"></span>.
+    </p>
+    <div class="modal-footer" style="flex-direction:column;gap:8px;">
+      <button class="mbtn-save" style="font-size:14px;" onclick="amtMismatchChoice('both')">Update Job Price + Record Payment</button>
+      <button class="mbtn-cancel" onclick="amtMismatchChoice('payment_only')">Record Payment Only</button>
+      <button style="background:none;border:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;padding:4px;" onclick="amtMismatchChoice('cancel')">← Go back to job log</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── PAYROLL MODAL ── -->
 <div class="overlay hidden" id="payrollModal" onclick="if(event.target===this)closePayrollModal()">
   <div class="modal" style="max-width:560px;">
@@ -3784,8 +3801,9 @@ function skipJobLog() {
   _doCompleteJob({ ..._collectPaymentLog() });
 }
 
+let _pendingJobLog = null;
+
 function saveJobLog() {
-  document.getElementById('jobLogModal').classList.add('hidden');
   const issues = [];
   if (document.getElementById('issueTime')?.checked)    issues.push('took_longer');
   if (document.getElementById('issueEquip')?.checked)   issues.push('equipment');
@@ -3794,7 +3812,52 @@ function saveJobLog() {
   const satisfied = document.querySelector('input[name="custSatisfied"]:checked')?.value || 'yes';
   const endTime   = document.getElementById('jobEndTime')?.value || '';
   const notes     = document.getElementById('jobLogNotes')?.value?.trim() || '';
-  _doCompleteJob({ satisfied, endTime, issues, notes, ..._collectPaymentLog() });
+  const payLog    = _collectPaymentLog();
+
+  // Warn when payment amount differs from agreed job price
+  if (payLog.paymentAmount > 0) {
+    const c = findCustomer(jmPhone);
+    const approved = c?.scheduledStatus?.approvedAmount || 0;
+    if (approved > 0 && payLog.paymentAmount !== approved) {
+      _pendingJobLog = { satisfied, endTime, issues, notes, ...payLog };
+      const fmtAmt = n => `$${Number(n).toLocaleString('en-US', {maximumFractionDigits:0})}`;
+      document.getElementById('amtMismatchPaid').textContent     = fmtAmt(payLog.paymentAmount);
+      document.getElementById('amtMismatchPaid2').textContent    = fmtAmt(payLog.paymentAmount);
+      document.getElementById('amtMismatchApproved').textContent = fmtAmt(approved);
+      document.getElementById('amtMismatchApproved2').textContent= fmtAmt(approved);
+      document.getElementById('jobLogModal').classList.add('hidden');
+      document.getElementById('amtMismatchModal').classList.remove('hidden');
+      return;
+    }
+  }
+
+  document.getElementById('jobLogModal').classList.add('hidden');
+  _doCompleteJob({ satisfied, endTime, issues, notes, ...payLog });
+}
+
+function amtMismatchChoice(choice) {
+  document.getElementById('amtMismatchModal').classList.add('hidden');
+  if (choice === 'cancel') {
+    _pendingJobLog = null;
+    document.getElementById('jobLogModal').classList.remove('hidden');
+    return;
+  }
+  const log = _pendingJobLog;
+  _pendingJobLog = null;
+  if (!log) return;
+
+  if (choice === 'both') {
+    // Update approvedAmount before _doCompleteJob so jh.amount + lifetimeSpend are correct
+    const c = findCustomer(jmPhone);
+    if (c?.scheduledStatus) {
+      c.scheduledStatus.approvedAmount = log.paymentAmount;
+      const qs = c.quoteStatus || (c.quoteStatus = {});
+      qs.mainAmount = log.paymentAmount;
+      qs.approvedAmount = log.paymentAmount;
+    }
+  }
+
+  _doCompleteJob(log);
 }
 
 function _doCompleteJob(log) {
@@ -5477,6 +5540,20 @@ async function saveFullEdit() {
   if (date) ss.scheduledDate = date;
   const prevRig = ss.rig;
   ss.rig = rig || null;
+
+  // For completed jobs: propagate amount change to jobHistory + recompute lifetimeSpend.
+  // Keeps all three sources of truth in sync (ss, jh, lifetimeSpend).
+  if (price && ss.state === 'completed') {
+    const jobDate = date || ss.scheduledDate;
+    const jhMatch = (c.jobHistory || []).find(j => j.date === jobDate && j.source !== 'csv_backfill');
+    if (jhMatch) {
+      jhMatch.amount = price;
+    } else {
+      console.warn(`saveFullEdit: no jobHistory entry for ${c.firstName} ${c.lastName} on ${jobDate} — lifetimeSpend recomputed from existing entries`);
+    }
+    // Recompute from jobHistory — same formula as worker handleBackfillStats (canonical)
+    c.lifetimeSpend = Math.round((c.jobHistory || []).reduce((s, j) => s + (j.amount || 0), 0));
+  }
 
   // For completed jobs: also update the matching jobHistory entry's rigId.
   // This is the one clean path for fixing historical rig attribution.
