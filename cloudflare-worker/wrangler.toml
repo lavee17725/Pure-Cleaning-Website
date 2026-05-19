@@ -29,17 +29,18 @@ database_id = "a9cca011-f138-4e99-b831-8f78f3165409"
 # R2 cost: $0.015/GB-month storage (10GB free), $4.50/M writes (1M free)
 # At ~25MB/backup × 365 days ≈ 9GB/year — well within free tier.
 #
-# [[r2_buckets]]
-# binding = "BACKUPS"
-# bucket_name = "pure-cleaning-backups"
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "pure-cleaning-backups"
 
 [vars]
 ENVIRONMENT = "production"
 
 # ── Crons ────────────────────────────────────────────────────────────────────
 # "0 3 * * *"    = 3 AM UTC daily      — Bouncie job duration matcher
-# "0 4 * * *"    = 4 AM UTC daily      — nightly R2 backup
+# "0 4 * * *"    = 4 AM UTC daily      — nightly R2 backup (all 8 KV keys)
 # "0 4 * * 1"    = 4 AM UTC Monday     — weekly Google Drive export
-# "0 */4 * * *"  = every 4hr UTC          — Bouncie auth keepalive (was 12hr; tightened May 18)
+# "0 */4 * * *"  = every 4hr UTC       — Bouncie auth keepalive (was 12hr; tightened May 18)
+# "0 */6 * * *"  = every 6hr UTC       — automated KV snapshot to R2 (Tier 1 best practice)
 [triggers]
-crons = ["0 3 * * *", "0 4 * * *", "0 4 * * 1", "0 */4 * * *"]
+crons = ["0 3 * * *", "0 4 * * *", "0 4 * * 1", "0 */4 * * *", "0 */6 * * *"]

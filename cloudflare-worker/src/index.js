@@ -67,6 +67,14 @@ const DEFAULT_ADDONS_CONFIG = {
 const BACKUP_KV_KEYS = ['customer_db', 'incoming_requests', 'bouncie:rig_mapping',
                         'reviews_data', 'service_frequency', 'addons_config', 'tasks_db', 'blocked_weeks'];
 
+async function collectAllKVKeys(env) {
+  const data = {};
+  await Promise.all(BACKUP_KV_KEYS.map(async k => {
+    data[k] = await env.DATA.get(k, 'json');
+  }));
+  return data;
+}
+
 async function runNightlyBackup(env) {
   if (!env.BACKUPS) {
     await env.DATA.put('backup:last_run', JSON.stringify({
@@ -83,12 +91,7 @@ async function runNightlyBackup(env) {
   const heartbeat = { ranAt: ts, date, status: 'error', sizeBytes: 0, durationMs: 0, errors: [] };
 
   try {
-    // Read all critical KV keys
-    const data = {};
-    await Promise.all(BACKUP_KV_KEYS.map(async k => {
-      data[k] = await env.DATA.get(k, 'json');
-    }));
-
+    const data    = await collectAllKVKeys(env);
     const payload = JSON.stringify({ version: 2, timestamp: ts, keys: data });
     const key     = `backups/${date}/full-backup.json`;
 
@@ -101,7 +104,6 @@ async function runNightlyBackup(env) {
     heartbeat.sizeBytes = payload.length;
     heartbeat.backupKey = key;
 
-    // Retention policy
     const deleted = await applyRetentionPolicy(env);
     heartbeat.deletedOldBackups = deleted.length;
   } catch (e) {
@@ -132,6 +134,77 @@ async function applyRetentionPolicy(env) {
     try { await env.BACKUPS.delete(obj.key); deleted.push(obj.key); } catch {}
   }
   return deleted;
+}
+
+// ── Automated snapshot helpers (every-6-hour cron) ───────────────────────
+
+async function appendToAutoSnapshotLog(env, entry) {
+  const log = (await env.DATA.get('auto_snapshot:log', 'json')) || [];
+  log.unshift(entry);
+  if (log.length > 50) log.splice(50);
+  await env.DATA.put('auto_snapshot:log', JSON.stringify(log));
+}
+
+async function appendToSnapshotFailures(env, entry) {
+  const failures = (await env.DATA.get('snapshot_failures', 'json')) || [];
+  failures.unshift(entry);
+  if (failures.length > 50) failures.splice(50);
+  await env.DATA.put('snapshot_failures', JSON.stringify(failures));
+}
+
+async function applyAutoSnapshotRetention(env) {
+  const listed = await env.BACKUPS.list({ prefix: 'auto_snapshots/' });
+  const now    = Date.now();
+  const deleted = [];
+  for (const obj of (listed.objects || [])) {
+    const ageDays = (now - new Date(obj.uploaded).getTime()) / 86400000;
+    if (ageDays > 14) {
+      try { await env.BACKUPS.delete(obj.key); deleted.push(obj.key); } catch {}
+    }
+  }
+  return deleted;
+}
+
+async function runAutoSnapshot(env) {
+  const ts      = new Date().toISOString();
+  const startMs = Date.now();
+  const entry   = { ranAt: ts, status: 'error', sizeBytes: 0, durationMs: 0 };
+
+  if (!env.BACKUPS) {
+    entry.error = 'R2 bucket not bound';
+    entry.durationMs = Date.now() - startMs;
+    await appendToAutoSnapshotLog(env, entry);
+    await appendToSnapshotFailures(env, { ranAt: ts, error: entry.error, type: 'config_error' });
+    return entry;
+  }
+
+  try {
+    const data    = await collectAllKVKeys(env);
+    const payload = JSON.stringify({ version: 2, timestamp: ts, type: 'auto', keys: data });
+    const tsSlug  = ts.replace(/[:.]/g, '-').slice(0, 19);
+    const key     = `auto_snapshots/auto_snapshot_${tsSlug}.json`;
+
+    await env.BACKUPS.put(key, payload, {
+      httpMetadata: { contentType: 'application/json' },
+      customMetadata: { sizeBytes: String(payload.length), version: '2', type: 'auto' },
+    });
+
+    entry.status    = 'success';
+    entry.sizeBytes = payload.length;
+    entry.backupKey = key;
+
+    const deleted = await applyAutoSnapshotRetention(env);
+    entry.deletedOldSnapshots = deleted.length;
+  } catch (e) {
+    entry.error = e.message;
+    console.error('Auto-snapshot cron error:', e.message);
+    await appendToSnapshotFailures(env, { ranAt: ts, error: e.message, type: 'runtime_error' });
+  } finally {
+    entry.durationMs = Date.now() - startMs;
+    await appendToAutoSnapshotLog(env, entry);
+  }
+
+  return entry;
 }
 
 // ── Error log helper ─────────────────────────────────────────────────────
@@ -193,9 +266,15 @@ export default {
     } else if (event.cron === '0 4 * * *') {
       // Nightly backup — 4 AM UTC (runs after Bouncie matcher)
       ctx.waitUntil(runNightlyBackup(env));
-    } else if (event.cron === '0 */12 * * *') {
-      // Bouncie auth keepalive — noon + midnight UTC, keeps refresh token exercised
+    } else if (event.cron === '0 */4 * * *') {
+      // Bouncie auth keepalive — every 4 hours, keeps refresh token exercised
       ctx.waitUntil(bouncieKeepalive(env).catch(e => console.error('bouncie keepalive error:', e.message)));
+    } else if (event.cron === '0 */6 * * *') {
+      // Automated KV snapshot — every 6 hours, Tier 1 best practice
+      ctx.waitUntil(runAutoSnapshot(env).catch(e => {
+        console.error('auto-snapshot cron error:', e.message);
+        return appendToSnapshotFailures(env, { ranAt: new Date().toISOString(), error: e.message, type: 'unhandled' }).catch(() => {});
+      }));
     } else {
       // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
       const today = new Date().toISOString().split('T')[0];
@@ -1193,6 +1272,27 @@ export default {
       if (path === 'admin/backup/last_run' && request.method === 'GET') {
         const hb = await env.DATA.get('backup:last_run', 'json');
         return jsonResponse(hb || { status: 'never_run' }, corsHeaders);
+      }
+
+      // ── Auto-snapshot: status (protected) ────────────────────────────────────
+      if (path === 'admin/auto-snapshot-status' && request.method === 'GET') {
+        const log      = (await env.DATA.get('auto_snapshot:log', 'json')) || [];
+        const failures = (await env.DATA.get('snapshot_failures', 'json')) || [];
+        const latestFailure = failures[0] || null;
+        return jsonResponse({
+          schedule:      '0 */6 * * * (every 6 hours UTC)',
+          totalRuns:     log.length,
+          lastRun:       log[0] || null,
+          recentRuns:    log.slice(0, 10),
+          latestFailure,
+          r2Configured:  !!env.BACKUPS,
+        }, corsHeaders);
+      }
+
+      // ── Auto-snapshot: manual trigger (protected) ─────────────────────────────
+      if (path === 'admin/auto-snapshot/trigger' && request.method === 'POST') {
+        const result = await runAutoSnapshot(env);
+        return jsonResponse(result, corsHeaders, result.status === 'success' ? 200 : 500);
       }
 
       // Fall through to static assets for any unrecognized path (HTML pages, etc.)
