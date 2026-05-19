@@ -3154,15 +3154,35 @@ async function geocodeAddress(address, env = null) {
     );
     const data = await res.json();
     const match = data?.result?.addressMatches?.[0];
-    if (!match) return null;
+    if (match) {
+      return {
+        lat:    parseFloat(match.coordinates.y),
+        lng:    parseFloat(match.coordinates.x),
+        lon:    parseFloat(match.coordinates.x),
+        formattedAddress: match.matchedAddress || '',
+        confidence: 'medium',
+        geocodedAt: new Date().toISOString(),
+        source: 'census',
+      };
+    }
+  } catch { /* fall through to Nominatim */ }
+
+  // ── Nominatim fallback (OpenStreetMap — handles non-standard FL subdivision addresses) ──
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`,
+      { headers: { 'User-Agent': 'PureCleaningCRM/1.0 (purecleaningpressurecleaning.com)' } }
+    );
+    const data = await res.json();
+    if (!data.length) return null;
     return {
-      lat:    parseFloat(match.coordinates.y),
-      lng:    parseFloat(match.coordinates.x),
-      lon:    parseFloat(match.coordinates.x),
-      formattedAddress: match.matchedAddress || '',
-      confidence: 'medium',
+      lat:    parseFloat(data[0].lat),
+      lng:    parseFloat(data[0].lon),
+      lon:    parseFloat(data[0].lon),
+      formattedAddress: data[0].display_name || '',
+      confidence: 'low',
       geocodedAt: new Date().toISOString(),
-      source: 'census',
+      source: 'nominatim',
     };
   } catch { return null; }
 }
@@ -3274,11 +3294,12 @@ async function bouncieJobDurationMatcher(date, env) {
     // Geocode job address — build full string so Census geocoder finds FL addresses
     let jobLat = ss.lat || customer.geocoded?.lat || null;
     let jobLon = ss.lon || customer.geocoded?.lng || null;
+    let geocodeSource = null;
     if (!jobLat || !jobLon) {
       const addrParts = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean);
       const fullAddr  = addrParts.join(', ');
       const geo = await geocodeAddress(fullAddr, env);
-      if (geo) { jobLat = geo.lat; jobLon = geo.lon || geo.lng; }
+      if (geo) { jobLat = geo.lat; jobLon = geo.lon || geo.lng; geocodeSource = geo.source; }
     }
     if (!jobLat || !jobLon) {
       const addrTried = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean).join(', ');
@@ -3350,6 +3371,7 @@ async function bouncieJobDurationMatcher(date, env) {
       durationSource:     'bouncie_gps',
       durationConfidence: matchStatus,
       autoAttributed:     true,
+      ...(geocodeSource ? { geocodeSource } : {}),
     };
 
     // Rig attribution — ONLY for high-confidence matches
