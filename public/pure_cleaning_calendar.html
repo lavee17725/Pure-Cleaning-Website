@@ -5564,7 +5564,11 @@ async function saveFullEdit() {
   // Keeps all three sources of truth in sync (ss, jh, lifetimeSpend).
   if (price && ss.state === 'completed') {
     const jobDate = date || ss.scheduledDate;
-    const jhMatch = (c.jobHistory || []).find(j => j.date === jobDate && j.source !== 'csv_backfill');
+    const completedDate = ss.completedDate || (ss.completedAt || '').slice(0, 10);
+    const jhMatch = (c.jobHistory || []).find(
+      j => j.source !== 'csv_backfill' &&
+           (j.date === jobDate || (completedDate && j.date === completedDate))
+    );
     if (jhMatch) {
       jhMatch.amount = price;
     } else {
