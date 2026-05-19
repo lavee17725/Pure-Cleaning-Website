@@ -1298,6 +1298,20 @@ export default {
         return jsonResponse(result, corsHeaders, result.status === 'success' ? 200 : 500);
       }
 
+      // ── Bouncie metrics: recompute all (protected) ────────────────────────────
+      if (path === 'admin/compute-metrics' && request.method === 'POST') {
+        const db = await env.DATA.get(KV_KEYS.customers, 'json');
+        if (!db) return jsonResponse({ error: 'No customer DB' }, corsHeaders, 404);
+        const customers = db.customers || [];
+        let withMetrics = 0;
+        for (const c of customers) {
+          computeBouncieMetrics(c);
+          if (c.bouncieMetrics) withMetrics++;
+        }
+        await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+        return jsonResponse({ success: true, totalCustomers: customers.length, withMetrics }, corsHeaders);
+      }
+
       // Fall through to static assets for any unrecognized path (HTML pages, etc.)
       if (env.ASSETS) {
         const r = await env.ASSETS.fetch(request);
@@ -3366,6 +3380,9 @@ async function bouncieJobDurationMatcher(date, env) {
       customer.avgJobDuration = Math.round(allDurs.reduce((a, b) => a + b, 0) / allDurs.length);
     }
 
+    // Recompute per-property avg time/worker metric now that match data is written
+    computeBouncieMetrics(customer);
+
     results.push({
       phone:        customer.phone,
       name:         fullName(customer),
@@ -3413,6 +3430,48 @@ async function bouncieJobDurationMatcher(date, env) {
   );
 
   return { date, total: completedToday.length, matched, results, morningStops };
+}
+
+// ── Per-property avg time/worker metric ──────────────────────────────────────
+// TODO(Forward Queue 3.2): swap DEFAULT_CREW_COUNT per-job when DailyRigAssignment
+// table ships. Tyler confirmed: all rigs run 1 or 2 crew depending on the day —
+// defaulting to 2 (old Tacoma usually 2) until actual crew data is available.
+const DEFAULT_CREW_COUNT = 2;
+
+function computeBouncieMetrics(customer) {
+  const address = (customer.address || '').trim();
+  if (!address) return;
+
+  // Collect all matched durations from jobHistory entries + active scheduledStatus
+  const matched = [];
+  for (const j of (customer.jobHistory || [])) {
+    if (j.actualDuration > 0) {
+      matched.push({ date: j.date || '', minutes: j.actualDuration });
+    }
+  }
+  const ss = customer.scheduledStatus || {};
+  if (ss.actualDuration > 0) {
+    matched.push({ date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10), minutes: ss.actualDuration });
+  }
+
+  if (!matched.length) {
+    delete customer.bouncieMetrics;
+    return;
+  }
+
+  matched.sort((a, b) => a.date < b.date ? -1 : 1);
+  const perWorker = matched.map(j => Math.round(j.minutes / DEFAULT_CREW_COUNT));
+  const avg  = Math.round(perWorker.reduce((a, b) => a + b, 0) / perWorker.length);
+  const last = perWorker[perWorker.length - 1];
+
+  customer.bouncieMetrics = {
+    [address]: {
+      avgMinPerWorker:  avg,
+      lastMinPerWorker: last,
+      lastServiceDate:  matched[matched.length - 1].date,
+      matchedJobCount:  matched.length,
+    },
+  };
 }
 
 // ── Cache-Control helpers ─────────────────────────────────────────────────────
