@@ -112,8 +112,10 @@ td.muted{color:var(--muted);}
   .cust-card-right{text-align:right;flex-shrink:0;}
   .cust-card-spend{font-size:15px;font-weight:800;color:var(--terra);}
   .cust-card-jobs{font-size:11px;color:var(--muted);}
+  .cust-card-avg{font-size:11px;font-weight:600;color:var(--navy);margin-top:2px;}
 }
 @media(min-width:641px){.card-list{display:none;}}
+@media(max-width:700px){.col-avg-time{display:none!important;}}
 </style>
 </head>
 <body>
@@ -153,6 +155,7 @@ td.muted{color:var(--muted);}
               <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
               <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
               <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
+              <th data-sort="avgTimePerWorker" onclick="clickSort('avgTimePerWorker')" class="col-avg-time">Avg Time/Worker <span class="sind">▲▼</span></th>
               <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
               <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
               <th class="no-sort">Status</th>
@@ -220,12 +223,27 @@ function _saveSortState() {
 const _sortInit = _loadSortState();
 let _sortCol = _sortInit.col;
 let _sortAsc = _sortInit.asc;
-const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:false, totalJobs:false, lifetimeSpend:false };
+const _sortPrimaryAsc = { name:true, phone:true, city:true, tier:true, lastService:false, avgTimePerWorker:false, totalJobs:false, lifetimeSpend:false };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function esc(s){ const d=document.createElement('div'); d.textContent=String(s||''); return d.innerHTML; }
 function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:d; }
 function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
+function _computeAvgTPW(c){
+  const bm=c.bouncieMetrics;
+  if(!bm||!Object.keys(bm).length) return { avgTimePerWorker:null, _avgTPWLabel:'—', _avgTPWLabelCard:'' };
+  const entries=Object.values(bm);
+  let totalWeighted=0,totalCount=0;
+  for(const e of entries){
+    totalWeighted+=(e.avgMinPerWorker||0)*(e.matchedJobCount||1);
+    totalCount+=(e.matchedJobCount||1);
+  }
+  const avg=Math.round(totalWeighted/totalCount);
+  const label=totalCount>=2?'Avg':'Last';
+  const str=`${label}: ${fmtMin(avg)}`;
+  return { avgTimePerWorker:avg, _avgTPWLabel:str, _avgTPWLabelCard:`${str}/worker` };
+}
 
 function normCity(city){
   if(!city||!city.trim())return'Other';
@@ -271,6 +289,7 @@ async function init(){
         _sealProspect:isSealingProspect(c),
         totalJobs:c.totalJobs||0,
         lifetimeSpend:c.lifetimeSpend||0,
+        ..._computeAvgTPW(c),
       };
     });
     document.getElementById('loadingState').style.display='none';
@@ -533,6 +552,7 @@ function buildRow(c){
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
+    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgTimePerWorker?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}</td>
     <td>${c.totalJobs||'—'}</td>
     <td class="money">${c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—'}</td>
     <td>${statusBadge(c)}</td>
@@ -551,6 +571,7 @@ function buildCard(c){
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}</div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${fmtPh(c.phone)}</div>
+      ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}
     </div>
     <div class="cust-card-right">
       <div class="cust-card-spend">${spend}</div>
