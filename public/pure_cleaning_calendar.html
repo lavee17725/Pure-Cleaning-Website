@@ -708,12 +708,9 @@ body{background:#f0f2f5;}
     <button class="block-week-btn" id="blockWeekBtn" onclick="toggleWeekBlocked()">Mark Booked</button>
   </div>
   <div class="topbar-sep"></div>
-  <button class="topbar-action" onclick="openDayOffModal()">+ Day Off</button>
   <button class="topbar-action" onclick="openDayRouteView()">📍 Day Route</button>
   <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
   <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
-  <button class="topbar-action" onclick="window.print()">🖨</button>
-  <button class="topbar-action" id="histToggleBtn" onclick="toggleHistoricalJobs()" title="Show/hide completed jobs on calendar" style="opacity:.6;">🗂️ History</button>
   <button class="topbar-action" id="geocodeBackfillBtn" onclick="startGeocodingBackfill()" title="One-time geocode for all customers missing coordinates" style="opacity:.6;">🗺 Geocode</button>
   <span id="geocodeBackfillBar" style="display:none;font-size:11px;color:#fff;opacity:.8;max-width:220px;white-space:nowrap;overflow:hidden;"></span>
   <div class="view-pills">
@@ -1477,9 +1474,9 @@ async function getCachedCustomerDB() {
 }
 
 const CREW_MEMBERS = [
-  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew',      phone:'9546103843', isDriver:true,  receiveAutoTexts:true},
-  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew',      phone:'9546103843', isDriver:false, receiveAutoTexts:false},
-  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, halfRate:80,  role:'crew',      phone:'9546103843', isDriver:true,  receiveAutoTexts:true},
+  {id:'byron',    name:'Byron',    color:'#3b82f6', dailyRate:150, halfRate:75,  role:'crew',      phone:'7866068633', isDriver:true,  receiveAutoTexts:true},
+  {id:'danny',    name:'Danny',    color:'#10b981', dailyRate:150, halfRate:75,  role:'crew',      phone:'9547756502', isDriver:false, receiveAutoTexts:false},
+  {id:'jonathan', name:'Jonathan', color:'#f59e0b', dailyRate:160, halfRate:80,  role:'crew',      phone:'7862820263', isDriver:true,  receiveAutoTexts:true},
   {id:'tyler',    name:'Tyler',    color:'#a855f7', dailyRate:150, halfRate:75,  role:'owner_son', phone:'9546103843', isDriver:true,  receiveAutoTexts:false},
   {id:'tony',     name:'Tony',     color:'#ef4444', dailyRate:0,   halfRate:0,   role:'owner',     phone:'9546103843', isDriver:true,  receiveAutoTexts:false}
 ];
@@ -2674,7 +2671,6 @@ function jobCardScheduled(c) {
     : '';
   const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
 
-  let reviewBtnHtml  = '';
   let printBtnHtml   = '';
   let paymentBtnHtml = '';
   let receiptBtnHtml = '';
@@ -2684,18 +2680,6 @@ function jobCardScheduled(c) {
     : '';
 
   if (state === 'completed') {
-    const fn = esc((c.firstName||c.fn||'').trim().split(' ')[0] || 'there');
-    const reqDate = phone ? getReviewRequestedDate(phone) : null;
-    if (hasCmpt) {
-      reviewBtnHtml = `<button class="js-review-btn blocked" disabled onclick="event.stopPropagation()" title="Review request blocked — complaint logged">⚠ Review blocked · complaint logged${reqDate ? ' (sent '+reqDate+')' : ''}</button>`;
-    } else if (reqDate) {
-      reviewBtnHtml = `<button class="js-review-btn sent" disabled onclick="event.stopPropagation()">✓ Review Requested ${reqDate}</button>`;
-    } else if (!phone) {
-      reviewBtnHtml = `<button class="js-review-btn no-phone" disabled onclick="event.stopPropagation()">📝 Request review — no phone</button>`;
-    } else {
-      const timing = getReviewTiming(ss.completedDate);
-      reviewBtnHtml = `<button class="js-review-btn timing-${timing.state}" onclick="event.stopPropagation();sendReviewRequest('${phone}','${fn}',this)"${timing.state==='wait'?' title="Better response rates 24-48 hours after job"':''}>📝 Request review · ${timing.label}</button>`;
-    }
     if (!c.isTest && phone) {
       printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button></div>`;
 
@@ -2852,7 +2836,6 @@ function jobCardScheduled(c) {
     ${gpsHtml}
     ${crewQeHtml}
     ${roofInfoHtml}
-    ${reviewBtnHtml}
     ${printBtnHtml}
     ${etaBtnHtml}
     ${rigPickBtnHtml}
