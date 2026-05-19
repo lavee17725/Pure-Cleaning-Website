@@ -2879,11 +2879,11 @@ function markCommercial(phone) {
 let _exclPhones = [];
 
 const EXCL_REASONS = [
-  { value: 'opted_out',      label: 'Customer asked to stop (opted out)' },
+  { value: 'opted_out',      label: 'Customer asked to stop (opted out)', note: 'Also sets Opted Out flag — blocks all outbound SMS' },
   { value: 'moved_away',     label: 'Moved away' },
   { value: 'deceased',       label: 'Deceased' },
-  { value: 'friend_family',  label: 'Friend or family' },
-  { value: 'do_not_contact', label: 'Do not contact (my call)' },
+  { value: 'friend_family',  label: 'Friend or family (different relationship)' },
+  { value: 'do_not_contact', label: 'Do not contact (my call / error)' },
   { value: 'commercial',     label: 'Commercial account (wrong list)' },
 ];
 
@@ -2891,7 +2891,7 @@ function _renderExclReasons() {
   document.getElementById('exclReasons').innerHTML = EXCL_REASONS.map((r, i) =>
     `<label class="excl-radio-label">
       <input type="radio" name="exclReason" value="${r.value}"${i === 0 ? ' checked' : ''}>
-      <span>${r.label}</span>
+      <div><div style="font-size:13px;color:var(--text);font-weight:600;">${r.label}</div>${r.note ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${r.note}</div>` : ''}</div>
     </label>`
   ).join('');
 }
@@ -3491,7 +3491,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <div id="exclModalOverlay" class="excl-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeExclModal()">
   <div class="excl-modal">
     <div style="font-size:1.75rem;margin-bottom:.25rem;">🚫</div>
-    <h3 id="exclModalTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:.25rem;"></h3>
+    <h3 id="exclModalTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--navy);margin-bottom:.25rem;"></h3>
     <p id="exclModalSub" style="font-size:13px;color:var(--muted);line-height:1.5;margin:0 0 .25rem;"></p>
     <label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-top:.75rem;display:block;">Why?</label>
     <div class="excl-radio-group" id="exclReasons"></div>
@@ -3508,7 +3508,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <div id="restoreExclModal" class="excl-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeRestoreModal()">
   <div class="excl-modal">
     <div style="font-size:1.75rem;margin-bottom:.25rem;">↩️</div>
-    <h3 id="restoreExclTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--white);margin-bottom:.25rem;"></h3>
+    <h3 id="restoreExclTitle" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--navy);margin-bottom:.25rem;"></h3>
     <p id="restoreExclBody" style="font-size:13px;color:var(--muted);line-height:1.5;margin:0;"></p>
     <div id="restoreExclTcpaWarn" class="tcpa-warn" style="display:none;">
       <strong>TCPA Notice:</strong> This customer opted out of SMS. Restoring removes them from the Excluded tab, but the Opted Out flag stays set — they won't appear in the active pool and SMS is still blocked unless they explicitly ask to be re-added to your list.
