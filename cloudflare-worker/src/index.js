@@ -2553,23 +2553,25 @@ async function d1AllCustomersToKvShape(env) {
   const [persons, propLinks, jobs] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT pp.personId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
+      'SELECT pp.personId, pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
     ).all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT jobId,payerId,scheduledDate,state,completedAt,amount,' +
+      'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
   ]);
 
-  // Index by personId
+  // Index by personId + propertyId
   const propsByPerson = {};
+  const propById = {};
   for (const pp of propLinks) {
     if (!propsByPerson[pp.personId]) propsByPerson[pp.personId] = [];
     propsByPerson[pp.personId].push(pp);
+    if (pp.propertyId) propById[pp.propertyId] = pp;
   }
   const jobsByPayer = {};
   for (const j of jobs) {
@@ -2581,13 +2583,28 @@ async function d1AllCustomersToKvShape(env) {
   for (const p of persons) {
     const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
     if (!ph || ph.length !== 10) continue; // skip REFERRAL_* + no-phone records
-    const customer = _d1PersonToKv(
-      p,
-      propsByPerson[p.personId] || [],
-      jobsByPayer[p.personId]   || [],
-    );
+    const pjobs = jobsByPayer[p.personId] || [];
+    const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs);
     computeBouncieMetrics(customer);
-    customers.push(customer);
+
+    // Fan-out: persons with N>1 scheduled jobs emit one virtual customer per job.
+    // Each clone carries distinct scheduledStatus + address for its property.
+    const scheduledJobs = pjobs.filter(j => j.state === 'scheduled');
+    if (scheduledJobs.length > 1) {
+      for (const job of scheduledJobs) {
+        const clone = Object.assign({}, customer);
+        clone.scheduledStatus = _d1BuildScheduledStatus([job]);
+        const jobProp = propById[job.propertyId];
+        if (jobProp) {
+          clone.address = jobProp.streetAddress || customer.address;
+          clone.city    = jobProp.city           || customer.city;
+        }
+        clone._virtualKey = ph + '#' + (job.propertyId || 'noprop');
+        customers.push(clone);
+      }
+    } else {
+      customers.push(customer);
+    }
   }
   return { customers };
 }

@@ -2852,7 +2852,7 @@ function jobCardScheduled(c) {
   const svcLine  = _svcRaw
     ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || 1) : null; const _storyBadge = _stories ? `<span class="story-badge">${_stories}-story</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
     : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" onclick="toggleJobCard(this)">
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c._virtualKey || c.phone}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
@@ -3189,8 +3189,8 @@ function getUnassignedJobs(date) {
   });
 }
 
-function findCustomer(phone) {
-  return (dbRecord.customers||[]).find(c=>c.phone===phone);
+function findCustomer(key) {
+  return (dbRecord.customers||[]).find(c => c._virtualKey === key || c.phone === key);
 }
 
 function _normalizeRig(raw) {
@@ -3205,7 +3205,10 @@ function _normalizeRig(raw) {
 // Returns [{customer, jhEntry}] for completed jobHistory entries NOT already represented by scheduledStatus.
 function getExtraCompletedJobsForRig(date, rig) {
   const result = [];
+  const seenPhones = new Set(); // dedup virtual fan-out clones — process jh once per phone
   for (const c of (dbRecord.customers || [])) {
+    if (seenPhones.has(c.phone)) continue;
+    seenPhones.add(c.phone);
     const jh = c.jobHistory || [];
     const ssRig = _normalizeRig(c.scheduledStatus?.rig);
     const ss = c.scheduledStatus;
