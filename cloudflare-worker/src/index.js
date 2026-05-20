@@ -895,6 +895,13 @@ export default {
                            geocodedAt: geo.geocodedAt };
             if (geo.confidence === 'low') c.needsAddressVerification = true;
             await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+            // D1 Property dual-write: update lat/lng/geocodeSource
+            try {
+              const ph10 = norm(phone);
+              await env.DB.prepare(
+                `UPDATE Property SET latitude=?, longitude=?, geocodeSource=?, modifiedAt=? WHERE propertyId IN (SELECT propertyId FROM PersonProperty WHERE personId=?)`
+              ).bind(geo.lat, geo.lng, geo.source||null, new Date().toISOString(), 'person_1'+ph10).run();
+            } catch(e) { await _logD1Failure(env, 'geocode_property_update', e.message); }
           }
         }
         return jsonResponse({ success: true, ...geo }, corsHeaders);
@@ -2819,9 +2826,12 @@ async function _d1SyncNewCustomer(c, env, now) {
   // Property INSERT OR IGNORE
   if (c.address) {
     const propId = _d1PropId(c.address, c.city||'');
+    const lat    = c.coordinates?.lat || c.geocoded?.lat || null;
+    const lng    = c.coordinates?.lng || c.geocoded?.lng || null;
+    const geoSrc = c.geocodeSource || c.coordinates?.source || null;
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,zip,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(propId, c.address, c.city||'', 'FL', c.zip||null, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+      `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,zip,latitude,longitude,geocodeSource,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(propId, c.address, c.city||'', 'FL', c.zip||null, lat, lng, geoSrc, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
 
     // PersonProperty INSERT OR IGNORE
     await env.DB.prepare(
@@ -2863,11 +2873,13 @@ async function _d1SyncScheduledJob(c, env, now) {
   const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
   const jobId  = _d1ScheduledJobId(personId, ss.scheduledDate);
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRaw,rigId,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     jobId, personId, propId, ss.scheduledDate, 'scheduled',
-    ss.approvedAmount||0, ss.jobNotes||null, ss.rig||null, 'phone_quote',
-    now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
+    ss.approvedAmount||0, ss.jobNotes||null, ss.rig||null,
+    ss.actualDuration||null, ss.actualArrival||null, ss.actualDeparture||null,
+    ss.durationConfidence||ss.bouncieMatchStatus||null, null, ss.geocodeSource||null,
+    'phone_quote', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
   ).run();
 }
 
@@ -3933,6 +3945,7 @@ async function bouncieJobDurationMatcher(date, env) {
   }
 
   const results = [];
+  const d1BouncieUpdates = []; // D1 dual-write: Job rows to UPDATE after KV PUT
   let matched = 0;
 
   for (const customer of completedToday) {
@@ -4066,10 +4079,36 @@ async function bouncieJobDurationMatcher(date, env) {
       rigsPresent:  rigsWithinThreshold,
       ...(isMedium && !isHigh ? { note: `Medium confidence — GPS within 500 ft but > 250 ft. Operator confirmation recommended.` } : {}),
     });
+    // Accumulate for D1 dual-write after KV PUT
+    d1BouncieUpdates.push({
+      phone:              customer.phone,
+      scheduledDate:      ss.scheduledDate,
+      actualDuration:     bestMatch.durationMin,
+      actualArrival:      bestMatch.arrivalTs  || null,
+      actualDeparture:    bestMatch.departureTs || null,
+      bouncieMatchStatus: matchStatus,
+      geocodeSource:      geocodeSource         || null,
+    });
     matched++;
   }
 
-  if (matched > 0) await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  if (matched > 0) {
+    await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+    // D1 Job dual-write: update Bouncie fields for each matched customer
+    const now = new Date().toISOString();
+    for (const upd of d1BouncieUpdates) {
+      try {
+        const ph10 = (upd.phone||'').replace(/\D/g,'').slice(-10);
+        await env.DB.prepare(
+          `UPDATE Job SET actualDuration=?, actualArrival=?, actualDeparture=?, bouncieMatchStatus=?, bouncieMatchConfidence=NULL, geocodeSource=?, modifiedAt=? WHERE payerId=? AND scheduledDate=? AND state='completed'`
+        ).bind(
+          upd.actualDuration, upd.actualArrival, upd.actualDeparture,
+          upd.bouncieMatchStatus, upd.geocodeSource, now,
+          'person_1' + ph10, upd.scheduledDate
+        ).run();
+      } catch(e) { await _logD1Failure(env, `bouncie_job_update:${upd.phone}`, e.message); }
+    }
+  }
 
   // ── Morning stop validation ────────────────────────────────────────────────
   const morningStops = {};
