@@ -2381,25 +2381,27 @@ async function handleMigrateReviewStates(env, corsHeaders) {
 
 // ── Phase 4: D1 → legacy KV shape compatibility layer ────────────────────────
 // Converts D1 rows to the KV customer object shape the UI expects.
-// KV-only fields (bouncieMetrics, geocoded, etc.) return null until
-// those fields are promoted to D1 in subsequent sessions.
 
 function _d1JobToJhEntry(j, city, addr) {
   return {
-    jobId:         j.jobId,
-    date:          j.scheduledDate || null,
-    services:      j.servicesRaw  || '',
-    amount:        j.amount       || 0,
-    rig:           j.rigId        || null,
-    rigId:         j.rigId        || null,
+    jobId:              j.jobId,
+    date:               j.scheduledDate   || null,
+    services:           j.servicesRaw     || '',
+    amount:             j.amount          || 0,
+    rig:                j.rigId           || null,
+    rigId:              j.rigId           || null,
     city,
-    address:       addr,
-    status:        j.state === 'completed' ? 'completed' : j.state,
-    completedAt:   j.completedAt  || null,
-    crew:          [],
-    source:        (j.source||'').startsWith('csv_backfill') ? 'csv_backfill' : (j.source || 'calendar_completion'),
-    paymentMethod: j.paymentMethod || null,
-    paidAt:        j.paidAt       || null,
+    address:            addr,
+    status:             j.state === 'completed' ? 'completed' : j.state,
+    completedAt:        j.completedAt     || null,
+    crew:               [],
+    source:             (j.source||'').startsWith('csv_backfill') ? 'csv_backfill' : (j.source || 'calendar_completion'),
+    paymentMethod:      j.paymentMethod   || null,
+    paidAt:             j.paidAt          || null,
+    actualDuration:     j.actualDuration  || null,
+    actualArrival:      j.actualArrival   || null,
+    actualDeparture:    j.actualDeparture || null,
+    bouncieMatchStatus: j.bouncieMatchStatus || null,
   };
 }
 
@@ -2417,19 +2419,25 @@ function _d1BuildScheduledStatus(personJobs) {
            || personJobs.find(j => j.state === 'scheduled')
            || personJobs[0];
   return {
-    state:          ss.state,
-    scheduledDate:  ss.scheduledDate  || null,
-    rig:            ss.rigId          || null,
-    approvedAmount: ss.amount         || 0,
-    jobNotes:       ss.servicesRaw    || '',
-    completedAt:    ss.completedAt    || null,
-    completedDate:  ss.completedAt    ? ss.completedAt.slice(0,10) : null,
-    paymentStatus:  ss.paymentStatus  || 'unpaid',
-    paymentMethod:  ss.paymentMethod  || null,
-    paidAt:         ss.paidAt         || null,
-    crew:           [],
-    source:         ss.source         || null,
-    window:         null,
+    state:               ss.state,
+    scheduledDate:       ss.scheduledDate  || null,
+    rig:                 ss.rigId          || null,
+    approvedAmount:      ss.amount         || 0,
+    jobNotes:            ss.servicesRaw    || '',
+    completedAt:         ss.completedAt    || null,
+    completedDate:       ss.completedAt    ? ss.completedAt.slice(0,10) : null,
+    paymentStatus:       ss.paymentStatus  || 'unpaid',
+    paymentMethod:       ss.paymentMethod  || null,
+    paidAt:              ss.paidAt         || null,
+    crew:                [],
+    source:              ss.source         || null,
+    window:              null,
+    actualDuration:      ss.actualDuration      || null,
+    actualArrival:       ss.actualArrival       || null,
+    actualDeparture:     ss.actualDeparture     || null,
+    durationConfidence:  ss.bouncieMatchStatus  || null,
+    bouncieMatchStatus:  ss.bouncieMatchStatus  || null,
+    geocodeSource:       ss.geocodeSource       || null,
   };
 }
 
@@ -2468,9 +2476,17 @@ function _d1PersonToKv(p, props, pjobs) {
     lastService,
     jobHistory,
     scheduledStatus:        _d1BuildScheduledStatus(pjobs),
-    geocoded:               null,
-    coordinates:            null,
-    bouncieMetrics:         null,
+    geocoded:               (primaryProp.latitude && primaryProp.longitude)
+                              ? { lat: primaryProp.latitude, lng: primaryProp.longitude,
+                                  formattedAddress: addr, geocodedAt: null,
+                                  source: primaryProp.geocodeSource || null }
+                              : null,
+    coordinates:            (primaryProp.latitude && primaryProp.longitude)
+                              ? { lat: primaryProp.latitude, lng: primaryProp.longitude,
+                                  source: primaryProp.geocodeSource || null }
+                              : null,
+    geocodeSource:          primaryProp.geocodeSource || null,
+    bouncieMetrics:         null, // populated by computeBouncieMetrics() after construction
     reviewQueue:            null,
     quoteStatus:            null,
     neverAskReview:         false,
@@ -2479,58 +2495,20 @@ function _d1PersonToKv(p, props, pjobs) {
 }
 
 async function d1AllCustomersToKvShape(env) {
-  // TEMP: KV coord bridge — remove after geocode backfill (Phase 4B+)
-  const [persons, propLinks, jobs, kvDb] = await Promise.all([
+  const [persons, propLinks, jobs] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT pp.personId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip ' +
+      'SELECT pp.personId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
+      'p.latitude, p.longitude, p.geocodeSource ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
     ).all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT jobId,payerId,scheduledDate,state,completedAt,amount,' +
-      'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source ' +
+      'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
+      'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
-    env.DATA.get('customer_db', 'json').catch(() => null),
   ]);
-
-  // TEMP: KV bridge — merge GPS/Bouncie/coord fields absent from D1 schema.
-  // Covers: geocoded, coordinates, geocodeSource, bouncieMetrics,
-  //   scheduledStatus Bouncie fields, jobHistory entry Bouncie fields.
-  // Remove after D1 schema gains Bouncie columns + geocode backfill completes.
-  const kvDataMap = {};
-  if (kvDb && Array.isArray(kvDb.customers)) {
-    const normPh = p => (p||'').replace(/\D/g,'').slice(-10);
-    for (const c of kvDb.customers) {
-      const ph = normPh(c.phone);
-      if (!ph || ph.length !== 10) continue;
-      const ss = c.scheduledStatus || {};
-      // Index KV jh entries by completion date so we can merge Bouncie fields
-      // into D1-reconstructed jh entries. D1 jh.completedAt[:10] == KV jh.date.
-      const kvJhByDate = {};
-      for (const jh of (c.jobHistory || [])) {
-        if (!jh) continue;
-        const d = (jh.date || '').slice(0, 10);
-        if (d) kvJhByDate[d] = jh;
-      }
-      kvDataMap[ph] = {
-        coordinates:    c.coordinates    || null,
-        geocoded:       c.geocoded        || null,
-        geocodeSource:  c.geocodeSource   || null,
-        bouncieMetrics: c.bouncieMetrics  || null,
-        ss: {
-          actualDuration:         ss.actualDuration         || null,
-          actualArrival:          ss.actualArrival          || null,
-          actualDeparture:        ss.actualDeparture        || null,
-          bouncieMatchStatus:     ss.bouncieMatchStatus     || null,
-          bouncieMatchConfidence: ss.bouncieMatchConfidence || null,
-          geocodeSource:          ss.geocodeSource          || null,
-        },
-        kvJhByDate,
-      };
-    }
-  }
-  // END TEMP
 
   // Index by personId
   const propsByPerson = {};
@@ -2553,34 +2531,7 @@ async function d1AllCustomersToKvShape(env) {
       propsByPerson[p.personId] || [],
       jobsByPayer[p.personId]   || [],
     );
-    // TEMP: merge KV-only fields — remove after D1 schema adds Bouncie columns
-    const kv = kvDataMap[ph];
-    if (kv) {
-      if (kv.coordinates)    customer.coordinates    = kv.coordinates;
-      if (kv.geocoded)       customer.geocoded        = kv.geocoded;
-      if (kv.geocodeSource)  customer.geocodeSource   = kv.geocodeSource;
-      if (kv.bouncieMetrics) customer.bouncieMetrics  = kv.bouncieMetrics;
-      if (customer.scheduledStatus) {
-        const s = kv.ss;
-        if (s.actualDuration)         customer.scheduledStatus.actualDuration         = s.actualDuration;
-        if (s.actualArrival)          customer.scheduledStatus.actualArrival          = s.actualArrival;
-        if (s.actualDeparture)        customer.scheduledStatus.actualDeparture        = s.actualDeparture;
-        if (s.bouncieMatchStatus)     customer.scheduledStatus.bouncieMatchStatus     = s.bouncieMatchStatus;
-        if (s.bouncieMatchConfidence) customer.scheduledStatus.bouncieMatchConfidence = s.bouncieMatchConfidence;
-        if (s.geocodeSource)          customer.scheduledStatus.geocodeSource          = s.geocodeSource;
-      }
-      // Bridge jh Bouncie data: D1 jh.completedAt[:10] matches KV jh.date
-      for (const jhEntry of (customer.jobHistory || [])) {
-        if (!jhEntry.completedAt) continue;
-        const kvJh = kv.kvJhByDate[jhEntry.completedAt.slice(0, 10)];
-        if (!kvJh) continue;
-        if (kvJh.actualDuration)     jhEntry.actualDuration     = kvJh.actualDuration;
-        if (kvJh.actualArrival)      jhEntry.actualArrival      = kvJh.actualArrival;
-        if (kvJh.actualDeparture)    jhEntry.actualDeparture    = kvJh.actualDeparture;
-        if (kvJh.bouncieMatchStatus) jhEntry.bouncieMatchStatus = kvJh.bouncieMatchStatus;
-      }
-    }
-    // END TEMP
+    computeBouncieMetrics(customer);
     customers.push(customer);
   }
   return { customers };
@@ -2594,57 +2545,21 @@ async function d1CustomerToKvShape(phone, env) {
   const [personRow, propLinks, pjobs] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
     env.DB.prepare(
-      'SELECT pp.primaryContact, p.streetAddress, p.city, p.state, p.zip ' +
+      'SELECT pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
+      'p.latitude, p.longitude, p.geocodeSource ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT jobId,payerId,scheduledDate,state,completedAt,amount,' +
-      'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source ' +
+      'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
+      'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
   ]);
 
   if (!personRow) return null;
   const customer = _d1PersonToKv(personRow, propLinks, pjobs);
-
-  // TEMP: KV bridge for GPS/Bouncie/coord fields absent from D1 schema
-  // Remove after D1 schema adds Bouncie columns + geocode backfill completes.
-  const kvDb = await env.DATA.get('customer_db', 'json').catch(() => null);
-  if (kvDb && Array.isArray(kvDb.customers)) {
-    const kvC = kvDb.customers.find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
-    if (kvC) {
-      const ss = kvC.scheduledStatus || {};
-      if (kvC.coordinates)    customer.coordinates    = kvC.coordinates;
-      if (kvC.geocoded)       customer.geocoded        = kvC.geocoded;
-      if (kvC.geocodeSource)  customer.geocodeSource   = kvC.geocodeSource;
-      if (kvC.bouncieMetrics) customer.bouncieMetrics  = kvC.bouncieMetrics;
-      if (customer.scheduledStatus) {
-        if (ss.actualDuration)         customer.scheduledStatus.actualDuration         = ss.actualDuration;
-        if (ss.actualArrival)          customer.scheduledStatus.actualArrival          = ss.actualArrival;
-        if (ss.actualDeparture)        customer.scheduledStatus.actualDeparture        = ss.actualDeparture;
-        if (ss.bouncieMatchStatus)     customer.scheduledStatus.bouncieMatchStatus     = ss.bouncieMatchStatus;
-        if (ss.bouncieMatchConfidence) customer.scheduledStatus.bouncieMatchConfidence = ss.bouncieMatchConfidence;
-        if (ss.geocodeSource)          customer.scheduledStatus.geocodeSource          = ss.geocodeSource;
-      }
-      const kvJhByDate = {};
-      for (const jh of (kvC.jobHistory || [])) {
-        if (!jh) continue;
-        const d = (jh.date || '').slice(0, 10);
-        if (d) kvJhByDate[d] = jh;
-      }
-      for (const jhEntry of (customer.jobHistory || [])) {
-        if (!jhEntry.completedAt) continue;
-        const kvJh = kvJhByDate[jhEntry.completedAt.slice(0, 10)];
-        if (!kvJh) continue;
-        if (kvJh.actualDuration)     jhEntry.actualDuration     = kvJh.actualDuration;
-        if (kvJh.actualArrival)      jhEntry.actualArrival      = kvJh.actualArrival;
-        if (kvJh.actualDeparture)    jhEntry.actualDeparture    = kvJh.actualDeparture;
-        if (kvJh.bouncieMatchStatus) jhEntry.bouncieMatchStatus = kvJh.bouncieMatchStatus;
-      }
-    }
-  }
-  // END TEMP
-
+  computeBouncieMetrics(customer);
   return customer;
 }
 
