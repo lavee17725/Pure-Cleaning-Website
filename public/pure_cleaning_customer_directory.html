@@ -116,6 +116,8 @@ td.muted{color:var(--muted);}
 }
 @media(min-width:641px){.card-list{display:none;}}
 @media(max-width:700px){.col-avg-time{display:none!important;}}
+.rev-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:1px 6px;border-radius:7px;margin-left:5px;vertical-align:middle;line-height:1.4;}
+.rev-b5{background:rgba(29,158,117,.15);color:#1d9e75;}.rev-b4{background:rgba(245,158,11,.15);color:#d97706;}.rev-blow{background:rgba(220,38,38,.15);color:#dc2626;}
 </style>
 </head>
 <body>
@@ -269,8 +271,13 @@ function isSealingProspect(c){
 // ── Data Loading ──────────────────────────────────────────────────────────────
 async function init(){
   try{
-    const res=await fetch(`${API}/customers`);
+    const [res, rsRes]=await Promise.all([
+      fetch(`${API}/customers`),
+      fetch(`${API}/admin/review-states`).catch(()=>null),
+    ]);
     const data=await res.json();
+    const reviewStates=rsRes&&rsRes.ok ? (await rsRes.json()) : {};
+    const normPh=p=>(p||'').replace(/\D/g,'').slice(-10);
     const raw=(data.customers||[]).filter(c=>!c.deleted);
     allCustomers=raw.map(c=>{
       const tier=getTier(c);
@@ -290,6 +297,7 @@ async function init(){
         totalJobs:c.totalJobs||0,
         lifetimeSpend:c.lifetimeSpend||0,
         ..._computeAvgTPW(c),
+        _reviewState: reviewStates[normPh(c.phone)] || null,
       };
     });
     document.getElementById('loadingState').style.display='none';
@@ -532,6 +540,15 @@ function statusBadge(c){
   return'<span style="font-size:11px;color:var(--muted);">Active</span>';
 }
 
+function reviewBadge(c){
+  const rs=c._reviewState;
+  if(!rs||rs.status!=='left')return'';
+  const n=rs.starRating;
+  if(!n)return`<span class="rev-badge rev-b5">⭐ reviewed</span>`;
+  const cls=n>=5?'rev-b5':n>=4?'rev-b4':'rev-blow';
+  return`<span class="rev-badge ${cls}">⭐ ${n}★</span>`;
+}
+
 function flagIcons(c){
   let f='';
   if(c.hasComplaints)f+='🚨';
@@ -547,7 +564,7 @@ function buildRow(c){
     ?`<span class="tier-chip" style="background:${c._tierColor};" title="Filter by ${c._tier}" onclick="event.stopPropagation();filterByTier('${_tfk}')">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`
     :`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr onclick="navProfile('${ph}')">
-    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}</td>
+    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}</td>
     <td>${_tchip}</td>
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted">${esc(c.city||'—')}</td>
@@ -568,7 +585,7 @@ function buildCard(c){
   return `<div class="cust-card" onclick="navProfile('${ph}')">
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};cursor:${_tfkc?'pointer':'default'};" ${_badgeClick}>${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
-      <div class="cust-card-name">${esc(name)}${flagIcons(c)}</div>
+      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}</div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${fmtPh(c.phone)}</div>
       ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}

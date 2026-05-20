@@ -65,7 +65,7 @@ const DEFAULT_ADDONS_CONFIG = {
 // ── Backup helpers ────────────────────────────────────────────────────────
 
 const BACKUP_KV_KEYS = ['customer_db', 'incoming_requests', 'bouncie:rig_mapping',
-                        'reviews_data', 'service_frequency', 'addons_config', 'tasks_db', 'blocked_weeks'];
+                        'reviews_data', 'review_states', 'service_frequency', 'addons_config', 'tasks_db', 'blocked_weeks'];
 
 async function collectAllKVKeys(env) {
   const data = {};
@@ -731,6 +731,12 @@ export default {
         const tid = path.slice('admin/reviews/template/'.length);
         return await handleReviewsDeleteTemplate(env, tid, corsHeaders);
       }
+
+      if (path === 'admin/review-states' && request.method === 'GET')
+        return jsonResponse(await env.DATA.get('review_states', 'json') || {}, corsHeaders);
+
+      if (path === 'admin/migrate-review-states' && request.method === 'POST')
+        return await handleMigrateReviewStates(env, corsHeaders);
 
       // ── Customer review actions ───────────────────────────────────────────────
       if (path.startsWith('customer/')) {
@@ -2009,13 +2015,14 @@ const DEFAULT_TEMPLATES = [
 const REVIEW_ELIGIBLE_CUTOFF    = '2026-05-01';
 const NO_RESPONSE_REASK_DAYS    = 30;
 
-function reviewIsReadyToRequest(c, nowIso, sevenDaysAgo, thirtyDaysAgo) {
+function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
+  // rs = review state from review_states[phone] (never from customer_db)
   if (c.deleted) return false;
-  if (c.isReferralOnly) return false;                              // referral source markers, not real customers
-  if (c.optOut) return false;                                      // customer opted out of outreach
-  if ((c.phone || '').startsWith('REFERRAL_')) return false;       // placeholder phone = referral-only record
-  if (c.neverAskReview === true) return false;                     // permanent per-person exclusion
-  const gr = c.googleReview || {};
+  if (c.isReferralOnly) return false;
+  if (c.optOut) return false;
+  if ((c.phone || '').startsWith('REFERRAL_')) return false;
+  if (c.neverAskReview === true) return false;
+  const gr = rs || {};
   const st = gr.status || 'never_asked';
   if (st === 'left' || st === 'do_not_ask') return false;
   if (st === 'asked') return false;
@@ -2061,24 +2068,39 @@ function reviewJobDate(c) {
 }
 
 async function handleReviewsHub(env, corsHeaders) {
-  const [db, templates, actualCountRaw] = await Promise.all([
+  const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+  const [db, states, templates, actualCountRaw] = await Promise.all([
     env.DATA.get(KV_KEYS.customers, 'json').then(d => d || { customers: [] }),
+    env.DATA.get('review_states', 'json').then(d => d || {}),
     env.DATA.get('reviews_templates', 'json'),
     env.DATA.get('reviews_actual_count', 'json'),
   ]);
 
-  const tpls      = templates || DEFAULT_TEMPLATES;
+  const tpls        = templates || DEFAULT_TEMPLATES;
   const actualCount = actualCountRaw || { count: 92, lastUpdatedAt: null, updatedBy: null, history: [] };
-  const customers = (db.customers || []).filter(c => !c.deleted);
+  const customers   = (db.customers || []).filter(c => !c.deleted);
 
-  const now        = new Date();
-  const nowIso     = now.toISOString();
-  const sevenDays  = new Date(now - 4  * 86400000).toISOString().slice(0, 10); // 4-day review window
-  const thirtyDays = new Date(now - 30 * 86400000).toISOString();
-  const sixMonthsAgo = new Date(now - 180 * 86400000).toISOString();
+  const now            = new Date();
+  const nowIso         = now.toISOString();
+  const thirtyDays     = new Date(now - 30  * 86400000).toISOString();
   const thisMonthStart = now.toISOString().slice(0, 7) + '-01';
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
   const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
+
+  // ── Auto-tail-off: asked > 7 days with no action → no_response ───────────────
+  const SEVEN_DAYS_MS = 7 * 86400000;
+  let statesChanged = false;
+  for (const [phone, rs] of Object.entries(states)) {
+    if (rs.status === 'asked' && rs.askedAt) {
+      if (now.getTime() - new Date(rs.askedAt).getTime() >= SEVEN_DAYS_MS) {
+        rs.status        = 'no_response';
+        rs.noResponseAt  = nowIso;
+        rs.reaskEligibleAt = new Date(Date.now() + NO_RESPONSE_REASK_DAYS * 86400000).toISOString();
+        statesChanged = true;
+      }
+    }
+  }
+  if (statesChanged) await env.DATA.put('review_states', JSON.stringify(states));
 
   const readyToRequest = [], awaitingConfirmation = [], reviewed = [], wontAsk = [], permanentExclusions = [];
   let totalAsked = 0, thisMonthReviewed = 0, lastMonthReviewed = 0;
@@ -2086,8 +2108,10 @@ async function handleReviewsHub(env, corsHeaders) {
 
   for (const c of customers) {
     if (c.neverAskReview === true) { permanentExclusions.push(c); continue; }
-    const gr = c.googleReview || {};
+    const gr = states[norm(c.phone)] || {};
     const st = gr.status || 'never_asked';
+    // Attach review state to customer object so UI can read it without a second API call
+    c.googleReview = gr;
 
     if (st === 'left') {
       reviewed.push(c);
@@ -2106,12 +2130,11 @@ async function handleReviewsHub(env, corsHeaders) {
       awaitingConfirmation.push(c);
       totalAsked++;
       if (gr.templateUsedId) { byTemplate[gr.templateUsedId] = byTemplate[gr.templateUsedId] || { asked: 0, reviewed: 0 }; byTemplate[gr.templateUsedId].asked++; }
-    } else if (reviewIsReadyToRequest(c, nowIso, sevenDays, thirtyDays)) {
+    } else if (reviewIsReadyToRequest(c, gr, nowIso, thirtyDays)) {
       readyToRequest.push(c);
     }
   }
 
-  // Sort ready by most recent job date first, limit to 100
   readyToRequest.sort((a, b) => {
     const da = reviewJobDate(a) || ''; const db2 = reviewJobDate(b) || '';
     return db2.localeCompare(da);
@@ -2187,20 +2210,20 @@ async function handleReviewsDeleteTemplate(env, tid, corsHeaders) {
 
 async function handleReviewRequestSent(request, env, phone, corsHeaders) {
   const { templateUsedId = null, jobId = null } = await request.json().catch(() => ({}));
-  const norm = p => (p||'').replace(/\D/g,'').slice(-10);
-  const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-  const cust = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-  if (!cust) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
+  const norm  = p => (p||'').replace(/\D/g,'').slice(-10);
+  const key   = norm(phone);
+  const states = await env.DATA.get('review_states', 'json') || {};
+  const now   = new Date().toISOString();
+  const prev  = states[key] || {};
 
-  const now = new Date().toISOString();
-  cust.googleReview = {
-    ...(cust.googleReview || {}),
-    status: 'asked',
-    askedAt: cust.googleReview?.askedAt || now,
+  states[key] = {
+    ...prev,
+    status:            'asked',
+    askedAt:           prev.askedAt || now,
     lastRequestSentAt: now,
-    requestCount: ((cust.googleReview || {}).requestCount || 0) + 1,
-    templateUsedId: templateUsedId || cust.googleReview?.templateUsedId || null,
-    sourceJobId: jobId || cust.googleReview?.sourceJobId || null,
+    requestCount:      (prev.requestCount || 0) + 1,
+    templateUsedId:    templateUsedId || prev.templateUsedId || null,
+    sourceJobId:       jobId || prev.sourceJobId || null,
   };
 
   // Increment template usage
@@ -2212,8 +2235,8 @@ async function handleReviewRequestSent(request, env, phone, corsHeaders) {
     }
   }
 
-  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
-  return jsonResponse({ success: true, googleReview: cust.googleReview }, corsHeaders);
+  await env.DATA.put('review_states', JSON.stringify(states));
+  return jsonResponse({ success: true, googleReview: states[key] }, corsHeaders);
 }
 
 async function handleReviewStatus(request, env, phone, corsHeaders) {
@@ -2222,13 +2245,12 @@ async function handleReviewStatus(request, env, phone, corsHeaders) {
   const VALID = ['left','declined','do_not_ask','never_asked','asked','no_response'];
   if (!VALID.includes(status)) return jsonResponse({ error: 'Invalid status' }, corsHeaders, 400);
 
-  const norm = p => (p||'').replace(/\D/g,'').slice(-10);
-  const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-  const cust = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-  if (!cust) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
+  const norm   = p => (p||'').replace(/\D/g,'').slice(-10);
+  const key    = norm(phone);
+  const states = await env.DATA.get('review_states', 'json') || {};
+  const now    = new Date().toISOString();
+  const gr     = states[key] || {};
 
-  const now = new Date().toISOString();
-  const gr  = cust.googleReview || {};
   gr.status = status;
   if (status === 'left') {
     gr.leftAt = now;
@@ -2238,7 +2260,7 @@ async function handleReviewStatus(request, env, phone, corsHeaders) {
   if (status === 'do_not_ask')  { gr.doNotAskAt = now; }
   if (status === 'no_response') { gr.noResponseAt = now; gr.reaskEligibleAt = new Date(Date.now() + NO_RESPONSE_REASK_DAYS * 86400000).toISOString(); }
   if (noteAboutReview !== undefined) gr.noteAboutReview = noteAboutReview;
-  cust.googleReview = gr;
+  states[key] = gr;
 
   // Increment reviewsGenerated on template
   if (status === 'left' && gr.templateUsedId) {
@@ -2249,18 +2271,16 @@ async function handleReviewStatus(request, env, phone, corsHeaders) {
     }
   }
 
-  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
-  return jsonResponse({ success: true, googleReview: cust.googleReview }, corsHeaders);
+  await env.DATA.put('review_states', JSON.stringify(states));
+  return jsonResponse({ success: true, googleReview: gr }, corsHeaders);
 }
 
 async function handleAllowAskingAgain(env, phone, corsHeaders) {
-  const norm = p => (p||'').replace(/\D/g,'').slice(-10);
-  const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-  const cust = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-  if (!cust) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
-
-  cust.googleReview = { ...(cust.googleReview || {}), status: 'never_asked', reaskEligibleAt: null, doNotAskAt: null };
-  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  const norm   = p => (p||'').replace(/\D/g,'').slice(-10);
+  const key    = norm(phone);
+  const states = await env.DATA.get('review_states', 'json') || {};
+  states[key]  = { ...(states[key] || {}), status: 'never_asked', reaskEligibleAt: null, doNotAskAt: null };
+  await env.DATA.put('review_states', JSON.stringify(states));
   return jsonResponse({ success: true }, corsHeaders);
 }
 
@@ -2278,6 +2298,35 @@ async function handleNeverAskReview(env, phone, corsHeaders, set) {
   }
   await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
   return jsonResponse({ success: true, neverAskReview: set }, corsHeaders);
+}
+
+async function handleMigrateReviewStates(env, corsHeaders) {
+  const norm   = p => (p||'').replace(/\D/g,'').slice(-10);
+  const [db, existing] = await Promise.all([
+    env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] },
+    env.DATA.get('review_states', 'json').then(d => d || {}),
+  ]);
+  const customers = (db.customers || []).filter(Boolean);
+  let migrated = 0, skipped = 0, cleaned = 0;
+
+  for (const c of customers) {
+    if (!c.googleReview) continue;
+    const key = norm(c.phone);
+    if (!key) { skipped++; continue; }
+    // Only migrate if review_states doesn't already have a meaningful entry
+    if (!existing[key] || existing[key].status === 'never_asked') {
+      existing[key] = { ...c.googleReview };
+      migrated++;
+    } else {
+      skipped++;
+    }
+    delete c.googleReview;
+    cleaned++;
+  }
+
+  await env.DATA.put('review_states', JSON.stringify(existing));
+  if (cleaned > 0) await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  return jsonResponse({ success: true, migrated, skipped, cleaned, totalStates: Object.keys(existing).length }, corsHeaders);
 }
 
 // ── Customer soft-delete / restore / hard-delete ────────────────────────────

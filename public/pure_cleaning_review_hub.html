@@ -123,6 +123,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .note-input-wrap input{width:100%;padding:9px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;margin-bottom:6px;}
 .note-input-wrap input:focus{border-color:var(--green);}
 
+.review-badge-pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;margin-left:5px;vertical-align:middle;}
+.rb-5{background:rgba(29,158,117,.2);color:#34d399;}.rb-4{background:rgba(245,158,11,.2);color:#fbbf24;}.rb-low{background:rgba(220,38,38,.2);color:#fca5a5;}
+.star-picker-box{background:#0d1f35;border:1.5px solid var(--border);border-radius:10px;padding:.75rem 1rem;margin-top:.75rem;}
+.star-picker-box-lbl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:.5rem;}
+.star-picker-box-row{display:flex;align-items:flex-end;gap:.3rem;flex-wrap:wrap;}
 @media(max-width:600px){.stat-grid{grid-template-columns:1fr 1fr;}}
 </style>
 </head>
@@ -203,7 +208,7 @@ function updateBadges() {
   document.getElementById('badge-ready').textContent = hubData.readyToRequest.length + (hubData.readyTotal > 100 ? '+' : '');
   document.getElementById('badge-requested').textContent = hubData.awaitingConfirmation.length;
   document.getElementById('badge-reviewed').textContent = hubData.reviewed.length;
-  document.getElementById('badge-wontask').textContent = hubData.wontAsk.length;
+  document.getElementById('badge-wontask').textContent = (hubData.wontAsk.length) + ((hubData.permanentExclusions||[]).length);
 }
 
 let _currentTab = 'ready';
@@ -254,15 +259,16 @@ function getActiveTemplate() {
 }
 
 function fillTemplate(tpl, c) {
-  const svc  = jobService(c);
-  const jd   = jobDate(c);
+  const svc   = jobService(c);
+  const jd    = jobDate(c);
   const jdFmt = jd ? new Date(jd+'T12:00:00').toLocaleDateString('en-US',{weekday:'long'}) : 'recently';
   return (tpl.body || '')
-    .replace(/\{firstName\}/g, c.firstName || 'there')
-    .replace(/\{service\}/g, svc)
-    .replace(/\{jobDate\}/g, jdFmt)
+    .replace(/\{firstName\}/g,  c.firstName || 'there')
+    .replace(/\{service\}/g,    svc)
+    .replace(/\{city\}/g,       c.city || 'your area')
+    .replace(/\{jobDate\}/g,    jdFmt)
     .replace(/\{reviewLink\}/g, REVIEW_LINK)
-    .replace(/\{ownerName\}/g, 'Tony');
+    .replace(/\{ownerName\}/g,  'The Fumero Family');
 }
 
 let _toastTimer = null;
@@ -303,6 +309,9 @@ function renderReady() {
         <div class="card-meta">📞 ${fmtPhone(ph)} · 📋 ${esc(svc.slice(0,60))}${svc.length>60?'…':''} · 📅 ${completedLabel}</div>
         <div class="card-btns">
           <button class="btn btn-gold" onclick="sendReviewRequest('${ph}')">📱 Send Review Request</button>
+          <button class="btn" style="border:1px solid #22c55e;color:#22c55e;background:#fff;" onclick="showStarPicker('${ph}')">✓ Already Reviewed</button>
+          <button class="btn" style="border:1px solid #6b7280;color:#6b7280;background:#fff;" onclick="removeFromQueue('${ph}')">✕ Remove from queue</button>
+          <button class="btn" style="border:1px solid #ef4444;color:#ef4444;background:#fff;" onclick="neverAskReview('${ph}')">🚫 Never ask</button>
         </div>
       </div>`;
     }).join('');
@@ -321,10 +330,11 @@ async function sendReviewRequest(phone) {
 
   // Log to server
   try {
-    await fetch(`${API}/customer/${phone}/review-request-sent`, {
+    const res = await fetch(`${API}/customer/${phone}/review-request-sent`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ templateUsedId: tpl.id })
     });
+    if (!res.ok) { showToast(`⚠️ Server error ${res.status} — request may not have saved. Try again.`); return; }
     showToast(`📱 Request sent to ${c.firstName || customerName(c)}`);
     // Move card visually to "asked" state
     const card = document.getElementById(`ready-${phone}`);
@@ -334,7 +344,7 @@ async function sendReviewRequest(phone) {
     hubData.awaitingConfirmation.push(c);
     hubData.readyToRequest = hubData.readyToRequest.filter(x => customerPhone(x) !== phone);
     updateBadges();
-  } catch(e) { showToast('Error logging: ' + e.message); }
+  } catch(e) { showToast(`⚠️ Error logging request: ${e.message}`); }
 }
 
 // ── TAB 2: REQUESTED ─────────────────────────────────────────────────────────
@@ -349,26 +359,56 @@ function renderRequested() {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">📬</div><div class="empty-title">No pending requests since May 1, 2026</div><div style="font-size:13px;color:var(--muted);">After you send a review request, customers appear here.</div></div>`;
     return;
   }
+  const windowDaysLeft = (askedIso) => {
+    if (!askedIso) return 7;
+    return Math.max(0, 7 - Math.floor((Date.now() - new Date(askedIso).getTime()) / 86400000));
+  };
   el.innerHTML = `<div class="section-hdr">📬 Awaiting confirmation · ${customers.length} <span style="font-size:10px;font-weight:400;opacity:.6;">(since May 1, 2026)</span></div>` +
     customers.map(c => {
-      const ph   = customerPhone(c);
-      const name = customerName(c);
-      const gr   = c.googleReview || {};
-      const days = daysSince(gr.lastRequestSentAt || gr.askedAt);
-      const cls  = days <= 7 ? 'days-green' : days <= 14 ? 'days-yellow' : 'days-red';
-      const svc  = jobService(c);
-      const cardCls = days <= 7 ? '' : days <= 14 ? 'soon' : 'urgent';
+      const ph      = customerPhone(c);
+      const name    = customerName(c);
+      const gr      = c.googleReview || {};
+      const askedAt = gr.lastRequestSentAt || gr.askedAt;
+      const daysAgo = daysSince(askedAt);
+      const dLeft   = windowDaysLeft(askedAt);
+      const ageCls  = daysAgo <= 3 ? 'days-green' : daysAgo <= 5 ? 'days-yellow' : 'days-orange';
+      const wCls    = dLeft >= 4 ? 'days-green' : dLeft >= 2 ? 'days-yellow' : 'days-red';
+      const svc     = jobService(c);
+      const cardCls = daysAgo <= 5 ? '' : daysAgo <= 7 ? 'soon' : 'urgent';
       return `<div class="card ${cardCls}" id="req-${ph}">
-        <div class="card-name">${esc(name)} <span class="days-badge ${cls}">${days}d since request</span></div>
+        <div class="card-name">${esc(name)} <span class="days-badge ${ageCls}">${daysAgo}d ago</span> <span class="days-badge ${wCls}">⏱ ${dLeft}d left</span></div>
         <div class="card-meta">📞 ${fmtPhone(ph)} · ${esc(svc.slice(0,50))}${svc.length>50?'…':''}</div>
-        <div class="card-btns">
-          <button class="btn btn-green" onclick="updateStatus('${ph}','left')">⭐ Yes, they reviewed!</button>
-          <button class="btn btn-muted" onclick="updateStatus('${ph}','declined')">○ Didn't review</button>
+        <div class="card-btns" id="req-btns-${ph}">
+          <button class="btn btn-green" onclick="showReqStarPicker('${ph}','${esc(name)}')">⭐ Yes, they reviewed!</button>
+          <button class="btn btn-muted" onclick="updateStatus('${ph}','no_response')">💭 No response</button>
           <button class="btn btn-primary" onclick="sendReviewRequest('${ph}')">⏰ Ask again</button>
           <button class="btn btn-danger" onclick="updateStatus('${ph}','do_not_ask')">🚫 Don't ask anymore</button>
         </div>
+        <div class="note-input-wrap" id="req-star-${ph}"></div>
       </div>`;
     }).join('');
+}
+
+function showReqStarPicker(phone, name) {
+  const wrap = document.getElementById(`req-star-${phone}`);
+  const btns = document.getElementById(`req-btns-${phone}`);
+  if (!wrap) return;
+  wrap.classList.add('open');
+  wrap.innerHTML = `
+    <div class="star-picker-box">
+      <div class="star-picker-box-lbl">How many stars did ${esc(name)} leave?</div>
+      <div class="star-picker-box-row" id="req-srow-${phone}">
+        ${[1,2,3,4,5].map(n => {
+          const sz = 13 + n * 2;
+          return `<button class="btn btn-muted" data-n="${n}"
+            style="font-size:${sz}px;padding:.15rem .5rem;line-height:1.1;"
+            onmouseover="hoverStars('${phone}',${n},'req-srow-')"
+            onmouseout="resetStars('${phone}','req-srow-')"
+            onclick="submitStarRating('${phone}',${n},'requested')">${n}★</button>`;
+        }).join('')}
+      </div>
+      <button class="btn btn-muted" style="font-size:11px;margin-top:.5rem;" onclick="document.getElementById('req-star-${phone}').classList.remove('open');document.getElementById('req-star-${phone}').innerHTML='';">✕ Cancel</button>
+    </div>`;
 }
 
 // ── TAB 3: REVIEWED ───────────────────────────────────────────────────────────
@@ -384,20 +424,27 @@ function renderReviewed() {
   }
   el.innerHTML = `<div class="section-hdr">⭐ ${customers.length} reviews tracked since May 1, 2026 · Nice work!</div>` +
     customers.map(c => {
-      const ph   = customerPhone(c);
-      const name = customerName(c);
-      const gr   = c.googleReview || {};
+      const ph      = customerPhone(c);
+      const name    = customerName(c);
+      const gr      = c.googleReview || {};
       const leftFmt = gr.leftAt ? fmtDate(gr.leftAt) : '—';
-      const note = gr.noteAboutReview;
+      const note    = gr.noteAboutReview;
+      const stars   = gr.starRating;
+      const starBar = stars
+        ? `<div style="font-size:20px;color:#f59e0b;margin-bottom:.25rem;line-height:1;">${'★'.repeat(stars)}${'☆'.repeat(5-stars)} <span style="font-size:13px;color:var(--muted);vertical-align:middle;">(${stars} star${stars!==1?'s':''})</span></div>`
+        : `<div style="font-size:12px;color:var(--muted);margin-bottom:.25rem;font-style:italic;">No rating captured</div>`;
       return `<div class="card reviewed" id="rev-${ph}">
         <div class="card-name">⭐ ${esc(name)}</div>
         <div class="card-meta">📞 ${fmtPhone(ph)} · Reviewed ${leftFmt}${c.city?' · '+esc(c.city):''}</div>
+        ${starBar}
         ${note ? `<div style="font-size:12px;color:#5de0b3;margin-bottom:.5rem;font-style:italic;">"${esc(note)}"</div>` : ''}
-        <div class="card-btns">
-          <button class="btn btn-muted" onclick="toggleNoteInput('${ph}')">✏️ ${note ? 'Edit note' : 'Add note'}</button>
+        <div class="card-btns" id="rev-btns-${ph}">
+          <button class="btn btn-muted" onclick="showStarPicker('${ph}','reviewed')">✏️ Edit rating</button>
+          <button class="btn btn-muted" onclick="toggleNoteInput('${ph}')">📝 ${note ? 'Edit note' : 'Add note'}</button>
+          <button class="btn" style="border:1px solid #6b7280;color:#6b7280;background:#fff;" onclick="unmarkReviewed('${ph}')">↩️ Mark not reviewed</button>
         </div>
         <div class="note-input-wrap" id="note-wrap-${ph}">
-          <input type="text" id="note-input-${ph}" placeholder="e.g. Mentioned Tony by name…" value="${esc(note||'')}">
+          <input type="text" id="note-input-${ph}" placeholder="e.g. Left a 5-star review, mentioned the driveway…" value="${esc(note||'')}">
           <button class="btn btn-green" onclick="saveReviewNote('${ph}')">Save note</button>
         </div>
       </div>`;
@@ -427,14 +474,52 @@ async function saveReviewNote(phone) {
 // ── TAB 4: WON'T ASK ─────────────────────────────────────────────────────────
 function renderWontAsk() {
   const el = document.getElementById('wontask-content');
-  const customers = hubData.wontAsk;
-  if (!customers.length) {
+  const perms  = hubData.permanentExclusions || [];
+  const skipped = hubData.wontAsk || [];
+
+  if (!perms.length && !skipped.length) {
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">🚫</div><div class="empty-title">No exclusions yet</div></div>`;
     return;
   }
-  const LABELS = { do_not_ask: "Don't ask (Tyler's call)", declined: 'Declined / no response' };
-  el.innerHTML = `<div class="section-hdr">🚫 Won't ask · ${customers.length}</div>` +
-    customers.map(c => {
+
+  const noResp = skipped.filter(c => (c.googleReview||{}).status === 'no_response');
+  const others  = skipped.filter(c => (c.googleReview||{}).status !== 'no_response');
+  const LABELS = { do_not_ask: "Removed from queue (Tyler's call)", declined: 'Declined / no response' };
+
+  const permHtml = perms.length ? `
+    <div class="section-hdr" style="color:#ef4444;">🚫 Permanent exclusions · ${perms.length}</div>` +
+    perms.map(c => {
+      const ph   = customerPhone(c);
+      const name = customerName(c);
+      const setAt = c.neverAskReviewAt ? fmtDate(c.neverAskReviewAt.slice(0,10)) : null;
+      return `<div class="card" style="border-color:rgba(239,68,68,.3);">
+        <div class="card-name">${esc(name)}</div>
+        <div class="card-meta">📞 ${fmtPhone(ph)} · Never ask${setAt ? ' · Set ' + setAt : ''}</div>
+        <div class="card-btns">
+          <button class="btn btn-muted" onclick="clearNeverAsk('${ph}')">↩️ Allow asking again (clear permanent exclusion)</button>
+        </div>
+      </div>`;
+    }).join('') : '';
+
+  const noRespHtml = noResp.length ? `
+    <div class="section-hdr" style="margin-top:${perms.length ? '1.25rem' : '0'};">💭 Awaiting re-ask eligibility · ${noResp.length}</div>` +
+    noResp.map(c => {
+      const ph = customerPhone(c);
+      const name = customerName(c);
+      const gr = c.googleReview || {};
+      const eligibleAt = gr.reaskEligibleAt ? fmtDate(gr.reaskEligibleAt.slice(0,10)) : null;
+      return `<div class="card" style="border-color:rgba(107,114,128,.3);">
+        <div class="card-name">${esc(name)}</div>
+        <div class="card-meta">📞 ${fmtPhone(ph)} · Did not review${eligibleAt ? ' · Re-ask eligible ' + eligibleAt : ''}</div>
+        <div class="card-btns">
+          <button class="btn btn-muted" onclick="allowAskingAgain('${ph}')">↩️ Allow asking again now</button>
+        </div>
+      </div>`;
+    }).join('') : '';
+
+  const skipHtml = others.length ? `
+    <div class="section-hdr" style="margin-top:${(perms.length || noResp.length) ? '1.25rem' : '0'};">🚫 Won't ask · ${others.length}</div>` +
+    others.map(c => {
       const ph   = customerPhone(c);
       const name = customerName(c);
       const gr   = c.googleReview || {};
@@ -447,7 +532,9 @@ function renderWontAsk() {
           <button class="btn btn-muted" onclick="allowAskingAgain('${ph}')">↩️ Allow asking again</button>
         </div>
       </div>`;
-    }).join('');
+    }).join('') : '';
+
+  el.innerHTML = permHtml + noRespHtml + skipHtml;
 }
 
 // ── STATUS UPDATES ────────────────────────────────────────────────────────────
@@ -457,7 +544,7 @@ async function updateStatus(phone, status) {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ status })
     });
-    const MSGS = { left: '⭐ Marked as reviewed — thank you!', declined: '○ Marked as declined — 6-month re-ask cooldown set', do_not_ask: '🚫 Marked do not ask' };
+    const MSGS = { left: '⭐ Marked as reviewed — thank you!', declined: '○ Marked as declined — 6-month re-ask cooldown set', do_not_ask: '🚫 Marked do not ask', no_response: '💭 Marked as no response — re-ask in 30 days' };
     showToast(MSGS[status] || 'Status updated');
     // Update local data
     const list = hubData.awaitingConfirmation;
@@ -466,9 +553,10 @@ async function updateStatus(phone, status) {
       const c = list.splice(idx, 1)[0];
       c.googleReview = c.googleReview || {};
       c.googleReview.status = status;
-      if (status === 'left')     { c.googleReview.leftAt = new Date().toISOString(); hubData.reviewed.push(c); }
-      if (status === 'declined') { c.googleReview.reaskEligibleAt = new Date(Date.now()+180*86400000).toISOString(); hubData.wontAsk.push(c); }
-      if (status === 'do_not_ask') { hubData.wontAsk.push(c); }
+      if (status === 'left')        { c.googleReview.leftAt = new Date().toISOString(); hubData.reviewed.push(c); }
+      if (status === 'declined')    { c.googleReview.reaskEligibleAt = new Date(Date.now()+180*86400000).toISOString(); hubData.wontAsk.push(c); }
+      if (status === 'do_not_ask')  { hubData.wontAsk.push(c); }
+      if (status === 'no_response') { c.googleReview.reaskEligibleAt = new Date(Date.now()+30*86400000).toISOString(); hubData.wontAsk.push(c); }
     }
     updateBadges();
     renderCurrentTab();
@@ -485,6 +573,160 @@ async function allowAskingAgain(phone) {
       hubData.readyToRequest.unshift(c);
     }
     showToast('↩️ Customer re-added to eligible pool');
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+function showStarPicker(phone, context) {
+  const cardId    = context === 'reviewed' ? `rev-${phone}` : `ready-${phone}`;
+  const cancelFn  = context === 'reviewed' ? 'renderReviewed()' : 'renderReady()';
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  const btns = card.querySelector('.card-btns');
+  const pid  = `star-picker-${phone}`;
+  btns.innerHTML =
+    `<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:.375rem;">How many stars did they give?</div>` +
+    `<div id="${pid}" style="display:flex;align-items:flex-end;gap:.3rem;">` +
+    [1,2,3,4,5].map(n => {
+      const sz = 13 + n * 2; // 15 17 19 21 23 px — grows left→right
+      return `<button class="btn" data-n="${n}"
+        style="font-size:${sz}px;padding:.15rem .4rem;border:1px solid #d1d5db;color:#9ca3af;background:#fff;line-height:1.1;font-weight:700;transition:all .1s;"
+        onmouseover="hoverStars('${phone}',${n})"
+        onmouseout="resetStars('${phone}')"
+        onclick="submitStarRating('${phone}',${n},'${context}')"
+        title="${n} star${n!==1?'s':''}">${n}★</button>`;
+    }).join('') +
+    `</div><button class="btn btn-muted" style="margin-top:.4rem;" onclick="${cancelFn}">Cancel</button>`;
+}
+
+function hoverStars(phone, n, prefix) {
+  const pid = prefix ? `${prefix}${phone}` : `star-picker-${phone}`;
+  const picker = document.getElementById(pid) || document.getElementById(`req-srow-${phone}`);
+  if (!picker) return;
+  picker.querySelectorAll('button[data-n]').forEach(btn => {
+    const on = parseInt(btn.dataset.n) <= n;
+    btn.style.color       = on ? '#f59e0b' : '';
+    btn.style.borderColor = on ? '#fbbf24' : '';
+    btn.style.background  = on ? 'rgba(245,158,11,.15)' : '';
+  });
+}
+
+function resetStars(phone, prefix) {
+  const pid = prefix ? `${prefix}${phone}` : `star-picker-${phone}`;
+  const picker = document.getElementById(pid) || document.getElementById(`req-srow-${phone}`);
+  if (!picker) return;
+  picker.querySelectorAll('button[data-n]').forEach(btn => {
+    btn.style.color = ''; btn.style.borderColor = ''; btn.style.background = '';
+  });
+}
+
+async function submitStarRating(phone, stars, context) {
+  try {
+    const res = await fetch(`${API}/customer/${phone}/review-status`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'left', starRating: stars })
+    });
+    if (!res.ok) { showToast(`⚠️ Server error ${res.status} — could not save rating`); return; }
+    if (context === 'reviewed') {
+      const c = hubData.reviewed.find(x => customerPhone(x) === phone);
+      if (c) c.googleReview = { ...(c.googleReview||{}), starRating: stars };
+      showToast(`⭐ Rating updated — ${stars} star${stars !== 1 ? 's' : ''}`);
+    } else if (context === 'requested') {
+      const idx = hubData.awaitingConfirmation.findIndex(x => customerPhone(x) === phone);
+      if (idx !== -1) {
+        const c = hubData.awaitingConfirmation.splice(idx, 1)[0];
+        c.googleReview = { ...(c.googleReview||{}), status: 'left', leftAt: new Date().toISOString(), starRating: stars };
+        hubData.reviewed.push(c);
+      }
+      showToast(`⭐ Marked as reviewed — ${stars} star${stars !== 1 ? 's' : ''}`);
+    } else {
+      const idx = hubData.readyToRequest.findIndex(x => customerPhone(x) === phone);
+      if (idx !== -1) {
+        const c = hubData.readyToRequest.splice(idx, 1)[0];
+        c.googleReview = { ...(c.googleReview||{}), status: 'left', leftAt: new Date().toISOString(), starRating: stars };
+        hubData.reviewed.push(c);
+      }
+      showToast(`⭐ Marked as reviewed — ${stars} star${stars !== 1 ? 's' : ''}`);
+    }
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast(`⚠️ Error: ${e.message}`); }
+}
+
+async function unmarkReviewed(phone) {
+  if (!confirm('Move this customer back to the review request queue?')) return;
+  try {
+    await fetch(`${API}/customer/${phone}/review-status`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'never_asked' })
+    });
+    const idx = hubData.reviewed.findIndex(x => customerPhone(x) === phone);
+    if (idx !== -1) {
+      const c = hubData.reviewed.splice(idx, 1)[0];
+      c.googleReview = { ...(c.googleReview||{}), status: 'never_asked' };
+      hubData.readyToRequest.unshift(c);
+    }
+    showToast('↩️ Moved back to review request queue');
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function removeFromQueue(phone) {
+  if (!confirm('Remove this customer from the review request queue? You can add them back later from the Won\'t Ask tab.')) return;
+  try {
+    await fetch(`${API}/customer/${phone}/review-status`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'do_not_ask' })
+    });
+    const idx = hubData.readyToRequest.findIndex(x => customerPhone(x) === phone);
+    if (idx !== -1) {
+      const c = hubData.readyToRequest.splice(idx, 1)[0];
+      c.googleReview = { ...(c.googleReview||{}), status: 'do_not_ask' };
+      hubData.wontAsk.push(c);
+    }
+    showToast('✕ Removed from queue');
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function neverAskReview(phone) {
+  if (!confirm('Never request a review from this customer? This permanently excludes them from the review queue across all current and future jobs. You can undo this from the Won\'t Ask tab.')) return;
+  try {
+    await fetch(`${API}/customer/${phone}/never-ask-review`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    });
+    const idx = hubData.readyToRequest.findIndex(x => customerPhone(x) === phone);
+    if (idx !== -1) {
+      const c = hubData.readyToRequest.splice(idx, 1)[0];
+      c.neverAskReview = true;
+      c.neverAskReviewAt = new Date().toISOString();
+      hubData.permanentExclusions = hubData.permanentExclusions || [];
+      hubData.permanentExclusions.push(c);
+    }
+    showToast('🚫 Permanently excluded from review queue');
+    updateBadges();
+    renderCurrentTab();
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function clearNeverAsk(phone) {
+  try {
+    await fetch(`${API}/customer/${phone}/clear-never-ask-review`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}
+    });
+    const perms = hubData.permanentExclusions || [];
+    const idx = perms.findIndex(x => customerPhone(x) === phone);
+    if (idx !== -1) {
+      const c = perms.splice(idx, 1)[0];
+      delete c.neverAskReview;
+      delete c.neverAskReviewAt;
+      c.googleReview = { ...(c.googleReview||{}), status: 'never_asked' };
+      hubData.readyToRequest.unshift(c);
+    }
+    showToast('↩️ Permanent exclusion cleared — customer re-added to queue');
     updateBadges();
     renderCurrentTab();
   } catch(e) { showToast('Error: ' + e.message); }
