@@ -743,6 +743,9 @@ export default {
       if (path === 'admin/review-states' && request.method === 'GET')
         return jsonResponse(await env.DATA.get('review_states', 'json') || {}, corsHeaders);
 
+      if (path === 'admin/reconcile-kv-d1' && request.method === 'GET')
+        return await handleReconcileKvD1(env, corsHeaders);
+
       if (path === 'admin/migrate-review-states' && request.method === 'POST')
         return await handleMigrateReviewStates(env, corsHeaders);
 
@@ -2370,6 +2373,140 @@ async function handleMigrateReviewStates(env, corsHeaders) {
   return jsonResponse({ success: true, migrated, skipped, cleaned, totalStates: Object.keys(existing).length }, corsHeaders);
 }
 
+// ── Phase 3: KV ↔ D1 reconciliation ──────────────────────────────────────────
+async function handleReconcileKvD1(env, corsHeaders) {
+  const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+
+  // Read KV + D1 in parallel
+  const [kvDb, d1Persons, d1Jobs] = await Promise.all([
+    env.DATA.get(KV_KEYS.customers, 'json').then(d => d || { customers: [] }),
+    env.DB.prepare('SELECT personId, primaryPhone, firstName, lastName FROM Person').all().then(r => r.results || []),
+    env.DB.prepare('SELECT jobId, payerId, scheduledDate, state, completedAt, amount, paymentMethod, paymentStatus, paidAt FROM Job').all().then(r => r.results || []),
+  ]);
+
+  const kvCustomers = (kvDb.customers || []).filter(c => c && !c.deleted);
+
+  // Index D1 data by phone / personId
+  const d1PersonByPhone = new Map(); // 10-digit → person row
+  for (const p of d1Persons) {
+    const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
+    if (ph) d1PersonByPhone.set(ph, p);
+  }
+  const d1JobsByPayer = new Map(); // personId → [job, ...]
+  for (const j of d1Jobs) {
+    if (!d1JobsByPayer.has(j.payerId)) d1JobsByPayer.set(j.payerId, []);
+    d1JobsByPayer.get(j.payerId).push(j);
+  }
+
+  const discrepancies = [];
+  const typeCounts = {};
+  let checked = 0, missingPerson = 0, jobDiscrepancies = 0;
+
+  const addDisc = (phone, name, type, field, kvVal, d1Val, action) => {
+    discrepancies.push({ phone, name, type, field, kvValue: kvVal, d1Value: d1Val, suggested_action: action });
+    typeCounts[type] = (typeCounts[type] || 0) + 1;
+    jobDiscrepancies++;
+  };
+
+  for (const c of kvCustomers) {
+    const ph = norm(c.phone);
+    if (!ph) continue;
+    checked++;
+    const name = `${c.firstName||''} ${c.lastName||''}`.trim();
+    const d1p = d1PersonByPhone.get(ph);
+
+    // ── Missing Person ──────────────────────────────────────────────────────
+    if (!d1p) {
+      missingPerson++;
+      addDisc(ph, name, 'MISSING_PERSON', 'Person', 'exists', 'missing', 'INSERT Person+Property+PersonProperty');
+      continue;
+    }
+
+    // ── Person field drift ──────────────────────────────────────────────────
+    if ((c.firstName||'').trim() !== (d1p.firstName||'').trim()) {
+      addDisc(ph, name, 'PERSON_NAME_DRIFT', 'firstName', c.firstName, d1p.firstName, 'UPDATE Person SET firstName');
+    }
+    if ((c.lastName||'').trim() !== (d1p.lastName||'').trim()) {
+      addDisc(ph, name, 'PERSON_NAME_DRIFT', 'lastName', c.lastName, d1p.lastName, 'UPDATE Person SET lastName');
+    }
+
+    // ── Job reconciliation ──────────────────────────────────────────────────
+    const personId = d1p.personId;
+    const d1Jobs4p = d1JobsByPayer.get(personId) || [];
+    const d1JobById = new Map(d1Jobs4p.map(j => [j.jobId, j]));
+    const d1JobByDate = new Map(d1Jobs4p.map(j => [j.scheduledDate, j]));
+
+    // Check KV jobHistory entries against D1
+    for (const jh of (c.jobHistory || [])) {
+      if (jh.source === 'csv_backfill') continue; // pre-Day-1 history — expected gaps
+      if (!jh.jobId) continue;
+      const d1j = d1JobById.get(jh.jobId);
+
+      if (!d1j) {
+        addDisc(ph, name, 'MISSING_JOB', 'Job.jobId', jh.jobId, 'missing',
+          `INSERT Job (date=${jh.date} amount=${jh.amount} source=${jh.source})`);
+        continue;
+      }
+      // State match
+      if (d1j.state !== 'completed') {
+        addDisc(ph, name, 'JOB_STATE_MISMATCH', 'Job.state', 'completed', d1j.state,
+          `UPDATE Job SET state='completed' WHERE jobId='${jh.jobId}'`);
+      }
+      // Amount match (within $1 rounding)
+      if (Math.abs((d1j.amount||0) - (jh.amount||0)) > 1) {
+        addDisc(ph, name, 'JOB_AMOUNT_MISMATCH', 'Job.amount', jh.amount, d1j.amount,
+          `UPDATE Job SET amount=${jh.amount} WHERE jobId='${jh.jobId}'`);
+      }
+      // Payment status
+      const kvPaid = !!(jh.paidAt || jh.paymentMethod);
+      const d1Paid = d1j.paymentStatus === 'paid';
+      if (kvPaid && !d1Paid) {
+        addDisc(ph, name, 'PAYMENT_DRIFT', 'Job.paymentStatus', 'paid', d1j.paymentStatus,
+          `UPDATE Job SET paymentStatus='paid', paidAt='${jh.paidAt||''}' WHERE jobId='${jh.jobId}'`);
+      }
+    }
+
+    // Check scheduledStatus against D1 — only active scheduled/in_progress jobs
+    const ss = c.scheduledStatus;
+    if (ss && ss.state === 'scheduled' && ss.scheduledDate) {
+      // Look for the scheduled job in D1 by date (since ss jobs may not have a stable jobId)
+      const ssJobId = _d1ScheduledJobId(personId, ss.scheduledDate);
+      const d1ssj = d1JobById.get(ssJobId) || d1JobByDate.get(ss.scheduledDate);
+      if (!d1ssj) {
+        addDisc(ph, name, 'MISSING_SCHEDULED_JOB', 'Job(scheduled)',
+          `scheduled:${ss.scheduledDate}:$${ss.approvedAmount||0}`, 'missing',
+          `INSERT Job (state=scheduled, date=${ss.scheduledDate})`);
+      }
+    }
+
+    // D1 scheduled jobs that are no longer active in KV (cancelled/reverted/completed since Day 1)
+    for (const d1j of d1Jobs4p) {
+      if (d1j.state !== 'scheduled') continue;
+      // If KV has completed this date in jobHistory, D1 should be 'completed'
+      const kvCompleted = (c.jobHistory||[]).some(jh =>
+        jh.source !== 'csv_backfill' && jh.date === d1j.scheduledDate && jh.status === 'completed'
+      );
+      if (kvCompleted) {
+        addDisc(ph, name, 'STALE_SCHEDULED', 'Job.state',
+          `completed (jh date=${d1j.scheduledDate})`, `scheduled (d1 jobId=${d1j.jobId})`,
+          `UPDATE Job SET state='completed' WHERE jobId='${d1j.jobId}'`);
+      }
+    }
+  }
+
+  return jsonResponse({
+    summary: {
+      kvCustomersChecked: checked,
+      d1PersonsLoaded:    d1Persons.length,
+      d1JobsLoaded:       d1Jobs.length,
+      missingPersons:     missingPerson,
+      totalDiscrepancies: discrepancies.length,
+      byType:             typeCounts,
+    },
+    discrepancies,
+  }, corsHeaders);
+}
+
 // ── Day 2 dual-write helpers ──────────────────────────────────────────────────
 // KV is canonical. D1 writes are best-effort mirrors. Failures logged, never re-thrown.
 
@@ -2466,6 +2603,24 @@ async function _d1SyncScheduledJob(c, env, now) {
   ).run();
 }
 
+async function _d1SyncPersonUpdate(newC, prevC, env, now) {
+  const ph = (newC.phone||'').replace(/\D/g,'').slice(-10);
+  const personId = _d1PersonId(ph);
+  if (!personId) return;
+  const sets = [], vals = [];
+  const diff = (field, newVal, oldVal) => {
+    if ((newVal||'') !== (oldVal||'')) { sets.push(`${field}=?`); vals.push(newVal||''); }
+  };
+  diff('firstName', newC.firstName, prevC.firstName);
+  diff('lastName',  newC.lastName,  prevC.lastName);
+  diff('email',     newC.email,     prevC.email);
+  const newDnc = newC.optOut ? 1 : 0, prevDnc = prevC.optOut ? 1 : 0;
+  if (newDnc !== prevDnc) { sets.push('doNotContact=?'); vals.push(newDnc); }
+  if (!sets.length) return;
+  sets.push('modifiedAt=?'); vals.push(now); vals.push(personId);
+  await env.DB.prepare(`UPDATE Person SET ${sets.join(',')} WHERE personId=?`).bind(...vals).run();
+}
+
 async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
   if (!env.DB) return; // D1 not bound — skip silently
   const now = new Date().toISOString();
@@ -2486,6 +2641,9 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
       await _d1SyncScheduledJob(c, env, now);
       continue;
     }
+
+    // Person field changes (name, email, doNotContact)
+    await _d1SyncPersonUpdate(c, prev, env, now);
 
     // Existing customer — sync new jobHistory entries
     const prevJhIds = new Set((prev.jobHistory||[]).map(j => j.jobId).filter(Boolean));
