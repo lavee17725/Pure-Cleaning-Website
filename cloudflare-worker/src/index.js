@@ -400,6 +400,7 @@ export default {
 
       if (path === 'customers') {
         if (request.method === 'PUT') return await handleCustomersPut(request, env, corsHeaders);
+        if (request.method === 'GET') return jsonResponse(await d1AllCustomersToKvShape(env), corsHeaders);
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);
       }
 
@@ -690,9 +691,7 @@ export default {
         await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
 
         const rawPhone = path.slice('customer/'.length);
-        const ph10 = (rawPhone||'').replace(/\D/g,'').slice(-10);
-        const kvDb = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-        const customer = (kvDb.customers||[]).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph10) || null;
+        const customer = await d1CustomerToKvShape(rawPhone, env);
         if (!customer) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
         return jsonResponse({ customer }, corsHeaders);
       }
@@ -2488,17 +2487,40 @@ async function d1AllCustomersToKvShape(env) {
     env.DATA.get('customer_db', 'json').catch(() => null),
   ]);
 
-  // TEMP: Build phone→coords map from KV so route distances survive Phase 4B
-  // D1 Property.latitude/longitude are all NULL (migration stored None).
-  // Real fix: geocode dual-write (Part 3) + backfill (Part 2).
-  const kvCoordsMap = {};
+  // TEMP: KV bridge — merge GPS/Bouncie/coord fields absent from D1 schema.
+  // Covers: geocoded, coordinates, geocodeSource, bouncieMetrics,
+  //   scheduledStatus Bouncie fields, jobHistory entry Bouncie fields.
+  // Remove after D1 schema gains Bouncie columns + geocode backfill completes.
+  const kvDataMap = {};
   if (kvDb && Array.isArray(kvDb.customers)) {
     const normPh = p => (p||'').replace(/\D/g,'').slice(-10);
     for (const c of kvDb.customers) {
       const ph = normPh(c.phone);
-      if (ph && ph.length === 10 && (c.coordinates?.lat || c.geocoded?.lat)) {
-        kvCoordsMap[ph] = { coordinates: c.coordinates || null, geocoded: c.geocoded || null };
+      if (!ph || ph.length !== 10) continue;
+      const ss = c.scheduledStatus || {};
+      // Index KV jh entries by completion date so we can merge Bouncie fields
+      // into D1-reconstructed jh entries. D1 jh.completedAt[:10] == KV jh.date.
+      const kvJhByDate = {};
+      for (const jh of (c.jobHistory || [])) {
+        if (!jh) continue;
+        const d = (jh.date || '').slice(0, 10);
+        if (d) kvJhByDate[d] = jh;
       }
+      kvDataMap[ph] = {
+        coordinates:    c.coordinates    || null,
+        geocoded:       c.geocoded        || null,
+        geocodeSource:  c.geocodeSource   || null,
+        bouncieMetrics: c.bouncieMetrics  || null,
+        ss: {
+          actualDuration:         ss.actualDuration         || null,
+          actualArrival:          ss.actualArrival          || null,
+          actualDeparture:        ss.actualDeparture        || null,
+          bouncieMatchStatus:     ss.bouncieMatchStatus     || null,
+          bouncieMatchConfidence: ss.bouncieMatchConfidence || null,
+          geocodeSource:          ss.geocodeSource          || null,
+        },
+        kvJhByDate,
+      };
     }
   }
   // END TEMP
@@ -2524,9 +2546,33 @@ async function d1AllCustomersToKvShape(env) {
       propsByPerson[p.personId] || [],
       jobsByPayer[p.personId]   || [],
     );
-    // TEMP: merge KV coords — remove after geocode backfill (Phase 4B+)
-    const coords = kvCoordsMap[ph];
-    if (coords) { customer.coordinates = coords.coordinates; customer.geocoded = coords.geocoded; }
+    // TEMP: merge KV-only fields — remove after D1 schema adds Bouncie columns
+    const kv = kvDataMap[ph];
+    if (kv) {
+      if (kv.coordinates)    customer.coordinates    = kv.coordinates;
+      if (kv.geocoded)       customer.geocoded        = kv.geocoded;
+      if (kv.geocodeSource)  customer.geocodeSource   = kv.geocodeSource;
+      if (kv.bouncieMetrics) customer.bouncieMetrics  = kv.bouncieMetrics;
+      if (customer.scheduledStatus) {
+        const s = kv.ss;
+        if (s.actualDuration)         customer.scheduledStatus.actualDuration         = s.actualDuration;
+        if (s.actualArrival)          customer.scheduledStatus.actualArrival          = s.actualArrival;
+        if (s.actualDeparture)        customer.scheduledStatus.actualDeparture        = s.actualDeparture;
+        if (s.bouncieMatchStatus)     customer.scheduledStatus.bouncieMatchStatus     = s.bouncieMatchStatus;
+        if (s.bouncieMatchConfidence) customer.scheduledStatus.bouncieMatchConfidence = s.bouncieMatchConfidence;
+        if (s.geocodeSource)          customer.scheduledStatus.geocodeSource          = s.geocodeSource;
+      }
+      // Bridge jh Bouncie data: D1 jh.completedAt[:10] matches KV jh.date
+      for (const jhEntry of (customer.jobHistory || [])) {
+        if (!jhEntry.completedAt) continue;
+        const kvJh = kv.kvJhByDate[jhEntry.completedAt.slice(0, 10)];
+        if (!kvJh) continue;
+        if (kvJh.actualDuration)     jhEntry.actualDuration     = kvJh.actualDuration;
+        if (kvJh.actualArrival)      jhEntry.actualArrival      = kvJh.actualArrival;
+        if (kvJh.actualDeparture)    jhEntry.actualDeparture    = kvJh.actualDeparture;
+        if (kvJh.bouncieMatchStatus) jhEntry.bouncieMatchStatus = kvJh.bouncieMatchStatus;
+      }
+    }
     // END TEMP
     customers.push(customer);
   }
@@ -2552,7 +2598,47 @@ async function d1CustomerToKvShape(phone, env) {
   ]);
 
   if (!personRow) return null;
-  return _d1PersonToKv(personRow, propLinks, pjobs);
+  const customer = _d1PersonToKv(personRow, propLinks, pjobs);
+
+  // TEMP: KV bridge for GPS/Bouncie/coord fields absent from D1 schema
+  // Remove after D1 schema adds Bouncie columns + geocode backfill completes.
+  const kvDb = await env.DATA.get('customer_db', 'json').catch(() => null);
+  if (kvDb && Array.isArray(kvDb.customers)) {
+    const kvC = kvDb.customers.find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
+    if (kvC) {
+      const ss = kvC.scheduledStatus || {};
+      if (kvC.coordinates)    customer.coordinates    = kvC.coordinates;
+      if (kvC.geocoded)       customer.geocoded        = kvC.geocoded;
+      if (kvC.geocodeSource)  customer.geocodeSource   = kvC.geocodeSource;
+      if (kvC.bouncieMetrics) customer.bouncieMetrics  = kvC.bouncieMetrics;
+      if (customer.scheduledStatus) {
+        if (ss.actualDuration)         customer.scheduledStatus.actualDuration         = ss.actualDuration;
+        if (ss.actualArrival)          customer.scheduledStatus.actualArrival          = ss.actualArrival;
+        if (ss.actualDeparture)        customer.scheduledStatus.actualDeparture        = ss.actualDeparture;
+        if (ss.bouncieMatchStatus)     customer.scheduledStatus.bouncieMatchStatus     = ss.bouncieMatchStatus;
+        if (ss.bouncieMatchConfidence) customer.scheduledStatus.bouncieMatchConfidence = ss.bouncieMatchConfidence;
+        if (ss.geocodeSource)          customer.scheduledStatus.geocodeSource          = ss.geocodeSource;
+      }
+      const kvJhByDate = {};
+      for (const jh of (kvC.jobHistory || [])) {
+        if (!jh) continue;
+        const d = (jh.date || '').slice(0, 10);
+        if (d) kvJhByDate[d] = jh;
+      }
+      for (const jhEntry of (customer.jobHistory || [])) {
+        if (!jhEntry.completedAt) continue;
+        const kvJh = kvJhByDate[jhEntry.completedAt.slice(0, 10)];
+        if (!kvJh) continue;
+        if (kvJh.actualDuration)     jhEntry.actualDuration     = kvJh.actualDuration;
+        if (kvJh.actualArrival)      jhEntry.actualArrival      = kvJh.actualArrival;
+        if (kvJh.actualDeparture)    jhEntry.actualDeparture    = kvJh.actualDeparture;
+        if (kvJh.bouncieMatchStatus) jhEntry.bouncieMatchStatus = kvJh.bouncieMatchStatus;
+      }
+    }
+  }
+  // END TEMP
+
+  return customer;
 }
 
 // ── Phase 3: KV ↔ D1 reconciliation ──────────────────────────────────────────
