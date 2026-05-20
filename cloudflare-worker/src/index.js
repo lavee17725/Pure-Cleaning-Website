@@ -2905,6 +2905,21 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
     const prevJhIds = new Set((prev.jobHistory||[]).map(j => j.jobId).filter(Boolean));
     await _d1SyncJobHistory(c, prevJhIds, env, now);
 
+    // Upsert Property + PersonProperty for current address before job sync.
+    // Prevents FK failure when an existing customer's address changes between
+    // submissions — _d1SyncScheduledJob references propertyId which must exist.
+    if (c.address) {
+      const propId = _d1PropId(c.address, c.city||'');
+      try {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
+        ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
+        ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+      } catch(e) { await _logD1Failure(env, `_d1SyncCustomersPut:property_upsert:${ph}`, e.message); }
+    }
+
     // Sync newly scheduled status (changed scheduledDate or new schedule)
     const ss = c.scheduledStatus;
     const prevSs = prev.scheduledStatus;
