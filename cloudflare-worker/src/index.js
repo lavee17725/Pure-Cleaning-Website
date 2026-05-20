@@ -400,6 +400,7 @@ export default {
 
       if (path === 'customers') {
         if (request.method === 'PUT') return await handleCustomersPut(request, env, corsHeaders);
+        if (request.method === 'GET') return jsonResponse(await d1AllCustomersToKvShape(env), corsHeaders);
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);
       }
 
@@ -690,11 +691,9 @@ export default {
         await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
 
         const rawPhone = path.slice('customer/'.length);
-        const normPhone = rawPhone.replace(/\D/g, '').slice(-10);
-        const db = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-        const c  = (db.customers || []).find(x => (x.phone || '').replace(/\D/g, '').slice(-10) === normPhone);
-        if (!c) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
-        return jsonResponse({ customer: c }, corsHeaders);
+        const customer = await d1CustomerToKvShape(rawPhone, env);
+        if (!customer) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
+        return jsonResponse({ customer }, corsHeaders);
       }
 
       // ── Customer delete / restore / hard-delete ───────────────────────────────
@@ -2371,6 +2370,157 @@ async function handleMigrateReviewStates(env, corsHeaders) {
   await env.DATA.put('review_states', JSON.stringify(existing));
   if (cleaned > 0) await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
   return jsonResponse({ success: true, migrated, skipped, cleaned, totalStates: Object.keys(existing).length }, corsHeaders);
+}
+
+// ── Phase 4: D1 → legacy KV shape compatibility layer ────────────────────────
+// Converts D1 rows to the KV customer object shape the UI expects.
+// KV-only fields (bouncieMetrics, geocoded, etc.) return null until
+// those fields are promoted to D1 in subsequent sessions.
+
+function _d1JobToJhEntry(j, city, addr) {
+  return {
+    jobId:         j.jobId,
+    date:          j.scheduledDate || null,
+    services:      j.servicesRaw  || '',
+    amount:        j.amount       || 0,
+    rig:           j.rigId        || null,
+    rigId:         j.rigId        || null,
+    city,
+    address:       addr,
+    status:        j.state === 'completed' ? 'completed' : j.state,
+    completedAt:   j.completedAt  || null,
+    crew:          [],
+    source:        (j.source||'').startsWith('csv_backfill') ? 'csv_backfill' : (j.source || 'calendar_completion'),
+    paymentMethod: j.paymentMethod || null,
+    paidAt:        j.paidAt       || null,
+  };
+}
+
+function _d1BuildScheduledStatus(personJobs) {
+  if (!personJobs.length) return null;
+  // Prefer the active scheduled job; fall back to most recent overall (DESC sorted)
+  const ss = personJobs.find(j => j.state === 'scheduled') || personJobs[0];
+  return {
+    state:          ss.state,
+    scheduledDate:  ss.scheduledDate  || null,
+    rig:            ss.rigId          || null,
+    approvedAmount: ss.amount         || 0,
+    jobNotes:       ss.servicesRaw    || '',
+    completedAt:    ss.completedAt    || null,
+    completedDate:  ss.completedAt    ? ss.completedAt.slice(0,10) : null,
+    paymentStatus:  ss.paymentStatus  || 'unpaid',
+    paymentMethod:  ss.paymentMethod  || null,
+    paidAt:         ss.paidAt         || null,
+    crew:           [],
+    source:         ss.source         || null,
+    window:         null,
+  };
+}
+
+function _d1PersonToKv(p, props, pjobs) {
+  const primaryProp = props.find(pp => pp.primaryContact === 1) || props[0] || {};
+  const city = primaryProp.city || '';
+  const addr = primaryProp.streetAddress || '';
+  const ph   = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
+
+  const completedJobs  = pjobs.filter(j => j.state === 'completed');
+  const lifetimeSpend  = Math.round(completedJobs.reduce((s, j) => s + (j.amount||0), 0));
+  const totalJobs      = completedJobs.length;
+  const lastService    = completedJobs[0]?.scheduledDate || null; // DESC sorted
+  const jobHistory     = completedJobs.filter(j => j.jobId).map(j => _d1JobToJhEntry(j, city, addr));
+
+  return {
+    phone:                  ph,
+    firstName:              p.firstName     || '',
+    lastName:               p.lastName      || '',
+    businessName:           p.businessName  || null,
+    email:                  p.email         || null,
+    address:                addr,
+    city,
+    zip:                    primaryProp.zip || null,
+    notes:                  p.internalNotes || null,
+    alerts:                 [],
+    optOut:                 !!p.doNotContact,
+    doNotService:           !!p.doNotService,
+    isReferralOnly:         !!p.isReferralOnly,
+    isReferralSource:       !!p.isReferralSource,
+    isCommercialAccount:    !!p.isCommercialAccount,
+    isHomeowner:            !!p.isHomeowner,
+    preferredPaymentMethod: p.preferredPaymentMethod || null,
+    totalJobs,
+    lifetimeSpend,
+    lastService,
+    jobHistory,
+    scheduledStatus:        _d1BuildScheduledStatus(pjobs),
+    geocoded:               null,
+    coordinates:            null,
+    bouncieMetrics:         null,
+    reviewQueue:            null,
+    quoteStatus:            null,
+    neverAskReview:         false,
+    createdAt:              p.createdAt || null,
+  };
+}
+
+async function d1AllCustomersToKvShape(env) {
+  const [persons, propLinks, jobs] = await Promise.all([
+    env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
+    env.DB.prepare(
+      'SELECT pp.personId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip ' +
+      'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
+    ).all().then(r => r.results || []),
+    env.DB.prepare(
+      'SELECT jobId,payerId,scheduledDate,state,completedAt,amount,' +
+      'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source ' +
+      'FROM Job ORDER BY scheduledDate DESC'
+    ).all().then(r => r.results || []),
+  ]);
+
+  // Index by personId
+  const propsByPerson = {};
+  for (const pp of propLinks) {
+    if (!propsByPerson[pp.personId]) propsByPerson[pp.personId] = [];
+    propsByPerson[pp.personId].push(pp);
+  }
+  const jobsByPayer = {};
+  for (const j of jobs) {
+    if (!jobsByPayer[j.payerId]) jobsByPayer[j.payerId] = [];
+    jobsByPayer[j.payerId].push(j);
+  }
+
+  const customers = [];
+  for (const p of persons) {
+    const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
+    if (!ph || ph.length !== 10) continue; // skip REFERRAL_* + no-phone records
+    customers.push(_d1PersonToKv(
+      p,
+      propsByPerson[p.personId] || [],
+      jobsByPayer[p.personId]   || [],
+    ));
+  }
+  return { customers };
+}
+
+async function d1CustomerToKvShape(phone, env) {
+  const ph = (phone||'').replace(/\D/g,'').slice(-10);
+  if (!ph || ph.length !== 10) return null;
+  const personId = _d1PersonId(ph);
+
+  const [personRow, propLinks, pjobs] = await Promise.all([
+    env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
+    env.DB.prepare(
+      'SELECT pp.primaryContact, p.streetAddress, p.city, p.state, p.zip ' +
+      'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
+    ).bind(personId).all().then(r => r.results || []),
+    env.DB.prepare(
+      'SELECT jobId,payerId,scheduledDate,state,completedAt,amount,' +
+      'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source ' +
+      'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
+    ).bind(personId).all().then(r => r.results || []),
+  ]);
+
+  if (!personRow) return null;
+  return _d1PersonToKv(personRow, propLinks, pjobs);
 }
 
 // ── Phase 3: KV ↔ D1 reconciliation ──────────────────────────────────────────
