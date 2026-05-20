@@ -400,7 +400,6 @@ export default {
 
       if (path === 'customers') {
         if (request.method === 'PUT') return await handleCustomersPut(request, env, corsHeaders);
-        if (request.method === 'GET') return jsonResponse(await d1AllCustomersToKvShape(env), corsHeaders);
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);
       }
 
@@ -691,7 +690,9 @@ export default {
         await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
 
         const rawPhone = path.slice('customer/'.length);
-        const customer = await d1CustomerToKvShape(rawPhone, env);
+        const ph10 = (rawPhone||'').replace(/\D/g,'').slice(-10);
+        const kvDb = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        const customer = (kvDb.customers||[]).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph10) || null;
         if (!customer) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
         return jsonResponse({ customer }, corsHeaders);
       }
@@ -2472,7 +2473,8 @@ function _d1PersonToKv(p, props, pjobs) {
 }
 
 async function d1AllCustomersToKvShape(env) {
-  const [persons, propLinks, jobs] = await Promise.all([
+  // TEMP: KV coord bridge — remove after geocode backfill (Phase 4B+)
+  const [persons, propLinks, jobs, kvDb] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip ' +
@@ -2483,7 +2485,23 @@ async function d1AllCustomersToKvShape(env) {
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
+    env.DATA.get('customer_db', 'json').catch(() => null),
   ]);
+
+  // TEMP: Build phone→coords map from KV so route distances survive Phase 4B
+  // D1 Property.latitude/longitude are all NULL (migration stored None).
+  // Real fix: geocode dual-write (Part 3) + backfill (Part 2).
+  const kvCoordsMap = {};
+  if (kvDb && Array.isArray(kvDb.customers)) {
+    const normPh = p => (p||'').replace(/\D/g,'').slice(-10);
+    for (const c of kvDb.customers) {
+      const ph = normPh(c.phone);
+      if (ph && ph.length === 10 && (c.coordinates?.lat || c.geocoded?.lat)) {
+        kvCoordsMap[ph] = { coordinates: c.coordinates || null, geocoded: c.geocoded || null };
+      }
+    }
+  }
+  // END TEMP
 
   // Index by personId
   const propsByPerson = {};
@@ -2501,11 +2519,16 @@ async function d1AllCustomersToKvShape(env) {
   for (const p of persons) {
     const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
     if (!ph || ph.length !== 10) continue; // skip REFERRAL_* + no-phone records
-    customers.push(_d1PersonToKv(
+    const customer = _d1PersonToKv(
       p,
       propsByPerson[p.personId] || [],
       jobsByPayer[p.personId]   || [],
-    ));
+    );
+    // TEMP: merge KV coords — remove after geocode backfill (Phase 4B+)
+    const coords = kvCoordsMap[ph];
+    if (coords) { customer.coordinates = coords.coordinates; customer.geocoded = coords.geocoded; }
+    // END TEMP
+    customers.push(customer);
   }
   return { customers };
 }

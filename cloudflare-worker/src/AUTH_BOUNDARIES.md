@@ -56,6 +56,8 @@ Key protected resources:
 - `PUT /agreement/{phone}/edit-services` — admin edits services
 - `POST /agreement/{phone}/manual-confirm` — admin confirms
 - `customer/{phone}/delete` and other action paths
+- `POST /customer/{phone}/never-ask-review` — sets c.neverAskReview=true on KV customer; permanent review queue exclusion
+- `POST /customer/{phone}/clear-never-ask-review` — clears c.neverAskReview flag; re-enables review queue eligibility
 - All Bouncie, photo, weather, task, calendar, link-generator endpoints
 
 ---
