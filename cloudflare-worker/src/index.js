@@ -2759,7 +2759,7 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
     await env.DB.prepare(
       `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      jh.jobId, personId, propId, jh.date||null, 'completed',
+      jh.jobId, personId, propId, c.scheduledStatus?.scheduledDate||jh.date||null, 'completed',
       jh.completedAt||now, jh.amount||0, jh.paymentMethod||jh.payment||null,
       jh.paidAt?'paid':'unpaid', jh.paidAt||null,
       jh.services||null, jh.rig||jh.rigId||null, 'phone_quote',
