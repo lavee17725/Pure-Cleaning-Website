@@ -548,7 +548,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 <!-- SCHEDULE DATE MODAL (Option A: Schedule it now) -->
 <div class="moverlay hidden" id="schedDateModal">
   <div class="msheet" style="max-width:380px;">
-    <div class="msheet-title">📅 What date?</div>
+    <div class="msheet-title">📅 Add Quote</div>
+    <div class="field" style="margin-bottom:1rem;">
+      <label>Service description *</label>
+      <input id="schedService" class="fi" placeholder="e.g. Driveway + roof softwash" style="font-size:15px;" oninput="_validateSchedModal()">
+    </div>
     <div class="field" style="margin-bottom:1rem;">
       <label>Price *</label>
       <input id="schedPrice" type="number" class="fi" min="0" step="1" placeholder="Enter amount" inputmode="decimal" style="font-size:15px;" oninput="_validateSchedModal()">
@@ -558,11 +562,20 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <input id="schedDate" type="date" class="fi" style="font-size:15px;" oninput="_validateSchedModal()">
     </div>
     <div class="field" style="margin-bottom:1rem;">
+      <label>Rig *</label>
+      <select id="schedRig" class="fi" style="font-size:15px;" onchange="_validateSchedModal()">
+        <option value="">— Select rig —</option>
+        <option value="rig_1">Old Tacoma (rig_1)</option>
+        <option value="rig_2">New Tacoma (rig_2)</option>
+        <option value="rig_3">Chevy (rig_3)</option>
+      </select>
+    </div>
+    <div class="field" style="margin-bottom:1rem;">
       <label>Notes (optional)</label>
       <input id="schedNotes" class="fi" placeholder="Any notes for the job" style="font-size:15px;">
     </div>
-    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;line-height:1.5;">If no rig is assigned, this job goes to the Day Pool. Tony or Tyler will assign a truck on the day of service.</div>
     <div id="schedError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
+    <div id="schedSuccess" style="color:var(--green,#2e7d32);font-size:13px;margin-bottom:8px;display:none;font-weight:600;"></div>
     <div class="mfoot">
       <button class="mbtn-c" onclick="closeScheduleModal()">← Back</button>
       <button class="mbtn-a" id="schedBtn" onclick="submitScheduleNow()" disabled>📅 Schedule it</button>
@@ -1862,19 +1875,21 @@ function buildMQFromSuccess() {
 
 // ── Option A: Schedule it now ─────────────────────────────────────────────────
 function _validateSchedModal() {
+  const svc     = (document.getElementById('schedService').value || '').trim();
   const price   = parseFloat(document.getElementById('schedPrice').value);
   const date    = document.getElementById('schedDate').value;
+  const rig     = document.getElementById('schedRig').value;
   const priceEl = document.getElementById('schedPrice');
   const errEl   = document.getElementById('schedError');
   const btn     = document.getElementById('schedBtn');
-  if (!price || price <= 0) {
-    priceEl.classList.add('err');
-    errEl.textContent = 'Price must be greater than $0';
-    errEl.style.display = 'block';
-    btn.disabled = true;
-  } else if (!date) {
-    priceEl.classList.remove('err');
-    errEl.textContent = 'Scheduled date is required';
+  let err = '';
+  if (!svc)              err = 'Service description is required';
+  else if (!price || price <= 0) err = 'Price must be greater than $0';
+  else if (!date)        err = 'Scheduled date is required';
+  else if (!rig)         err = 'Rig is required';
+  if (err) {
+    priceEl.classList.toggle('err', !svc || !price || price <= 0);
+    errEl.textContent = err;
     errEl.style.display = 'block';
     btn.disabled = true;
   } else {
@@ -1889,8 +1904,11 @@ function openScheduleModal() {
   document.getElementById('schedDate').value = tom.toISOString().slice(0, 10);
   document.getElementById('schedPrice').value = '';
   document.getElementById('schedPrice').classList.remove('err');
+  document.getElementById('schedService').value = '';
+  document.getElementById('schedRig').value = '';
   document.getElementById('schedNotes').value = '';
   document.getElementById('schedError').style.display = 'none';
+  document.getElementById('schedSuccess').style.display = 'none';
   _validateSchedModal();
   document.getElementById('schedDateModal').classList.remove('hidden');
 }
@@ -1900,35 +1918,44 @@ function closeScheduleModal() {
 }
 
 async function submitScheduleNow() {
+  const svc   = (document.getElementById('schedService').value || '').trim();
   const date  = document.getElementById('schedDate').value;
   const price = parseFloat(document.getElementById('schedPrice').value);
-  if (!price || price <= 0) { document.getElementById('schedError').textContent = 'Price must be greater than $0'; document.getElementById('schedError').style.display = 'block'; return; }
-  if (!date) { document.getElementById('schedError').textContent = 'Date required.'; document.getElementById('schedError').style.display = 'block'; return; }
-  document.getElementById('schedError').style.display = 'none';
+  const rig   = document.getElementById('schedRig').value;
+  const errEl = document.getElementById('schedError');
+  const sucEl = document.getElementById('schedSuccess');
+  if (!svc || !price || price <= 0 || !date || !rig) {
+    _validateSchedModal();
+    return;
+  }
+  errEl.style.display = 'none';
 
   const c = _lastSavedCustomer;
   if (!c) return;
-  const svc = c.quoteStatus?.mainServices || '';
-  const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
   const notes = document.getElementById('schedNotes').value.trim();
 
   if (!c.scheduledStatus) c.scheduledStatus = {};
   Object.assign(c.scheduledStatus, {
     state: 'scheduled', scheduledDate: date,
-    rig: isRoof ? 'rig_3' : null,
-    jobNotes: svc, approvedAmount: price, window: 'morning',
+    rig, jobNotes: svc, approvedAmount: price, window: 'morning',
     ...(notes ? { scheduleNote: notes } : {})
   });
   c.quoteLifecycle = 'confirmed';
 
+  document.getElementById('schedBtn').disabled = true;
   try {
     await saveDb();
-    closeScheduleModal();
-    closeWhatNextModal();
-    window.location.href = '/pure_cleaning_calendar.html?date=' + encodeURIComponent(date);
+    sucEl.textContent = '✅ Saved! Heading to calendar…';
+    sucEl.style.display = 'block';
+    setTimeout(() => {
+      closeScheduleModal();
+      closeWhatNextModal();
+      window.location.href = '/pure_cleaning_calendar.html?date=' + encodeURIComponent(date);
+    }, 800);
   } catch(e) {
-    document.getElementById('schedError').textContent = 'Failed to save — check connection.';
-    document.getElementById('schedError').style.display = 'block';
+    errEl.textContent = 'Failed to save — check connection.';
+    errEl.style.display = 'block';
+    document.getElementById('schedBtn').disabled = false;
   }
 }
 

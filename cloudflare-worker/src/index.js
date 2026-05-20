@@ -2788,26 +2788,28 @@ async function _d1SyncNewCustomer(c, env, now) {
   if (!personId) return;
   const e164 = '+1' + ph;
 
-  // Person INSERT (ignore if already exists)
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO Person (personId,firstName,lastName,primaryPhone,isHomeowner,doNotContact,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(personId, c.firstName||'', c.lastName||'', e164, c.isCommercialAccount?0:1, c.optOut?1:0, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
-
-  // Property INSERT OR IGNORE
-  if (c.address) {
-    const propId = _d1PropId(c.address, c.city||'');
-    const lat    = c.coordinates?.lat || c.geocoded?.lat || null;
-    const lng    = c.coordinates?.lng || c.geocoded?.lng || null;
-    const geoSrc = c.geocodeSource || c.coordinates?.source || null;
+  try {
+    // Person INSERT (ignore if already exists)
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,zip,latitude,longitude,geocodeSource,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(propId, c.address, c.city||'', 'FL', c.zip||null, lat, lng, geoSrc, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+      `INSERT OR IGNORE INTO Person (personId,firstName,lastName,primaryPhone,isHomeowner,doNotContact,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(personId, c.firstName||'', c.lastName||'', e164, c.isCommercialAccount?0:1, c.optOut?1:0, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
 
-    // PersonProperty INSERT OR IGNORE
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
-    ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
-  }
+    // Property INSERT OR IGNORE
+    if (c.address) {
+      const propId = _d1PropId(c.address, c.city||'');
+      const lat    = c.coordinates?.lat || c.geocoded?.lat || null;
+      const lng    = c.coordinates?.lng || c.geocoded?.lng || null;
+      const geoSrc = c.geocodeSource || c.coordinates?.source || null;
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,zip,latitude,longitude,geocodeSource,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(propId, c.address, c.city||'', 'FL', c.zip||null, lat, lng, geoSrc, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+
+      // PersonProperty INSERT OR IGNORE
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
+      ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+    }
+  } catch(e) { await _logD1Failure(env, `_d1SyncNewCustomer:${ph}`, e.message); }
 }
 
 async function _d1SyncJobHistory(c, prevJhIds, env, now) {
@@ -2822,15 +2824,17 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
   for (const jh of (c.jobHistory||[])) {
     if (!jh.jobId || prevJhIds.has(jh.jobId)) continue;
     if (jh.source === 'csv_backfill') continue; // historical records already in D1 from Day 1
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(
-      jh.jobId, personId, propId, c.scheduledStatus?.scheduledDate||jh.date||null, 'completed',
-      jh.completedAt||now, jh.amount||0, jh.paymentMethod||jh.payment||null,
-      jh.paidAt?'paid':'unpaid', jh.paidAt||null,
-      jh.services||null, jh.rig||jh.rigId||null, 'phone_quote',
-      now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
-    ).run();
+    try {
+      await env.DB.prepare(
+        `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,servicesRequested,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        jh.jobId, personId, propId, jh.date||null, 'completed',
+        jh.completedAt||now, jh.amount||0, '[]', jh.paymentMethod||jh.payment||null,
+        jh.paidAt?'paid':'unpaid', jh.paidAt||null,
+        jh.services||null, jh.rig||jh.rigId||null, 'phone_quote',
+        now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
+      ).run();
+    } catch(e) { await _logD1Failure(env, `_d1SyncJobHistory:${ph}:${jh.jobId}`, e.message); }
   }
 }
 
@@ -2842,15 +2846,17 @@ async function _d1SyncScheduledJob(c, env, now) {
   if (!personId) return;
   const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
   const jobId  = _d1ScheduledJobId(personId, ss.scheduledDate);
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRaw,rigId,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(
-    jobId, personId, propId, ss.scheduledDate, 'scheduled',
-    ss.approvedAmount||0, ss.jobNotes||null, ss.rig||null,
-    ss.actualDuration||null, ss.actualArrival||null, ss.actualDeparture||null,
-    ss.durationConfidence||ss.bouncieMatchStatus||null, null, ss.geocodeSource||null,
-    'phone_quote', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
-  ).run();
+  try {
+    await env.DB.prepare(
+      `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRequested,servicesRaw,rigId,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      jobId, personId, propId, ss.scheduledDate, 'scheduled',
+      ss.approvedAmount||0, '[]', ss.jobNotes||null, ss.rig||null,
+      ss.actualDuration||null, ss.actualArrival||null, ss.actualDeparture||null,
+      ss.durationConfidence||ss.bouncieMatchStatus||null, null, ss.geocodeSource||null,
+      'phone_quote', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
+    ).run();
+  } catch(e) { await _logD1Failure(env, `_d1SyncScheduledJob:${ph}`, e.message); }
 }
 
 async function _d1SyncPersonUpdate(newC, prevC, env, now) {
