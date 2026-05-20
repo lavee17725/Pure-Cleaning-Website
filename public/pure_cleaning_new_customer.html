@@ -550,10 +550,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   <div class="msheet" style="max-width:380px;">
     <div class="msheet-title">📅 Add Quote</div>
     <div class="field" style="margin-bottom:1rem;">
-      <label>Service description *</label>
-      <input id="schedService" class="fi" placeholder="e.g. Driveway + roof softwash" style="font-size:15px;" oninput="_validateSchedModal()">
-    </div>
-    <div class="field" style="margin-bottom:1rem;">
       <label>Price *</label>
       <input id="schedPrice" type="number" class="fi" min="0" step="1" placeholder="Enter amount" inputmode="decimal" style="font-size:15px;" oninput="_validateSchedModal()">
     </div>
@@ -562,9 +558,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <input id="schedDate" type="date" class="fi" style="font-size:15px;" oninput="_validateSchedModal()">
     </div>
     <div class="field" style="margin-bottom:1rem;">
-      <label>Rig *</label>
-      <select id="schedRig" class="fi" style="font-size:15px;" onchange="_validateSchedModal()">
-        <option value="">— Select rig —</option>
+      <label>Rig (optional — assign later if unknown)</label>
+      <select id="schedRig" class="fi" style="font-size:15px;">
+        <option value="">— Unassigned —</option>
         <option value="rig_1">Old Tacoma (rig_1)</option>
         <option value="rig_2">New Tacoma (rig_2)</option>
         <option value="rig_3">Chevy (rig_3)</option>
@@ -1875,20 +1871,16 @@ function buildMQFromSuccess() {
 
 // ── Option A: Schedule it now ─────────────────────────────────────────────────
 function _validateSchedModal() {
-  const svc     = (document.getElementById('schedService').value || '').trim();
   const price   = parseFloat(document.getElementById('schedPrice').value);
   const date    = document.getElementById('schedDate').value;
-  const rig     = document.getElementById('schedRig').value;
   const priceEl = document.getElementById('schedPrice');
   const errEl   = document.getElementById('schedError');
   const btn     = document.getElementById('schedBtn');
   let err = '';
-  if (!svc)              err = 'Service description is required';
-  else if (!price || price <= 0) err = 'Price must be greater than $0';
-  else if (!date)        err = 'Scheduled date is required';
-  else if (!rig)         err = 'Rig is required';
+  if (!price || price <= 0) err = 'Price must be greater than $0';
+  else if (!date)            err = 'Scheduled date is required';
   if (err) {
-    priceEl.classList.toggle('err', !svc || !price || price <= 0);
+    priceEl.classList.toggle('err', !price || price <= 0);
     errEl.textContent = err;
     errEl.style.display = 'block';
     btn.disabled = true;
@@ -1904,7 +1896,6 @@ function openScheduleModal() {
   document.getElementById('schedDate').value = tom.toISOString().slice(0, 10);
   document.getElementById('schedPrice').value = '';
   document.getElementById('schedPrice').classList.remove('err');
-  document.getElementById('schedService').value = '';
   document.getElementById('schedRig').value = '';
   document.getElementById('schedNotes').value = '';
   document.getElementById('schedError').style.display = 'none';
@@ -1918,14 +1909,19 @@ function closeScheduleModal() {
 }
 
 async function submitScheduleNow() {
-  const svc   = (document.getElementById('schedService').value || '').trim();
   const date  = document.getElementById('schedDate').value;
   const price = parseFloat(document.getElementById('schedPrice').value);
-  const rig   = document.getElementById('schedRig').value;
+  const rig   = document.getElementById('schedRig').value || null;
   const errEl = document.getElementById('schedError');
   const sucEl = document.getElementById('schedSuccess');
-  if (!svc || !price || price <= 0 || !date || !rig) {
-    _validateSchedModal();
+  if (!price || price <= 0) {
+    errEl.textContent = 'Price must be greater than $0';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!date) {
+    errEl.textContent = 'Date required.';
+    errEl.style.display = 'block';
     return;
   }
   errEl.style.display = 'none';
@@ -1937,7 +1933,8 @@ async function submitScheduleNow() {
   if (!c.scheduledStatus) c.scheduledStatus = {};
   Object.assign(c.scheduledStatus, {
     state: 'scheduled', scheduledDate: date,
-    rig, jobNotes: svc, approvedAmount: price, window: 'morning',
+    rig, jobNotes: c.quoteStatus?.mainServices || notes || null,
+    approvedAmount: price, window: 'morning',
     ...(notes ? { scheduleNote: notes } : {})
   });
   c.quoteLifecycle = 'confirmed';

@@ -411,7 +411,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .day-rev-banner .rev-collected{color:#5de0b3;}
 
 /* ── DAY RIG GRID ── */
-.day-rig-grid{display:grid;grid-template-columns:repeat(3,1fr);min-height:calc(100vh - 220px);}
+.day-rig-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));min-height:calc(100vh - 220px);}
 .day-rig-col{border-right:1px solid var(--border);}
 .day-rig-col:last-child{border-right:none;}
 /* Day Pool zone */
@@ -752,7 +752,7 @@ body{background:#f0f2f5;}
       <div class="needs-list" id="mqList"></div>
       <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
       <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
-        <a href="/pure_cleaning_add_job.html?back=calendar" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Customer / Job</a>
+        <a href="/pure_cleaning_new_customer.html" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Quote</a>
         <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
       </div>
       <div class="needs-list" id="needsList"></div>
@@ -2577,9 +2577,10 @@ function renderCalGrid(dates) {
     const isPast  = date < today;
     const dayTotal = calculateDayTotal(date);
     const dayCollected = calculateDayCollected(date);
-    // Exclude canceled/no_show from the header count
+    // Exclude canceled/no_show from the header count (includes unassigned)
     const totalJobCount = RIGS.reduce((s,rig) => s + getScheduledForRig(date,rig)
-      .filter(c => { const st = c.scheduledStatus?.state; return st !== 'canceled' && st !== 'no_show'; }).length, 0);
+      .filter(c => { const st = c.scheduledStatus?.state; return st !== 'canceled' && st !== 'no_show'; }).length, 0)
+      + getUnassignedJobs(date).length;
 
     // ── 3-segment capacity bars (active jobs only) ──
     const capBarsHtml = RIGS.map(rig => {
@@ -2638,6 +2639,18 @@ function renderCalGrid(dates) {
       </div>`;
     }).join('');
 
+    const unassigned = getUnassignedJobs(date);
+    const unassignedHtml = unassigned.length ? (() => {
+      const jobsHtml = unassigned.map(c => jobCardScheduled(c)).join('');
+      return `<div class="rig-section" style="border-top:1px dashed rgba(107,114,128,.3);margin-top:4px;padding-top:4px;">
+        <div class="wk-rig-label" style="border-left:3px solid #6b7280;">
+          <span style="color:#6b7280;font-size:11px;font-weight:700;">⬜ Unassigned</span>
+          <span style="font-size:10px;color:var(--muted);">${unassigned.length} job${unassigned.length!==1?'s':''} — assign rig before day of</span>
+        </div>
+        <div class="rig-jobs" data-date="${date}" data-rig="" id="rj-${date}-unassigned">${jobsHtml}</div>
+      </div>`;
+    })() : '';
+
     const hasMultiJobRigs = RIGS.some(rig => getScheduledForRigOrdered(date, rig).length >= 2);
     const optAllHtml = hasMultiJobRigs
       ? `<button class="day-opt-all-btn" onclick="event.stopPropagation();promptOptimizeAll('${date}')">🧭 Optimize</button>` : '';
@@ -2658,6 +2671,7 @@ function renderCalGrid(dates) {
         ${optAllHtml}
       </div>
       ${rigsHtml}
+      ${unassignedHtml}
     </div>`;
   }).join('');
   document.getElementById('calGrid').innerHTML = html;
@@ -3165,6 +3179,13 @@ function getScheduledForRig(date, rig) {
   return (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
     return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed') && ss.scheduledDate===date && ss.rig===rig;
+  });
+}
+
+function getUnassignedJobs(date) {
+  return (dbRecord.customers||[]).filter(c => {
+    const ss = c.scheduledStatus;
+    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && ss.scheduledDate===date && !ss.rig;
   });
 }
 
@@ -6185,8 +6206,8 @@ function renderPriorityStrip(date) {
   const jobs = RIGS.flatMap(rig => getScheduledForRig(date, rig));
   const issues = [];
 
-  const noRig = jobs.filter(c => !(c.scheduledStatus||{}).rig);
-  if (noRig.length) issues.push({ color:'#f97316', bg:'rgba(249,115,22,.15)', icon:'🟠', text:`${noRig.length} missing rig` });
+  const unassigned = getUnassignedJobs(date);
+  if (unassigned.length) issues.push({ color:'#f97316', bg:'rgba(249,115,22,.15)', icon:'🟠', text:`${unassigned.length} unassigned rig` });
 
   const noPrice = jobs.filter(c => !(c.scheduledStatus||{}).approvedAmount);
   if (noPrice.length) issues.push({ color:'#eab308', bg:'rgba(234,179,8,.15)', icon:'🟡', text:`${noPrice.length} no price set` });
@@ -6307,7 +6328,23 @@ function renderDayRigGrid(date) {
       ${renderArrivalButtons(date, rig, jobs)}
     </div>`;
   }).join('');
-  el.innerHTML = html;
+
+  // Unassigned column — only rendered when there are null-rig scheduled jobs
+  const unassignedDayJobs = getUnassignedJobs(date);
+  const unassignedColHtml = unassignedDayJobs.length ? (() => {
+    const jobsHtml = unassignedDayJobs.map(c => jobCardScheduled(c)).join('');
+    return `<div class="day-rig-col">
+      <div class="day-rig-hdr" style="border-top:3px solid #6b7280;">
+        <span style="width:9px;height:9px;border-radius:50%;background:#6b7280;flex-shrink:0;display:inline-block;"></span>
+        <span style="flex:1;">⬜ Unassigned</span>
+        <span style="font-size:11px;color:rgba(255,255,255,.4);font-weight:500;">${unassignedDayJobs.length} job${unassignedDayJobs.length!==1?'s':''}</span>
+      </div>
+      <div style="font-size:11px;color:#f97316;padding:4px 10px 2px;font-weight:600;">Assign rig before day of</div>
+      <div class="win-lane" data-date="${date}" data-rig="" data-window="morning">${jobsHtml}</div>
+    </div>`;
+  })() : '';
+
+  el.innerHTML = html + unassignedColHtml;
   // Wire up per-window sortable lanes in day view
   document.querySelectorAll('#dayRigGrid .win-lane').forEach(lane => {
     sortables.push(Sortable.create(lane, {
