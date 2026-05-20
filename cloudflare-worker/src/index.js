@@ -592,6 +592,14 @@ export default {
 
         await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
 
+        // ── Day 2 dual-write: sync new/updated customer + scheduled job ──
+        try {
+          if (env.DB) {
+            await _d1SyncNewCustomer(c, env, now);
+            await _d1SyncScheduledJob(c, env, now);
+          }
+        } catch (e) { await _logD1Failure(env, 'quote_approve', e.message); }
+
         await appendErrorLog(env, {
           id: crypto.randomUUID(), timestamp: now,
           source: 'customer', page: `quote/${code}/approve`,
@@ -737,6 +745,9 @@ export default {
 
       if (path === 'admin/migrate-review-states' && request.method === 'POST')
         return await handleMigrateReviewStates(env, corsHeaders);
+
+      if (path === 'admin/d1-sync-failures' && request.method === 'GET')
+        return jsonResponse(await env.DATA.get('d1_sync_failures', 'json') || [], corsHeaders);
 
       // ── Customer review actions ───────────────────────────────────────────────
       if (path.startsWith('customer/')) {
@@ -1564,6 +1575,14 @@ async function handleCustomersPut(request, env, corsHeaders) {
   }
 
   await env.DATA.put(KV_KEYS.customers, JSON.stringify(body));
+
+  // ── Day 2 dual-write: mirror changes to D1 (fire-and-forget, KV is canonical) ──
+  try {
+    await _d1SyncCustomersPut(customers, currentDb.customers || [], env);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCustomersPut', e.message);
+  }
+
   return jsonResponse({ success: true }, corsHeaders);
 }
 
@@ -1690,6 +1709,14 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
 
   await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
 
+  // ── Day 2 dual-write: INSERT scheduled Job + ensure Person/Property exist ──
+  try {
+    if (env.DB) {
+      await _d1SyncNewCustomer(cust, env, now);
+      await _d1SyncScheduledJob(cust, env, now);
+    }
+  } catch (e) { await _logD1Failure(env, 'handleAgreementConfirm', e.message); }
+
   if (qCode) {
     const kvKey  = `quote_${qCode}`;
     const existing = await env.DATA.get(kvKey, 'json');
@@ -1730,6 +1757,20 @@ async function handleLogPayment(request, env, phone, corsHeaders) {
   };
 
   await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+
+  // ── Day 2 dual-write: update payment on the most recent completed Job ──
+  try {
+    if (env.DB) {
+      const normPh   = (phone||'').replace(/\D/g,'').slice(-10);
+      const personId = _d1PersonId(normPh);
+      if (personId) {
+        await env.DB.prepare(
+          `UPDATE Job SET paymentMethod=?, paymentStatus='paid', paidAt=?, modifiedAt=? WHERE payerId=? AND state='completed' AND (paidAt IS NULL OR paidAt='') ORDER BY scheduledDate DESC LIMIT 1`
+        ).bind(method||'cash', now, now, personId).run();
+      }
+    }
+  } catch (e) { await _logD1Failure(env, 'handleLogPayment', e.message); }
+
   return jsonResponse({ success: true }, corsHeaders);
 }
 
@@ -2327,6 +2368,137 @@ async function handleMigrateReviewStates(env, corsHeaders) {
   await env.DATA.put('review_states', JSON.stringify(existing));
   if (cleaned > 0) await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
   return jsonResponse({ success: true, migrated, skipped, cleaned, totalStates: Object.keys(existing).length }, corsHeaders);
+}
+
+// ── Day 2 dual-write helpers ──────────────────────────────────────────────────
+// KV is canonical. D1 writes are best-effort mirrors. Failures logged, never re-thrown.
+
+function _d1PersonId(phone) {
+  const digits = (phone||'').replace(/\D/g,'');
+  const d = digits.length === 10 ? '1'+digits : digits.length === 11 ? digits : null;
+  return d ? 'person_' + d : null;
+}
+
+function _d1PropId(street, city) {
+  const norm = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
+  const key  = (norm(street) + '|' + norm(city)).replace(/[^\w]/g,'_').slice(0,40);
+  return 'prop_' + key;
+}
+
+function _d1ScheduledJobId(personId, scheduledDate) {
+  const slug = (personId + '_' + (scheduledDate||'nodate') + '_scheduled').replace(/[^\w]/g,'_').slice(0,50);
+  return 'job_' + slug;
+}
+
+async function _logD1Failure(env, context, error) {
+  try {
+    const key   = 'd1_sync_failures';
+    const log   = await env.DATA.get(key, 'json') || [];
+    log.unshift({ ts: new Date().toISOString(), context, error: String(error).slice(0,300) });
+    await env.DATA.put(key, JSON.stringify(log.slice(0,100)));
+  } catch { /* never throw from failure logger */ }
+}
+
+async function _d1SyncNewCustomer(c, env, now) {
+  const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+  if (!ph || ph.length !== 10) return;
+  const personId = _d1PersonId(ph);
+  if (!personId) return;
+  const e164 = '+1' + ph;
+
+  // Person INSERT (ignore if already exists)
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO Person (personId,firstName,lastName,primaryPhone,isHomeowner,doNotContact,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(personId, c.firstName||'', c.lastName||'', e164, c.isCommercialAccount?0:1, c.optOut?1:0, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+
+  // Property INSERT OR IGNORE
+  if (c.address) {
+    const propId = _d1PropId(c.address, c.city||'');
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,zip,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(propId, c.address, c.city||'', 'FL', c.zip||null, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+
+    // PersonProperty INSERT OR IGNORE
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
+    ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+  }
+}
+
+async function _d1SyncJobHistory(c, prevJhIds, env, now) {
+  const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+  if (!ph) return;
+  const personId = _d1PersonId(ph);
+  if (!personId) return;
+
+  // Resolve propertyId for this customer
+  const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
+
+  for (const jh of (c.jobHistory||[])) {
+    if (!jh.jobId || prevJhIds.has(jh.jobId)) continue;
+    if (jh.source === 'csv_backfill') continue; // historical records already in D1 from Day 1
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      jh.jobId, personId, propId, jh.date||null, 'completed',
+      jh.completedAt||now, jh.amount||0, jh.paymentMethod||jh.payment||null,
+      jh.paidAt?'paid':'unpaid', jh.paidAt||null,
+      jh.services||null, jh.rig||jh.rigId||null, 'phone_quote',
+      now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
+    ).run();
+  }
+}
+
+async function _d1SyncScheduledJob(c, env, now) {
+  const ss = c.scheduledStatus;
+  if (!ss || ss.state !== 'scheduled' || !ss.scheduledDate) return;
+  const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+  const personId = _d1PersonId(ph);
+  if (!personId) return;
+  const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
+  const jobId  = _d1ScheduledJobId(personId, ss.scheduledDate);
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(
+    jobId, personId, propId, ss.scheduledDate, 'scheduled',
+    ss.approvedAmount||0, ss.jobNotes||null, ss.rig||null, 'phone_quote',
+    now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
+  ).run();
+}
+
+async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
+  if (!env.DB) return; // D1 not bound — skip silently
+  const now = new Date().toISOString();
+  const prevByPhone = new Map();
+  for (const c of (prevCustomers||[])) {
+    const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+    if (ph) prevByPhone.set(ph, c);
+  }
+
+  for (const c of incomingCustomers) {
+    const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+    if (!ph || ph.length !== 10) continue;
+    const prev = prevByPhone.get(ph);
+
+    // New customer — insert Person + Property + PersonProperty
+    if (!prev) {
+      await _d1SyncNewCustomer(c, env, now);
+      await _d1SyncScheduledJob(c, env, now);
+      continue;
+    }
+
+    // Existing customer — sync new jobHistory entries
+    const prevJhIds = new Set((prev.jobHistory||[]).map(j => j.jobId).filter(Boolean));
+    await _d1SyncJobHistory(c, prevJhIds, env, now);
+
+    // Sync newly scheduled status (changed scheduledDate or new schedule)
+    const ss = c.scheduledStatus;
+    const prevSs = prev.scheduledStatus;
+    if (ss?.state === 'scheduled' && ss.scheduledDate &&
+        ss.scheduledDate !== prevSs?.scheduledDate) {
+      await _d1SyncScheduledJob(c, env, now);
+    }
+  }
 }
 
 // ── Customer soft-delete / restore / hard-delete ────────────────────────────
