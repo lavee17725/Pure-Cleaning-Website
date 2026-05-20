@@ -54,6 +54,8 @@ When in doubt, follow this file. The other two are reference.
 
 **18.** Number inputs in admin forms must not pre-fill with `0`. Use `placeholder="Enter amount"`. Zero defaults cause silent $0 jobs when a field is skipped.
 
+**19.** D1 is canonical for customer-data reads. `GET /customers` and `GET /customer/:phone` read from D1 via compatibility layer (`d1AllCustomersToKvShape` / `d1CustomerToKvShape`). KV remains write-canonical via dual-write infrastructure. A TEMP KV bridge merges Bouncie GPS fields (`actualDuration`, `bouncieMetrics`, etc.) and geocoded coordinates into D1 read results — remove after D1 schema gains those columns. Day 2 migration completed 2026-05-20.
+
 ---
 
 ## Working with Tyler
@@ -100,7 +102,9 @@ docs/HISTORY.md                   ← timeline, decisions log
 ```
 DB: pure-cleaning-crm-v1  (a9cca011-f138-4e99-b831-8f78f3165409)
 wrangler: npx wrangler d1 execute pure-cleaning-crm-v1 --remote --config cloudflare-worker/wrangler.toml
-Status: Day 1 complete (2026-05-16). KV canonical until Day 2 dual-write (target 2026-05-24).
+Status: Day 2 complete (2026-05-20). D1 canonical for reads. KV write-canonical via dual-write.
+Counts: Person 1,245 / Property 1,224 / PersonProperty 1,246 / Job 1,838
+Pending: Bouncie GPS columns, geocode backfill, 4 uncovered dual-write paths (cancel/revert/update/delete)
 ```
 
 ---

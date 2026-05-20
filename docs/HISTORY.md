@@ -7,19 +7,51 @@
 
 ## Timeline
 
-### May 24, 2026 (target) — Day 2: Dual-Write Cutover
+### May 20, 2026 (Tuesday night) — Day 2: Dual-Write Cutover — COMPLETE
 
-**Status:** Planned. Not yet executed.
+**Status:** Complete. Shipped 4 days ahead of May 24 target.
 
-**Cutover window:** Saturday morning OR weekday after 8 PM ET.
+**Migration manifest:**
+```json
+{
+  "migrationId": "day_2",
+  "status": "complete",
+  "startedAt": "2026-05-19T23:00:00Z",
+  "completedAt": "2026-05-20T02:30:00Z",
+  "commits": [
+    "7afd0d8  Phase 1 — 6 delta customers backfilled to D1",
+    "2343689  Phase 2 — dual-write enabled for 5 of 11 paths",
+    "1485074  Phase 3 — reconciliation + 18-job backfill",
+    "d8adc0d  Phase 4A first attempt — GET /customers to D1",
+    "4201231  Phase 4A follow-up — scheduledStatus logic + delete 10 phantom rows",
+    "7172313  Phase 4A rollback — D1 job coverage gap discovered",
+    "2bd9562  Drift fix — 21 UPDATE Job.scheduledDate + dual-write bug fixed",
+    "2c7bc8d  Phase 4A re-attempt — clean flip + KV Bouncie bridge"
+  ],
+  "finalState": {
+    "d1PersonCount": 1245,
+    "d1PropertyCount": 1224,
+    "d1PersonPropertyCount": 1246,
+    "d1JobCount": 1838,
+    "kvCustomerCount": 1245,
+    "reconciliationDiscrepancies": 0
+  },
+  "notes": "D1 canonical for reads. KV write-canonical via dual-write. TEMP KV bridge merges Bouncie GPS + geocoded coords. 4 dual-write paths uncovered: cancel, revert, customer update, customer delete. /admin/worker-hours/customer/:phone still reads KV directly (deferred)."
+}
+```
 
-**Steps:**
-- Hour 1-3: Add D1 write path. Every worker write to KV also writes to D1.
-- Hour 4-6: Verify dual-write. Submit test quotes, confirm KV and D1 agree.
-- Hour 7-9: Flip read path. Switch operational reads to D1. KV becomes write-cache only.
-- Hour 10: Lock. Mark migration complete in MigrationManifest. Update CLAUDE.md. Watch 24h.
+**Key learnings:**
+1. **Diagnose-first:** Two wrong hypotheses surfaced before code was written — "30 days of missing jobHistory" (zero missing) and phantom-10 phone list (6 of 10 phones were wrong guesses). Read-only audit scripts prevented wasted inserts.
+2. **scheduledDate ≠ completedAt:** D1 dual-write was writing `jh.date` (completion date) as `Job.scheduledDate`. Calendar places customers by scheduled date. 21 customers affected; fixed with surgical UPDATEs + dual-write helper corrected.
+3. **Phase gate discipline:** Phase 4A read flip was premature — D1 had correct structure but wrong date semantics. Rollback restored calendar in 30 seconds. All migration infrastructure stayed intact.
+4. **KV bridge pattern:** For fields absent from D1 schema (Bouncie GPS, geocoded coords), a single parallel `KV.get()` merges data into D1 reads. Marked TEMP with explicit removal condition.
 
-Keep KV in read-fallback mode for 7 days. Log warnings if D1 and KV disagree.
+**Forward queue:**
+- D1 schema: Bouncie GPS columns (`actualDuration`, `geocodedLat/Lng`)
+- Geocode backfill: populate `Property.latitude/longitude`; dual-write to geocode endpoint
+- Remove KV bridge after D1 schema extended and backfill complete
+- Cover 4 remaining dual-write paths (cancel/revert/update/delete)
+- Flip `/admin/worker-hours/customer/:phone` to D1
 
 ---
 
