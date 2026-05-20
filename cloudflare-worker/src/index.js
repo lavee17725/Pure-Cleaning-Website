@@ -2398,8 +2398,17 @@ function _d1JobToJhEntry(j, city, addr) {
 
 function _d1BuildScheduledStatus(personJobs) {
   if (!personJobs.length) return null;
-  // Prefer the active scheduled job; fall back to most recent overall (DESC sorted)
-  const ss = personJobs.find(j => j.state === 'scheduled') || personJobs[0];
+  // Jobs sorted DESC by scheduledDate.
+  // Priority: (1) most-recent completed within 30 days → state='completed'
+  //           (2) active scheduled job → state='scheduled'
+  //           (3) most recent job of any state (dormant customer)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+  const recentCompleted = personJobs.find(j =>
+    j.state === 'completed' && j.completedAt && j.completedAt >= thirtyDaysAgo
+  );
+  const ss = recentCompleted
+           || personJobs.find(j => j.state === 'scheduled')
+           || personJobs[0];
   return {
     state:          ss.state,
     scheduledDate:  ss.scheduledDate  || null,
