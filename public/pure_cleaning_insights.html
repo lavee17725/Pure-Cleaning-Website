@@ -281,147 +281,79 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
   <!-- ── T4: DETAILED ANALYTICS (collapsible) ── -->
   <div class="sec-hdr" style="margin-top:2.5rem;">Detailed Analytics</div>
 
-  <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">📈</span><span class="insight-summary-title">Revenue Growth Chart</span><span class="insight-summary-arrow">›</span></summary>
+  <!-- Panel 1: Revenue by Month -->
+  <details class="insight-section" open>
+    <summary class="insight-summary"><span class="insight-summary-icon">📈</span><span class="insight-summary-title">Revenue by Month</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
       <div class="card">
-        <div class="card-title">Revenue Accumulation · Year over Year</div>
-        <div class="card-sub">Cumulative monthly revenue — 2026 actual vs 2025 vs $1M goal pace</div>
-        <div class="ch-280"><canvas id="revenueChart"></canvas></div>
-        <div class="stats-row" id="revenueStats"></div>
+        <div class="card-title">Monthly Revenue · Last 12 Months</div>
+        <div class="card-sub">Completed jobs only · bar = revenue, line = job count</div>
+        <div class="ch-280"><canvas id="revenueByMonthChart"></canvas></div>
+        <div class="stats-row" id="revenueByMonthStats"></div>
       </div>
     </div>
   </details>
 
-  <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">🔎</span><span class="insight-summary-title">Quote Funnel &amp; Traffic</span><span class="insight-summary-arrow">›</span></summary>
-    <div class="insight-body">
-      <div class="three-col" style="margin-bottom:12px;">
-        <div class="card">
-          <div class="card-title">Quote Sources</div>
-          <div class="card-sub">How customers enter the pipeline</div>
-          <div class="ch-200"><canvas id="sourceChart"></canvas></div>
-          <div id="sourceLegend"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Variant Performance</div>
-          <div class="card-sub">Reactivation SMS variants</div>
-          <div id="variantWrap" class="ch-200"><canvas id="variantChart"></canvas></div>
-          <div id="variantTable"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Service Mix</div>
-          <div class="card-sub">Revenue share by service type (est.)</div>
-          <div class="ch-200"><canvas id="serviceMixChart"></canvas></div>
-          <div id="serviceMixLegend"></div>
-        </div>
-      </div>
-      <div class="card" id="funnelCard">
-        <div class="card-title">Customer Journey Funnel</div>
-        <div class="card-sub">Quote sent → viewed → engaged → approved → completed</div>
-        <div id="funnelViz"></div>
-      </div>
-    </div>
-  </details>
+  <!-- Panels 3+4: Outstanding + Reactivation Pool (two-col signal cards) -->
+  <div class="two-col" style="margin-bottom:8px;" id="signalCards"></div>
 
+  <!-- Panel 2: Revenue by City -->
   <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">📱</span><span class="insight-summary-title">Phone-Quote Funnel</span><span class="insight-summary-arrow">›</span></summary>
-    <div class="insight-body">
-      <div class="card" style="margin-bottom:.75rem;">
-        <div class="card-title">Funnel · SMS → Add-On Conversion</div>
-        <div class="card-sub">From confirmation text sent through add-on added</div>
-        <div id="pqFunnel" style="margin-top:.5rem;"></div>
-      </div>
-      <div class="two-col" style="margin-bottom:.75rem;">
-        <div class="card">
-          <div class="card-title">Key Metrics</div>
-          <div id="pqMetrics" style="margin-top:.5rem;"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">Drop-Off Analysis</div>
-          <div id="pqDropoff" style="margin-top:.5rem;font-size:13px;color:var(--muted);line-height:1.8;"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title">Add-On Breakdown</div>
-        <div id="pqAddons" style="margin-top:.5rem;overflow-x:auto;"></div>
-      </div>
-    </div>
-  </details>
-
-  <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">🔥</span><span class="insight-summary-title">Quote Page · Section Behavior Heatmap</span><span class="insight-summary-arrow">›</span></summary>
-    <div class="insight-body">
-      <div class="card">
-        <div class="card-title">Section Interest Heatmap</div>
-        <div class="card-sub">How customers interact with each section of their personalized quote page</div>
-        <div id="heatmapContent"></div>
-      </div>
-    </div>
-  </details>
-
-  <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">📍</span><span class="insight-summary-title">Geographic Distribution</span><span class="insight-summary-arrow">›</span></summary>
+    <summary class="insight-summary"><span class="insight-summary-icon">📍</span><span class="insight-summary-title">Revenue by City</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
       <div class="two-col">
-        <div class="card">
-          <div class="card-title">Customers by City</div>
-          <div class="card-sub">Distribution of customer base</div>
-          <div class="ch-260"><canvas id="geoChart"></canvas></div>
-        </div>
         <div class="card">
           <div class="card-title">Revenue by City</div>
-          <div class="card-sub">Lifetime revenue by market</div>
-          <div class="ch-260"><canvas id="geoBarChart"></canvas></div>
-        </div>
-      </div>
-      <div class="insight-box" id="geoInsight"></div>
-    </div>
-  </details>
-
-  <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">🔄</span><span class="insight-summary-title">Customer Lifecycle</span><span class="insight-summary-arrow">›</span></summary>
-    <div class="insight-body">
-      <div class="two-col">
-        <div class="card">
-          <div class="card-title">Customer Base by Tier</div>
-          <div class="card-sub">Last-service recency segmentation</div>
-          <div class="ch-260"><canvas id="lifecycleChart"></canvas></div>
+          <div class="card-sub">Lifetime completed revenue by market</div>
+          <div class="ch-260"><canvas id="revByCityChart"></canvas></div>
         </div>
         <div class="card">
-          <div class="card-title">Lifecycle Stats</div>
-          <div class="card-sub">Aggregated customer health metrics</div>
-          <div id="lifecycleStats" style="margin-top:.5rem;"></div>
+          <div class="card-title">Market Breakdown</div>
+          <div class="card-sub">Jobs · Revenue · Avg Ticket per city</div>
+          <div id="revByCityTable" style="overflow-x:auto;"></div>
         </div>
       </div>
     </div>
   </details>
 
+  <!-- Panel 5: Top 10 Customers -->
   <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">📧</span><span class="insight-summary-title">Reactivation Campaign Health</span><span class="insight-summary-arrow">›</span></summary>
+    <summary class="insight-summary"><span class="insight-summary-icon">🏆</span><span class="insight-summary-title">Top 10 Customers by Lifetime Spend</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
       <div class="card">
-        <div class="card-title">Campaign Metrics</div>
-        <div class="card-sub">Sending cadence, compliance windows, conversion tracking</div>
-        <div id="reactivationMetrics"></div>
+        <div class="card-title">Top 10 Customers</div>
+        <div class="card-sub">By cumulative revenue · completed jobs only</div>
+        <div id="topCustomersTable" style="overflow-x:auto;"></div>
       </div>
     </div>
   </details>
 
+  <!-- Panel 7: Avg Ticket Trend -->
   <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">📊</span><span class="insight-summary-title">Lead Source Attribution</span><span class="insight-summary-arrow">›</span></summary>
+    <summary class="insight-summary"><span class="insight-summary-icon">💵</span><span class="insight-summary-title">Average Ticket Trend</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
-      <div id="leadSourcePanel" class="two-col"></div>
+      <div class="card">
+        <div class="card-title">Avg Ticket per Month · Last 12 Months</div>
+        <div class="card-sub">Revenue per completed job — pricing health signal</div>
+        <div class="ch-240"><canvas id="avgTicketChart"></canvas></div>
+      </div>
     </div>
   </details>
 
+  <!-- Panel 6: Rig Productivity -->
   <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">⏱️</span><span class="insight-summary-title">Cycle Time Analysis</span><span class="insight-summary-arrow">›</span></summary>
+    <summary class="insight-summary"><span class="insight-summary-icon">🚛</span><span class="insight-summary-title">Rig Productivity</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
-      <div id="cycleTimePanel" class="card"></div>
+      <div class="card">
+        <div class="card-title">Jobs by Rig · Last 6 Months</div>
+        <div class="card-sub">Old Tacoma · New Tacoma · Chevy</div>
+        <div class="ch-260"><canvas id="rigProductivityChart"></canvas></div>
+        <div id="rigProductivityTable" style="overflow-x:auto;margin-top:1rem;"></div>
+      </div>
     </div>
   </details>
 
+  <!-- Crew Performance (kept) -->
   <details class="insight-section">
     <summary class="insight-summary"><span class="insight-summary-icon">👷</span><span class="insight-summary-title">Crew Performance</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
@@ -429,13 +361,7 @@ main{max-width:1200px;margin:0 auto;padding:1.5rem 1.25rem 4rem;}
     </div>
   </details>
 
-  <details class="insight-section">
-    <summary class="insight-summary"><span class="insight-summary-icon">⭐</span><span class="insight-summary-title">Customer Satisfaction Signals</span><span class="insight-summary-arrow">›</span></summary>
-    <div class="insight-body">
-      <div id="satisfactionPanel" class="card"></div>
-    </div>
-  </details>
-
+  <!-- Google Review Pipeline (kept) -->
   <details class="insight-section">
     <summary class="insight-summary"><span class="insight-summary-icon">📝</span><span class="insight-summary-title">Google Review Pipeline</span><span class="insight-summary-arrow">›</span></summary>
     <div class="insight-body">
@@ -2046,28 +1972,154 @@ function renderReviewRequests() {
     ${recent.length ? `<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.875rem;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:.5rem;">Recent Requests</div>${recent.map(e=>`<div style="padding:.4rem 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="font-weight:600;">${e.customer?.fn||''} ${e.customer?.ln||e.customer?.ph||''}</span><span style="color:var(--muted);font-size:11px;margin-left:6px;">${e.sentAt?e.sentAt.slice(0,10):''}</span></div>`).join('')}</div>` : ''}`;
 }
 
+// ─── D1-native panel renderers ───────────────────────────────────────────────
+const RIG_LABELS = { rig_1: 'Old Tacoma', rig_2: 'New Tacoma', rig_3: 'Chevy' };
+
+function renderRevenueByMonth() {
+  const el = document.getElementById('revenueByMonthChart');
+  if (!el || !insightsData?.revenueByMonth) return;
+  const rows = insightsData.revenueByMonth;
+  if (!rows.length) { el.closest('.card').innerHTML += '<div class="empty"><div class="empty-icon">📊</div><div class="empty-title">No data yet</div></div>'; return; }
+  const labels = rows.map(r => r.month);
+  const revenues = rows.map(r => r.revenue);
+  const jobs = rows.map(r => r.jobs);
+  if (charts.revenueByMonth) charts.revenueByMonth.destroy();
+  charts.revenueByMonth = new Chart(el, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Revenue', data: revenues, backgroundColor: 'rgba(194,65,12,.75)', yAxisID: 'y' },
+        { label: 'Jobs', data: jobs, type: 'line', borderColor: '#0ea5e9', backgroundColor: 'transparent', pointRadius: 3, yAxisID: 'y2' },
+      ],
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } },
+      scales: { y: { ticks: { callback: v => fmt$(v), font: { size: 10 } } }, y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } } } },
+  });
+  const total = revenues.reduce((s, v) => s + v, 0);
+  const totalJobs = jobs.reduce((s, v) => s + v, 0);
+  const best = rows.reduce((a, b) => b.revenue > a.revenue ? b : a, rows[0]);
+  const statsEl = document.getElementById('revenueByMonthStats');
+  if (statsEl) statsEl.innerHTML = `
+    <div class="stat-pill"><div class="stat-pill-lbl">12-Month Total</div><div class="stat-pill-val">${fmtFull(total)}</div></div>
+    <div class="stat-pill"><div class="stat-pill-lbl">Jobs</div><div class="stat-pill-val">${totalJobs}</div></div>
+    <div class="stat-pill"><div class="stat-pill-lbl">Best Month</div><div class="stat-pill-val">${best.month}</div><div class="stat-pill-sub">${fmtFull(best.revenue)}</div></div>
+    <div class="stat-pill"><div class="stat-pill-lbl">Avg / Month</div><div class="stat-pill-val">${fmt$(total / rows.length)}</div></div>`;
+}
+
+function renderSignalCards() {
+  const el = document.getElementById('signalCards');
+  if (!el || !insightsData) return;
+  const { outstanding, reactivation } = insightsData;
+  el.innerHTML = `
+    <div class="card" style="border-left:4px solid var(--amber);">
+      <div class="card-title">💰 Outstanding Unpaid</div>
+      <div class="card-sub">Completed jobs where payment not yet recorded</div>
+      <div style="font-size:42px;font-weight:800;letter-spacing:-2px;color:var(--amber);margin:.5rem 0 .25rem;">${fmtFull(outstanding?.totalUnpaid ?? 0)}</div>
+      <div style="font-size:13px;color:var(--muted);">${outstanding?.jobCount ?? 0} job${(outstanding?.jobCount ?? 0) !== 1 ? 's' : ''} · mark paid in Calendar</div>
+    </div>
+    <div class="card" style="border-left:4px solid var(--green);">
+      <div class="card-title">🔄 Reactivation Pool</div>
+      <div class="card-sub">Customers 6–24 months since last service · highest ROI lever</div>
+      <div style="font-size:42px;font-weight:800;letter-spacing:-2px;color:var(--green);margin:.5rem 0 .25rem;">${(reactivation?.count ?? 0).toLocaleString()}</div>
+      <div style="font-size:13px;color:var(--muted);">customers · ${fmtFull(reactivation?.poolRevenue ?? 0)} avg historical value pool</div>
+    </div>`;
+}
+
+function renderRevenueByCity() {
+  const chartEl = document.getElementById('revByCityChart');
+  const tableEl = document.getElementById('revByCityTable');
+  if (!chartEl || !insightsData?.revenueByCity) return;
+  const rows = insightsData.revenueByCity.filter(r => r.city && r.city !== 'UNKNOWN');
+  if (!rows.length) return;
+  const top8 = rows.slice(0, 8);
+  if (charts.revByCity) charts.revByCity.destroy();
+  charts.revByCity = new Chart(chartEl, {
+    type: 'bar',
+    data: {
+      labels: top8.map(r => r.city || 'Unknown'),
+      datasets: [{ label: 'Revenue', data: top8.map(r => r.revenue), backgroundColor: 'rgba(194,65,12,.75)', borderRadius: 6 }],
+    },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { ticks: { callback: v => fmt$(v), font: { size: 10 } } }, y: { ticks: { font: { size: 11 } } } } },
+  });
+  if (tableEl) tableEl.innerHTML = `<table class="data-table"><thead><tr><th>City</th><th>Jobs</th><th>Revenue</th><th>Avg Ticket</th></tr></thead><tbody>${rows.map(r => `<tr><td style="font-weight:600;">${r.city||'—'}</td><td class="mono">${r.jobs}</td><td class="mono">${fmtFull(r.revenue)}</td><td class="mono">${fmt$(r.avgTicket)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderTopCustomers() {
+  const el = document.getElementById('topCustomersTable');
+  if (!el || !insightsData?.topCustomers) return;
+  const rows = insightsData.topCustomers;
+  if (!rows.length) { el.innerHTML = '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-title">No data yet</div></div>'; return; }
+  el.innerHTML = `<table class="data-table"><thead><tr><th>#</th><th>Customer</th><th>Jobs</th><th>Lifetime</th><th>Last Service</th></tr></thead><tbody>${rows.map((r, i) => `<tr><td class="mono" style="color:var(--muted);">${i+1}</td><td style="font-weight:600;">${r.name||'—'}</td><td class="mono">${r.jobs}</td><td class="mono">${fmtFull(r.lifetime)}</td><td class="mono">${fmtDate(r.lastService)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function renderAvgTicketTrend() {
+  const el = document.getElementById('avgTicketChart');
+  if (!el || !insightsData?.avgTicketTrend) return;
+  const rows = insightsData.avgTicketTrend;
+  if (!rows.length) return;
+  if (charts.avgTicket) charts.avgTicket.destroy();
+  charts.avgTicket = new Chart(el, {
+    type: 'line',
+    data: {
+      labels: rows.map(r => r.month),
+      datasets: [
+        { label: 'Avg Ticket', data: rows.map(r => r.avgTicket), borderColor: '#c2410c', backgroundColor: 'rgba(194,65,12,.1)', tension: .35, fill: true, pointRadius: 3 },
+        { label: 'Max', data: rows.map(r => r.maxTicket), borderColor: '#16a34a', borderDash: [4,3], backgroundColor: 'transparent', tension: .35, pointRadius: 2 },
+      ],
+    },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } },
+      scales: { y: { ticks: { callback: v => fmt$(v), font: { size: 10 } } } } },
+  });
+}
+
+function renderRigProductivity() {
+  const chartEl = document.getElementById('rigProductivityChart');
+  const tableEl = document.getElementById('rigProductivityTable');
+  if (!chartEl || !insightsData?.rigProductivity) return;
+  const rows = insightsData.rigProductivity;
+  if (!rows.length) { chartEl.closest('.card').innerHTML += '<div class="empty"><div class="empty-icon">🚛</div><div class="empty-title">No GPS rig data yet</div></div>'; return; }
+  const months = [...new Set(rows.map(r => r.month))].sort();
+  const rigs = [...new Set(rows.map(r => r.rigId).filter(Boolean))].sort();
+  const rigColors = { rig_1: '#3b82f6', rig_2: '#10b981', rig_3: '#f59e0b' };
+  const datasets = rigs.map(rig => ({
+    label: RIG_LABELS[rig] || rig,
+    data: months.map(m => { const r = rows.find(x => x.month === m && x.rigId === rig); return r ? r.jobs : 0; }),
+    backgroundColor: (rigColors[rig] || '#94a3b8') + 'cc',
+    borderRadius: 4,
+  }));
+  if (charts.rigProductivity) charts.rigProductivity.destroy();
+  charts.rigProductivity = new Chart(chartEl, {
+    type: 'bar',
+    data: { labels: months, datasets },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } },
+      scales: { x: { stacked: false }, y: { ticks: { font: { size: 10 } }, beginAtZero: true } } },
+  });
+  if (tableEl) {
+    const rigTotals = rigs.map(rig => ({ rig, jobs: rows.filter(r => r.rigId === rig).reduce((s,r) => s+r.jobs, 0), revenue: rows.filter(r => r.rigId === rig).reduce((s,r) => s+r.revenue, 0) }));
+    tableEl.innerHTML = `<table class="data-table"><thead><tr><th>Rig</th><th>Jobs (6mo)</th><th>Revenue (6mo)</th><th>Avg/Job</th></tr></thead><tbody>${rigTotals.map(r => `<tr><td style="font-weight:600;">${RIG_LABELS[r.rig]||r.rig}</td><td class="mono">${r.jobs}</td><td class="mono">${fmtFull(r.revenue)}</td><td class="mono">${r.jobs>0?fmt$(r.revenue/r.jobs):'—'}</td></tr>`).join('')}</tbody></table>`;
+  }
+}
+
 function renderAll() {
   [
     ['Hero',               renderHero],
     ['Levers',             renderLevers],
     ['Goal',               renderGoal],
-    ['Revenue',            renderRevenue],
-    ['SourcePie',          renderSourcePie],
-    ['VariantPie',         renderVariantPie],
-    ['ServiceMix',         renderServiceMix],
-    ['Funnel',             renderFunnel],
-    ['Heatmap',            renderHeatmap],
-    ['Geo',                renderGeo],
-    ['Lifecycle',          renderLifecycle],
     ['StrategicInsights',  renderStrategicInsights],
     ['IntelligenceCards',  renderIntelligenceCards],
-    ['Reactivation',       renderReactivation],
-    ['PhoneQuoteFunnel',   renderPhoneQuoteFunnel],
     ['Actions',            renderActions],
-    ['LeadSource',         renderLeadSource],
-    ['CycleTime',          renderCycleTime],
+    ['RevenueByMonth',     renderRevenueByMonth],
+    ['SignalCards',        renderSignalCards],
+    ['RevenueByCity',      renderRevenueByCity],
+    ['TopCustomers',       renderTopCustomers],
+    ['AvgTicketTrend',     renderAvgTicketTrend],
+    ['RigProductivity',    renderRigProductivity],
     ['CrewPerformance',    renderCrewPerformance],
-    ['Satisfaction',       renderSatisfaction],
     ['ReviewRequests',     renderReviewRequests],
   ].forEach(([name, fn]) => {
     try { fn(); } catch(e) { console.error(`[insights] ${name} render failed:`, e); }

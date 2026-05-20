@@ -1094,28 +1094,83 @@ export default {
         const prevStart   = url.searchParams.get('prevStart') || null;
         const prevEnd     = url.searchParams.get('prevEnd')   || null;
         const source      = url.searchParams.get('source')    || 'all';
-        // source values in D1 are csv_backfill_2024/2025/2026 — use LIKE prefix match
         const srcFilter   = source === 'live' ? " AND source NOT LIKE 'csv_backfill%'" : '';
 
         const ytdStart = `${currentYear}-01-01`;
         const completedSQL = `SELECT COUNT(*) AS jobCount, COALESCE(SUM(amount),0) AS revenue FROM Job WHERE state='completed' AND scheduledDate BETWEEN ? AND ? AND amount > 0${srcFilter}`;
         const pipelineSQL  = `SELECT COUNT(*) AS jobCount, COALESCE(SUM(amount),0) AS revenue FROM Job WHERE state='scheduled' AND scheduledDate BETWEEN ? AND ?${srcFilter}`;
-        const migrationSQL = `SELECT completedAt FROM MigrationManifest ORDER BY completedAt DESC LIMIT 1`;
 
-        const [completed, pipeline, ytd, prevCompleted, migration] = await Promise.all([
+        const [completed, pipeline, ytd, prevCompleted,
+               revenueByMonth, revenueByCity, outstanding, reactivation,
+               topCustomers, rigProductivity, avgTicketTrend] = await Promise.all([
           env.DB.prepare(completedSQL).bind(start, end).first(),
           env.DB.prepare(pipelineSQL).bind(start, end).first(),
           env.DB.prepare(completedSQL).bind(ytdStart, today).first(),
           prevStart && prevEnd ? env.DB.prepare(completedSQL).bind(prevStart, prevEnd).first() : Promise.resolve(null),
-          env.DB.prepare(migrationSQL).first(),
+          // Panel 1 — Revenue by month (last 12)
+          env.DB.prepare(
+            `SELECT SUBSTR(scheduledDate,1,7) AS month, COUNT(*) AS jobs, CAST(SUM(amount) AS INTEGER) AS revenue ` +
+            `FROM Job WHERE state='completed' AND amount > 0 AND scheduledDate >= DATE('now','-12 months')${srcFilter} ` +
+            `GROUP BY month ORDER BY month`
+          ).all().then(r => r.results || []),
+          // Panel 2 — Revenue by city
+          env.DB.prepare(
+            `SELECT p.city, COUNT(*) AS jobs, CAST(SUM(j.amount) AS INTEGER) AS revenue, CAST(AVG(j.amount) AS INTEGER) AS avgTicket ` +
+            `FROM Job j ` +
+            `JOIN PersonProperty pp ON j.payerId = pp.personId AND pp.primaryContact=1 ` +
+            `JOIN Property p ON pp.propertyId = p.propertyId ` +
+            `WHERE j.state='completed' AND j.amount > 0${srcFilter} ` +
+            `GROUP BY p.city ORDER BY revenue DESC LIMIT 15`
+          ).all().then(r => r.results || []),
+          // Panel 3 — Outstanding unpaid
+          env.DB.prepare(
+            `SELECT COUNT(*) AS jobCount, CAST(COALESCE(SUM(amount),0) AS INTEGER) AS totalUnpaid ` +
+            `FROM Job WHERE state='completed' AND paymentStatus='unpaid' AND amount > 0`
+          ).first(),
+          // Panel 4 — Reactivation pool (6–24 months dormant)
+          env.DB.prepare(
+            `SELECT COUNT(*) AS count, CAST(COALESCE(SUM(maxAmount),0) AS INTEGER) AS poolRevenue ` +
+            `FROM (SELECT payerId, MAX(scheduledDate) AS lastService, MAX(amount) AS maxAmount ` +
+            `FROM Job WHERE state='completed' AND amount > 0${srcFilter} ` +
+            `GROUP BY payerId ` +
+            `HAVING lastService <= DATE('now','-180 days') AND lastService >= DATE('now','-730 days'))`
+          ).first(),
+          // Panel 5 — Top 10 customers by lifetime spend
+          env.DB.prepare(
+            `SELECT p.firstName||' '||p.lastName AS name, p.primaryPhone, ` +
+            `COUNT(*) AS jobs, CAST(SUM(j.amount) AS INTEGER) AS lifetime, MAX(j.scheduledDate) AS lastService ` +
+            `FROM Job j JOIN Person p ON j.payerId = p.personId ` +
+            `WHERE j.state='completed' AND j.amount > 0${srcFilter} ` +
+            `GROUP BY j.payerId ORDER BY lifetime DESC LIMIT 10`
+          ).all().then(r => r.results || []),
+          // Panel 6 — Rig productivity last 6 months
+          env.DB.prepare(
+            `SELECT SUBSTR(scheduledDate,1,7) AS month, rigId, COUNT(*) AS jobs, CAST(SUM(amount) AS INTEGER) AS revenue ` +
+            `FROM Job WHERE state='completed' AND rigId IS NOT NULL AND amount > 0 ` +
+            `AND scheduledDate >= DATE('now','-6 months')${srcFilter} ` +
+            `GROUP BY month, rigId ORDER BY month, rigId`
+          ).all().then(r => r.results || []),
+          // Panel 7 — Avg ticket trend last 12 months
+          env.DB.prepare(
+            `SELECT SUBSTR(scheduledDate,1,7) AS month, COUNT(*) AS jobs, ` +
+            `CAST(AVG(amount) AS INTEGER) AS avgTicket, CAST(MIN(amount) AS INTEGER) AS minTicket, CAST(MAX(amount) AS INTEGER) AS maxTicket ` +
+            `FROM Job WHERE state='completed' AND amount > 0 AND scheduledDate >= DATE('now','-12 months')${srcFilter} ` +
+            `GROUP BY month ORDER BY month`
+          ).all().then(r => r.results || []),
         ]);
 
         return jsonResponse({
-          completed:     { jobCount: completed?.jobCount     ?? 0, revenue: completed?.revenue     ?? 0 },
-          pipeline:      { jobCount: pipeline?.jobCount      ?? 0, revenue: pipeline?.revenue      ?? 0 },
-          ytd:           { jobCount: ytd?.jobCount           ?? 0, revenue: ytd?.revenue           ?? 0 },
-          prevCompleted: prevStart && prevEnd ? { jobCount: prevCompleted?.jobCount ?? 0, revenue: prevCompleted?.revenue ?? 0 } : null,
-          migrationDate: migration?.completedAt ? migration.completedAt.slice(0, 10) : null,
+          completed:       { jobCount: completed?.jobCount  ?? 0, revenue: completed?.revenue ?? 0 },
+          pipeline:        { jobCount: pipeline?.jobCount   ?? 0, revenue: pipeline?.revenue  ?? 0 },
+          ytd:             { jobCount: ytd?.jobCount        ?? 0, revenue: ytd?.revenue       ?? 0 },
+          prevCompleted:   prevStart && prevEnd ? { jobCount: prevCompleted?.jobCount ?? 0, revenue: prevCompleted?.revenue ?? 0 } : null,
+          revenueByMonth,
+          revenueByCity,
+          outstanding:     { jobCount: outstanding?.jobCount ?? 0, totalUnpaid: outstanding?.totalUnpaid ?? 0 },
+          reactivation:    { count: reactivation?.count ?? 0, poolRevenue: reactivation?.poolRevenue ?? 0 },
+          topCustomers,
+          rigProductivity,
+          avgTicketTrend,
         }, corsHeaders);
       }
 
