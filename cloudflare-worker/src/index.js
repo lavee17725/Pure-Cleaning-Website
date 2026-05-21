@@ -2595,25 +2595,9 @@ async function d1AllCustomersToKvShape(env) {
     const pjobs = jobsByPayer[p.personId] || [];
     const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs);
     computeBouncieMetrics(customer);
-
-    // Fan-out: persons with N>1 scheduled jobs emit one virtual customer per job.
-    // Each clone carries distinct scheduledStatus + address for its property.
-    const scheduledJobs = pjobs.filter(j => j.state === 'scheduled');
-    if (scheduledJobs.length > 1) {
-      for (const job of scheduledJobs) {
-        const clone = Object.assign({}, customer);
-        clone.scheduledStatus = _d1BuildScheduledStatus([job]);
-        const jobProp = propById[job.propertyId];
-        if (jobProp) {
-          clone.address = jobProp.streetAddress || customer.address;
-          clone.city    = jobProp.city           || customer.city;
-        }
-        clone._virtualKey = ph + '#' + (job.propertyId || 'noprop');
-        customers.push(clone);
-      }
-    } else {
-      customers.push(customer);
-    }
+    // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
+    // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
+    customers.push(customer);
   }
   return { customers };
 }
