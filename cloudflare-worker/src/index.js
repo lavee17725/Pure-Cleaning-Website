@@ -2904,6 +2904,7 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
   }
 
   for (const c of incomingCustomers) {
+    if (c._virtualKey) continue; // skip fan-out display clones — not real writes
     const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
     if (!ph || ph.length !== 10) continue;
     const prev = prevByPhone.get(ph);
@@ -2914,6 +2915,8 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
       await _d1SyncScheduledJob(c, env, now);
       continue;
     }
+
+    const personId = _d1PersonId(ph); // needed for PersonProperty upsert + reschedule delete
 
     // Person field changes (name, email, doNotContact)
     await _d1SyncPersonUpdate(c, prev, env, now);
@@ -2942,6 +2945,16 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
     const prevSs = prev.scheduledStatus;
     if (ss?.state === 'scheduled' && ss.scheduledDate &&
         ss.scheduledDate !== prevSs?.scheduledDate) {
+      // Delete the old scheduled row when date changes — INSERT OR ROLLBACK below
+      // creates the new one. Old row has no audit value (jobHistory captures completions).
+      if (prevSs?.scheduledDate) {
+        const oldJobId = _d1ScheduledJobId(personId, prevSs.scheduledDate);
+        try {
+          await env.DB.prepare(
+            `DELETE FROM Job WHERE jobId=? AND state='scheduled'`
+          ).bind(oldJobId).run();
+        } catch(e) { await _logD1Failure(env, `reschedule_old_delete:${ph}`, e.message); }
+      }
       await _d1SyncScheduledJob(c, env, now);
     }
   }
