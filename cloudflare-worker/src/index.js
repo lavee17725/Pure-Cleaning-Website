@@ -751,6 +751,15 @@ export default {
       if (path === 'admin/d1-sync-failures' && request.method === 'GET')
         return jsonResponse(await env.DATA.get('d1_sync_failures', 'json') || [], corsHeaders);
 
+      // ── Calendar jobs: D1-native read + mutation (Phase 2A) ──────────────────
+      if (path === 'admin/calendar-jobs' && request.method === 'GET')
+        return await handleCalendarJobs(request, env, corsHeaders);
+
+      if (path.startsWith('admin/job/') && request.method === 'PATCH') {
+        const jobId = path.slice('admin/job/'.length);
+        return await handlePatchJob(request, env, jobId, corsHeaders);
+      }
+
       // ── Customer review actions ───────────────────────────────────────────────
       if (path.startsWith('customer/')) {
         const rest   = path.slice('customer/'.length);
@@ -2767,6 +2776,124 @@ async function handleReconcileKvD1(env, corsHeaders) {
     },
     discrepancies,
   }, corsHeaders);
+}
+
+// ── Phase 2A: D1-native calendar endpoints ────────────────────────────────────
+
+async function handleCalendarJobs(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const url       = new URL(request.url);
+  const weekStart = url.searchParams.get('weekStart');
+  if (!weekStart || !/^\d{4}-\d{2}-\d{2}$/.test(weekStart))
+    return jsonResponse({ error: 'weekStart required (YYYY-MM-DD)' }, corsHeaders, 400);
+
+  const weekEnd = new Date(weekStart + 'T12:00:00Z');
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+  const weekEndStr = weekEnd.toISOString().slice(0, 10);
+
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT
+        j.jobId,
+        j.payerId,
+        j.propertyId,
+        j.scheduledDate,
+        j.scheduledTimeWindow,
+        j.state,
+        j.amount,
+        j.rigId,
+        j.servicesRaw,
+        j.jobNotes,
+        j.actualDuration,
+        j.actualArrival,
+        j.actualDeparture,
+        j.bouncieMatchStatus,
+        j.isMultiBuildingJob,
+        p.firstName,
+        p.lastName,
+        p.primaryPhone,
+        p.email,
+        prop.streetAddress,
+        prop.city,
+        prop.state AS propertyState,
+        prop.zip,
+        prop.latitude,
+        prop.longitude,
+        prop.gateCode,
+        prop.accessNotes,
+        pp.propertyLabel,
+        pp.primaryContact
+      FROM Job j
+      JOIN Person p ON p.personId = j.payerId
+      LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+      LEFT JOIN PersonProperty pp
+        ON pp.personId = j.payerId AND pp.propertyId = j.propertyId
+      WHERE j.state = 'scheduled'
+        AND j.scheduledDate >= ?
+        AND j.scheduledDate < ?
+      ORDER BY j.scheduledDate, j.rigId, j.scheduledTimeWindow
+    `).bind(weekStart, weekEndStr).all();
+
+    return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: results || [] }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCalendarJobs', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+const _JOB_MUTABLE_FIELDS = new Set([
+  'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
+  'amount', 'jobNotes', 'servicesRaw', 'cancellationReason', 'cancelledAt',
+  'completedAt',
+]);
+
+const _JOB_VALID_STATES = new Set([
+  'scheduled', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show',
+]);
+
+async function handlePatchJob(request, env, jobId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!jobId) return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  // Whitelist check
+  const disallowed = Object.keys(body).filter(k => !_JOB_MUTABLE_FIELDS.has(k));
+  if (disallowed.length)
+    return jsonResponse({ error: `Field(s) not mutable: ${disallowed.join(', ')}` }, corsHeaders, 400);
+
+  // State validation
+  if (body.state !== undefined && !_JOB_VALID_STATES.has(body.state))
+    return jsonResponse({ error: `Invalid state: ${body.state}` }, corsHeaders, 400);
+
+  // Confirm job exists
+  const existing = await env.DB.prepare('SELECT jobId, state FROM Job WHERE jobId = ?').bind(jobId).first();
+  if (!existing) return jsonResponse({ error: 'Job not found', jobId }, corsHeaders, 404);
+
+  const now = new Date().toISOString();
+
+  // Auto-timestamps on state transitions
+  const updates = { ...body };
+  if (updates.state === 'cancelled' && !updates.cancelledAt) updates.cancelledAt = now;
+  if (updates.state === 'completed' && !updates.completedAt) updates.completedAt = now;
+
+  const sets = Object.keys(updates).map(k => `${k}=?`);
+  sets.push('modifiedAt=?');
+  const vals = [...Object.values(updates), now, jobId];
+
+  try {
+    await env.DB.prepare(
+      `UPDATE Job SET ${sets.join(', ')} WHERE jobId = ?`
+    ).bind(...vals).run();
+
+    const updated = await env.DB.prepare('SELECT * FROM Job WHERE jobId = ?').bind(jobId).first();
+    return jsonResponse({ success: true, jobId, updatedRow: updated }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, `handlePatchJob:${jobId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
 }
 
 // ── Day 2 dual-write helpers ──────────────────────────────────────────────────
