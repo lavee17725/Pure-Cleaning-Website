@@ -1632,6 +1632,7 @@ function windowLabel(ss) {
 
 // ── STATE ──────────────────────────────────────────────────────────────────────
 let dbRecord      = {};
+let calendarJobs  = []; // flat D1 job rows for current view window — Phase 2B-1
 let dayOffset     = 0; // days from today; drives day-by-day sliding window
 let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
@@ -1853,6 +1854,7 @@ async function init() {
     dbRecord = (await getCachedCustomerDB()) || {};
     cleanStaleSchedulingStates();
     cleanupExpiredTestRecords(); // fire-and-forget — removes expired test records silently
+    await loadCalendarJobs(getWeekDates()[0]); // Phase 2B-1: populate D1 job data before first render
     render();
     autoGeocodeJobs(); // background geocode any scheduled jobs missing coordinates
     loadWeather();     // fire-and-forget — populates weatherData then re-renders headers
@@ -1909,6 +1911,74 @@ async function saveDb() {
     body: JSON.stringify(dbRecord)
   });
   sessionStorage.removeItem('pcpc_customer_db_cache');
+}
+
+// ── Phase 2B-1: D1-native calendar job data ────────────────────────────────────
+
+async function loadCalendarJobs(weekStart) {
+  if (!weekStart) return;
+  try {
+    const res  = await fetch(`${PCPC_API}/admin/calendar-jobs?weekStart=${weekStart}`);
+    if (!res.ok) { console.warn('[loadCalendarJobs] HTTP', res.status); return; }
+    const data = await res.json();
+    calendarJobs = data.jobs || [];
+  } catch (e) {
+    console.warn('[loadCalendarJobs]', e.message);
+    // Fail open — calendar continues with existing calendarJobs[] or empty
+  }
+}
+
+// Adapter: flat calendarJobs[] row → customer-like shape jobCardScheduled expects.
+// Supplements with dbRecord lookup for KV-only fields (payment, alerts, crew).
+function _jobRowToShape(job, isMultiProperty) {
+  const phone = (job.primaryPhone||'').replace(/\D/g,'').slice(-10);
+  const cust  = (dbRecord.customers||[]).find(c =>
+    (c.phone||'').replace(/\D/g,'').slice(-10) === phone
+  ) || {};
+  const crewFromKv = cust.scheduledStatus?.crew || [];
+  const durFromKv  = cust.scheduledStatus?.estimatedDuration || 2;
+  const durLabel   = cust.scheduledStatus?.duration || null;
+  return {
+    jobId:          job.jobId,
+    phone,
+    firstName:      job.firstName   || '',
+    lastName:       job.lastName    || '',
+    address:        job.streetAddress || '',
+    city:           job.city         || '',
+    propertyLabel:  job.propertyLabel || null,
+    isMultiProperty,
+    coordinates:    (job.latitude && job.longitude)
+                      ? { lat: +job.latitude, lng: +job.longitude } : null,
+    geocoded:       (job.latitude && job.longitude)
+                      ? { lat: +job.latitude, lng: +job.longitude } : null,
+    alerts:         cust.alerts    || [],
+    isTest:         cust.isTest    || false,
+    paymentInfo:    cust.paymentInfo  || null,
+    receiptInfo:    cust.receiptInfo  || null,
+    reviewQueue:    cust.reviewQueue  || null,
+    paymentMethod:  cust.paymentMethod || null,
+    linkCode:       cust.linkCode  || null,
+    quoteStatus:    cust.quoteStatus  || null,
+    jobHistory:     [], // GPS comes from job row ss fields; history cards use dbRecord separately
+    scheduledStatus: {
+      state:             job.state,
+      scheduledDate:     job.scheduledDate,
+      rig:               job.rigId,
+      approvedAmount:    job.amount,
+      jobNotes:          job.jobNotes || job.servicesRaw || '',
+      window:            job.scheduledTimeWindow || null,
+      actualArrival:     job.actualArrival    || null,
+      actualDeparture:   job.actualDeparture  || null,
+      actualDuration:    job.actualDuration   || null,
+      bouncieMatchStatus:job.bouncieMatchStatus || null,
+      crew:              crewFromKv,
+      estimatedDuration: durFromKv,
+      duration:          durLabel,
+      roofStories:       cust.scheduledStatus?.roofStories || null,
+      confirmationSentAt:cust.scheduledStatus?.confirmationSentAt || null,
+      confirmedByCustomer:cust.scheduledStatus?.confirmedByCustomer || false,
+    },
+  };
 }
 
 // ── WEEK HELPERS ──────────────────────────────────────────────────────────────
@@ -2222,13 +2292,11 @@ function getScheduledForRigOrdered(date, rig) {
   const jobs = getScheduledForRig(date, rig);
   const savedOrder = (calState.jobOrder?.[date]?.[rig]) || [];
   if (!savedOrder.length) return jobs;
-  const byPhone = {};
-  jobs.forEach(j => { byPhone[(j.phone||'').replace(/\D/g,'').slice(-10)] = j; });
-  const ordered = savedOrder.map(p => byPhone[p]).filter(Boolean);
-  jobs.forEach(j => {
-    const p = (j.phone||'').replace(/\D/g,'').slice(-10);
-    if (!savedOrder.includes(p)) ordered.push(j);
-  });
+  // Phase 2B-1: order is jobId-keyed (phone-keyed entries from pre-2B-1 are silently ignored)
+  const byJobId = {};
+  jobs.forEach(j => { if (j.jobId) byJobId[j.jobId] = j; });
+  const ordered = savedOrder.map(id => byJobId[id]).filter(Boolean);
+  jobs.forEach(j => { if (j.jobId && !savedOrder.includes(j.jobId)) ordered.push(j); });
   return ordered;
 }
 
@@ -2379,7 +2447,7 @@ function applyOptimize() {
   if (_pendingOptimizeAll) {
     _pendingOptimizeAll.forEach(({ date, rig, optimized }) => {
       if (!calState.jobOrder[date]) calState.jobOrder[date] = {};
-      calState.jobOrder[date][rig] = optimized.map(j => (j.phone||'').replace(/\D/g,'').slice(-10));
+      calState.jobOrder[date][rig] = optimized.map(j => j.jobId || '').filter(Boolean);
     });
     saveCalState();
     cancelOptimize();
@@ -2388,7 +2456,7 @@ function applyOptimize() {
   } else if (_pendingOptimize) {
     const { date, rig, optimized } = _pendingOptimize;
     if (!calState.jobOrder[date]) calState.jobOrder[date] = {};
-    calState.jobOrder[date][rig] = optimized.map(j => (j.phone||'').replace(/\D/g,'').slice(-10));
+    calState.jobOrder[date][rig] = optimized.map(j => j.jobId || '').filter(Boolean);
     saveCalState();
     cancelOptimize();
     renderCalGrid(getWeekDates());
@@ -2852,11 +2920,16 @@ function jobCardScheduled(c) {
   const svcLine  = _svcRaw
     ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || 1) : null; const _storyBadge = _stories ? `<span class="story-badge">${_stories}-story</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
     : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c._virtualKey || c.phone}" onclick="toggleJobCard(this)">
+  // Multi-property label chip (Phase 2B-1)
+  const propLabelChip = (c.isMultiProperty && c.propertyLabel)
+    ? ` <span style="font-size:10px;font-weight:700;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:6px;padding:1px 6px;vertical-align:middle;white-space:nowrap;">${esc(c.propertyLabel)}</span>`
+    : '';
+  const metaParts = [winLbl, city + propLabelChip].filter(Boolean);
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" data-job-id="${c.jobId||''}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
-    <div class="js-meta">${[winLbl, city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
+    <div class="js-meta">${metaParts.join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
     <div class="jc-detail">
     ${(() => {
@@ -3175,18 +3248,36 @@ function buildQueueHtml(jobs) {
   return parts.join('');
 }
 
-function getScheduledForRig(date, rig) {
-  return (dbRecord.customers||[]).filter(c => {
-    const ss = c.scheduledStatus;
-    return ss && (ss.state==='scheduled'||ss.state==='in_progress'||ss.state==='completed') && ss.scheduledDate===date && ss.rig===rig;
+// Phase 2B-1: payerCounts computed once per render cycle from calendarJobs to detect multi-property.
+function _calPayerCounts() {
+  const counts = {};
+  calendarJobs.forEach(j => {
+    if (j.state === 'scheduled' || j.state === 'in_progress')
+      counts[j.payerId] = (counts[j.payerId] || 0) + 1;
   });
+  return counts;
+}
+
+function getScheduledForRig(date, rig) {
+  // Scheduled + in_progress: D1-native (calendarJobs[] populated by loadCalendarJobs).
+  const payerCounts = _calPayerCounts();
+  const fromD1 = calendarJobs
+    .filter(j => (j.state==='scheduled'||j.state==='in_progress') && j.scheduledDate===date && j.rigId===rig)
+    .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
+  // Completed: still from dbRecord — the /admin/calendar-jobs endpoint only returns state='scheduled'.
+  // Completed cards remain KV-sourced in Phase 2B-1; this merges cleanly until 2B-2.
+  const fromKv = (dbRecord.customers||[]).filter(c => {
+    const ss = c.scheduledStatus;
+    return ss && ss.state==='completed' && ss.scheduledDate===date && ss.rig===rig;
+  });
+  return [...fromD1, ...fromKv];
 }
 
 function getUnassignedJobs(date) {
-  return (dbRecord.customers||[]).filter(c => {
-    const ss = c.scheduledStatus;
-    return ss && (ss.state==='scheduled'||ss.state==='in_progress') && ss.scheduledDate===date && !ss.rig;
-  });
+  const payerCounts = _calPayerCounts();
+  return calendarJobs
+    .filter(j => (j.state==='scheduled'||j.state==='in_progress') && j.scheduledDate===date && !j.rigId)
+    .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
 }
 
 function findCustomer(key) {
@@ -3311,13 +3402,14 @@ function initSortables() {
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
       onUpdate: evt => {
-        const date = evt.to.dataset.date;
-        const rig  = evt.to.dataset.rig;
-        const phones = Array.from(evt.to.querySelectorAll('.job-scheduled[data-phone]'))
-          .map(el => (el.dataset.phone||'').replace(/\D/g,'').slice(-10));
+        const date   = evt.to.dataset.date;
+        const rig    = evt.to.dataset.rig;
+        // Phase 2B-1: order keyed by jobId (data-job-id on each card element)
+        const jobIds = Array.from(evt.to.querySelectorAll('.job-scheduled[data-job-id]'))
+          .map(el => el.dataset.jobId || '').filter(Boolean);
         if (!calState.jobOrder) calState.jobOrder = {};
         if (!calState.jobOrder[date]) calState.jobOrder[date] = {};
-        calState.jobOrder[date][rig] = phones;
+        calState.jobOrder[date][rig] = jobIds;
         saveCalState();
         renderCalGrid(getWeekDates());
       }
@@ -4398,8 +4490,18 @@ function saveDayOff() {
 }
 
 // ── WEEK NAV ──────────────────────────────────────────────────────────────────
-function changeWeek(dir) { dayOffset += dir * 7; render(); updateBlockWeekBtn(); }
-function goToday()       { dayOffset = 0; render(); updateBlockWeekBtn(); }
+function changeWeek(dir) {
+  dayOffset += dir * 7;
+  render();
+  updateBlockWeekBtn();
+  loadCalendarJobs(getWeekDates()[0]).then(() => render()).catch(() => {});
+}
+function goToday() {
+  dayOffset = 0;
+  render();
+  updateBlockWeekBtn();
+  loadCalendarJobs(getWeekDates()[0]).then(() => render()).catch(() => {});
+}
 function openDayRouteView() {
   // Opens day route view for the first visible date (start of current window)
   const date = getWeekDates()[0];
@@ -6372,13 +6474,10 @@ function renderDayRigGrid(date) {
 
 // Jobs scheduled for a specific date but with no rig assigned yet.
 function getDayPoolJobs(date) {
-  return (dbRecord.customers || []).filter(c => {
-    const ss = c.scheduledStatus;
-    if (!ss) return false;
-    if (ss.scheduledDate !== date) return false;
-    if (ss.rig) return false; // already has a rig → in rig column, not pool
-    return ss.state === 'scheduled' || ss.state === 'needs_scheduling';
-  });
+  const payerCounts = _calPayerCounts();
+  return calendarJobs
+    .filter(j => j.scheduledDate === date && !j.rigId && (j.state === 'scheduled' || j.state === 'in_progress'))
+    .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
 }
 
 function renderDayPool(date) {
