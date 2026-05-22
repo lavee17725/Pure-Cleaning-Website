@@ -763,6 +763,9 @@ export default {
         return await handlePatchJob(request, env, jobId, corsHeaders);
       }
 
+      if (path === 'admin/partner' && request.method === 'POST')
+        return await handleCreatePartner(request, env, corsHeaders);
+
       // ── Customer review actions ───────────────────────────────────────────────
       if (path.startsWith('customer/')) {
         const rest   = path.slice('customer/'.length);
@@ -1612,6 +1615,9 @@ async function handleCustomersPut(request, env, corsHeaders) {
   for (const c of customers) {
     const ss = c.scheduledStatus;
     if (!ss || ss.state !== 'completed' || ss.completedAt) continue;
+    // csv_backfill entries have null completedAt from migration — never stamp NOW
+    // or they flood the review queue with 1,200+ false positives on every PUT.
+    if ((ss.source||'').indexOf('csv_backfill') !== -1) continue;
 
     ss.completedAt = now;
 
@@ -2136,6 +2142,7 @@ function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
   // rs = review state from review_states[phone] (never from customer_db)
   if (c.deleted) return false;
   if (c.isReferralOnly) return false;
+  if (c.customerType === 'partner_referral') return false;
   if (c.optOut) return false;
   if ((c.phone || '').startsWith('REFERRAL_')) return false;
   if (c.neverAskReview === true) return false;
@@ -2161,7 +2168,8 @@ function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
 
   // Calendar completions write completedAt on scheduledStatus
   const ss = c.scheduledStatus || {};
-  if (ss.state === 'completed' && ss.completedAt && ss.completedAt >= REVIEW_ELIGIBLE_CUTOFF) return true;
+  if (ss.state === 'completed' && ss.completedAt && ss.completedAt >= REVIEW_ELIGIBLE_CUTOFF &&
+      (ss.source||'').indexOf('csv_backfill') === -1) return true;
 
   return false;
 }
@@ -2472,6 +2480,8 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     actualArrival:      j.actualArrival   || null,
     actualDeparture:    j.actualDeparture || null,
     bouncieMatchStatus: j.bouncieMatchStatus || null,
+    workSiteAddress:    j.workSiteAddress    || null,
+    workSiteCity:       j.workSiteCity       || null,
   };
 }
 
@@ -2556,6 +2566,8 @@ function _d1PersonToKv(p, props, pjobs, propById) {
                                   source: primaryProp.geocodeSource || null }
                               : null,
     geocodeSource:          primaryProp.geocodeSource || null,
+    customerType:           p.customerType   || 'residential',
+    partnerNotes:           p.partnerNotes   || null,
     bouncieMetrics:         null, // populated by computeBouncieMetrics() after construction
     reviewQueue:            null,
     quoteStatus:            null,
@@ -2565,7 +2577,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
 }
 
 async function d1AllCustomersToKvShape(env) {
-  const [persons, propLinks, jobs] = await Promise.all([
+  const [persons, propLinks, jobs, reviewStates] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
@@ -2575,9 +2587,11 @@ async function d1AllCustomersToKvShape(env) {
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
-      'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource ' +
+      'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
+      'workSiteAddress,workSiteCity ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
+    env.DATA.get('review_states', 'json').then(d => d || {}),
   ]);
 
   // Index by personId + propertyId
@@ -2601,6 +2615,7 @@ async function d1AllCustomersToKvShape(env) {
     const pjobs = jobsByPayer[p.personId] || [];
     const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs, propById);
     computeBouncieMetrics(customer);
+    customer.googleReview = reviewStates[ph] || null;
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
     // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
     customers.push(customer);
@@ -2623,7 +2638,8 @@ async function d1CustomerToKvShape(phone, env) {
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
-      'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource ' +
+      'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
+      'workSiteAddress,workSiteCity ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
   ]);
@@ -2633,6 +2649,8 @@ async function d1CustomerToKvShape(phone, env) {
   for (const pp of propLinks) { if (pp.propertyId) singlePropById[pp.propertyId] = pp; }
   const customer = _d1PersonToKv(personRow, propLinks, pjobs, singlePropById);
   computeBouncieMetrics(customer);
+  const reviewStates = await env.DATA.get('review_states', 'json').then(d => d || {});
+  customer.googleReview = reviewStates[ph] || null;
   return customer;
 }
 
@@ -2808,6 +2826,28 @@ async function handleReconcileKvD1(env, corsHeaders) {
     typeCounts['DUPLICATE_SCHEDULED_JOB'] = (typeCounts['DUPLICATE_SCHEDULED_JOB'] || 0) + 1;
   }
 
+  // Gate: PARTNER_MISSING_WORKSITE — partner jobs with no workSiteAddress
+  const partnerNoSite = await env.DB.prepare(
+    `SELECT j.jobId, j.scheduledDate, j.payerId, p.firstName, p.lastName, p.primaryPhone
+     FROM Job j JOIN Person p ON p.personId = j.payerId
+     WHERE j.state IN ('scheduled','in_progress')
+       AND p.customerType = 'partner_referral'
+       AND (j.workSiteAddress IS NULL OR j.workSiteAddress = '')`
+  ).all().then(r => r.results || []).catch(() => []);
+  for (const row of partnerNoSite) {
+    const rowPh = (row.primaryPhone||'').replace(/\D/g,'').slice(-10);
+    const rowName = `${row.firstName||''} ${row.lastName||''}`.trim();
+    discrepancies.push({
+      phone: rowPh, name: rowName,
+      type: 'PARTNER_MISSING_WORKSITE',
+      field: 'Job.workSiteAddress',
+      kvValue: 'partner_referral',
+      d1Value: `null (jobId=${row.jobId} date=${row.scheduledDate})`,
+      suggested_action: `PATCH /admin/job/${row.jobId} with workSiteAddress`,
+    });
+    typeCounts['PARTNER_MISSING_WORKSITE'] = (typeCounts['PARTNER_MISSING_WORKSITE'] || 0) + 1;
+  }
+
   return jsonResponse({
     summary: {
       kvCustomersChecked: checked,
@@ -2929,10 +2969,17 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.actualDeparture,
         j.bouncieMatchStatus,
         j.isMultiBuildingJob,
+        j.workSiteAddress,
+        j.workSiteCity,
+        j.workSiteZip,
+        j.endCustomerName,
+        j.endCustomerPhone,
+        j.partnerRate,
         p.firstName,
         p.lastName,
         p.primaryPhone,
         p.email,
+        p.customerType,
         prop.streetAddress,
         prop.city,
         prop.state AS propertyState,
@@ -2961,10 +3008,83 @@ async function handleCalendarJobs(request, env, corsHeaders) {
   }
 }
 
+async function handleCreatePartner(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { firstName, lastName, businessName, phone, email, partnerNotes } = body;
+  if (!phone) return jsonResponse({ error: 'phone required' }, corsHeaders, 400);
+  const ph = (phone||'').replace(/\D/g,'').slice(-10);
+  if (!ph || ph.length !== 10) return jsonResponse({ error: 'invalid phone' }, corsHeaders, 400);
+
+  const now      = new Date().toISOString();
+  const personId = _d1PersonId(ph);
+  const e164     = '+1' + ph;
+
+  try {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO Person (personId,firstName,lastName,businessName,primaryPhone,email,customerType,partnerNotes,isHomeowner,doNotContact,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(personId, firstName||'', lastName||'', businessName||null, e164, email||null,
+           'partner_referral', partnerNotes||null, 0, 0,
+           now, now, 'admin_partner_create', 'v4_partner', now, 'high').run();
+
+    // Also write to KV customer_db so GET /customers includes the partner
+    const db = await env.DATA.get('customer_db', 'json') || { customers: [] };
+    const exists = (db.customers||[]).some(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
+    if (!exists) {
+      db.customers.push({
+        phone: ph,
+        firstName: firstName||'',
+        lastName:  lastName||'',
+        businessName: businessName||null,
+        email:    email||null,
+        address:  '',
+        city:     '',
+        zip:      null,
+        notes:    null,
+        alerts:   [],
+        optOut:   false,
+        doNotService: false,
+        isReferralOnly: false,
+        isReferralSource: false,
+        isCommercialAccount: false,
+        isHomeowner: false,
+        preferredPaymentMethod: null,
+        customerType: 'partner_referral',
+        partnerNotes: partnerNotes||null,
+        totalJobs:    0,
+        lifetimeSpend: 0,
+        lastService:  null,
+        jobHistory:   [],
+        scheduledStatus: null,
+        geocoded:    null,
+        coordinates: null,
+        geocodeSource: null,
+        bouncieMetrics: null,
+        reviewQueue: null,
+        quoteStatus: null,
+        neverAskReview: false,
+        createdAt: now,
+      });
+      await env.DATA.put('customer_db', JSON.stringify(db));
+    }
+
+    return jsonResponse({ success: true, personId, phone: ph }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCreatePartner', e.message);
+    return jsonResponse({ error: 'Failed to create partner', detail: e.message }, corsHeaders, 500);
+  }
+}
+
 const _JOB_MUTABLE_FIELDS = new Set([
   'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
   'amount', 'jobNotes', 'servicesRaw', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
+  'workSiteAddress', 'workSiteCity', 'workSiteZip',
+  'endCustomerName', 'endCustomerPhone', 'partnerRate',
 ]);
 
 const _JOB_VALID_STATES = new Set([
@@ -3198,9 +3318,11 @@ async function _d1SyncPersonUpdate(newC, prevC, env, now) {
   const diff = (field, newVal, oldVal) => {
     if ((newVal||'') !== (oldVal||'')) { sets.push(`${field}=?`); vals.push(newVal||''); }
   };
-  diff('firstName', newC.firstName, prevC.firstName);
-  diff('lastName',  newC.lastName,  prevC.lastName);
-  diff('email',     newC.email,     prevC.email);
+  diff('firstName',    newC.firstName,    prevC.firstName);
+  diff('lastName',     newC.lastName,     prevC.lastName);
+  diff('email',        newC.email,        prevC.email);
+  diff('customerType', newC.customerType, prevC.customerType);
+  diff('partnerNotes', newC.partnerNotes, prevC.partnerNotes);
   const newDnc = newC.optOut ? 1 : 0, prevDnc = prevC.optOut ? 1 : 0;
   if (newDnc !== prevDnc) { sets.push('doNotContact=?'); vals.push(newDnc); }
   if (!sets.length) return;

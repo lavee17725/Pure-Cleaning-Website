@@ -145,7 +145,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="tab" data-tab="reviewed" onclick="switchTab('reviewed')">⭐ Reviewed <span class="tab-badge" id="badge-reviewed" style="background:rgba(29,158,117,.4);color:#6ee7b7;">—</span></div>
   <div class="tab" data-tab="wontask" onclick="switchTab('wontask')">🚫 Won't Ask <span class="tab-badge" id="badge-wontask" style="background:rgba(122,138,170,.3);color:var(--muted);">—</span></div>
   <div class="tab" data-tab="insights" onclick="switchTab('insights')">📊 Insights</div>
-  <div class="tab" data-tab="templates" onclick="switchTab('templates')">📝 Templates</div>
+  <div class="tab" data-tab="templates" onclick="switchTab('templates')" style="display:none;">📝 Templates</div>
 </div>
 
 <div class="wrap">
@@ -309,7 +309,7 @@ function renderReady() {
         <div class="card-meta">📞 ${fmtPhone(ph)} · 📋 ${esc(svc.slice(0,60))}${svc.length>60?'…':''} · 📅 ${completedLabel}</div>
         <div class="card-btns">
           <button class="btn btn-gold" onclick="sendReviewRequest('${ph}')">📱 Send Review Request</button>
-          <button class="btn" style="border:1px solid #22c55e;color:#22c55e;background:#fff;" onclick="showStarPicker('${ph}')">✓ Already Reviewed</button>
+          <button class="btn btn-green" onclick="markFiveStar('${ph}')">⭐ Mark 5-Star Reviewed</button>
           <button class="btn" style="border:1px solid #6b7280;color:#6b7280;background:#fff;" onclick="removeFromQueue('${ph}')">✕ Remove from queue</button>
           <button class="btn" style="border:1px solid #ef4444;color:#ef4444;background:#fff;" onclick="neverAskReview('${ph}')">🚫 Never ask</button>
         </div>
@@ -345,6 +345,10 @@ async function sendReviewRequest(phone) {
     hubData.readyToRequest = hubData.readyToRequest.filter(x => customerPhone(x) !== phone);
     updateBadges();
   } catch(e) { showToast(`⚠️ Error logging request: ${e.message}`); }
+}
+
+async function markFiveStar(phone) {
+  await submitStarRating(phone, 5, 'ready');
 }
 
 // ── TAB 2: REQUESTED ─────────────────────────────────────────────────────────

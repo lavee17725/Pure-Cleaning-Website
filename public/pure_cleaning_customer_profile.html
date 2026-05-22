@@ -798,6 +798,11 @@ function renderHeroBanner(c) {
 
   // Tier chip inline with name
   const tierChip = `<span class="tier-chip" style="--tier-color:${tier.color};font-size:13px;vertical-align:middle;margin-left:10px;">${tier.emoji} ${tier.label}${tier.vip?' ★':''}</span>`;
+  // Gold star badge for customers who left a Google review
+  const _gr = c.googleReview || {};
+  const reviewStarBadge = (_gr.status === 'left')
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;background:#fef3c7;color:#92400e;border:1.5px solid #fbbf24;border-radius:20px;padding:2px 10px;margin-left:8px;vertical-align:middle;">⭐ Reviewed</span>`
+    : '';
 
   // Action buttons (Log Reply + Feedback moved to Zone 3 — Phase 3)
   const actionsHtml = [
@@ -834,7 +839,7 @@ function renderHeroBanner(c) {
 
   document.getElementById('heroBanner').innerHTML = `
     ${badge?`<div class="hero-badge" style="${badge.style}">${badge.emoji} ${badge.label}</div>`:''}
-    <div class="hero-name">${esc(fullName)}${tierChip}</div>
+    <div class="hero-name">${esc(fullName)}${tierChip}${reviewStarBadge}</div>
     ${addrHtml}${contactHtml}${emailEditHtml}
     <div class="hero-divider"></div>
     ${statsHtml}
@@ -1057,10 +1062,12 @@ function renderServiceHistory(c) {
   }
 
   // Per-job history cards
+  const _isPartnerCust = (c.customerType === 'partner_referral');
   jh.forEach(j => {
     const rigKey = j.actualRig || j.rig || null;
     const durMin = j.actualDuration || 0;
     const pmRaw  = j.paymentMethod || j.payment || null;
+    const _jobAddr = (_isPartnerCust && j.workSiteAddress) ? j.workSiteAddress : (j.address || null);
     cards.push(_buildJobCard({
       displayDate: j.date
         ? new Date(j.date + 'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'})
@@ -1071,7 +1078,7 @@ function renderServiceHistory(c) {
       status:   j.status || 'completed',
       payment:  pmRaw ? ({zelle:'Zelle',cash:'Cash',check:'Check'}[pmRaw.toLowerCase()] || pmRaw) : null,
       sqFt:     j.sqFt || null,
-      address:  j.address || null,
+      address:  _jobAddr,
       notes:    j.notes || null,
       rigKey,
       rigLabel: RIG_LABELS_P[rigKey] || null,
@@ -1185,6 +1192,12 @@ function renderProfile(customer, events){
 
   // ── Callouts ──
   const callouts=[];
+  if(c.customerType === 'partner_referral') {
+    const partnerJobs = (c.jobHistory||[]).filter(j => j.source !== 'csv_backfill').length;
+    const partnerRevenue = (c.jobHistory||[]).filter(j => j.source !== 'csv_backfill').reduce((s,j) => s+(j.amount||0), 0);
+    const statsStr = partnerJobs ? ` · ${partnerJobs} job${partnerJobs!==1?'s':''} · $${Math.round(partnerRevenue).toLocaleString()} total` : '';
+    callouts.push({cls:'callout-blue', text:`🤝 Referral Partner${statsStr}${c.partnerNotes ? ' — ' + esc(c.partnerNotes) : ''}`});
+  }
   if(c.hasComplaints) callouts.push({cls:'callout-red', text:`⚠ ${c.complaintCount||1} logged complaint${(c.complaintCount||1)>1?'s':''}. Review history below before booking.`});
   if(c.optOut) callouts.push({cls:'callout-gray',  text:'⚠️ Opted out of campaigns — do not send bulk SMS'});
   if(c.movedAway) callouts.push({cls:'callout-gray',text:'🏠 Marked as moved away'});
