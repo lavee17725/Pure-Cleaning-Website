@@ -1973,6 +1973,9 @@ function _jobRowToShape(job, isMultiProperty) {
     lastName:       job.lastName    || '',
     address:        job.streetAddress || '',
     city:           job.city         || '',
+    workSiteAddress: job.workSiteAddress || null,
+    workSiteCity:   job.workSiteCity   || null,
+    customerType:   job.customerType   || 'residential',
     propertyLabel:  job.propertyLabel || null,
     isMultiProperty,
     coordinates:    (job.latitude && job.longitude)
@@ -2321,12 +2324,18 @@ function getScheduledForRigOrdered(date, rig) {
   const savedOrder = (calState.jobOrder?.[date]?.[rig]) || [];
   if (!savedOrder.length) return jobs;
   // Phase 2B-1: order is jobId-keyed (phone-keyed entries from pre-2B-1 are silently ignored)
+  // _stableId is attached by getScheduledForRig's fromKv path for completed KV cards that lack c.jobId.
   const byJobId = {};
-  jobs.forEach(j => { if (j.jobId) byJobId[j.jobId] = j; });
+  jobs.forEach(j => {
+    const id = j.jobId || j._stableId;
+    if (id) byJobId[id] = j;
+  });
   const ordered = savedOrder.map(id => byJobId[id]).filter(Boolean);
-  // Append jobs not already in savedOrder. KV-shaped completed customers have no top-level
-  // j.jobId; treat absent jobId as "not in savedOrder" so they append after scheduled jobs.
-  jobs.forEach(j => { if (!j.jobId || !savedOrder.includes(j.jobId)) ordered.push(j); });
+  // Append cards not in savedOrder. Cards with neither jobId nor _stableId always append last.
+  jobs.forEach(j => {
+    const id = j.jobId || j._stableId;
+    if (!id || !savedOrder.includes(id)) ordered.push(j);
+  });
   return ordered;
 }
 
@@ -2791,7 +2800,9 @@ function jobCardScheduled(c) {
   const dur   = ss.estimatedDuration || 2;
   const state = ss.state || 'scheduled';
   const alerts= alertIcons(c.alerts||[]);
-  const city  = c.city ? esc(formatCity(c.city)) : '';
+  const isPartner = (c.customerType === 'partner_referral');
+  const _displayCity = (isPartner && c.workSiteCity) ? c.workSiteCity : c.city;
+  const city  = _displayCity ? esc(formatCity(_displayCity)) : '';
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
   const { html: amtHtml } = jobAmount(c);
   const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
@@ -2961,7 +2972,7 @@ function jobCardScheduled(c) {
     ? ` <span style="font-size:10px;font-weight:700;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:6px;padding:1px 6px;vertical-align:middle;white-space:nowrap;">${esc(c.propertyLabel)}</span>`
     : '';
   const metaParts = [winLbl, city + propLabelChip].filter(Boolean);
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" data-job-id="${c.jobId||''}" onclick="toggleJobCard(this)">
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" data-job-id="${_editJobId}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
@@ -2969,14 +2980,17 @@ function jobCardScheduled(c) {
     ${svcLine}
     <div class="jc-detail">
     ${(() => {
-        // For completed jobs, prefer the per-job address from the matching jobHistory entry
-        const _dispAddr = (state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address;
-        const _dispCity = (state === 'completed' && _jhMatch?.city)    ? _jhMatch.city    : c.city;
+        // Partners: prefer workSiteAddress over billing address
+        const _dispAddr = isPartner && c.workSiteAddress ? c.workSiteAddress
+          : (state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address;
+        const _dispCity = isPartner && c.workSiteCity ? c.workSiteCity
+          : (state === 'completed' && _jhMatch?.city)    ? _jhMatch.city    : c.city;
         if (!_dispAddr) return '';
         const paUrl = getPropertyAppraiserUrl(_dispCity, _dispAddr);
         const paLbl = paUrl ? getPaLabel(_dispCity) : null;
         const paBtn = paUrl ? `<a href="${paUrl}" target="_blank" onclick="event.stopPropagation()" class="pa-link">🏠 ${paLbl}</a>` : '';
-        return `<div class="js-addr">📍 ${esc(_dispAddr)}${paBtn}</div>`;
+        const partnerLabel = isPartner ? `<span style="font-size:10px;font-weight:700;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:5px;padding:1px 5px;margin-left:4px;vertical-align:middle;">Partner</span>` : '';
+        return `<div class="js-addr">📍 ${esc(_dispAddr)}${partnerLabel}${paBtn}</div>`;
       })()}
     ${(() => {
         const hd = homeDistMi(c);
@@ -3304,6 +3318,14 @@ function getScheduledForRig(date, rig) {
   const fromKv = (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
     return ss && ss.state==='completed' && ss.scheduledDate===date && ss.rig===rig;
+  }).map(c => {
+    // Attach _stableId so getScheduledForRigOrdered can index completed cards the same way
+    // jobCardScheduled uses _editJobId — derive the matching stable id here.
+    const ss = c.scheduledStatus || {};
+    const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+    const stableId = c.jobId ||
+      ((c.jobHistory||[]).find(j => j.status === 'completed' && j.date === ss.scheduledDate)?.jobId || '');
+    return stableId ? { ...c, _stableId: stableId } : c;
   });
   return [...fromD1, ...fromKv];
 }
