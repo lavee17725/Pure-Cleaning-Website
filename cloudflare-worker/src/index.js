@@ -745,6 +745,9 @@ export default {
       if (path === 'admin/reconcile-kv-d1' && request.method === 'GET')
         return await handleReconcileKvD1(env, corsHeaders);
 
+      if (path === 'admin/multi-property-audit' && request.method === 'GET')
+        return await handleMultiPropertyAudit(env, corsHeaders);
+
       if (path === 'admin/migrate-review-states' && request.method === 'POST')
         return await handleMigrateReviewStates(env, corsHeaders);
 
@@ -2638,10 +2641,11 @@ async function handleReconcileKvD1(env, corsHeaders) {
   const norm = p => (p||'').replace(/\D/g,'').slice(-10);
 
   // Read KV + D1 in parallel
-  const [kvDb, d1Persons, d1Jobs] = await Promise.all([
+  const [kvDb, d1Persons, d1Jobs, d1Props] = await Promise.all([
     env.DATA.get(KV_KEYS.customers, 'json').then(d => d || { customers: [] }),
     env.DB.prepare('SELECT personId, primaryPhone, firstName, lastName FROM Person').all().then(r => r.results || []),
-    env.DB.prepare('SELECT jobId, payerId, scheduledDate, state, completedAt, amount, paymentMethod, paymentStatus, paidAt FROM Job').all().then(r => r.results || []),
+    env.DB.prepare('SELECT jobId, payerId, propertyId, scheduledDate, state, completedAt, amount, paymentMethod, paymentStatus, paidAt FROM Job').all().then(r => r.results || []),
+    env.DB.prepare('SELECT propertyId, streetAddress, city FROM Property').all().then(r => r.results || []),
   ]);
 
   const kvCustomers = (kvDb.customers || []).filter(c => c && !c.deleted);
@@ -2657,6 +2661,8 @@ async function handleReconcileKvD1(env, corsHeaders) {
     if (!d1JobsByPayer.has(j.payerId)) d1JobsByPayer.set(j.payerId, []);
     d1JobsByPayer.get(j.payerId).push(j);
   }
+  const propById = new Map(); // propertyId → {streetAddress, city}
+  for (const p of d1Props) { if (p.propertyId) propById.set(p.propertyId, p); }
 
   const discrepancies = [];
   const typeCounts = {};
@@ -2724,6 +2730,20 @@ async function handleReconcileKvD1(env, corsHeaders) {
         addDisc(ph, name, 'PAYMENT_DRIFT', 'Job.paymentStatus', 'paid', d1j.paymentStatus,
           `UPDATE Job SET paymentStatus='paid', paidAt='${jh.paidAt||''}' WHERE jobId='${jh.jobId}'`);
       }
+      // Gate 1: JOB_ADDRESS_DRIFT — jh address vs D1 Property address via Job.propertyId
+      // Catches Seeber-class bugs where _d1JobToJhEntry uses wrong property address.
+      if (d1j.propertyId && jh.address) {
+        const d1Prop = propById.get(d1j.propertyId);
+        if (d1Prop) {
+          const normA = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
+          if (normA(d1Prop.streetAddress) !== normA(jh.address) || normA(d1Prop.city) !== normA(jh.city)) {
+            addDisc(ph, name, 'JOB_ADDRESS_DRIFT', 'jh.address',
+              `${jh.address}, ${jh.city}`,
+              `${d1Prop.streetAddress}, ${d1Prop.city}`,
+              `check _d1JobToJhEntry propById lookup for jobId=${jh.jobId}`);
+          }
+        }
+      }
     }
 
     // Check scheduledStatus against D1 — only active scheduled/in_progress jobs
@@ -2754,6 +2774,31 @@ async function handleReconcileKvD1(env, corsHeaders) {
     }
   }
 
+  // Gate 2: DUPLICATE_SCHEDULED_JOB — same payerId+scheduledDate+propertyId with cnt>1.
+  // Catches Janille-class phantoms created when _d1SyncJobHistory inserts a second row
+  // under a different jobId format for the same real job.
+  const dupRows = await env.DB.prepare(
+    `SELECT j.payerId, j.scheduledDate, j.propertyId, j.state, COUNT(*) AS cnt,
+            p.firstName, p.lastName, p.primaryPhone
+     FROM Job j JOIN Person p ON p.personId = j.payerId
+     WHERE j.state IN ('scheduled','in_progress')
+     GROUP BY j.payerId, j.scheduledDate, j.propertyId, j.state
+     HAVING cnt > 1`
+  ).all().then(r => r.results || []).catch(() => []);
+  for (const dup of dupRows) {
+    const dupPh = (dup.primaryPhone||'').replace(/\D/g,'').slice(-10);
+    const dupName = `${dup.firstName||''} ${dup.lastName||''}`.trim();
+    discrepancies.push({
+      phone: dupPh, name: dupName,
+      type: 'DUPLICATE_SCHEDULED_JOB',
+      field: 'Job(payerId+scheduledDate+propertyId)',
+      kvValue: `${dup.cnt} rows`,
+      d1Value: `payerId=${dup.payerId} date=${dup.scheduledDate} prop=${dup.propertyId}`,
+      suggested_action: `DELETE extra Job rows WHERE payerId='${dup.payerId}' AND scheduledDate='${dup.scheduledDate}' AND propertyId='${dup.propertyId}' AND state='${dup.state}'`,
+    });
+    typeCounts['DUPLICATE_SCHEDULED_JOB'] = (typeCounts['DUPLICATE_SCHEDULED_JOB'] || 0) + 1;
+  }
+
   return jsonResponse({
     summary: {
       kvCustomersChecked: checked,
@@ -2765,6 +2810,83 @@ async function handleReconcileKvD1(env, corsHeaders) {
     },
     discrepancies,
   }, corsHeaders);
+}
+
+// ── Gate 3: Multi-property audit ─────────────────────────────────────────────
+// Returns all customers with >1 property + their properties + active/recent jobs.
+// Pre/post-deploy diff this to catch any multi-property state drift.
+async function handleMultiPropertyAudit(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    // All persons with more than one property
+    const ppRows = await env.DB.prepare(
+      `SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel,
+              p.firstName, p.lastName, p.primaryPhone,
+              prop.streetAddress, prop.city
+       FROM PersonProperty pp
+       JOIN Person p ON p.personId = pp.personId
+       LEFT JOIN Property prop ON prop.propertyId = pp.propertyId
+       ORDER BY pp.personId, pp.primaryContact DESC`
+    ).all().then(r => r.results || []);
+
+    // Group by personId
+    const byPerson = new Map();
+    for (const row of ppRows) {
+      if (!byPerson.has(row.personId)) {
+        byPerson.set(row.personId, {
+          personId: row.personId,
+          name: `${row.firstName||''} ${row.lastName||''}`.trim(),
+          phone: (row.primaryPhone||'').replace(/\D/g,'').slice(-10),
+          properties: [],
+        });
+      }
+      byPerson.get(row.personId).properties.push({
+        propertyId: row.propertyId,
+        streetAddress: row.streetAddress,
+        city: row.city,
+        primaryContact: row.primaryContact,
+        propertyLabel: row.propertyLabel,
+      });
+    }
+
+    // Filter to multi-property only
+    const multiPropPersonIds = [...byPerson.values()]
+      .filter(p => p.properties.length > 1)
+      .map(p => p.personId);
+
+    if (!multiPropPersonIds.length) {
+      return jsonResponse({ multiPropertyCustomers: [], totalMultiPropertyCount: 0 }, corsHeaders);
+    }
+
+    // Active + recent completed jobs for each multi-property person
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const jobRows = await env.DB.prepare(
+      `SELECT jobId, payerId, scheduledDate, state, rigId, amount, propertyId, completedAt
+       FROM Job
+       WHERE payerId IN (${multiPropPersonIds.map(() => '?').join(',')})
+         AND (state IN ('scheduled','in_progress')
+              OR (state = 'completed' AND scheduledDate >= ?))
+       ORDER BY payerId, scheduledDate DESC`
+    ).bind(...multiPropPersonIds, thirtyDaysAgo).all().then(r => r.results || []);
+
+    const jobsByPayer = new Map();
+    for (const j of jobRows) {
+      if (!jobsByPayer.has(j.payerId)) jobsByPayer.set(j.payerId, []);
+      jobsByPayer.get(j.payerId).push(j);
+    }
+
+    const result = multiPropPersonIds.map(pid => {
+      const p = byPerson.get(pid);
+      return { ...p, propertyCount: p.properties.length, activeJobs: jobsByPayer.get(pid) || [] };
+    }).sort((a, b) => b.propertyCount - a.propertyCount);
+
+    return jsonResponse({
+      multiPropertyCustomers: result,
+      totalMultiPropertyCount: result.length,
+    }, corsHeaders);
+  } catch (e) {
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
 }
 
 // ── Phase 2A: D1-native calendar endpoints ────────────────────────────────────
