@@ -2878,10 +2878,63 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
     ).bind(...vals).run();
 
     const updated = await env.DB.prepare('SELECT * FROM Job WHERE jobId = ?').bind(jobId).first();
+
+    // Fix C: dual-write KV for primary-property jobs so _d1SyncCustomersPut never
+    // sees a D1-vs-KV date mismatch and inserts spurious scheduled rows.
+    await _patchJobKvSync(updated, updates, env, now);
+
     return jsonResponse({ success: true, jobId, updatedRow: updated }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, `handlePatchJob:${jobId}`, e.message);
     return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// KV dual-write after PATCH /admin/job/:jobId.
+// Keeps KV scheduledStatus in sync for the customer's PRIMARY property job.
+// Non-primary multi-property jobs (e.g., Ashley Pinecrest) are D1-only by design —
+// calendarJobs[] surfaces them; KV's single scheduledStatus slot tracks only the primary.
+async function _patchJobKvSync(job, patchedFields, env, now) {
+  if (!env.DATA || !job?.payerId) return;
+  try {
+    // Reverse _d1PersonId: 'person_1XXXXXXXXXX' → 10-digit phone
+    if (!job.payerId.startsWith('person_1')) return;
+    const ph10 = job.payerId.slice('person_1'.length);
+    if (!ph10 || ph10.length !== 10) return;
+
+    const db = await env.DATA.get(KV_KEYS.customers, 'json');
+    if (!db) return;
+    const norm = p => (p||'').replace(/\D/g,'').slice(-10);
+    const cust = (db.customers||[]).find(c => norm(c.phone) === ph10);
+    if (!cust) return;
+
+    // Multi-property guard: if this job's property ≠ customer's primary address prop, D1-only.
+    if (cust.address && job.propertyId) {
+      const primaryPropId = _d1PropId(cust.address, cust.city||'');
+      if (primaryPropId !== job.propertyId) return;
+    }
+
+    const ss = cust.scheduledStatus || {};
+    if ('scheduledDate'       in patchedFields) ss.scheduledDate  = job.scheduledDate;
+    if ('rigId'               in patchedFields) ss.rig            = job.rigId;
+    if ('amount'              in patchedFields) ss.approvedAmount  = job.amount;
+    if ('scheduledTimeWindow' in patchedFields) ss.window         = job.scheduledTimeWindow;
+    if ('servicesRaw'         in patchedFields) ss.jobNotes       = job.servicesRaw || ss.jobNotes;
+    if ('jobNotes'            in patchedFields) ss.jobNotes       = job.jobNotes    || ss.jobNotes;
+    if ('state' in patchedFields) {
+      ss.state = job.state;
+      if (job.state === 'completed') {
+        ss.completedAt   = job.completedAt || now;
+        ss.completedDate = (job.completedAt || now).slice(0, 10);
+      } else if (job.state === 'rescheduled' || job.state === 'cancelled') {
+        ss.completedAt   = null;
+        ss.completedDate = null;
+      }
+    }
+    cust.scheduledStatus = ss;
+    await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  } catch (e) {
+    await _logD1Failure(env, `_patchJobKvSync:${job?.jobId}`, e.message).catch(()=>{});
   }
 }
 
@@ -2957,6 +3010,20 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
   for (const jh of (c.jobHistory||[])) {
     if (!jh.jobId || prevJhIds.has(jh.jobId)) continue;
     if (jh.source === 'csv_backfill') continue; // historical records already in D1 from Day 1
+    // Fix D: guard against jobId-format collisions between Day 1 migration rows and Phase 2
+    // calendar-generated rows. Same payerId+scheduledDate+propertyId = same real job under a
+    // different jobId — skip INSERT rather than creating a phantom duplicate.
+    if (propId && jh.date) {
+      try {
+        const clash = await env.DB.prepare(
+          `SELECT jobId FROM Job WHERE payerId=? AND scheduledDate=? AND propertyId=? AND state IN ('completed','scheduled','in_progress') LIMIT 1`
+        ).bind(personId, jh.date, propId).first();
+        if (clash) {
+          await _logD1Failure(env, `_d1SyncJobHistory:dedup:${ph}:${jh.jobId}`, `skipped — D1 already has ${clash.jobId}`);
+          continue;
+        }
+      } catch(e) { /* guard query failed — proceed with INSERT attempt below */ }
+    }
     try {
       await env.DB.prepare(
         `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,servicesRequested,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
