@@ -5875,6 +5875,12 @@ async function saveFullEdit() {
     // Mirror rig change to local dbRecord so render() places card in correct lane immediately
     // and saveDb() writes the correct rig to KV (prevents stale-null overwriting _patchJobKvSync).
     if ('rigId' in patchBody) ss.rig = patchBody.rigId || null;
+    // Mirror rig to matching jh entry — without this, getExtraCompletedJobsForRig uses
+    // stale jh.rig and renders a phantom card on the old rig after a rig change.
+    if ('rigId' in patchBody && ss.state === 'completed' && ss.scheduledDate) {
+      const jhE = (c.jobHistory||[]).find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill');
+      if (jhE) { jhE.rig = patchBody.rigId || null; jhE.rigId = patchBody.rigId || null; }
+    }
 
     const saveBtn = document.getElementById('feSaveBtn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
