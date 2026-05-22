@@ -7258,7 +7258,7 @@ document.addEventListener('keydown', e => {
     updateFades();
   });
 
-  function stopDrag() {
+  async function stopDrag() {
     if (!_dragging) return;
     _dragging = false;
     const g = grid();
@@ -7289,8 +7289,11 @@ document.addEventListener('keydown', e => {
       g.style.transform  = '';
       setTimeout(() => { if (g) g.style.transition = ''; }, 160);
     }
-    // Reload calendarJobs[] if drag landed outside the loaded week (fire-and-forget).
-    _ensureCalendarJobsCurrent();
+    // Await fresh calendarJobs then render — same pattern as changeWeek, eliminates race condition
+    // where the mid-drag renders (stale) were the last thing Mom saw.
+    try { await loadCalendarJobs(getWeekDates()[0]); } catch(e) { console.warn('[stopDrag] reload failed:', e.message); }
+    render();
+    updateBlockWeekBtn();
   }
 
   document.addEventListener('mouseup',    stopDrag);
@@ -7302,15 +7305,17 @@ document.addEventListener('keydown', e => {
     if (currentView !== 'week') return;
     _wvTouchX = e.touches[0].clientX;
   }, { passive: true });
-  document.addEventListener('touchend', e => {
+  document.addEventListener('touchend', async e => {
     if (currentView !== 'week' || _wvTouchX === null) return;
     const dx = e.changedTouches[0].clientX - _wvTouchX;
     _wvTouchX = null;
     const days = Math.round(-dx / DAY_DRAG_PX);
     if (days === 0) return;
-    dayOffset += days; render(); updateBlockWeekBtn();
-    // Reload calendarJobs[] if swipe landed outside the loaded week (fire-and-forget).
-    _ensureCalendarJobsCurrent();
+    dayOffset += days;
+    // Await fresh calendarJobs then render — eliminates race condition, same pattern as changeWeek.
+    try { await loadCalendarJobs(getWeekDates()[0]); } catch(e) { console.warn('[touchend] reload failed:', e.message); }
+    render();
+    updateBlockWeekBtn();
   }, { passive: true });
 
   // Patch changeWeek to refresh fades after navigation
