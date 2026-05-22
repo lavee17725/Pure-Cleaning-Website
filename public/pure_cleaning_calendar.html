@@ -1635,6 +1635,7 @@ let dbRecord      = {};
 let calendarJobs  = []; // flat D1 job rows for current view window — Phase 2B-1
 let calendarJobsWeekStart = null; // tracks which weekStart calendarJobs[] was loaded for
 let _lastLoadedWeekStart  = null; // tracks in-flight or completed week load; prevents fetch storms during drag preload
+let _loadRequestId        = 0;    // monotonic counter — only the latest loadCalendarJobs() writes calendarJobs[]
 let dayOffset     = 0; // days from today; drives day-by-day sliding window
 let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
@@ -1920,11 +1921,13 @@ async function saveDb() {
 
 async function loadCalendarJobs(weekStart) {
   if (!weekStart) return;
+  const myId = ++_loadRequestId;
   _lastLoadedWeekStart = weekStart; // mark in-flight before fetch so mousemove preload deduplicates
   try {
     const res  = await fetch(`${PCPC_API}/admin/calendar-jobs?weekStart=${weekStart}`);
     if (!res.ok) { console.warn('[loadCalendarJobs] HTTP', res.status); return; }
     const data = await res.json();
+    if (myId !== _loadRequestId) return; // a newer request superseded us — discard
     calendarJobs = data.jobs || [];
     calendarJobsWeekStart = weekStart; // track which week is loaded
   } catch (e) {
@@ -1936,22 +1939,6 @@ async function loadCalendarJobs(weekStart) {
 // Re-fetch calendarJobs[] for the current week (call after any PATCH mutation).
 async function refreshCalendarJobs() {
   await loadCalendarJobs(getWeekDates()[0]);
-}
-
-// Reload calendarJobs[] if the current week is outside the loaded range, then re-render.
-// Called fire-and-forget after drag/swipe navigation which bypasses changeWeek's await.
-async function _ensureCalendarJobsCurrent() {
-  const currentWeekStart = getWeekDates()[0];
-  if (!currentWeekStart || currentView !== 'week') return;
-  const loadedDates = calendarJobs.map(j => j.scheduledDate).sort();
-  const loadedFirst = loadedDates[0];
-  const loadedLast  = loadedDates[loadedDates.length - 1];
-  if (!loadedFirst || currentWeekStart < loadedFirst || currentWeekStart > loadedLast) {
-    try {
-      await loadCalendarJobs(currentWeekStart);
-      renderCalGrid(getWeekDates());
-    } catch(e) { console.warn('[_ensureCalendarJobsCurrent]', e.message); }
-  }
 }
 
 // PATCH a single D1 Job row by jobId. Throws on HTTP error.
@@ -2867,8 +2854,14 @@ function jobCardScheduled(c) {
     }
   }
 
+  const _editJobId = c.jobId ||
+    (ss.state === 'completed'
+      ? ((c.jobHistory||[]).find(j => j.status === 'completed' && j.date === ss.scheduledDate)?.jobId || '')
+      : (ss.state === 'scheduled' && ss.scheduledDate && phone
+          ? `job_person_1${phone.replace(/\D/g,'').slice(-10)}_${ss.scheduledDate.replace(/-/g,'_')}_scheduled`
+          : ''));
   const editBtnHtml = (!c.isTest && phone)
-    ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}',null,'${c.jobId||''}')" title="Edit all customer &amp; job details">✏️ Edit</button>`
+    ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}',null,'${_editJobId}')" title="Edit all customer &amp; job details">✏️ Edit</button>`
     : '';
 
   const delBtnHtml = (state !== 'completed' && phone)
@@ -3096,7 +3089,6 @@ function jobCardHistoryExtra(c, jhEntry) {
     ${editBtnHtml}
     <button class="jc-modal-btn" onclick="event.stopPropagation();openJobModal('${phone}')">📋 Full details</button>
     </div>
-    <div class="js-extra-label" style="font-size:9px;color:var(--muted);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">2nd same-day job</div>
   </div>`;
 }
 
@@ -3318,9 +3310,16 @@ function getScheduledForRig(date, rig) {
 
 function getUnassignedJobs(date) {
   const payerCounts = _calPayerCounts();
-  return calendarJobs
+  const fromD1 = calendarJobs
     .filter(j => (j.state==='scheduled'||j.state==='in_progress') && j.scheduledDate===date && !j.rigId)
     .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
+  // Also include completed null-rig customers from KV — no rig assigned means no rig lane matches.
+  // Unassigned is the correct home; Tyler can retroactively assign rigs via the edit button.
+  const fromKvCompleted = (dbRecord.customers||[]).filter(c => {
+    const ss = c.scheduledStatus;
+    return ss && ss.state === 'completed' && ss.scheduledDate === date && !ss.rig;
+  });
+  return [...fromD1, ...fromKvCompleted];
 }
 
 function findCustomer(key) {
@@ -3389,7 +3388,7 @@ function getExtraCompletedJobsForRig(date, rig) {
     }
 
     // Fallback for legacy completions that predate _lastJobId: dedup by date match (ssCovers).
-    const ssCovers = ss && ss.scheduledDate === date && _normalizeRig(ss.rig) === rig && ss.state === 'completed';
+    const ssCovers = ss && ss.scheduledDate === date && (_normalizeRig(ss.rig) || 'rig_1') === rig && ss.state === 'completed';
     if (ssCovers) {
       // Primary jobCardScheduled already renders the last jh entry for this date (same logic as _jhMatch).
       // Suppress only that entry; push any remaining distinct jobs as extras.
@@ -4086,11 +4085,11 @@ function amtMismatchChoice(choice) {
   _doCompleteJob(log);
 }
 
-function _doCompleteJob(log) {
+async function _doCompleteJob(log) {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
   const ss = c.scheduledStatus;
-  const completedDate = isoToday();
+  const completedDate = ss.scheduledDate || isoToday(); // actual job date — supports late completions
   ss.state = 'completed';
   ss.completedAt = new Date().toISOString();
   ss.completedDate = completedDate;
@@ -4141,7 +4140,8 @@ function _doCompleteJob(log) {
   // Write jobHistory entry — enables GPS attribution, profile Service History, and per-job payment tracking
   if (!c.jobHistory) c.jobHistory = [];
   const _jhNow   = new Date().toISOString();
-  const _jhJobId = `${jmPhone}_${completedDate}_${Math.round((ss.approvedAmount||0)*100)}_cal${Date.now().toString(36)}`;
+  // Reuse existing D1 jobId so _d1SyncJobHistory UPDATEs the existing row instead of INSERTing a new one
+  const _jhJobId = jmJobId || ss._lastJobId || `${jmPhone}_${completedDate}_${Math.round((ss.approvedAmount||0)*100)}_cal${Date.now().toString(36)}`;
 
   // ── Tier 1 ML context fields ─────────────────────────────────────────────
   // crewSize: explicit crew array length, or rig-default (rig_3=Chevy/softwash is Tony solo)
@@ -4262,7 +4262,7 @@ function _doCompleteJob(log) {
     if (_existingEntry?.jobId) ss._lastJobId = _existingEntry.jobId;
   }
 
-  // PATCH D1 first for state transition (fire-and-forget on fail — KV write is source of truth for history)
+  // PATCH D1 first — awaited so Fix D guard in _d1SyncJobHistory sees completed row and skips INSERT
   if (jmJobId) {
     const patchBody = { state: 'completed', completedAt: ss.completedAt };
     if (log.paymentStatus === 'paid') {
@@ -4270,9 +4270,12 @@ function _doCompleteJob(log) {
       patchBody.paymentMethod = log.paymentMethod || null;
       patchBody.paidAt        = log.paidAt || ss.completedAt;
     }
-    patchJob(jmJobId, patchBody)
-      .then(() => refreshCalendarJobs())
-      .catch(e => console.warn('[_doCompleteJob] D1 patch failed:', e.message));
+    try {
+      await patchJob(jmJobId, patchBody);
+      await refreshCalendarJobs();
+    } catch(e) {
+      console.warn('[_doCompleteJob] D1 patch failed:', e.message);
+    }
   }
 
   saveDb().catch(()=>{});
@@ -5836,7 +5839,7 @@ async function saveFullEdit() {
     if (sqFt) c.sqFt = sqFt;
     if (leadSrc) c.leadSource = { ...(c.leadSource||{}), primary: leadSrc, label: _LS[leadSrc] || leadSrc };
     // quoteStatus text fields only (not the scheduling fields on scheduledStatus)
-    if (svc)   { qs.mainServices = svc; }
+    if (svc)   { qs.mainServices = svc; ss.jobNotes = svc; }
     if (price) { qs.mainAmount = price; qs.approvedAmount = price; }
     const isRoofCal = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
     if (isRoofCal) {
@@ -5846,6 +5849,9 @@ async function saveFullEdit() {
       if (_st) { if (!qs.servicesAgreed) qs.servicesAgreed = {}; if (_rt) qs.servicesAgreed.roofType = _rt; }
     }
     if (phoneChanged) { c.phone = newPhone; logEvent('phone_changed', newPhone, { oldPhone: _fePhone, newPhone, changedBy:'admin' }); }
+    // Mirror rig change to local dbRecord so render() places card in correct lane immediately
+    // and saveDb() writes the correct rig to KV (prevents stale-null overwriting _patchJobKvSync).
+    if ('rigId' in patchBody) ss.rig = patchBody.rigId || null;
 
     const saveBtn = document.getElementById('feSaveBtn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
@@ -6324,6 +6330,7 @@ async function confirmTapSchedule() {
     if (_tapStories) c.scheduledStatus.roofStories = _tapStories;
   }
   await saveDb();
+  await refreshCalendarJobs();
   closeTapScheduleModal();
   render();
   const name = ((c.firstName||'') + ' ' + (c.lastName||'')).trim();
@@ -6442,7 +6449,7 @@ async function quickScheduleFromQueue(phone) {
 // ── VIEW SWITCHING ────────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
-function switchView(view) {
+async function switchView(view) {
   currentView = view;
   document.getElementById('weekViewWrap').style.display  = view === 'week'  ? '' : 'none';
   document.getElementById('dayViewWrap').style.display   = view === 'day'   ? '' : 'none';
@@ -6460,6 +6467,7 @@ function switchView(view) {
     const dates = getWeekDates();
     const fmt1 = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
     document.getElementById('weekLabel').textContent = `${fmt1(dates[0])} – ${fmt1(dates[6])}`;
+    try { await loadCalendarJobs(dates[0]); } catch(e) { console.warn('[switchView:week] reload failed:', e.message); }
     renderCalGrid(dates);
   }
 }

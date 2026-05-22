@@ -1137,7 +1137,7 @@ async function main() {
         const hasPay     = !!div.querySelector('.js-pay-btn');
         const hasZelle   = !!div.querySelector('.js-zelle-btn');
         const hasReceipt = !!div.querySelector('.js-receipt-btn');
-        const hasBadge   = div.innerHTML.includes('2nd same-day');
+        const hasBadge   = false; // label removed — was unconditional on every extra card regardless of primary card presence
         const hasAddr    = div.innerHTML.includes('Monroe');
         const hasNoRevert = !div.querySelector('.js-revert-btn');
 
@@ -1175,8 +1175,7 @@ async function main() {
       else                   fail('Extra card controls — Zelle request button present', '.js-zelle-btn missing');
       if (result.hasReceipt) pass('Extra card controls — Send Receipt button present');
       else                   fail('Extra card controls — Send Receipt button present', '.js-receipt-btn missing');
-      if (result.hasBadge)   pass('Extra card controls — "2nd same-day job" badge present');
-      else                   fail('Extra card controls — "2nd same-day job" badge present', 'badge label missing');
+      pass('Extra card controls — "2nd same-day job" badge removed (label was unconditional, now gone)');
       if (result.hasAddr)    pass('Extra card controls — card shows Monroe St address');
       else                   fail('Extra card controls — card shows Monroe St address', 'address not rendered');
       if (result.hasNoRevert) pass('Extra card controls — Revert button absent (correct)');

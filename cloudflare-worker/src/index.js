@@ -2771,6 +2771,15 @@ async function handleReconcileKvD1(env, corsHeaders) {
           `completed (jh date=${d1j.scheduledDate})`, `scheduled (d1 jobId=${d1j.jobId})`,
           `UPDATE Job SET state='completed' WHERE jobId='${d1j.jobId}'`);
       }
+      // Gate 3: STALE_SCHEDULED_DATE_MISMATCH — KV considers job completed but D1 still has a
+      // scheduled row with a DIFFERENT date (Tim Page pattern: late completion creates date drift).
+      // STALE_SCHEDULED misses this because jh.date ≠ d1j.scheduledDate.
+      const kvCompletedOnAnyDate = ss && ss.state === 'completed' && !kvCompleted;
+      if (kvCompletedOnAnyDate) {
+        addDisc(ph, name, 'STALE_SCHEDULED_DATE_MISMATCH', 'Job.scheduledDate',
+          `kv:completed:${ss.scheduledDate}`, `d1:scheduled:${d1j.scheduledDate} (${d1j.jobId})`,
+          `UPDATE Job SET state='completed' WHERE jobId='${d1j.jobId}'`);
+      }
     }
   }
 
@@ -3233,7 +3242,7 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
     // Upsert Property + PersonProperty for current address before job sync.
     // Prevents FK failure when an existing customer's address changes between
     // submissions — _d1SyncScheduledJob references propertyId which must exist.
-    if (c.address) {
+    if (c.address && (c.address !== prev?.address || (c.city||'') !== (prev?.city||''))) {
       const propId = _d1PropId(c.address, c.city||'');
       try {
         await env.DB.prepare(
