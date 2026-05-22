@@ -1633,6 +1633,7 @@ function windowLabel(ss) {
 // ── STATE ──────────────────────────────────────────────────────────────────────
 let dbRecord      = {};
 let calendarJobs  = []; // flat D1 job rows for current view window — Phase 2B-1
+let calendarJobsWeekStart = null; // tracks which weekStart calendarJobs[] was loaded for
 let dayOffset     = 0; // days from today; drives day-by-day sliding window
 let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
@@ -1923,6 +1924,7 @@ async function loadCalendarJobs(weekStart) {
     if (!res.ok) { console.warn('[loadCalendarJobs] HTTP', res.status); return; }
     const data = await res.json();
     calendarJobs = data.jobs || [];
+    calendarJobsWeekStart = weekStart; // track which week is loaded
   } catch (e) {
     console.warn('[loadCalendarJobs]', e.message);
     // Fail open — calendar continues with existing calendarJobs[] or empty
@@ -4613,17 +4615,17 @@ function saveDayOff() {
 }
 
 // ── WEEK NAV ──────────────────────────────────────────────────────────────────
-function changeWeek(dir) {
+async function changeWeek(dir) {
   dayOffset += dir * 7;
+  try { await loadCalendarJobs(getWeekDates()[0]); } catch(e) { console.warn('[changeWeek] reload failed:', e.message); }
   render();
   updateBlockWeekBtn();
-  loadCalendarJobs(getWeekDates()[0]).then(() => render()).catch(() => {});
 }
-function goToday() {
+async function goToday() {
   dayOffset = 0;
+  try { await loadCalendarJobs(getWeekDates()[0]); } catch(e) { console.warn('[goToday] reload failed:', e.message); }
   render();
   updateBlockWeekBtn();
-  loadCalendarJobs(getWeekDates()[0]).then(() => render()).catch(() => {});
 }
 function openDayRouteView() {
   // Opens day route view for the first visible date (start of current window)
@@ -6460,8 +6462,22 @@ window.goToday = function() {
 
 // ── DAY VIEW ──────────────────────────────────────────────────────────────────
 
-function renderDayView(date) {
+async function renderDayView(date) {
   dayViewDate = date;
+
+  // Phase 2B-1 sustain: calendarJobs[] may be loaded for a different week.
+  // Reload when date is outside the loaded window so scheduled cards don't vanish.
+  // Catches all entry paths: day header clicks, dayNav(), calSearchJump(), keyboard arrows.
+  if (calendarJobsWeekStart) {
+    const we = new Date(calendarJobsWeekStart + 'T12:00:00Z');
+    we.setUTCDate(we.getUTCDate() + 7);
+    if (date < calendarJobsWeekStart || date >= we.toISOString().slice(0, 10)) {
+      try { await loadCalendarJobs(date); } catch(e) { console.warn('[renderDayView] reload failed:', e.message); }
+    }
+  } else {
+    try { await loadCalendarJobs(date); } catch(e) { console.warn('[renderDayView] reload failed:', e.message); }
+  }
+
   const d = new Date(date+'T12:00:00');
   document.getElementById('weekLabel').textContent =
     d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
