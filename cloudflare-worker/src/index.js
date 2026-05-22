@@ -2964,7 +2964,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
 const _JOB_MUTABLE_FIELDS = new Set([
   'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
   'amount', 'jobNotes', 'servicesRaw', 'cancellationReason', 'cancelledAt',
-  'completedAt',
+  'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
 ]);
 
 const _JOB_VALID_STATES = new Set([

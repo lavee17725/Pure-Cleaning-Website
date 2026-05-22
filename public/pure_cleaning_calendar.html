@@ -4274,7 +4274,8 @@ async function _doCompleteJob(log) {
       await patchJob(jmJobId, patchBody);
       await refreshCalendarJobs();
     } catch(e) {
-      console.warn('[_doCompleteJob] D1 patch failed:', e.message);
+      console.error('[_doCompleteJob] D1 PATCH FAILED:', e.message);
+      showToast('⚠️ D1 sync failed on completion — check reconcile gate. ' + e.message);
     }
   }
 
@@ -4359,7 +4360,7 @@ function _doRevertJob(phone, jobId) {
   if (jobId) {
     patchJob(jobId, { state: 'scheduled' })
       .then(() => refreshCalendarJobs())
-      .catch(e => console.warn('[_doRevertJob] D1 patch failed:', e.message));
+      .catch(e => { console.error('[_doRevertJob] D1 PATCH FAILED:', e.message); showToast('⚠️ Revert D1 sync failed — check reconcile. ' + e.message); });
   }
 
   saveDb().then(() => {
@@ -4460,7 +4461,7 @@ function executeCancelJob(phone, jobId, reason) {
     if (jobId) {
       patchJob(jobId, { state: 'rescheduled' })
         .then(() => refreshCalendarJobs())
-        .catch(e => console.warn('[executeCancelJob reschedule] D1 patch failed:', e.message));
+        .catch(e => { console.error('[executeCancelJob reschedule] D1 PATCH FAILED:', e.message); showToast('⚠️ Reschedule D1 sync failed — check reconcile. ' + e.message); });
     }
     c.scheduledStatus.state = 'needs_scheduling';
     c.scheduledStatus.rig = null;
@@ -4479,7 +4480,7 @@ function executeCancelJob(phone, jobId, reason) {
       cancelledAt: new Date().toISOString(),
     })
     .then(() => refreshCalendarJobs())
-    .catch(e => console.warn('[executeCancelJob] D1 patch failed:', e.message));
+    .catch(e => { console.error('[executeCancelJob] D1 PATCH FAILED:', e.message); showToast('⚠️ Cancel D1 sync failed — check reconcile. ' + e.message); });
   }
 
   c.scheduledStatus.state = 'canceled';
