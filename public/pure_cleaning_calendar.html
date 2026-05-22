@@ -2317,7 +2317,9 @@ function getScheduledForRigOrdered(date, rig) {
   const byJobId = {};
   jobs.forEach(j => { if (j.jobId) byJobId[j.jobId] = j; });
   const ordered = savedOrder.map(id => byJobId[id]).filter(Boolean);
-  jobs.forEach(j => { if (j.jobId && !savedOrder.includes(j.jobId)) ordered.push(j); });
+  // Append jobs not already in savedOrder. KV-shaped completed customers have no top-level
+  // j.jobId; treat absent jobId as "not in savedOrder" so they append after scheduled jobs.
+  jobs.forEach(j => { if (!j.jobId || !savedOrder.includes(j.jobId)) ordered.push(j); });
   return ordered;
 }
 
