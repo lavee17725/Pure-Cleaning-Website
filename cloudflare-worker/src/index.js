@@ -2446,7 +2446,10 @@ async function handleMigrateReviewStates(env, corsHeaders) {
 // ── Phase 4: D1 → legacy KV shape compatibility layer ────────────────────────
 // Converts D1 rows to the KV customer object shape the UI expects.
 
-function _d1JobToJhEntry(j, city, addr) {
+function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
+  const jobProp = (propById || {})[j.propertyId];
+  const city    = jobProp?.city          || primaryCity;
+  const addr    = jobProp?.streetAddress || primaryAddr;
   return {
     jobId:              j.jobId,
     date:               j.scheduledDate   || null,
@@ -2505,7 +2508,7 @@ function _d1BuildScheduledStatus(personJobs) {
   };
 }
 
-function _d1PersonToKv(p, props, pjobs) {
+function _d1PersonToKv(p, props, pjobs, propById) {
   const primaryProp = props.find(pp => pp.primaryContact === 1) || props[0] || {};
   const city = primaryProp.city || '';
   const addr = primaryProp.streetAddress || '';
@@ -2515,7 +2518,7 @@ function _d1PersonToKv(p, props, pjobs) {
   const lifetimeSpend  = Math.round(completedJobs.reduce((s, j) => s + (j.amount||0), 0));
   const totalJobs      = completedJobs.length;
   const lastService    = completedJobs[0]?.scheduledDate || null; // DESC sorted
-  const jobHistory     = completedJobs.filter(j => j.jobId).map(j => _d1JobToJhEntry(j, city, addr));
+  const jobHistory     = completedJobs.filter(j => j.jobId).map(j => _d1JobToJhEntry(j, city, addr, propById));
 
   return {
     phone:                  ph,
@@ -2593,7 +2596,7 @@ async function d1AllCustomersToKvShape(env) {
     const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
     if (!ph || ph.length !== 10) continue; // skip REFERRAL_* + no-phone records
     const pjobs = jobsByPayer[p.personId] || [];
-    const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs);
+    const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs, propById);
     computeBouncieMetrics(customer);
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
     // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
@@ -2610,12 +2613,12 @@ async function d1CustomerToKvShape(phone, env) {
   const [personRow, propLinks, pjobs] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
     env.DB.prepare(
-      'SELECT pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
+      'SELECT pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT jobId,payerId,scheduledDate,state,completedAt,amount,' +
+      'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
@@ -2623,7 +2626,9 @@ async function d1CustomerToKvShape(phone, env) {
   ]);
 
   if (!personRow) return null;
-  const customer = _d1PersonToKv(personRow, propLinks, pjobs);
+  const singlePropById = {};
+  for (const pp of propLinks) { if (pp.propertyId) singlePropById[pp.propertyId] = pp; }
+  const customer = _d1PersonToKv(personRow, propLinks, pjobs, singlePropById);
   computeBouncieMetrics(customer);
   return customer;
 }
