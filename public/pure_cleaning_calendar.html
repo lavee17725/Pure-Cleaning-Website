@@ -1936,6 +1936,22 @@ async function refreshCalendarJobs() {
   await loadCalendarJobs(getWeekDates()[0]);
 }
 
+// Reload calendarJobs[] if the current week is outside the loaded range, then re-render.
+// Called fire-and-forget after drag/swipe navigation which bypasses changeWeek's await.
+async function _ensureCalendarJobsCurrent() {
+  const currentWeekStart = getWeekDates()[0];
+  if (!currentWeekStart || currentView !== 'week') return;
+  const loadedDates = calendarJobs.map(j => j.scheduledDate).sort();
+  const loadedFirst = loadedDates[0];
+  const loadedLast  = loadedDates[loadedDates.length - 1];
+  if (!loadedFirst || currentWeekStart < loadedFirst || currentWeekStart > loadedLast) {
+    try {
+      await loadCalendarJobs(currentWeekStart);
+      renderCalGrid(getWeekDates());
+    } catch(e) { console.warn('[_ensureCalendarJobsCurrent]', e.message); }
+  }
+}
+
 // PATCH a single D1 Job row by jobId. Throws on HTTP error.
 async function patchJob(jobId, body) {
   if (!jobId) throw new Error('patchJob: jobId required');
@@ -7273,6 +7289,8 @@ document.addEventListener('keydown', e => {
       g.style.transform  = '';
       setTimeout(() => { if (g) g.style.transition = ''; }, 160);
     }
+    // Reload calendarJobs[] if drag landed outside the loaded week (fire-and-forget).
+    _ensureCalendarJobsCurrent();
   }
 
   document.addEventListener('mouseup',    stopDrag);
@@ -7291,6 +7309,8 @@ document.addEventListener('keydown', e => {
     const days = Math.round(-dx / DAY_DRAG_PX);
     if (days === 0) return;
     dayOffset += days; render(); updateBlockWeekBtn();
+    // Reload calendarJobs[] if swipe landed outside the loaded week (fire-and-forget).
+    _ensureCalendarJobsCurrent();
   }, { passive: true });
 
   // Patch changeWeek to refresh fades after navigation
