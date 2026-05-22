@@ -1634,6 +1634,7 @@ function windowLabel(ss) {
 let dbRecord      = {};
 let calendarJobs  = []; // flat D1 job rows for current view window — Phase 2B-1
 let calendarJobsWeekStart = null; // tracks which weekStart calendarJobs[] was loaded for
+let _lastLoadedWeekStart  = null; // tracks in-flight or completed week load; prevents fetch storms during drag preload
 let dayOffset     = 0; // days from today; drives day-by-day sliding window
 let calState      = loadCalState();
 let _sidebarManualCollapsed = localStorage.getItem('pcpc_sidebar_manual') === '1';
@@ -1919,6 +1920,7 @@ async function saveDb() {
 
 async function loadCalendarJobs(weekStart) {
   if (!weekStart) return;
+  _lastLoadedWeekStart = weekStart; // mark in-flight before fetch so mousemove preload deduplicates
   try {
     const res  = await fetch(`${PCPC_API}/admin/calendar-jobs?weekStart=${weekStart}`);
     if (!res.ok) { console.warn('[loadCalendarJobs] HTTP', res.status); return; }
@@ -7251,6 +7253,12 @@ document.addEventListener('keydown', e => {
       _lastCommittedDays = days;
       render();
       updateBlockWeekBtn();
+      // Preload calendarJobs[] for the new week as cursor crosses the boundary.
+      // By drag-end, the async fetch has typically completed so stopDrag's await resolves instantly.
+      const _preloadWeek = getWeekDates()[0];
+      if (_preloadWeek !== _lastLoadedWeekStart) {
+        loadCalendarJobs(_preloadWeek).catch(e => console.warn('[drag preload]', e.message));
+      }
     }
     // 1:1 cursor-follow — transform persists across render() since it's on the element, not innerHTML
     const g = grid();
