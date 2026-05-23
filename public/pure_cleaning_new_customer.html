@@ -307,6 +307,14 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     <!-- Existing customer match banner (replaces simple dupCallout for all match types) -->
     <div id="matchBanner" class="match-banner"></div>
 
+    <!-- Property picker — shown after useMatch when customer has multiple properties -->
+    <div id="propertyPickerWrap" style="display:none;background:#eff6ff;border:2px solid #bfdbfe;border-radius:14px;padding:14px 16px;margin-bottom:1rem;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#1d4ed8;margin-bottom:8px;">Which property?</div>
+      <select id="propertyPickerSel" class="fi" style="font-size:15px;" onchange="onPropertySelect(this.value)">
+        <option value="">— Select property —</option>
+      </select>
+    </div>
+
     <!-- Duplicate callout -->
     <div class="dup-callout" id="dupCallout">
       <div class="dup-text" id="dupText"></div>
@@ -1158,6 +1166,8 @@ let selPreset    = null;
 let dupPhone     = null;
 let currentPath  = 'phone';
 let currentCustomerType = 'residential';
+let _selectedPropertyId = null;
+let _customerProperties = [];
 let _confirmSms  = '';
 let _lastSavedCustomer = null;
 let _saving = false;
@@ -1313,6 +1323,9 @@ function resetForm() {
    'nPartnerFn','nPartnerLn'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
+  _selectedPropertyId = null;
+  _customerProperties = [];
+  hidePropertyPicker();
   setCustomerType('residential');
   const partSec = document.getElementById('partnerSection');
   if (partSec) partSec.classList.remove('visible');
@@ -1647,7 +1660,7 @@ function dismissMatch() {
   hideMatchBanner();
   _matchResults = [];
 }
-function useMatch(idx) {
+async function useMatch(idx) {
   const c = _matchResults[idx];
   if (!c) return;
   currentCustomer = c; isNew = false; dupPhone = c.phone;
@@ -1669,6 +1682,64 @@ function useMatch(idx) {
   if (_lsElM && c.leadSource?.primary) { _lsElM.value = c.leadSource.primary; onLeadSourceChange(_lsElM); }
   showJobHistory(c);
   renderNewAlerts(); checkReq();
+
+  // Fetch full customer to check for multiple properties
+  _selectedPropertyId = null;
+  _customerProperties = [];
+  hidePropertyPicker();
+  if (currentCustomerType === 'residential' && ph) {
+    try {
+      const res = await fetch(PCPC_API + '/customer/' + ph.replace(/\D/g,'').slice(-10));
+      const data = await res.json();
+      const props = (data.customer || data)?.properties || [];
+      if (props.length > 1) {
+        _customerProperties = props;
+        showPropertyPicker(props);
+      }
+    } catch(e) { /* no picker on error — single-property fallback */ }
+  }
+}
+
+// ── Property picker (multi-property residential customers) ────────────────────
+function showPropertyPicker(props) {
+  const wrap = document.getElementById('propertyPickerWrap');
+  const sel  = document.getElementById('propertyPickerSel');
+  if (!wrap || !sel) return;
+  sel.innerHTML = '<option value="">— Select property —</option>';
+  props.forEach((p, i) => {
+    const label = p.propertyLabel ? `${p.propertyLabel} — ` : '';
+    const addr  = [p.streetAddress, p.city].filter(Boolean).join(', ');
+    const opt   = document.createElement('option');
+    opt.value   = i;
+    opt.textContent = `${label}${addr}`;
+    if (p.primaryContact) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  wrap.style.display = 'block';
+  // Auto-select the primary property
+  onPropertySelect(sel.value);
+}
+
+function onPropertySelect(idxStr) {
+  const i = parseInt(idxStr);
+  if (isNaN(i) || !_customerProperties[i]) { _selectedPropertyId = null; return; }
+  const p = _customerProperties[i];
+  _selectedPropertyId = p.propertyId;
+  // Auto-populate address fields — user edits override
+  const addrEl = document.getElementById('nAddr');
+  const cityEl = document.getElementById('nCity');
+  const zipEl  = document.getElementById('nZip');
+  if (addrEl && p.streetAddress) addrEl.value = p.streetAddress;
+  if (cityEl && p.city)          cityEl.value = p.city;
+  if (zipEl)                     zipEl.value  = p.zip || '';
+  checkReq();
+}
+
+function hidePropertyPicker() {
+  const wrap = document.getElementById('propertyPickerWrap');
+  if (wrap) wrap.style.display = 'none';
+  const sel = document.getElementById('propertyPickerSel');
+  if (sel) sel.innerHTML = '<option value="">— Select property —</option>';
 }
 
 // ── Prior job history section ─────────────────────────────────────────────────

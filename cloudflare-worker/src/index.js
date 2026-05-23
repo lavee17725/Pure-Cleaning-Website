@@ -2631,7 +2631,7 @@ async function d1CustomerToKvShape(phone, env) {
   const [personRow, propLinks, pjobs] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
     env.DB.prepare(
-      'SELECT pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
+      'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
@@ -2651,6 +2651,15 @@ async function d1CustomerToKvShape(phone, env) {
   computeBouncieMetrics(customer);
   const reviewStates = await env.DATA.get('review_states', 'json').then(d => d || {});
   customer.googleReview = reviewStates[ph] || null;
+  // Expose all linked properties so multi-property picker UI can list them.
+  customer.properties = propLinks.map(pp => ({
+    propertyId:    pp.propertyId,
+    streetAddress: pp.streetAddress || '',
+    city:          pp.city          || '',
+    zip:           pp.zip           || null,
+    propertyLabel: pp.propertyLabel || null,
+    primaryContact: pp.primaryContact === 1 || pp.primaryContact === '1',
+  }));
   return customer;
 }
 
