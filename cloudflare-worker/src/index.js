@@ -2566,6 +2566,8 @@ function _d1PersonToKv(p, props, pjobs, propById) {
                                   source: primaryProp.geocodeSource || null }
                               : null,
     geocodeSource:          primaryProp.geocodeSource || null,
+    gateCode:               primaryProp.gateCode     || null,
+    accessNotes:            primaryProp.accessNotes  || null,
     customerType:           p.customerType   || 'residential',
     partnerNotes:           p.partnerNotes   || null,
     bouncieMetrics:         null, // populated by computeBouncieMetrics() after construction
@@ -2581,7 +2583,7 @@ async function d1AllCustomersToKvShape(env) {
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
-      'p.latitude, p.longitude, p.geocodeSource ' +
+      'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
     ).all().then(r => r.results || []),
     env.DB.prepare(
@@ -2632,7 +2634,7 @@ async function d1CustomerToKvShape(phone, env) {
     env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
     env.DB.prepare(
       'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, p.streetAddress, p.city, p.state, p.zip,' +
-      'p.latitude, p.longitude, p.geocodeSource ' +
+      'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
@@ -2659,6 +2661,8 @@ async function d1CustomerToKvShape(phone, env) {
     zip:           pp.zip           || null,
     propertyLabel: pp.propertyLabel || null,
     primaryContact: pp.primaryContact === 1 || pp.primaryContact === '1',
+    gateCode:      pp.gateCode      || null,
+    accessNotes:   pp.accessNotes   || null,
   }));
   return customer;
 }
