@@ -380,6 +380,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .left-col,.right-col,.layout.crew-visible .right-col{display:none;}
 }
 
+/* ── MOBILE CALENDAR (≤768px) — vertical day stack ─────────────────────────
+   Root cause of white-out: .cal-grid had min-width:1225px (7×175px desktop
+   columns) with overflow clipped by .layout{overflow:hidden}. No h-scroll
+   affordance on iOS Safari. Fix: single column, body scroll, no clipping. */
+@media(max-width:768px){
+  /* Remove fixed-height clip so body scrolls the calendar */
+  .layout{ height:auto; overflow:visible; }
+  .main-col{ overflow:visible; }
+  /* Single vertical column — overrides desktop 7-col / min-width:1225px */
+  .cal-grid{ grid-template-columns:1fr; min-width:0; }
+  /* Days separated by horizontal lines instead of vertical borders */
+  .day-col{ border-right:none; border-bottom:2px solid var(--border); }
+  .day-col:last-child{ border-bottom:none; }
+  /* Sticky day header lands below .topbar (54px), not behind it */
+  .day-hdr{ top:54px; }
+  /* No horizontal scroll on mobile — hide fade overlays */
+  .wv-fade{ display:none; }
+  /* Desktop-only controls not useful on phone */
+  .day-opt-all-btn{ display:none; }
+}
+
 /* ── VIEW PILLS ── */
 .view-pills{display:flex;gap:2px;background:rgba(255,255,255,.1);border-radius:8px;padding:2px;}
 .vpill{padding:5px 12px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;color:rgba(255,255,255,.7);background:transparent;transition:all .15s;white-space:nowrap;}
