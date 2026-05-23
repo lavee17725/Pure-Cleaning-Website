@@ -5121,10 +5121,12 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const noteParts = [c.notes, ss.customerNotes, ...(c.alerts||[]).map(a=>`⚠ ${a.label||a||''}`)].filter(Boolean);
   const notesText = noteParts.join(' · ');
 
+  const stories   = ss.roofStories || getLastKnownRoofStories(c) || null;
+  const storyStr  = stories ? `${stories}-story` : null;
   const _dirs = new Set(['n','s','e','w','nw','ne','sw','se','nne','nnw','sse','ssw']);
   const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
   const addrLine  = _titleAddr(c.address||'');
-  const cityLine  = c.city ? (_titleAddr(c.city)+', FL'+(c.zip?' '+c.zip:'')+(sqft?' &nbsp;·&nbsp; '+Number(sqft).toLocaleString()+' sq ft':'')) : (sqft ? Number(sqft).toLocaleString()+' sq ft' : '');
+  const cityLine  = c.city ? (_titleAddr(c.city)+', FL'+(c.zip?' '+c.zip:'')+(sqft?' &nbsp;·&nbsp; '+Number(sqft).toLocaleString()+' sq ft':'')+(storyStr?' &nbsp;·&nbsp; <strong>'+storyStr+'</strong>':'')) : (sqft ? Number(sqft).toLocaleString()+' sq ft' : '');
   const addrHtml  = c.address ? `${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
 
   const _addRoof = s => (roofLabel && /roof/i.test(s)) ? `${s} — ${roofLabel}` : s;
