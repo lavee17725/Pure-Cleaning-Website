@@ -4047,7 +4047,7 @@ async function uploadPhotos(phone, jobDate, services) {
   for (const p of _pendingPhotos) {
     try {
       const photoId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2,7)}`;
-      const res = await fetch(`${API}/photos`, {
+      const res = await fetch(`${PCPC_API}/photos`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
@@ -4057,11 +4057,13 @@ async function uploadPhotos(phone, jobDate, services) {
           metadata: { phone, jobDate, services, source: 'job_completion', capturedAt: new Date().toISOString() }
         })
       });
-      if (!res.ok) throw new Error(res.status);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       uploadedIds.push(photoId);
       done++;
       if (status) status.textContent = `Uploading photos… ${done}/${total}`;
-    } catch(e) { console.warn('Photo upload failed:', e); }
+    } catch(e) {
+      showToast(`⚠️ Photo upload failed — ${e.message}`);
+    }
   }
   if (uploadedIds.length) {
     const c = findCustomer(phone);
