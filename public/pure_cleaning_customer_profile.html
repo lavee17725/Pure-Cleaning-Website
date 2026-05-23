@@ -1178,10 +1178,21 @@ function renderProfile(customer, events){
   const { totalJobs: effJobs, lifetimeSpend: effSpend, lastService: effLastSvc } = getEffectiveStats(c);
   const mo = monthsAgo(effLastSvc);
   const avgTicket = (effJobs && effSpend) ? Math.round(effSpend / effJobs) : 0;
+  const wh = c.workerHoursStats || null;
+  const _fmtWh = min => {
+    const h = Math.floor(min / 60), m = min % 60;
+    return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+  };
+  const _fmtWhAvg = hrs => hrs < 10 ? hrs.toFixed(1) + 'h' : Math.round(hrs) + 'h';
+  const whVal = wh
+    ? `<span style="font-size:13px;line-height:1.35;">Avg ${_fmtWhAvg(wh.avgPerVisit)}<br><span style="font-size:11px;color:var(--muted);">Last ${_fmtWh(wh.lastVisitMin)} · ${fmtDate(wh.lastVisitDate)}</span></span>`
+    : null;
+
   const statsData=[
-    {label:'Avg Ticket',   val:avgTicket?'$'+avgTicket.toLocaleString():'—',                               color:'#1d9e75'},
-    {label:'Last Service', val:mo!==null?moAgoLabel(mo):(effLastSvc?fmtDate(effLastSvc):'—'),              color:'#d97706'},
-    {label:'Tier',         val:`<span class="tier-chip" style="--tier-color:${tier.color};">${tier.emoji} ${tier.label}${tier.vip?' ★':''}</span>`, color:tier.color},
+    {label:'Avg Ticket',    val:avgTicket?'$'+avgTicket.toLocaleString():'—',                               color:'#1d9e75'},
+    {label:'Last Service',  val:mo!==null?moAgoLabel(mo):(effLastSvc?fmtDate(effLastSvc):'—'),              color:'#d97706'},
+    {label:'Tier',          val:`<span class="tier-chip" style="--tier-color:${tier.color};">${tier.emoji} ${tier.label}${tier.vip?' ★':''}</span>`, color:tier.color},
+    ...(whVal ? [{label:'Worker Hours', val:whVal, color:'#7c3aed'}] : []),
   ];
   document.getElementById('statsBar').innerHTML=statsData.map(s=>
     `<div class="stat-cell" style="--cell-color:${s.color};">

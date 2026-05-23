@@ -1370,6 +1370,17 @@ body{background:#f0f2f5;}
       <input id="tapSchedNote" type="text" placeholder="e.g. call ahead, gate code…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor='var(--sky)'" onblur="this.style.borderColor='var(--border)'">
     </div>
     <div style="font-size:11px;color:var(--muted);margin-top:8px;">No rig selected? Job goes to the Day Pool. Assign a truck using the ↔ Rig button on the card or by dragging it onto a rig column.</div>
+    <div style="margin-top:10px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px;">Crew</div>
+      <div style="display:flex;gap:8px;">
+        <label style="display:flex;align-items:center;gap:6px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;">
+          <input type="radio" name="tapSchedCrew" value="1" style="accent-color:var(--sky);width:15px;height:15px;cursor:pointer;"> 1 person
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;">
+          <input type="radio" name="tapSchedCrew" value="2" checked style="accent-color:var(--sky);width:15px;height:15px;cursor:pointer;"> 2 people
+        </label>
+      </div>
+    </div>
     <div id="tapSchedStorySel" style="display:none;margin-top:10px;">
       <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
         <label><input type="radio" name="tapSchedStories" value="1"> 1-Story</label>
@@ -5879,6 +5890,7 @@ async function saveFullEdit() {
     // Mirror rig change to local dbRecord so render() places card in correct lane immediately
     // and saveDb() writes the correct rig to KV (prevents stale-null overwriting _patchJobKvSync).
     if ('rigId' in patchBody) ss.rig = patchBody.rigId || null;
+    if ('crewCount' in patchBody) ss.crewCount = patchBody.crewCount || 2;
     // Mirror rig to matching jh entry — without this, getExtraCompletedJobsForRig uses
     // stale jh.rig and renders a phantom card on the old rig after a rig change.
     if ('rigId' in patchBody && ss.state === 'completed' && ss.scheduledDate) {
@@ -6315,6 +6327,10 @@ function openTapScheduleModal(phone) {
   }
   const btn = document.getElementById('tapSchedConfirmBtn');
   if (btn) btn.disabled = !proposed;
+  // Reset crew toggle to stored value or default 2
+  const _existingCrew = String(c?.scheduledStatus?.crewCount || 2);
+  const _crewRadio = document.querySelector(`input[name=tapSchedCrew][value="${_existingCrew}"]`);
+  if (_crewRadio) _crewRadio.checked = true;
   // Show story selector if this customer's job is a roof job
   const svcText = (c?.scheduledStatus?.jobNotes || c?.quoteStatus?.mainServices || '').toLowerCase();
   const isTapRoof = /roof|soft\s*wash|softwash/.test(svcText);
@@ -6350,6 +6366,9 @@ async function confirmTapSchedule() {
   c.scheduledStatus.rig = categorizeService(_autoSvc) === 'roof' ? 'rig_3' : null;
   const note = (document.getElementById('tapSchedNote').value || '').trim();
   if (note) c.scheduledStatus.scheduleNote = note;
+  // Crew count (default 2 per Law T3.8)
+  const _crewVal = document.querySelector('input[name=tapSchedCrew]:checked')?.value;
+  c.scheduledStatus.crewCount = _crewVal ? parseInt(_crewVal) : 2;
   // Save story count if selector is visible
   const _tapStorySel = document.getElementById('tapSchedStorySel');
   if (_tapStorySel && _tapStorySel.style.display !== 'none') {

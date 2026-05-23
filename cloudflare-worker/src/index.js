@@ -2482,6 +2482,7 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     bouncieMatchStatus: j.bouncieMatchStatus || null,
     workSiteAddress:    j.workSiteAddress    || null,
     workSiteCity:       j.workSiteCity       || null,
+    crewCount:          j.crewCount          || 2,
   };
 }
 
@@ -2590,7 +2591,7 @@ async function d1AllCustomersToKvShape(env) {
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
-      'workSiteAddress,workSiteCity ' +
+      'workSiteAddress,workSiteCity,crewCount ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
     env.DATA.get('review_states', 'json').then(d => d || {}),
@@ -2617,6 +2618,7 @@ async function d1AllCustomersToKvShape(env) {
     const pjobs = jobsByPayer[p.personId] || [];
     const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs, propById);
     computeBouncieMetrics(customer);
+    computeWorkerHoursStats(customer);
     customer.googleReview = reviewStates[ph] || null;
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
     // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
@@ -2641,7 +2643,7 @@ async function d1CustomerToKvShape(phone, env) {
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
-      'workSiteAddress,workSiteCity ' +
+      'workSiteAddress,workSiteCity,crewCount ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
   ]);
@@ -2651,6 +2653,7 @@ async function d1CustomerToKvShape(phone, env) {
   for (const pp of propLinks) { if (pp.propertyId) singlePropById[pp.propertyId] = pp; }
   const customer = _d1PersonToKv(personRow, propLinks, pjobs, singlePropById);
   computeBouncieMetrics(customer);
+  computeWorkerHours(customer);
   const reviewStates = await env.DATA.get('review_states', 'json').then(d => d || {});
   customer.googleReview = reviewStates[ph] || null;
   // Expose all linked properties so multi-property picker UI can list them.
@@ -2988,6 +2991,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.endCustomerName,
         j.endCustomerPhone,
         j.partnerRate,
+        j.crewCount,
         p.firstName,
         p.lastName,
         p.primaryPhone,
@@ -3098,6 +3102,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
   'endCustomerName', 'endCustomerPhone', 'partnerRate',
+  'crewCount',
 ]);
 
 const _JOB_VALID_STATES = new Set([
@@ -3312,10 +3317,11 @@ async function _d1SyncScheduledJob(c, env, now) {
   const jobId  = _d1ScheduledJobId(personId, ss.scheduledDate);
   try {
     await env.DB.prepare(
-      `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRequested,servicesRaw,rigId,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRequested,servicesRaw,rigId,crewCount,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       jobId, personId, propId, ss.scheduledDate, 'scheduled',
       ss.approvedAmount||0, '[]', ss.jobNotes||null, ss.rig||null,
+      ss.crewCount||2,
       ss.actualDuration||null, ss.actualArrival||null, ss.actualDeparture||null,
       ss.durationConfidence||ss.bouncieMatchStatus||null, null, ss.geocodeSource||null,
       'phone_quote', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
@@ -4651,6 +4657,29 @@ function computeBouncieMetrics(customer) {
       lastServiceDate:  matched[matched.length - 1].date,
       matchedJobCount:  matched.length,
     },
+  };
+}
+
+function computeWorkerHoursStats(customer) {
+  const matched = [];
+  for (const j of (customer.jobHistory || [])) {
+    if (!j.actualDuration || j.actualDuration <= 0) continue;
+    if (j.source === 'csv_backfill') continue;
+    const crew = (j.crewCount && j.crewCount >= 1) ? j.crewCount : DEFAULT_CREW_COUNT;
+    matched.push({
+      date: j.date || '',
+      workerMin: Math.round(j.actualDuration / crew),
+    });
+  }
+  if (!matched.length) { delete customer.workerHoursStats; return; }
+  matched.sort((a, b) => a.date < b.date ? -1 : 1);
+  const avg = matched.reduce((s, j) => s + j.workerMin, 0) / matched.length;
+  const last = matched[matched.length - 1];
+  customer.workerHoursStats = {
+    avgPerVisit: Math.round(avg * 10) / 10 / 60,   // hours, 1 decimal
+    lastVisitMin: last.workerMin,                   // minutes (client formats)
+    lastVisitDate: last.date,
+    totalMatchedVisits: matched.length,
   };
 }
 
