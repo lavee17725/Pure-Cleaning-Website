@@ -297,6 +297,11 @@ export default {
           await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
         }
       })());
+      // TruckEvent persistence — runs alongside duration matcher at 3 AM UTC
+      ctx.waitUntil(
+        persistTruckEventsNightly(today, env)
+          .catch(e => console.error('truckevent cron error:', e.message))
+      );
     }
   },
 
@@ -1098,6 +1103,11 @@ export default {
       }
       if (path === 'admin/day-route/averages' && request.method === 'GET') {
         return await handleDayRouteAverages(request, env, corsHeaders, url);
+      }
+
+      // ── TruckEvent backfill (protected) ──────────────────────────────────────
+      if (path === 'admin/truckevent-backfill' && request.method === 'POST') {
+        return await handleTruckEventBackfill(request, env, corsHeaders);
       }
 
       // ── Insights: D1 revenue/job aggregates (protected) ──────────────────────
@@ -2580,7 +2590,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
 }
 
 async function d1AllCustomersToKvShape(env) {
-  const [persons, propLinks, jobs, reviewStates] = await Promise.all([
+  const [persons, propLinks, jobs, reviewStates, truckDriveTimes] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
@@ -2595,6 +2605,17 @@ async function d1AllCustomersToKvShape(env) {
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
     env.DATA.get('review_states', 'json').then(d => d || {}),
+    // TruckEvent drive times per job — empty until first backfill runs, .catch() = table not yet migrated
+    env.DB.prepare(
+      `SELECT te.jobId,` +
+      `(SELECT CAST(durationSeconds/60 AS INTEGER) FROM TruckEvent t2` +
+      ` WHERE t2.rigId=te.rigId AND t2.eventType='drive' AND t2.endedAt<=te.startedAt` +
+      ` ORDER BY t2.endedAt DESC LIMIT 1) AS driveInMinutes,` +
+      `(SELECT CAST(durationSeconds/60 AS INTEGER) FROM TruckEvent t3` +
+      ` WHERE t3.rigId=te.rigId AND t3.eventType='drive' AND t3.startedAt>=te.endedAt` +
+      ` ORDER BY t3.startedAt ASC LIMIT 1) AS driveOutMinutes` +
+      ` FROM TruckEvent te WHERE te.eventType='job_arrival' AND te.jobId IS NOT NULL`
+    ).all().then(r => r.results || []).catch(() => []),
   ]);
 
   // Index by personId + propertyId
@@ -2611,6 +2632,12 @@ async function d1AllCustomersToKvShape(env) {
     jobsByPayer[j.payerId].push(j);
   }
 
+  // TruckEvent drive-time lookup: jobId → { driveInMinutes, driveOutMinutes }
+  const driveTimeByJobId = new Map();
+  for (const dt of truckDriveTimes) {
+    if (dt.jobId) driveTimeByJobId.set(dt.jobId, dt);
+  }
+
   const customers = [];
   for (const p of persons) {
     const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
@@ -2620,6 +2647,16 @@ async function d1AllCustomersToKvShape(env) {
     computeBouncieMetrics(customer);
     computeWorkerHoursStats(customer);
     customer.googleReview = reviewStates[ph] || null;
+    // Attach TruckEvent drive times to jh entries (additive — empty until first backfill runs)
+    if (driveTimeByJobId.size > 0) {
+      for (const jh of (customer.jobHistory || [])) {
+        const dt = driveTimeByJobId.get(jh.jobId);
+        if (dt) {
+          if (dt.driveInMinutes  != null) jh.driveInMinutes  = dt.driveInMinutes;
+          if (dt.driveOutMinutes != null) jh.driveOutMinutes = dt.driveOutMinutes;
+        }
+      }
+    }
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
     // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
     customers.push(customer);
@@ -2632,7 +2669,7 @@ async function d1CustomerToKvShape(phone, env) {
   if (!ph || ph.length !== 10) return null;
   const personId = _d1PersonId(ph);
 
-  const [personRow, propLinks, pjobs] = await Promise.all([
+  const [personRow, propLinks, pjobs, truckDriveTimes] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
     env.DB.prepare(
       'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, p.streetAddress, p.city, p.state, p.zip,' +
@@ -2646,6 +2683,18 @@ async function d1CustomerToKvShape(phone, env) {
       'workSiteAddress,workSiteCity,crewCount ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
+    // TruckEvent drive times scoped to this person's jobs
+    env.DB.prepare(
+      `SELECT te.jobId,` +
+      `(SELECT CAST(durationSeconds/60 AS INTEGER) FROM TruckEvent t2` +
+      ` WHERE t2.rigId=te.rigId AND t2.eventType='drive' AND t2.endedAt<=te.startedAt` +
+      ` ORDER BY t2.endedAt DESC LIMIT 1) AS driveInMinutes,` +
+      `(SELECT CAST(durationSeconds/60 AS INTEGER) FROM TruckEvent t3` +
+      ` WHERE t3.rigId=te.rigId AND t3.eventType='drive' AND t3.startedAt>=te.endedAt` +
+      ` ORDER BY t3.startedAt ASC LIMIT 1) AS driveOutMinutes` +
+      ` FROM TruckEvent te WHERE te.eventType='job_arrival' AND te.jobId IS NOT NULL` +
+      ` AND te.jobId IN (SELECT jobId FROM Job WHERE payerId=?)`
+    ).bind(personId).all().then(r => r.results || []).catch(() => []),
   ]);
 
   if (!personRow) return null;
@@ -2656,6 +2705,17 @@ async function d1CustomerToKvShape(phone, env) {
   computeWorkerHours(customer);
   const reviewStates = await env.DATA.get('review_states', 'json').then(d => d || {});
   customer.googleReview = reviewStates[ph] || null;
+  // Attach TruckEvent drive times to jh entries (additive — empty until first backfill runs)
+  if (truckDriveTimes.length > 0) {
+    const driveTimeByJobId = new Map(truckDriveTimes.map(dt => [dt.jobId, dt]));
+    for (const jh of (customer.jobHistory || [])) {
+      const dt = driveTimeByJobId.get(jh.jobId);
+      if (dt) {
+        if (dt.driveInMinutes  != null) jh.driveInMinutes  = dt.driveInMinutes;
+        if (dt.driveOutMinutes != null) jh.driveOutMinutes = dt.driveOutMinutes;
+      }
+    }
+  }
   // Expose all linked properties so multi-property picker UI can list them.
   customer.properties = propLinks.map(pp => ({
     propertyId:    pp.propertyId,
@@ -2863,6 +2923,49 @@ async function handleReconcileKvD1(env, corsHeaders) {
     });
     typeCounts['PARTNER_MISSING_WORKSITE'] = (typeCounts['PARTNER_MISSING_WORKSITE'] || 0) + 1;
   }
+
+  // Gate: TRUCKEVENT_ORPHAN — TruckEvent.jobId references non-existent Job
+  try {
+    const orphans = await env.DB.prepare(
+      `SELECT te.id, te.rigId, te.jobId, te.startedAt
+       FROM TruckEvent te
+       WHERE te.jobId IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM Job j WHERE j.jobId = te.jobId)`
+    ).all().then(r => r.results || []);
+    for (const o of orphans) {
+      discrepancies.push({
+        phone: null, name: `TruckEvent ${o.id}`,
+        type: 'TRUCKEVENT_ORPHAN',
+        field: 'TruckEvent.jobId',
+        kvValue: o.jobId,
+        d1Value: 'missing from Job table',
+        suggested_action: `DELETE FROM TruckEvent WHERE id='${o.id}' OR re-link to correct jobId`,
+      });
+      typeCounts['TRUCKEVENT_ORPHAN'] = (typeCounts['TRUCKEVENT_ORPHAN'] || 0) + 1;
+    }
+  } catch(e) { /* TruckEvent table not yet migrated — skip */ }
+
+  // Gate: TRUCKEVENT_DUPLICATE — same bouncieTripId appearing more than once
+  try {
+    const dupTrips = await env.DB.prepare(
+      `SELECT bouncieTripId, COUNT(*) AS cnt
+       FROM TruckEvent
+       WHERE bouncieTripId IS NOT NULL
+       GROUP BY bouncieTripId
+       HAVING cnt > 1`
+    ).all().then(r => r.results || []);
+    for (const d of dupTrips) {
+      discrepancies.push({
+        phone: null, name: `TruckEvent bouncieTripId=${d.bouncieTripId}`,
+        type: 'TRUCKEVENT_DUPLICATE',
+        field: 'TruckEvent.bouncieTripId',
+        kvValue: `${d.cnt} rows`,
+        d1Value: d.bouncieTripId,
+        suggested_action: `DELETE extra TruckEvent rows WHERE bouncieTripId='${d.bouncieTripId}' (keep oldest createdAt)`,
+      });
+      typeCounts['TRUCKEVENT_DUPLICATE'] = (typeCounts['TRUCKEVENT_DUPLICATE'] || 0) + 1;
+    }
+  } catch(e) { /* TruckEvent table not yet migrated — skip */ }
 
   return jsonResponse({
     summary: {
@@ -4614,6 +4717,211 @@ async function bouncieJobDurationMatcher(date, env) {
   );
 
   return { date, total: completedToday.length, matched, results, morningStops };
+}
+
+// ── TruckEvent persistence — Bouncie full event stream to D1 ─────────────────
+// Phase 1 of Bouncie Full Event Stream doc (10Qeyqs1TRufTpOxSxbwpuwU240GfL-9J).
+// Reuses buildDayRoute segment classification; writes TruckEvent rows to D1.
+
+async function _fetchRigJobsForDate(date, rigId, env) {
+  // Pull completed jobs for this rig+date from D1 with geocoords for proximity matching.
+  // Used by persistTruckEventsForDate as the rigJobs input to buildDayRoute.
+  return env.DB.prepare(
+    `SELECT j.jobId, j.scheduledDate AS date, j.actualArrival,
+            j.bouncieMatchStatus AS durationConfidence,
+            j.servicesRaw AS services, j.amount,
+            p2.latitude  AS geocodedLat, p2.longitude AS geocodedLng,
+            p2.streetAddress AS address, p2.city,
+            p1.firstName || ' ' || p1.lastName AS customerName,
+            p1.primaryPhone AS phone
+     FROM Job j
+     JOIN Person p1 ON j.payerId = p1.personId
+     LEFT JOIN PersonProperty pp ON pp.personId = j.payerId AND pp.primaryContact = 1
+     LEFT JOIN Property p2 ON pp.propertyId = p2.propertyId
+     WHERE j.scheduledDate = ? AND j.state = 'completed' AND j.rigId = ?`
+  ).bind(date, rigId).all().then(r => r.results || []);
+}
+
+async function persistTruckEventsForDate(date, rigId, rigEntry, source, env) {
+  const startsAfter = `${date}T00:00:00.000Z`;
+  const endsBefore  = `${date}T23:59:59.000Z`;
+
+  let res;
+  try {
+    res = await bouncieFetchWithRetry(
+      `${BOUNCIE_API_BASE}/trips?imei=${rigEntry.imei}&gpsFormat=geojson` +
+      `&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
+      env
+    );
+  } catch(e) {
+    return { rig: rigId, date, error: e.message, inserted: 0 };
+  }
+
+  const trips = res.ok ? await res.json() : [];
+  const sortedTrips = Array.isArray(trips)
+    ? trips.sort((a, b) => a.startTime < b.startTime ? -1 : 1)
+    : [];
+  if (!sortedTrips.length) return { rig: rigId, date, inserted: 0, reason: 'no_trips' };
+
+  // Build route segments using existing classification logic (reuse don't rebuild — spec T1.5)
+  const rigJobs = await _fetchRigJobsForDate(date, rigId, env);
+  const route   = buildDayRoute(date, rigId, sortedTrips, rigJobs);
+
+  const now   = new Date().toISOString();
+  const stmts = [];
+
+  for (const seg of route.segments) {
+    let id, eventType, startedAt, endedAt, durationSec,
+        startLat, startLng, distMi, jobId, poiCategory, poiName, bouncieTripId, matchConf;
+
+    if (seg.type === 'drive') {
+      id            = `${rigId}-drive-${seg.startTime}`;
+      eventType     = 'drive';
+      startedAt     = seg.startTime;
+      endedAt       = seg.endTime;
+      durationSec   = Math.round((seg.durationMin || 0) * 60);
+      distMi        = seg.distanceMiles || null;
+      bouncieTripId = id; // deterministic synthetic ID — used for TRUCKEVENT_DUPLICATE gate
+
+    } else if (seg.type === 'depart') {
+      id        = `${rigId}-depart-${seg.time}`;
+      eventType = 'depart_home';
+      startedAt = seg.time;
+
+    } else if (seg.type === 'return') {
+      id        = `${rigId}-return-${seg.time}`;
+      eventType = 'arrive_home';
+      startedAt = seg.time;
+
+    } else if (seg.type === 'arrive') {
+      // Final stop at non-home location
+      id        = `${rigId}-arrive-${seg.time}`;
+      eventType = 'unknown_stop';
+      startedAt = seg.time;
+
+    } else if (seg.type === 'job') {
+      id          = `${rigId}-job-${seg.arriveAt}`;
+      eventType   = 'job_arrival';
+      startedAt   = seg.arriveAt;
+      endedAt     = seg.departAt;
+      durationSec = Math.round((seg.durationMin || 0) * 60);
+      matchConf   = seg.confidence || null;
+      // Resolve D1 jobId: time match first, address match fallback
+      const matched =
+        rigJobs.find(j => j.actualArrival && Math.abs(new Date(j.actualArrival) - new Date(seg.arriveAt)) < 120000) ||
+        rigJobs.find(j => (j.address || '') === (seg.address || '') && (j.city || '') === (seg.city || ''));
+      jobId = matched?.jobId || null;
+
+    } else if (seg.type === 'stop') {
+      startedAt   = seg.arriveAt;
+      endedAt     = seg.departAt;
+      durationSec = Math.round((seg.durationMin || 0) * 60);
+      if (seg.location === '7eleven') {
+        id = `${rigId}-poi-gas-${seg.arriveAt}`;
+        eventType = 'poi_stop'; poiCategory = 'gas'; poiName = seg.label || '7-Eleven';
+      } else if (seg.location === 'proline') {
+        id = `${rigId}-poi-chem-${seg.arriveAt}`;
+        eventType = 'poi_stop'; poiCategory = 'chemicals'; poiName = seg.label || 'Pro-Line';
+      } else if (seg.location === 'home') {
+        id = `${rigId}-arrive-home-${seg.arriveAt}`;
+        eventType = 'arrive_home'; poiCategory = 'home_base';
+      } else {
+        id = `${rigId}-unknown-${seg.arriveAt}`;
+        eventType = 'unknown_stop';
+        startLat  = seg.coords?.lat || null;
+        startLng  = seg.coords?.lng || null;
+      }
+    } else {
+      continue; // unknown segment type — skip
+    }
+
+    if (!id || !startedAt) continue;
+
+    stmts.push(
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO TruckEvent
+           (id,rigId,eventType,startedAt,endedAt,durationSeconds,
+            startLat,startLng,endLat,endLng,distanceMiles,
+            jobId,poiCategory,poiName,source,bouncieTripId,matchConfidence,
+            createdAt,modifiedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        id, rigId, eventType, startedAt, endedAt||null, durationSec||null,
+        startLat||null, startLng||null, null, null, distMi||null,
+        jobId||null, poiCategory||null, poiName||null,
+        source, bouncieTripId||null, matchConf||null,
+        now, now
+      )
+    );
+  }
+
+  if (!stmts.length) return { rig: rigId, date, inserted: 0, reason: 'no_segments' };
+
+  const batchResults = await env.DB.batch(stmts);
+  const inserted = batchResults.reduce((s, r) => s + (r.meta?.changes || 0), 0);
+  return { rig: rigId, date, events: stmts.length, inserted, skipped: stmts.length - inserted };
+}
+
+async function persistTruckEventsNightly(date, env) {
+  const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
+  const rigEntries = Object.entries(rigMapping).filter(([, re]) => re?.imei);
+  if (!rigEntries.length) return { date, results: [], totalInserted: 0 };
+
+  const results = await Promise.all(
+    rigEntries.map(([rigId, rigEntry]) =>
+      persistTruckEventsForDate(date, rigId, rigEntry, 'bouncie_cron', env)
+        .catch(e => ({ rig: rigId, date, error: e.message, inserted: 0 }))
+    )
+  );
+
+  const totalInserted = results.reduce((s, r) => s + (r.inserted || 0), 0);
+  await env.DATA.put('truckevent:last_cron_run', JSON.stringify({
+    ranAt: new Date().toISOString(), date, results, totalInserted,
+  }));
+  return { date, results, totalInserted };
+}
+
+async function handleTruckEventBackfill(request, env, corsHeaders) {
+  const body     = await request.json().catch(() => ({}));
+  const toDate   = body.toDate   || new Date().toISOString().slice(0, 10);
+  const fromDate = body.fromDate || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
+  const rigEntries = Object.entries(rigMapping).filter(([, re]) => re?.imei);
+  if (!rigEntries.length) {
+    return jsonResponse({ error: 'No rigs in bouncie:rig_mapping' }, corsHeaders, 400);
+  }
+
+  // Build date list (noon UTC on each day avoids DST boundary edge cases)
+  const dates = [];
+  const cur = new Date(fromDate + 'T12:00:00Z');
+  const end = new Date(toDate   + 'T12:00:00Z');
+  while (cur <= end) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+
+  const allResults = [];
+  // Sequential dates — avoids hammering Bouncie; parallel rigs per date is fine (reads only)
+  for (const date of dates) {
+    const rigResults = await Promise.all(
+      rigEntries.map(([rigId, rigEntry]) =>
+        persistTruckEventsForDate(date, rigId, rigEntry, 'bouncie_backfill', env)
+          .catch(e => ({ rig: rigId, date, error: e.message, inserted: 0 }))
+      )
+    );
+    allResults.push(...rigResults);
+  }
+
+  const totalInserted = allResults.reduce((s, r) => s + (r.inserted || 0), 0);
+  const totalEvents   = allResults.reduce((s, r) => s + (r.events   || 0), 0);
+  return jsonResponse({
+    fromDate, toDate,
+    datesProcessed: dates.length,
+    totalEvents,
+    totalInserted,
+    results: allResults,
+  }, corsHeaders);
 }
 
 // ── Per-property avg time/worker metric ──────────────────────────────────────
