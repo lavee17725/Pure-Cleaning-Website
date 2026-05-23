@@ -46,6 +46,8 @@ Key protected resources:
 - `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active, google-drive/status, export-weekly)
 - `GET /admin/day-route?date=YYYY-MM-DD&rig=rig_1|rig_2|rig_3` — per-rig operational timeline from Bouncie GPS + jobHistory
 - `GET /admin/insights?start=YYYY-MM-DD&end=YYYY-MM-DD&prevStart=&prevEnd=&source=all|live` — D1 revenue/job aggregates for insights page; returns completed, pipeline, ytd, prevCompleted, migrationDate
+- `GET /admin/drive-time?from=lat,lng&to=lat,lng` — Google Directions API proxy; KV-cached 7d; falls back to haversine; returns { duration_minutes, distance_miles, source: 'google'|'cache'|'haversine_fallback' }
+- `GET /admin/drive-time/stats` — cache hit rate, total API calls, estimated cost since reset
 - `POST /admin/crew` — create a new CrewMember; body { name, phone, email?, hiredAt?, role?, notes? }; returns { crewMemberId, ...created fields }
 - `GET /admin/crew` — list all CrewMembers (active + inactive); optional ?activeOnly=true to filter; returns { crew: [...] }
 - `PATCH /admin/crew/:crewMemberId` — update a CrewMember; body any of { name, phone, email, hiredAt, role, notes, active }; returns updated record

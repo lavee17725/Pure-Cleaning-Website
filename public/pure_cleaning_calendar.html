@@ -2213,6 +2213,32 @@ function distanceBetween(lat1, lng1, lat2, lng2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// ── Google Directions API integration (Phase 2) ───────────────────────────────
+// fetchDriveTime: async, KV-backed on server, in-memory per page load on client.
+// Source field: 'google' | 'cache' | 'haversine_fallback'
+// Falls back to local haversine on network/API failure so renders never block.
+const _dtCache = new Map(); // key: 'lat1_lng1:lat2_lng2' → {duration_minutes, distance_miles, source}
+
+async function fetchDriveTime(fromLat, fromLng, toLat, toLng) {
+  if (fromLat == null || fromLng == null || toLat == null || toLng == null) return null;
+  const r4  = n => Math.round(n * 10000) / 10000;
+  const key = `${r4(fromLat)}_${r4(fromLng)}:${r4(toLat)}_${r4(toLng)}`;
+  if (_dtCache.has(key)) return _dtCache.get(key);
+  try {
+    const res  = await fetch(`${PCPC_API}/admin/drive-time?from=${fromLat},${fromLng}&to=${toLat},${toLng}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _dtCache.set(key, data);
+    return data;
+  } catch(e) {
+    // Haversine local fallback — never let a network failure break rendering
+    const mi = distanceBetween(fromLat, fromLng, toLat, toLng) * 1.3;
+    const fb = { duration_minutes: Math.max(1, Math.round(mi / 35 * 60)), distance_miles: Math.round(mi * 10) / 10, source: 'haversine_fallback' };
+    _dtCache.set(key, fb);
+    return fb;
+  }
+}
+
 function getJobCoords(c) {
   // Check both c.coordinates (Google) and c.geocoded (Census/legacy) — prefer coordinates
   const g = c.coordinates || c.geocoded;
@@ -2332,7 +2358,9 @@ function renderRouteSummary(jobs, date, rig) {
 
 // Commute distance banners: 🏠→first, last→🏠, and daily total per rig swimlane.
 // Uses 35 mph average for South Florida streets. Returns {top, bottom, total} HTML strings.
-function renderRigCommuteBanners(activeJobs) {
+// date + rig params are optional — when provided, banners get IDs for async enrichment.
+// Initial render uses haversine; _refreshRigCommuteBanner() updates with real Google data.
+function renderRigCommuteBanners(activeJobs, date, rig) {
   if (!activeJobs.length) return { top: '', bottom: '', total: '' };
   const firstCoords = getJobCoords(activeJobs[0]);
   const lastCoords  = getJobCoords(activeJobs[activeJobs.length - 1]);
@@ -2346,13 +2374,16 @@ function renderRigCommuteBanners(activeJobs) {
   const fmt = (mi, mph) => mi != null
     ? `${mi.toFixed(1)} mi · ~${Math.max(1, Math.round(mi / mph * 60))} min`
     : '—';
-  const top    = `<div class="rig-commute-banner">🏠 → first: ${fmt(homeToFirst, 35)}</div>`;
-  const bottom = `<div class="rig-commute-banner">last → 🏠: ${fmt(lastToHome, 35)}</div>`;
+  const idTop = date && rig ? ` id="dcb-${date}-${rig}-top"` : '';
+  const idBot = date && rig ? ` id="dcb-${date}-${rig}-bot"` : '';
+  const idTot = date && rig ? ` id="dcb-${date}-${rig}-tot"` : '';
+  const top    = `<div class="rig-commute-banner"${idTop}>🏠 → first: ${fmt(homeToFirst, 35)}</div>`;
+  const bottom = `<div class="rig-commute-banner"${idBot}>last → 🏠: ${fmt(lastToHome, 35)}</div>`;
   const totalMi = (homeToFirst || 0) + interMi + (lastToHome || 0);
   const anyCoords = homeToFirst != null || lastToHome != null;
   const totalDriveMin = anyCoords ? Math.max(1, Math.round(totalMi / 35 * 60)) : 0;
   const total = anyCoords
-    ? `<div class="rig-commute-total">📊 ${totalMi.toFixed(1)} mi · ~${totalDriveMin} min drive · ${activeJobs.length} job${activeJobs.length !== 1 ? 's' : ''}</div>`
+    ? `<div class="rig-commute-total"${idTot}>📊 ${totalMi.toFixed(1)} mi · ~${totalDriveMin} min drive · ${activeJobs.length} job${activeJobs.length !== 1 ? 's' : ''}</div>`
     : '';
   return { top, bottom, total };
 }
@@ -2771,7 +2802,8 @@ function renderCalGrid(dates) {
       const emptyPlaceholder = (jobs.length === 0 && extras.length === 0)
         ? `<div class="rig-empty-label drag-ignore">No jobs assigned</div>` : '';
       const activeForCommute = jobs.filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
-      const commute = activeForCommute.length ? renderRigCommuteBanners(activeForCommute) : { top:'', bottom:'', total:'' };
+      // Pass date+rig so banners get IDs — async enrichment replaces haversine with Google data after render
+      const commute = activeForCommute.length ? renderRigCommuteBanners(activeForCommute, date, rig) : { top:'', bottom:'', total:'' };
       return `<div class="rig-section">
         ${rigLabelHtml}
         ${bulkPrintHtml}
@@ -2821,6 +2853,74 @@ function renderCalGrid(dates) {
   }).join('');
   document.getElementById('calGrid').innerHTML = html;
   initSortables();
+  // Async-enrich commute banners with real Google drive times (fire-and-forget — never blocks render)
+  _refreshCommuteBanners(dates).catch(() => {});
+}
+
+// ── Async commute banner enrichment (Google Directions) ───────────────────────
+// Replaces haversine placeholders in commute banners with real traffic-aware data.
+// Runs after renderCalGrid sets innerHTML. DOM elements targeted by id="dcb-{date}-{rig}-{slot}".
+
+async function _refreshCommuteBanners(dates) {
+  // Parallel per rig per date — all independent, no ordering constraint
+  await Promise.all(dates.flatMap(date =>
+    RIGS.map(rig => {
+      const activeJobs = getScheduledForRig(date, rig)
+        .filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
+      return activeJobs.length ? _refreshRigCommuteBanner(date, rig, activeJobs) : Promise.resolve();
+    })
+  )).catch(() => {}); // non-critical — leave haversine banners if anything fails
+}
+
+async function _refreshRigCommuteBanner(date, rig, activeJobs) {
+  try {
+    const firstCoords = getJobCoords(activeJobs[0]);
+    const lastCoords  = getJobCoords(activeJobs[activeJobs.length - 1]);
+    if (!firstCoords || !lastCoords) return;
+
+    // Fetch all segments in parallel — home→first, last→home, each inter-job gap
+    const interPairs = [];
+    for (let i = 0; i < activeJobs.length - 1; i++) {
+      const a = getJobCoords(activeJobs[i]), b = getJobCoords(activeJobs[i + 1]);
+      interPairs.push(a && b ? fetchDriveTime(a.lat, a.lng, b.lat, b.lng) : Promise.resolve(null));
+    }
+    const [homeToFirst, lastToHome, ...interResults] = await Promise.all([
+      fetchDriveTime(HOME_BASE.lat, HOME_BASE.lng, firstCoords.lat, firstCoords.lng),
+      fetchDriveTime(lastCoords.lat, lastCoords.lng, HOME_BASE.lat, HOME_BASE.lng),
+      ...interPairs,
+    ]);
+
+    const fmt = dt => dt
+      ? `${dt.distance_miles.toFixed(1)} mi · ~${Math.round(dt.duration_minutes)} min`
+      : '—';
+
+    const totalMin = Math.round(
+      (homeToFirst?.duration_minutes || 0) +
+      interResults.reduce((s, dt) => s + (dt?.duration_minutes || 0), 0) +
+      (lastToHome?.duration_minutes  || 0)
+    );
+    const totalMi = Math.round((
+      (homeToFirst?.distance_miles || 0) +
+      interResults.reduce((s, dt) => s + (dt?.distance_miles  || 0), 0) +
+      (lastToHome?.distance_miles  || 0)
+    ) * 10) / 10;
+
+    // Indicate source if fallback (real data shows no badge, haversine shows "(est)")
+    const isReal = homeToFirst?.source === 'google' || homeToFirst?.source === 'cache';
+    const badge  = isReal ? '' : ' <span style="font-size:9px;opacity:.45;">(est)</span>';
+
+    const topEl = document.getElementById(`dcb-${date}-${rig}-top`);
+    const botEl = document.getElementById(`dcb-${date}-${rig}-bot`);
+    const totEl = document.getElementById(`dcb-${date}-${rig}-tot`);
+
+    if (topEl) topEl.innerHTML = `🏠 → first: ${fmt(homeToFirst)}${badge}`;
+    if (botEl) botEl.innerHTML = `last → 🏠: ${fmt(lastToHome)}${badge}`;
+    if (totEl) totEl.innerHTML =
+      `📊 ${totalMi.toFixed(1)} mi · ~${totalMin} min drive · ` +
+      `${activeJobs.length} job${activeJobs.length !== 1 ? 's' : ''}${badge}`;
+  } catch(e) {
+    // Non-critical — haversine placeholders stay on failure
+  }
 }
 
 function _calVipBadge(c) {

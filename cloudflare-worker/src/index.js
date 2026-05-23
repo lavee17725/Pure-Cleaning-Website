@@ -1110,6 +1110,14 @@ export default {
         return await handleTruckEventBackfill(request, env, corsHeaders);
       }
 
+      // ── Google Directions API proxy (protected) ───────────────────────────────
+      if (path === 'admin/drive-time' && request.method === 'GET') {
+        return await handleDriveTime(request, env, corsHeaders, url);
+      }
+      if (path === 'admin/drive-time/stats' && request.method === 'GET') {
+        return await handleDriveTimeStats(env, corsHeaders);
+      }
+
       // ── Insights: D1 revenue/job aggregates (protected) ──────────────────────
       if (path === 'admin/insights' && request.method === 'GET') {
         const today       = new Date().toISOString().slice(0, 10);
@@ -4922,6 +4930,122 @@ async function handleTruckEventBackfill(request, env, corsHeaders) {
     totalInserted,
     results: allResults,
   }, corsHeaders);
+}
+
+// ── Google Directions API proxy + KV cache ────────────────────────────────────
+// Scheduling-time drive estimates for FUTURE jobs (before Bouncie has actuals).
+// Bouncie TruckEvent data (Phase 1) remains source of truth for completed jobs.
+// KV cache key: dt:{fromLat4}_{fromLng4}:{toLat4}_{toLng4} (4-decimal rounding)
+// TTL: 7 days — South FL traffic patterns don't shift dramatically week-to-week.
+
+async function handleDriveTime(request, env, corsHeaders, url) {
+  const fromStr = url.searchParams.get('from');
+  const toStr   = url.searchParams.get('to');
+
+  const parseCoord = s => {
+    if (!s) return null;
+    const parts = s.split(',');
+    if (parts.length !== 2) return null;
+    const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat, lng };
+  };
+
+  const from = parseCoord(fromStr);
+  const to   = parseCoord(toStr);
+  if (!from || !to) {
+    return jsonResponse({ error: 'from and to must be valid lat,lng pairs (e.g. ?from=25.9876,-80.1234&to=26.1234,-80.5678)' }, corsHeaders, 400);
+  }
+
+  // Round to 4 decimals — maximizes cache hit rate for routes to same property
+  const r4 = n => Math.round(n * 10000) / 10000;
+  const fl = r4(from.lat), fln = r4(from.lng);
+  const tl = r4(to.lat),   tln = r4(to.lng);
+  const cacheKey = `dt:${fl}_${fln}:${tl}_${tln}`;
+
+  // KV cache hit — 7-day TTL written at store time
+  const cached = await env.DATA.get(cacheKey, 'json');
+  if (cached) {
+    await _dtStatsIncrement(env, 'cacheHits');
+    return jsonResponse({ ...cached, source: 'cache' }, corsHeaders);
+  }
+
+  // Google Directions API
+  const apiKey = env.GOOGLE_DIRECTIONS_API_KEY;
+  if (!apiKey) {
+    // No key configured — return haversine fallback silently
+    return jsonResponse(_dtHaversineFallback(fl, fln, tl, tln), corsHeaders);
+  }
+
+  try {
+    const gUrl = new URL('https://maps.googleapis.com/maps/api/directions/json');
+    gUrl.searchParams.set('origin',         `${fl},${fln}`);
+    gUrl.searchParams.set('destination',    `${tl},${tln}`);
+    gUrl.searchParams.set('mode',           'driving');
+    gUrl.searchParams.set('departure_time', 'now');   // traffic-aware
+    gUrl.searchParams.set('key',             apiKey);
+
+    const res  = await fetch(gUrl.toString());
+    const data = await res.json();
+
+    if (data.status !== 'OK' || !data.routes?.[0]?.legs?.[0]) {
+      throw new Error(`Directions API status: ${data.status}`);
+    }
+
+    const leg    = data.routes[0].legs[0];
+    const durSec = leg.duration_in_traffic?.value ?? leg.duration?.value ?? 0;
+    const distM  = leg.distance?.value ?? 0;
+    const result = {
+      duration_minutes: Math.round(durSec / 60 * 10) / 10,
+      distance_miles:   Math.round(distM  / 1609.344 * 10) / 10,
+    };
+
+    // Write to KV cache (7-day TTL) — MUST await: fire-and-forget puts are killed before
+    // completing in Cloudflare Workers when there's no ctx.waitUntil().
+    await env.DATA.put(cacheKey, JSON.stringify(result), { expirationTtl: 7 * 86400 });
+    await _dtStatsIncrement(env, 'apiCalls');
+
+    return jsonResponse({ ...result, source: 'google' }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `drive_time:${cacheKey}`, e.message);
+    // Visible fallback — caller sees source:'haversine_fallback' and can surface to user
+    return jsonResponse({ ..._dtHaversineFallback(fl, fln, tl, tln), googleError: e.message }, corsHeaders);
+  }
+}
+
+async function handleDriveTimeStats(env, corsHeaders) {
+  const stats  = await env.DATA.get('dt:stats', 'json') || { apiCalls: 0, cacheHits: 0, since: new Date().toISOString() };
+  const total  = (stats.apiCalls || 0) + (stats.cacheHits || 0);
+  const hitPct = total > 0 ? Math.round((stats.cacheHits || 0) / total * 100) : 0;
+  // Google Directions pricing: $5 per 1,000 Advanced requests (departure_time=now)
+  const estimatedCostUsd = Math.round((stats.apiCalls || 0) / 1000 * 5 * 100) / 100;
+  return jsonResponse({
+    totalRequests: total,
+    cacheHits:     stats.cacheHits  || 0,
+    apiCalls:      stats.apiCalls   || 0,
+    hitRate:       `${hitPct}%`,
+    estimatedCostUsd,
+    since:         stats.since || null,
+    note:          'Top routes not yet tracked; add request logging to enable.',
+  }, corsHeaders);
+}
+
+// haversine × 1.3 (route winding) × 35 mph — used when Google API is unavailable
+function _dtHaversineFallback(fromLat, fromLng, toLat, toLng) {
+  const distMi = haversineKm(fromLat, fromLng, toLat, toLng) * 0.621371 * 1.3;
+  return {
+    duration_minutes: Math.round(Math.max(1, distMi / 35 * 60) * 10) / 10,
+    distance_miles:   Math.round(distMi * 10) / 10,
+    source:           'haversine_fallback',
+  };
+}
+
+async function _dtStatsIncrement(env, field) {
+  try {
+    const stats = await env.DATA.get('dt:stats', 'json') || { apiCalls: 0, cacheHits: 0, since: new Date().toISOString() };
+    stats[field] = (stats[field] || 0) + 1;
+    await env.DATA.put('dt:stats', JSON.stringify(stats));
+  } catch(e) { /* stats are non-critical — never block main response */ }
 }
 
 // ── Per-property avg time/worker metric ──────────────────────────────────────
