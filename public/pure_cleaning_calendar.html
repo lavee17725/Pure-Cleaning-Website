@@ -2016,6 +2016,7 @@ function _jobRowToShape(job, isMultiProperty) {
     workSiteCity:   job.workSiteCity   || null,
     customerType:   job.customerType   || 'residential',
     propertyLabel:  job.propertyLabel || null,
+    propertyType:   job.propertyType  || null,
     isMultiProperty,
     coordinates:    (job.latitude && job.longitude)
                       ? { lat: +job.latitude, lng: +job.longitude } : null,
@@ -5270,7 +5271,10 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
   const addrLine  = _titleAddr(c.address||'');
   const cityLine  = c.city ? (_titleAddr(c.city)+', FL'+(c.zip?' '+c.zip:'')+(sqft?' &nbsp;·&nbsp; '+Number(sqft).toLocaleString()+' sq ft':'')+(storyStr?' &nbsp;·&nbsp; <strong>'+storyStr+'</strong>':'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : (sqft ? Number(sqft).toLocaleString()+' sq ft' : '');
-  const addrHtml  = c.address ? `${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
+  const propLabelLine = (c.propertyLabel || ss.propertyLabel)
+    ? `<div style="font-family:Arial,sans-serif;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#1d4ed8;margin-bottom:2px;">${esc(c.propertyLabel || ss.propertyLabel)}</div>`
+    : '';
+  const addrHtml  = c.address ? `${propLabelLine}${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
 
   const _addRoof = s => (roofLabel && /roof/i.test(s)) ? `${s} — ${roofLabel}` : s;
   const allItems = [...items.map(s=>_addRoof(s.toUpperCase())), ...addOns.map(a=>{const nm=_addRoof((a.name||'').toUpperCase());return nm+(a.bundle?` (+$${a.bundle})`:'');})];

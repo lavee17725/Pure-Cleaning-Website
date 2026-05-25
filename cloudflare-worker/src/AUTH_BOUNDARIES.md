@@ -48,6 +48,10 @@ Key protected resources:
 - `GET /admin/insights?start=YYYY-MM-DD&end=YYYY-MM-DD&prevStart=&prevEnd=&source=all|live` — D1 revenue/job aggregates for insights page; returns completed, pipeline, ytd, prevCompleted, migrationDate
 - `GET /admin/drive-time?from=lat,lng&to=lat,lng` — Google Directions API proxy; KV-cached 7d; falls back to haversine; returns { duration_minutes, distance_miles, source: 'google'|'cache'|'haversine_fallback' }
 - `GET /admin/drive-time/stats` — cache hit rate, total API calls, estimated cost since reset
+- `GET /admin/places/autocomplete?input=<text>&sessiontoken=<uuid>` — Google Places Autocomplete proxy; US+address-type only, South FL biased; session token for cost optimization
+- `GET /admin/places/details?place_id=<id>&sessiontoken=<uuid>` — Google Places Details proxy; KV cached 30d; returns parsed street/city/state/zip + lat/lng
+- `POST /admin/properties/canonicalize-all` — historical migration: fetches place_id for all Property rows via Find Place API, then runs dedup pass; body: { phase: 'canonicalize'|'dedup'|'both', batchSize?, reset? }; Tyler-triggered only, not auto-scheduled
+- `GET /admin/property-duplicates` — lists Property rows sharing a googlePlaceId (should be 0 after migration)
 - `POST /admin/crew` — create a new CrewMember; body { name, phone, email?, hiredAt?, role?, notes? }; returns { crewMemberId, ...created fields }
 - `GET /admin/crew` — list all CrewMembers (active + inactive); optional ?activeOnly=true to filter; returns { crew: [...] }
 - `PATCH /admin/crew/:crewMemberId` — update a CrewMember; body any of { name, phone, email, hiredAt, role, notes, active }; returns updated record

@@ -71,6 +71,23 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .fi::placeholder{color:#c4b9a8;}
 .fi.err{border-color:var(--red);}
 .fi[readonly]{background:#f5f3ef;color:var(--muted);}
+.prop-type-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border:2px solid #bfdbfe;border-radius:20px;font-size:13px;font-weight:600;color:#1e40af;cursor:pointer;user-select:none;background:#eff6ff;}
+.prop-type-btn:has(input:checked){background:#1d4ed8;border-color:#1d4ed8;color:#fff;}
+.prop-type-btn input{display:none;}
+/* Google Address Autocomplete component */
+.ac-wrap{position:relative;margin-bottom:8px;}
+.ac-input-row{display:flex;align-items:center;gap:6px;}
+.ac-input{flex:1;}
+.ac-badge{font-size:10px;font-weight:700;color:#16a34a;background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:2px 7px;white-space:nowrap;flex-shrink:0;}
+.ac-dd{position:absolute;top:calc(100% + 3px);left:0;right:0;background:#fff;border:2px solid var(--sky);border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.14);z-index:900;overflow:hidden;display:none;}
+.ac-dd.open{display:block;}
+.ac-item{padding:11px 14px;font-size:14px;color:var(--text);cursor:pointer;border-bottom:1px solid #f0ece6;transition:background .12s;}
+.ac-item:last-child{border-bottom:none;}
+.ac-item:hover,.ac-item:focus{background:#eff6ff;outline:none;}
+.ac-item .ac-main{font-weight:600;}
+.ac-item .ac-sub{font-size:12px;color:var(--muted);}
+.ac-manual-link{font-size:11px;color:var(--sky);cursor:pointer;text-decoration:underline;margin-top:3px;display:inline-block;}
+.ac-verified{font-size:11px;color:#16a34a;margin-top:2px;}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
 .acc-btn{display:flex;align-items:center;gap:8px;background:none;border:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;padding:8px 0;}
 .acc-body{display:none;}.acc-body.open{display:block;}
@@ -313,6 +330,59 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <select id="propertyPickerSel" class="fi" style="font-size:15px;" onchange="onPropertySelect(this.value)">
         <option value="">— Select property —</option>
       </select>
+
+      <!-- Add new property inline form — shown when __new__ is selected -->
+      <div id="addPropForm" style="display:none;margin-top:12px;background:#fff;border:1px solid #bfdbfe;border-radius:10px;padding:14px;">
+        <div style="font-size:12px;font-weight:700;color:#1d4ed8;margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;">New Property</div>
+
+        <!-- Type -->
+        <div style="margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:6px;">Property type <span style="color:#dc2626;">*</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;" id="propTypeRadios">
+            <label class="prop-type-btn"><input type="radio" name="newPropType" value="main_residence" onchange="onPropertyTypeChange()"> Main Residence</label>
+            <label class="prop-type-btn"><input type="radio" name="newPropType" value="rental" onchange="onPropertyTypeChange()"> Rental</label>
+            <label class="prop-type-btn"><input type="radio" name="newPropType" value="vacation" onchange="onPropertyTypeChange()"> Vacation</label>
+            <label class="prop-type-btn"><input type="radio" name="newPropType" value="investment" onchange="onPropertyTypeChange()"> Investment</label>
+            <label class="prop-type-btn"><input type="radio" name="newPropType" value="other" onchange="onPropertyTypeChange()"> Other</label>
+          </div>
+        </div>
+
+        <!-- Label -->
+        <div style="margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Label <span style="color:#dc2626;">*</span></div>
+          <input id="newPropLabel" class="fi" type="text" placeholder="e.g. Rental 1" style="font-size:14px;" oninput="checkReq()">
+        </div>
+
+        <!-- Address — Google autocomplete search -->
+        <div style="margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:4px;">Address <span style="color:#dc2626;">*</span></div>
+          <div class="ac-wrap" id="acPropWrap">
+            <div class="ac-input-row">
+              <input id="newPropSearch" class="fi ac-input" type="text" placeholder="🔍 Search Google address…" autocomplete="off" style="font-size:14px;padding:10px 14px;">
+              <span class="ac-badge" id="newPropVerifiedBadge" style="display:none;">✓ Verified</span>
+            </div>
+            <div class="ac-dd" id="acPropDd" role="listbox"></div>
+          </div>
+          <!-- Hidden place fields -->
+          <input type="hidden" id="newPropPlaceId">
+          <input type="hidden" id="newPropFormattedAddress">
+          <input type="hidden" id="newPropLat">
+          <input type="hidden" id="newPropLng">
+          <!-- Street + City + Zip remain for confirmation/fallback -->
+          <input id="newPropAddr" class="fi" type="text" placeholder="Street address" style="font-size:14px;margin-top:6px;margin-bottom:6px;" oninput="_acClearVerified('prop')">
+          <div style="display:grid;grid-template-columns:1fr 100px;gap:8px;">
+            <input id="newPropCity" class="fi" type="text" placeholder="City" style="font-size:14px;" oninput="_acClearVerified('prop')">
+            <input id="newPropZip" class="fi" type="text" placeholder="Zip" maxlength="5" style="font-size:14px;">
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:8px;">
+          <button id="newPropSubmitBtn" onclick="submitNewProperty()" style="flex:1;background:#1d4ed8;color:#fff;border:none;border-radius:8px;padding:9px 0;font-size:14px;font-weight:600;cursor:pointer;">Save Property</button>
+          <button onclick="cancelAddProperty()" style="background:#e5e7eb;color:#374151;border:none;border-radius:8px;padding:9px 14px;font-size:14px;cursor:pointer;">Cancel</button>
+        </div>
+        <div id="newPropErr" style="display:none;margin-top:8px;color:#dc2626;font-size:12px;"></div>
+      </div>
     </div>
 
     <!-- Duplicate callout -->
@@ -365,13 +435,26 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <div id="altContactsContainer"></div>
       <button type="button" class="add-alt-btn" onclick="addAltContact()">+ Add another contact</button>
     </div>
+    <!-- Google Address Autocomplete (main form) -->
     <div class="field">
-      <label>📍 Street address<span class="field-req">*</span></label>
-      <input id="nAddr" class="fi" type="text" placeholder="16621 SW 62nd St" oninput="checkReq();onAddressInput();updateNcCopyBtn()">
-    </div>
-    <div class="field">
-      <label>City<span class="field-req">*</span></label>
-      <input id="nCity" class="fi" type="text" placeholder="Weston" oninput="checkReq()">
+      <label>📍 Address<span class="field-req">*</span></label>
+      <!-- Autocomplete search — populates nAddr/nCity below on selection -->
+      <div class="ac-wrap" id="acMainWrap" style="margin-bottom:4px;">
+        <div class="ac-input-row">
+          <input id="nAddrSearch" class="fi ac-input" type="text" placeholder="🔍 Search Google address…" autocomplete="off" style="font-size:15px;">
+          <span class="ac-badge" id="nAddrVerifiedBadge" style="display:none;">✓ Verified</span>
+        </div>
+        <div class="ac-dd" id="acMainDd" role="listbox"></div>
+      </div>
+      <!-- Hidden place fields — populated by autocomplete selection -->
+      <input type="hidden" id="nPlaceId">
+      <input type="hidden" id="nFormattedAddress">
+      <input type="hidden" id="nLat">
+      <input type="hidden" id="nLng">
+      <input type="hidden" id="nGoogleVerified" value="0">
+      <!-- Street + City fields remain for confirmation/manual edit -->
+      <input id="nAddr" class="fi" type="text" placeholder="Street address" oninput="checkReq();onAddressInput();updateNcCopyBtn();_acClearVerified('main')" style="margin-bottom:6px;">
+      <input id="nCity" class="fi" type="text" placeholder="City" oninput="checkReq();_acClearVerified('main')">
     </div>
     <div style="margin-top:-6px;margin-bottom:8px;">
       <button type="button" id="nCopyAddrBtn" onclick="copyNcAddr()" style="font-size:11px;font-weight:600;color:var(--sky);background:#eff6ff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;opacity:.4;pointer-events:none;">📋 Copy address — paste into BCPA</button>
@@ -1180,6 +1263,9 @@ let _altPhoneTimer   = null;
 async function init() {
   buildPresetGrid();
   loadServiceFrequency(); // fire-and-forget; renders picker with live counts once loaded
+  // Initialize Google Address Autocomplete on both address surfaces
+  _acInit('main', { searchId:'nAddrSearch', ddId:'acMainDd', addrId:'nAddr', cityId:'nCity', zipId:'nZip', placeIdId:'nPlaceId', latId:'nLat', lngId:'nLng', verifiedBadgeId:'nAddrVerifiedBadge' });
+  _acInit('prop', { searchId:'newPropSearch', ddId:'acPropDd', addrId:'newPropAddr', cityId:'newPropCity', zipId:'newPropZip', placeIdId:'newPropPlaceId', latId:'newPropLat', lngId:'newPropLng', verifiedBadgeId:'newPropVerifiedBadge' });
   try {
     const data   = await getCachedCustomerDB();
     dbRecord     = data || {};
@@ -1320,9 +1406,12 @@ function resetForm() {
   resetServicePicker();
   ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nRoofSqFt',
    'nWorkSiteAddr','nWorkSiteCity','nWorkSiteZip','nEndCustName','nEndCustPhone',
-   'nPartnerFn','nPartnerLn'].forEach(id => {
+   'nPartnerFn','nPartnerLn',
+   'nAddrSearch','nPlaceId','nFormattedAddress','nLat','nLng'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
+  const vb = document.getElementById('nAddrVerifiedBadge'); if (vb) vb.style.display='none';
+  const vg = document.getElementById('nGoogleVerified'); if (vg) vg.value='0';
   _selectedPropertyId = null;
   _customerProperties = [];
   hidePropertyPicker();
@@ -1700,6 +1789,131 @@ async function useMatch(idx) {
   }
 }
 
+// ── Google Address Autocomplete ───────────────────────────────────────────────
+// Reusable component. Each surface (main form / add-new-property form) gets its
+// own session token, generated on focus so billing is one session per lookup.
+// Law T1.14: API key stays server-side; all calls go through /admin/places/*.
+
+const _acInstances = {};   // keyed by surface id ('main' | 'prop')
+
+function _acInit(surface, opts) {
+  // opts: { searchId, ddId, addrId, cityId, zipId, placeIdId, latId, lngId, verifiedBadgeId }
+  const inst = { ...opts, session: null, timer: null };
+  _acInstances[surface] = inst;
+
+  const input = document.getElementById(opts.searchId);
+  if (!input) return;
+
+  input.addEventListener('focus', () => {
+    inst.session = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  });
+
+  input.addEventListener('input', () => {
+    clearTimeout(inst.timer);
+    const val = input.value.trim();
+    if (val.length < 3) { _acCloseDd(surface); return; }
+    inst.timer = setTimeout(() => _acFetch(surface, val), 300);
+  });
+
+  input.addEventListener('blur', () => {
+    // Delay close so clicks on dropdown items register
+    setTimeout(() => _acCloseDd(surface), 200);
+  });
+}
+
+async function _acFetch(surface, input) {
+  const inst = _acInstances[surface];
+  if (!inst) return;
+  try {
+    const res  = await fetch(`${PCPC_API}/admin/places/autocomplete?input=${encodeURIComponent(input)}&sessiontoken=${encodeURIComponent(inst.session||'')}`);
+    const data = await res.json();
+    _acRenderDd(surface, data.predictions || []);
+  } catch(e) {
+    _acCloseDd(surface);
+  }
+}
+
+function _acRenderDd(surface, predictions) {
+  const inst = _acInstances[surface];
+  if (!inst) return;
+  const dd = document.getElementById(inst.ddId);
+  if (!dd) return;
+  if (!predictions.length) { _acCloseDd(surface); return; }
+
+  dd.innerHTML = predictions.map((p, i) => {
+    const parts = p.description.split(', ');
+    const main  = parts[0] || p.description;
+    const sub   = parts.slice(1).join(', ');
+    return `<div class="ac-item" tabindex="0" role="option"
+      data-placeid="${esc(p.place_id)}" data-desc="${esc(p.description)}"
+      onmousedown="event.preventDefault()"
+      onclick="_acSelect('${surface}','${esc(p.place_id)}','${esc(p.description)}')"
+      onkeydown="if(event.key==='Enter')_acSelect('${surface}','${esc(p.place_id)}','${esc(p.description)}')"
+    ><div class="ac-main">${esc(main)}</div><div class="ac-sub">${esc(sub)}</div></div>`;
+  }).join('');
+  dd.classList.add('open');
+}
+
+async function _acSelect(surface, placeId, description) {
+  const inst = _acInstances[surface];
+  if (!inst) return;
+  _acCloseDd(surface);
+
+  // Show description in search input immediately
+  const searchEl = document.getElementById(inst.searchId);
+  if (searchEl) searchEl.value = description;
+
+  // Fetch full details (city, zip, lat/lng)
+  try {
+    const res  = await fetch(`${PCPC_API}/admin/places/details?place_id=${encodeURIComponent(placeId)}&sessiontoken=${encodeURIComponent(inst.session||'')}`);
+    const d    = await res.json();
+    if (!d || d.error) throw new Error(d?.error || 'details failed');
+
+    // Populate address fields
+    _acSetField(inst.addrId, d.street_address || '');
+    _acSetField(inst.cityId, d.city            || '');
+    _acSetField(inst.zipId,  d.zip             || '');
+
+    // Populate hidden place fields
+    _acSetField(inst.placeIdId, d.place_id        || '');
+    _acSetField(inst.latId,     d.latitude != null ? String(d.latitude)  : '');
+    _acSetField(inst.lngId,     d.longitude!= null ? String(d.longitude) : '');
+
+    // Mark verified
+    const badge = document.getElementById(inst.verifiedBadgeId);
+    if (badge) badge.style.display = 'inline';
+    if (searchEl) searchEl.value = d.formatted_address || description;
+
+    // Fire downstream callbacks
+    checkReq();
+    if (inst.addrId === 'nAddr') { onAddressInput(); updateNcCopyBtn(); }
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('⚠️ Address lookup failed — enter manually', 'warn');
+  }
+}
+
+function _acSetField(id, val) {
+  const el = document.getElementById(id);
+  if (el) { el.value = val; el.dispatchEvent(new Event('input', {bubbles:true})); }
+}
+
+function _acCloseDd(surface) {
+  const inst = _acInstances[surface];
+  if (!inst) return;
+  const dd = document.getElementById(inst.ddId);
+  if (dd) dd.classList.remove('open');
+}
+
+function _acClearVerified(surface) {
+  const inst = _acInstances[surface];
+  if (!inst) return;
+  _acSetField(inst.placeIdId, '');
+  _acSetField(inst.latId, '');
+  _acSetField(inst.lngId, '');
+  const badge = document.getElementById(inst.verifiedBadgeId);
+  if (badge) badge.style.display = 'none';
+}
+
 // ── Property picker (multi-property residential customers) ────────────────────
 function showPropertyPicker(props) {
   const wrap = document.getElementById('propertyPickerWrap');
@@ -1715,12 +1929,35 @@ function showPropertyPicker(props) {
     if (p.primaryContact) opt.selected = true;
     sel.appendChild(opt);
   });
+  // Always append the "+ Add new property" option
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new__';
+  newOpt.textContent = '+ Add new property';
+  sel.appendChild(newOpt);
   wrap.style.display = 'block';
   // Auto-select the primary property
   onPropertySelect(sel.value);
 }
 
 function onPropertySelect(idxStr) {
+  // Hide the add-new form whenever selection changes away from __new__
+  if (idxStr !== '__new__') {
+    document.getElementById('addPropForm').style.display = 'none';
+  }
+  if (idxStr === '__new__') {
+    _selectedPropertyId = null;
+    document.getElementById('addPropForm').style.display = 'block';
+    // Reset the mini-form
+    document.querySelectorAll('input[name="newPropType"]').forEach(r => r.checked = false);
+    ['newPropLabel','newPropAddr','newPropCity','newPropZip',
+     'newPropPlaceId','newPropFormattedAddress','newPropLat','newPropLng','newPropSearch'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    _acClearVerified('prop');
+    document.getElementById('newPropErr').style.display = 'none';
+    checkReq();
+    return;
+  }
   const i = parseInt(idxStr);
   if (isNaN(i) || !_customerProperties[i]) { _selectedPropertyId = null; return; }
   const p = _customerProperties[i];
@@ -1740,6 +1977,109 @@ function hidePropertyPicker() {
   if (wrap) wrap.style.display = 'none';
   const sel = document.getElementById('propertyPickerSel');
   if (sel) sel.innerHTML = '<option value="">— Select property —</option>';
+  const form = document.getElementById('addPropForm');
+  if (form) form.style.display = 'none';
+}
+
+// ── Add new property inline form ──────────────────────────────────────────────
+const _PROP_DEFAULT_LABELS = {
+  main_residence: 'Main Home',
+  rental:         'Rental',
+  vacation:       'Vacation Home',
+  investment:     'Investment',
+  other:          'Property',
+};
+
+function onPropertyTypeChange() {
+  const type = document.querySelector('input[name="newPropType"]:checked')?.value;
+  if (!type) return;
+  const existing = _customerProperties || [];
+  const sameCount = existing.filter(p => p.propertyType === type).length;
+  const base = _PROP_DEFAULT_LABELS[type] || 'Property';
+  const suggested = sameCount === 0 ? base : `${base} ${sameCount + 1}`;
+  const labelEl = document.getElementById('newPropLabel');
+  if (labelEl && !labelEl.value.trim()) labelEl.value = suggested;
+}
+
+async function submitNewProperty() {
+  const type  = document.querySelector('input[name="newPropType"]:checked')?.value || '';
+  const label = (document.getElementById('newPropLabel')?.value || '').trim();
+  const addr  = (document.getElementById('newPropAddr')?.value || '').trim();
+  const city  = (document.getElementById('newPropCity')?.value || '').trim();
+  const zip   = (document.getElementById('newPropZip')?.value  || '').trim();
+  const errEl = document.getElementById('newPropErr');
+
+  // Validation
+  const errs = [];
+  if (!type)  errs.push('Select a property type.');
+  if (!label) errs.push('Label is required.');
+  if (!addr)  errs.push('Street address is required.');
+  if (!city)  errs.push('City is required.');
+  if (errs.length) {
+    errEl.textContent = errs.join(' ');
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  // Need personId from the loaded customer
+  const ph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(-10);
+  if (!ph) { errEl.textContent = 'Phone not found — save customer first.'; errEl.style.display='block'; return; }
+  const personId = 'person_1' + ph;
+
+  const btn = document.getElementById('newPropSubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    const res = await fetch(PCPC_API + '/admin/property', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personId, streetAddress: addr, city, zip: zip || null,
+        propertyLabel: label, propertyType: type,
+        googlePlaceId:    document.getElementById('newPropPlaceId')?.value        || null,
+        formattedAddress: document.getElementById('newPropFormattedAddress')?.value|| null,
+        latitude:  parseFloat(document.getElementById('newPropLat')?.value)  || null,
+        longitude: parseFloat(document.getElementById('newPropLng')?.value)  || null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    // Refresh customer properties from API and re-render picker
+    const cRes  = await fetch(PCPC_API + '/customer/' + ph);
+    const cData = await cRes.json();
+    const props = (cData.customer || cData)?.properties || [];
+    _customerProperties = props;
+
+    // Re-render picker and select the newly created property
+    showPropertyPicker(props);
+    // Select the new property by matching address
+    const sel = document.getElementById('propertyPickerSel');
+    if (sel) {
+      for (let i = 0; i < sel.options.length; i++) {
+        const p = props[i];
+        if (p && p.streetAddress === addr && p.city === city) {
+          sel.value = i;
+          onPropertySelect(String(i));
+          break;
+        }
+      }
+    }
+    document.getElementById('addPropForm').style.display = 'none';
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message;
+    errEl.style.display = 'block';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Property'; }
+  }
+}
+
+function cancelAddProperty() {
+  document.getElementById('addPropForm').style.display = 'none';
+  // Revert selector to placeholder
+  const sel = document.getElementById('propertyPickerSel');
+  if (sel) { sel.value = ''; onPropertySelect(''); }
 }
 
 // ── Prior job history section ─────────────────────────────────────────────────
@@ -1835,6 +2175,11 @@ function checkReq() {
   const city = (document.getElementById('nCity').value||'').trim();
 
   const missing = [];
+
+  // Block main submit while "Add new property" mini-form is open
+  if (document.getElementById('addPropForm')?.style.display !== 'none') {
+    missing.push('Save or cancel the new property first');
+  }
   if (currentCustomerType === 'partner_referral') {
     // Partner: name + phone required; billing address optional; work site required
     const partnerVal = (document.getElementById('partnerSelect')?.value||'');

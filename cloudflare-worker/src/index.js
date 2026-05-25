@@ -1110,6 +1110,28 @@ export default {
         return await handleTruckEventBackfill(request, env, corsHeaders);
       }
 
+      // ── Create property + PersonProperty link (protected) ───────────────────────
+      if (path === 'admin/property' && request.method === 'POST') {
+        return await handleCreateProperty(request, env, corsHeaders);
+      }
+
+      // ── Google Places API proxy (protected) ──────────────────────────────────
+      // Law T1.14: API key stays server-side. KV caches details (30d TTL).
+      if (path === 'admin/places/autocomplete' && request.method === 'GET') {
+        return await handlePlacesAutocomplete(request, env, corsHeaders, url);
+      }
+      if (path === 'admin/places/details' && request.method === 'GET') {
+        return await handlePlacesDetails(request, env, corsHeaders, url);
+      }
+
+      // ── Property dedup + historical canonicalization (protected) ─────────────
+      if (path === 'admin/properties/canonicalize-all' && request.method === 'POST') {
+        return await handleCanonicalizeAll(request, env, corsHeaders, url);
+      }
+      if (path === 'admin/property-duplicates' && request.method === 'GET') {
+        return await handlePropertyDuplicates(env, corsHeaders);
+      }
+
       // ── Google Directions API proxy (protected) ───────────────────────────────
       if (path === 'admin/drive-time' && request.method === 'GET') {
         return await handleDriveTime(request, env, corsHeaders, url);
@@ -2680,8 +2702,9 @@ async function d1CustomerToKvShape(phone, env) {
   const [personRow, propLinks, pjobs, truckDriveTimes] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
     env.DB.prepare(
-      'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, p.streetAddress, p.city, p.state, p.zip,' +
-      'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes ' +
+      'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType, p.streetAddress, p.city, p.state, p.zip,' +
+      'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
+      'p.googlePlaceId, p.formattedAddress, p.googleVerified ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
@@ -2710,7 +2733,7 @@ async function d1CustomerToKvShape(phone, env) {
   for (const pp of propLinks) { if (pp.propertyId) singlePropById[pp.propertyId] = pp; }
   const customer = _d1PersonToKv(personRow, propLinks, pjobs, singlePropById);
   computeBouncieMetrics(customer);
-  computeWorkerHours(customer);
+  computeWorkerHoursStats(customer);
   const reviewStates = await env.DATA.get('review_states', 'json').then(d => d || {});
   customer.googleReview = reviewStates[ph] || null;
   // Attach TruckEvent drive times to jh entries (additive — empty until first backfill runs)
@@ -2726,14 +2749,18 @@ async function d1CustomerToKvShape(phone, env) {
   }
   // Expose all linked properties so multi-property picker UI can list them.
   customer.properties = propLinks.map(pp => ({
-    propertyId:    pp.propertyId,
-    streetAddress: pp.streetAddress || '',
-    city:          pp.city          || '',
-    zip:           pp.zip           || null,
-    propertyLabel: pp.propertyLabel || null,
-    primaryContact: pp.primaryContact === 1 || pp.primaryContact === '1',
-    gateCode:      pp.gateCode      || null,
-    accessNotes:   pp.accessNotes   || null,
+    propertyId:       pp.propertyId,
+    streetAddress:    pp.streetAddress    || '',
+    city:             pp.city             || '',
+    zip:              pp.zip              || null,
+    propertyLabel:    pp.propertyLabel    || null,
+    propertyType:     pp.propertyType     || null,
+    primaryContact:   pp.primaryContact === 1 || pp.primaryContact === '1',
+    gateCode:         pp.gateCode         || null,
+    accessNotes:      pp.accessNotes      || null,
+    googlePlaceId:    pp.googlePlaceId    || null,
+    formattedAddress: pp.formattedAddress || null,
+    googleVerified:   pp.googleVerified   === 1 || pp.googleVerified === '1',
   }));
   return customer;
 }
@@ -2932,6 +2959,34 @@ async function handleReconcileKvD1(env, corsHeaders) {
     typeCounts['PARTNER_MISSING_WORKSITE'] = (typeCounts['PARTNER_MISSING_WORKSITE'] || 0) + 1;
   }
 
+  // Gate: PROPERTY_MISSING_LABEL — multi-property PersonProperty rows with no label
+  // Single-property customers can have NULL label; multi-property MUST be labeled to distinguish.
+  try {
+    const unlabeled = await env.DB.prepare(
+      `SELECT pp.personId, pp.propertyId, prop.streetAddress, prop.city,
+              p.firstName, p.lastName, p.primaryPhone,
+              (SELECT COUNT(*) FROM PersonProperty pp2 WHERE pp2.personId=pp.personId) AS propCount
+       FROM PersonProperty pp
+       JOIN Person p ON p.personId = pp.personId
+       JOIN Property prop ON prop.propertyId = pp.propertyId
+       WHERE (pp.propertyLabel IS NULL OR pp.propertyLabel = '')
+         AND (SELECT COUNT(*) FROM PersonProperty pp2 WHERE pp2.personId=pp.personId) > 1`
+    ).all().then(r => r.results || []);
+    for (const row of unlabeled) {
+      const rowPh   = (row.primaryPhone||'').replace(/\D/g,'').slice(-10);
+      const rowName = `${row.firstName||''} ${row.lastName||''}`.trim();
+      discrepancies.push({
+        phone: rowPh, name: rowName,
+        type: 'PROPERTY_MISSING_LABEL',
+        field: 'PersonProperty.propertyLabel',
+        kvValue: `${row.propCount} properties`,
+        d1Value: `${row.streetAddress}, ${row.city} (propertyId=${row.propertyId})`,
+        suggested_action: `UPDATE PersonProperty SET propertyLabel='Main Residence' WHERE personId='${row.personId}' AND propertyId='${row.propertyId}'`,
+      });
+      typeCounts['PROPERTY_MISSING_LABEL'] = (typeCounts['PROPERTY_MISSING_LABEL'] || 0) + 1;
+    }
+  } catch(e) { /* non-critical */ }
+
   // Gate: TRUCKEVENT_ORPHAN — TruckEvent.jobId references non-existent Job
   try {
     const orphans = await env.DB.prepare(
@@ -2974,6 +3029,45 @@ async function handleReconcileKvD1(env, corsHeaders) {
       typeCounts['TRUCKEVENT_DUPLICATE'] = (typeCounts['TRUCKEVENT_DUPLICATE'] || 0) + 1;
     }
   } catch(e) { /* TruckEvent table not yet migrated — skip */ }
+
+  // Gate: PROPERTY_NOT_GOOGLE_VERIFIED — free-typed or legacy addresses lacking place_id
+  // These are candidates for canonicalize-all migration.
+  try {
+    const unverified = await env.DB.prepare(
+      `SELECT propertyId, streetAddress, city FROM Property WHERE googleVerified=0 OR googleVerified IS NULL`
+    ).all().then(r => r.results || []);
+    for (const p of unverified) {
+      discrepancies.push({
+        phone: null, name: `Property ${p.propertyId}`,
+        type: 'PROPERTY_NOT_GOOGLE_VERIFIED',
+        field: 'Property.googleVerified',
+        kvValue: '0 (unverified)',
+        d1Value: p.propertyId,
+        suggested_action: `Run POST /admin/properties/canonicalize-all to fetch place_id for: ${[p.streetAddress, p.city].filter(Boolean).join(', ')}`,
+      });
+      typeCounts['PROPERTY_NOT_GOOGLE_VERIFIED'] = (typeCounts['PROPERTY_NOT_GOOGLE_VERIFIED'] || 0) + 1;
+    }
+  } catch(e) { /* googleVerified column not yet migrated — skip */ }
+
+  // Gate: DUPLICATE_PROPERTY_BY_PLACE_ID — two Property rows share same googlePlaceId.
+  // Should be zero after canonicalize-all dedup phase. Catches any regression.
+  try {
+    const dupPlaces = await env.DB.prepare(
+      `SELECT googlePlaceId, COUNT(*) AS cnt FROM Property
+       WHERE googlePlaceId IS NOT NULL GROUP BY googlePlaceId HAVING cnt > 1`
+    ).all().then(r => r.results || []);
+    for (const d of dupPlaces) {
+      discrepancies.push({
+        phone: null, name: `googlePlaceId=${d.googlePlaceId}`,
+        type: 'DUPLICATE_PROPERTY_BY_PLACE_ID',
+        field: 'Property.googlePlaceId',
+        kvValue: `${d.cnt} rows`,
+        d1Value: d.googlePlaceId,
+        suggested_action: `Run POST /admin/properties/canonicalize-all {phase:"dedup"} to merge these rows`,
+      });
+      typeCounts['DUPLICATE_PROPERTY_BY_PLACE_ID'] = (typeCounts['DUPLICATE_PROPERTY_BY_PLACE_ID'] || 0) + 1;
+    }
+  } catch(e) { /* googlePlaceId index not yet migrated — skip */ }
 
   return jsonResponse({
     summary: {
@@ -3117,6 +3211,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         prop.gateCode,
         prop.accessNotes,
         pp.propertyLabel,
+        pp.propertyType,
         pp.primaryContact
       FROM Job j
       JOIN Person p ON p.personId = j.payerId
@@ -4929,6 +5024,359 @@ async function handleTruckEventBackfill(request, env, corsHeaders) {
     totalEvents,
     totalInserted,
     results: allResults,
+  }, corsHeaders);
+}
+
+// ── Property creation: Property + PersonProperty link ─────────────────────────
+
+async function handleCreateProperty(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const {
+    personId, streetAddress, city, zip, propertyType, propertyLabel, primaryContact,
+    googlePlaceId, formattedAddress, latitude, longitude,
+  } = body;
+  if (!personId)      return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+  if (!streetAddress) return jsonResponse({ error: 'streetAddress required' }, corsHeaders, 400);
+  if (!city)          return jsonResponse({ error: 'city required' }, corsHeaders, 400);
+  if (!propertyLabel) return jsonResponse({ error: 'propertyLabel required' }, corsHeaders, 400);
+
+  const VALID_TYPES = ['main_residence','rental','vacation','investment','other'];
+  if (propertyType && !VALID_TYPES.includes(propertyType)) {
+    return jsonResponse({ error: `propertyType must be one of: ${VALID_TYPES.join(', ')}` }, corsHeaders, 400);
+  }
+
+  // Verify person exists
+  const person = await env.DB.prepare('SELECT personId, primaryPhone FROM Person WHERE personId=?')
+    .bind(personId).first();
+  if (!person) return jsonResponse({ error: `Person not found: ${personId}` }, corsHeaders, 404);
+
+  const now = new Date().toISOString();
+
+  try {
+    let propertyId;
+    let dedupedExisting = false;
+
+    // Dedup by googlePlaceId: if place_id matches an existing Property, reuse it
+    if (googlePlaceId) {
+      const existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE googlePlaceId=?')
+        .bind(googlePlaceId).first();
+      if (existing) {
+        propertyId = existing.propertyId;
+        dedupedExisting = true;
+      }
+    }
+
+    if (!propertyId) {
+      propertyId = _d1PropId(streetAddress, city);
+      const googleVerified = googlePlaceId ? 1 : 0;
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO Property
+           (propertyId, googlePlaceId, formattedAddress, streetAddress, city, state, zip,
+            latitude, longitude, googleVerified, createdAt, modifiedAt)
+         VALUES (?, ?, ?, ?, ?, 'FL', ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        propertyId, googlePlaceId || null, formattedAddress || null,
+        streetAddress.trim(), city.trim(), zip || null,
+        latitude || null, longitude || null, googleVerified, now, now
+      ).run();
+    }
+
+    // INSERT PersonProperty link (IGNORE if already linked)
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO PersonProperty
+         (personId, propertyId, relationship, primaryContact, propertyLabel, propertyType)
+       VALUES (?, ?, 'owner', ?, ?, ?)`
+    ).bind(personId, propertyId, primaryContact ? 1 : 0, propertyLabel.trim(), propertyType || null).run();
+
+    // Mirror to KV: refresh this customer's cached record (Law T1.13)
+    const ph = (person.primaryPhone||'').replace(/\D/g,'').slice(-10);
+    if (ph.length === 10) {
+      const updatedCustomer = await d1CustomerToKvShape(ph, env);
+      if (updatedCustomer) {
+        const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+        const idx  = (kvDb.customers||[]).findIndex(c =>
+          (c.phone||'').replace(/\D/g,'').slice(-10) === ph
+        );
+        if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+        else kvDb.customers.push(updatedCustomer);
+        await env.DATA.put('customer_db', JSON.stringify(kvDb));
+      }
+    }
+
+    return jsonResponse({
+      success: true, propertyId, dedupedExisting,
+      propertyLabel: propertyLabel.trim(), propertyType: propertyType || null,
+    }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `handleCreateProperty:${personId}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── Google Places API proxy + KV cache ────────────────────────────────────────
+// Law T1.14: API key stays server-side. All Places calls go through these endpoints.
+// Autocomplete: typeahead search — minimal caching (inputs are mostly unique).
+// Details: place_id lookup — KV cached 30 days (same place rarely changes address).
+// Session tokens: cost optimization — caller generates UUID per focus session,
+//   passes same token to all autocomplete + one details call → billed as 1 session.
+
+async function handlePlacesAutocomplete(request, env, corsHeaders, url) {
+  const input       = (url.searchParams.get('input') || '').trim();
+  const sessiontoken = url.searchParams.get('sessiontoken') || '';
+  if (!input) return jsonResponse({ predictions: [], source: 'empty' }, corsHeaders);
+
+  const key = env.GOOGLE_PLACES_API_KEY;
+  if (!key)  return jsonResponse({ error: 'GOOGLE_PLACES_API_KEY not configured' }, corsHeaders, 503);
+
+  // Build Places Autocomplete request (legacy API — address types, US-only, South FL bias)
+  const params = new URLSearchParams({
+    input,
+    sessiontoken,
+    types:      'address',
+    components: 'country:us',
+    location:   '26.0,-80.2',   // South Florida centroid
+    radius:     '80000',         // 80 km radius bias (not strict)
+    key,
+  });
+  const apiUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params}`;
+
+  try {
+    const res  = await fetch(apiUrl);
+    const data = await res.json();
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      await _logD1Failure(env, 'handlePlacesAutocomplete', `status=${data.status} input="${input}"`);
+      return jsonResponse({ predictions: [], source: 'error', status: data.status }, corsHeaders);
+    }
+    const predictions = (data.predictions || []).map(p => ({
+      place_id:    p.place_id,
+      description: p.description,
+    }));
+    return jsonResponse({ predictions, source: 'google' }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, 'handlePlacesAutocomplete', e.message);
+    return jsonResponse({ predictions: [], source: 'error', error: e.message }, corsHeaders, 500);
+  }
+}
+
+async function handlePlacesDetails(request, env, corsHeaders, url) {
+  const placeId     = (url.searchParams.get('place_id') || '').trim();
+  const sessiontoken = url.searchParams.get('sessiontoken') || '';
+  if (!placeId) return jsonResponse({ error: 'place_id required' }, corsHeaders, 400);
+
+  // KV cache: 30-day TTL — same place rarely changes address
+  const cacheKey = `dt:places:${placeId}`;
+  const cached   = await env.DATA.get(cacheKey, 'json');
+  if (cached) return jsonResponse({ ...cached, source: 'cache' }, corsHeaders);
+
+  const key = env.GOOGLE_PLACES_API_KEY;
+  if (!key)  return jsonResponse({ error: 'GOOGLE_PLACES_API_KEY not configured' }, corsHeaders, 503);
+
+  const params = new URLSearchParams({
+    place_id: placeId,
+    sessiontoken,
+    fields: 'formatted_address,geometry,address_components,place_id',
+    key,
+  });
+  const apiUrl = `https://maps.googleapis.com/maps/api/place/details/json?${params}`;
+
+  try {
+    const res  = await fetch(apiUrl);
+    const data = await res.json();
+    if (data.status !== 'OK') {
+      await _logD1Failure(env, 'handlePlacesDetails', `status=${data.status} place_id="${placeId}"`);
+      return jsonResponse({ error: `Places API: ${data.status}` }, corsHeaders, 502);
+    }
+    const r    = data.result;
+    const comps = r.address_components || [];
+    const get   = (types) => (comps.find(c => types.every(t => c.types.includes(t)))?.long_name  || '');
+    const getS  = (types) => (comps.find(c => types.every(t => c.types.includes(t)))?.short_name || '');
+
+    const streetNum  = get(['street_number']);
+    const streetName = get(['route']);
+    const streetAddress = [streetNum, streetName].filter(Boolean).join(' ') || '';
+    const city = get(['locality']) || get(['sublocality']) || get(['neighborhood']) || '';
+    const state = getS(['administrative_area_level_1']);
+    const zip   = get(['postal_code']);
+
+    const result = {
+      place_id:         r.place_id,
+      formatted_address: r.formatted_address,
+      street_address:   streetAddress,
+      city,
+      state,
+      zip,
+      latitude:  r.geometry?.location?.lat  || null,
+      longitude: r.geometry?.location?.lng  || null,
+    };
+
+    // Cache 30 days (30 * 24 * 3600)
+    await env.DATA.put(cacheKey, JSON.stringify(result), { expirationTtl: 2592000 });
+
+    return jsonResponse({ ...result, source: 'google' }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, 'handlePlacesDetails', e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── POST /admin/properties/canonicalize-all ───────────────────────────────────
+// Phase 1: Fetches place_id for every Property WHERE googlePlaceId IS NULL.
+// Phase 2: Merges duplicate Property rows that resolve to the same place_id.
+// Rate limited to 1 req/sec. KV key 'places_canonicalize_cursor' tracks progress.
+// Tyler triggers manually — not auto-scheduled. Never auto-merges low-confidence hits.
+
+async function handleCanonicalizeAll(request, env, corsHeaders, url) {
+  const body      = await request.json().catch(() => ({}));
+  const phase     = body.phase     || 'canonicalize';   // 'canonicalize' | 'dedup' | 'both'
+  const batchSize = Math.min(body.batchSize || 50, 200); // cap at 200 per call
+  const reset     = !!body.reset;                         // clear cursor to restart
+
+  const key = env.GOOGLE_PLACES_API_KEY;
+  if (!key) return jsonResponse({ error: 'GOOGLE_PLACES_API_KEY not configured' }, corsHeaders, 503);
+
+  if (reset) await env.DATA.delete('places_canonicalize_cursor');
+
+  const results = { updated: 0, ambiguous: 0, failed: 0, deduped: 0, mergedRows: [], errors: [] };
+
+  // ── Phase 1: Canonicalize (fetch place_ids) ──────────────────────────────────
+  if (phase === 'canonicalize' || phase === 'both') {
+    const cursor = (await env.DATA.get('places_canonicalize_cursor')) || '';
+    const rows   = await env.DB.prepare(
+      `SELECT propertyId, streetAddress, city, state, zip
+       FROM Property
+       WHERE googlePlaceId IS NULL
+         AND (streetAddress IS NOT NULL AND streetAddress != '')
+         AND propertyId > ?
+       ORDER BY propertyId
+       LIMIT ?`
+    ).bind(cursor, batchSize).all().then(r => r.results || []);
+
+    for (const row of rows) {
+      const addrStr = [row.streetAddress, row.city, row.state || 'FL', row.zip].filter(Boolean).join(', ');
+      const params  = new URLSearchParams({
+        input:     addrStr,
+        inputtype: 'textquery',
+        fields:    'place_id,formatted_address,geometry',
+        key,
+      });
+      try {
+        const res  = await fetch(`https://maps.googleapis.com/maps/api/place/findplacefromtext/json?${params}`);
+        const data = await res.json();
+
+        if (data.status === 'OK' && data.candidates?.length === 1) {
+          const c = data.candidates[0];
+          await env.DB.prepare(
+            `UPDATE Property SET googlePlaceId=?, formattedAddress=?, latitude=?, longitude=?, googleVerified=1, modifiedAt=?
+             WHERE propertyId=?`
+          ).bind(c.place_id, c.formatted_address, c.geometry?.location?.lat||null, c.geometry?.location?.lng||null, new Date().toISOString(), row.propertyId).run();
+          // Cache the details so future Details calls are free
+          const cacheKey = `dt:places:${c.place_id}`;
+          const detail = { place_id: c.place_id, formatted_address: c.formatted_address,
+            street_address: row.streetAddress, city: row.city, state: row.state||'FL', zip: row.zip||null,
+            latitude: c.geometry?.location?.lat||null, longitude: c.geometry?.location?.lng||null };
+          await env.DATA.put(cacheKey, JSON.stringify(detail), { expirationTtl: 2592000 });
+          results.updated++;
+        } else if (data.status === 'OK' && (data.candidates?.length || 0) > 1) {
+          results.ambiguous++;
+          await _logD1Failure(env, 'canonicalize:ambiguous', `propertyId=${row.propertyId} addr="${addrStr}" candidates=${data.candidates.length}`);
+        } else if (data.status === 'ZERO_RESULTS') {
+          results.ambiguous++;
+          await _logD1Failure(env, 'canonicalize:no_result', `propertyId=${row.propertyId} addr="${addrStr}"`);
+        } else {
+          results.failed++;
+          results.errors.push({ propertyId: row.propertyId, status: data.status });
+          await _logD1Failure(env, 'canonicalize:api_error', `propertyId=${row.propertyId} status=${data.status}`);
+        }
+      } catch(e) {
+        results.failed++;
+        results.errors.push({ propertyId: row.propertyId, error: e.message });
+        await _logD1Failure(env, 'canonicalize:fetch_error', `propertyId=${row.propertyId} ${e.message}`);
+      }
+      // Track cursor so next call resumes from here
+      await env.DATA.put('places_canonicalize_cursor', row.propertyId);
+      // Rate limit: 100ms default (10 QPS — well under Google's 100 QPS billing limit).
+      // 1050ms was too conservative and caused Cloudflare's 30s wall-clock timeout on batches > 25.
+      await new Promise(r => setTimeout(r, body.delayMs ?? 100));
+    }
+
+    const remaining = await env.DB.prepare(
+      `SELECT COUNT(*) AS cnt FROM Property WHERE googlePlaceId IS NULL AND streetAddress IS NOT NULL AND streetAddress != ''`
+    ).first().then(r => r?.cnt ?? 0);
+    // noAddressRows: properties with no street address — can't be canonicalized, permanently excluded
+    const noAddressRows = await env.DB.prepare(
+      `SELECT COUNT(*) AS cnt FROM Property WHERE googlePlaceId IS NULL AND (streetAddress IS NULL OR streetAddress = '')`
+    ).first().then(r => r?.cnt ?? 0);
+    results.remaining = remaining;
+    results.noAddressRows = noAddressRows;
+    results.cursor = (await env.DATA.get('places_canonicalize_cursor')) || '';
+    // Done when no addressable rows remain OR this batch processed 0 rows (cursor exhausted)
+    results.done = remaining === 0 || (rows.length > 0 && results.updated + results.ambiguous + results.failed === 0) || rows.length === 0;
+  }
+
+  // ── Phase 2: Dedup (merge rows with same place_id) ───────────────────────────
+  if (phase === 'dedup' || phase === 'both') {
+    const dupGroups = await env.DB.prepare(
+      `SELECT googlePlaceId, GROUP_CONCAT(propertyId) AS ids, COUNT(*) AS cnt
+       FROM Property WHERE googlePlaceId IS NOT NULL
+       GROUP BY googlePlaceId HAVING cnt > 1`
+    ).all().then(r => r.results || []);
+
+    for (const grp of dupGroups) {
+      const ids = grp.ids.split(',');
+      // Canonical = oldest (first) propertyId alphabetically (migration stability)
+      // Pick the one with the most job history as canonical
+      let canonicalId = ids[0];
+      let maxJobs = -1;
+      for (const pid of ids) {
+        const jc = await env.DB.prepare('SELECT COUNT(*) AS cnt FROM Job WHERE propertyId=?')
+          .bind(pid).first().then(r => r?.cnt ?? 0);
+        if (jc > maxJobs) { maxJobs = jc; canonicalId = pid; }
+      }
+      const dupeIds = ids.filter(id => id !== canonicalId);
+
+      for (const dupeId of dupeIds) {
+        // Repoint PersonProperty + Job rows
+        await env.DB.prepare('UPDATE PersonProperty SET propertyId=? WHERE propertyId=?')
+          .bind(canonicalId, dupeId).run();
+        await env.DB.prepare('UPDATE Job SET propertyId=? WHERE propertyId=?')
+          .bind(canonicalId, dupeId).run();
+        // Delete the dupe Property row
+        await env.DB.prepare('DELETE FROM Property WHERE propertyId=?').bind(dupeId).run();
+        results.deduped++;
+        results.mergedRows.push({ merged: dupeId, into: canonicalId, place_id: grp.googlePlaceId });
+        await _logD1Failure(env, 'canonicalize:dedup_merge',
+          `merged propertyId=${dupeId} into ${canonicalId} (place_id=${grp.googlePlaceId})`);
+      }
+    }
+  }
+
+  return jsonResponse({ success: true, results }, corsHeaders);
+}
+
+// ── GET /admin/property-duplicates ───────────────────────────────────────────
+// Returns any Property rows that share a googlePlaceId (post-migration residuals).
+// Zero results = clean. Non-zero = something to review or re-run dedup phase.
+
+async function handlePropertyDuplicates(env, corsHeaders) {
+  const groups = await env.DB.prepare(
+    `SELECT googlePlaceId, GROUP_CONCAT(propertyId) AS ids, COUNT(*) AS cnt,
+            MAX(streetAddress) AS streetAddress, MAX(city) AS city
+     FROM Property WHERE googlePlaceId IS NOT NULL
+     GROUP BY googlePlaceId HAVING cnt > 1
+     ORDER BY cnt DESC`
+  ).all().then(r => r.results || []);
+
+  return jsonResponse({
+    duplicateGroups: groups.map(g => ({
+      googlePlaceId: g.googlePlaceId,
+      propertyIds:   g.ids.split(','),
+      count:         g.cnt,
+      streetAddress: g.streetAddress,
+      city:          g.city,
+    })),
+    total: groups.length,
   }, corsHeaders);
 }
 
