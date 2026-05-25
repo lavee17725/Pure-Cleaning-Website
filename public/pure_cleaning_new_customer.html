@@ -2552,7 +2552,54 @@ async function submitScheduleNow() {
 
   document.getElementById('schedBtn').disabled = true;
   try {
+    // Step 1: KV write (existing path)
     await saveDb();
+
+    // Step 2: D1 write — Law T1.18 dual-write for scheduled job CREATE.
+    // Calendar reads D1-only for state='scheduled'. Without this, the job is
+    // invisible on the calendar until a nightly sync (which doesn't exist).
+    const ph       = (c.phone || '').replace(/\D/g, '').slice(-10);
+    const personId = 'person_1' + ph;
+    const propId   = c.propertyId
+                   || (c.properties || []).find(p => p.primaryContact)?.propertyId
+                   || null;
+    const svcStr   = c.scheduledStatus?.jobNotes || c.quoteStatus?.mainServices || notes || '';
+    const pws      = c.quoteStatus?.partnerWorkSite || {};
+    const d1Payload = {
+      payerId:           personId,
+      propertyId:        propId,
+      scheduledDate:     date,
+      amount:            price,
+      rigId:             rig || undefined,
+      servicesRequested: svcStr,
+      servicesRaw:       svcStr,
+      jobNotes:          svcStr,
+      workSiteAddress:   pws.address || c.address || null,
+      workSiteCity:      pws.city    || c.city    || null,
+      workSiteZip:       pws.zip     || c.zip     || null,
+      source:            'new_customer_form',
+      roofStories:       c.quoteStatus?.servicesAgreed?.roofStories || null,
+    };
+
+    // Only attempt D1 write if we have a propertyId — missing propertyId means
+    // the customer record isn't fully synced; calendar will still show it after
+    // the first reconcile, and operator can patch via pencil-edit.
+    if (d1Payload.propertyId) {
+      const d1Res = await fetch(PCPC_API + '/admin/scheduled-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(d1Payload),
+      }).catch(e => null);
+      if (!d1Res || !d1Res.ok) {
+        // Law T1.11: surface D1 failure — job IS in KV but won't appear on calendar
+        const errMsg = d1Res ? (await d1Res.json().catch(() => ({}))).error : 'network error';
+        if (typeof showToast === 'function') {
+          showToast('⚠️ Saved to customer record but calendar sync failed — run reconcile or contact admin. ' + (errMsg || ''), 'warn');
+        }
+        // Don't block the redirect — KV write succeeded, job exists, just won't be on calendar yet
+      }
+    }
+
     sucEl.textContent = '✅ Saved! Heading to calendar…';
     sucEl.style.display = 'block';
     setTimeout(() => {
