@@ -40,9 +40,10 @@ const DEFAULT_SERVICE_FREQUENCY = {
     { id: 'gutters',       name: 'Gutters',             count: 31,   pct: 1.7 },
     { id: 'pool_deck',     name: 'Pool Deck',           count: 27,   pct: 1.5 },
     { id: 'windows',       name: 'Windows',             count: 25,   pct: 1.4 },
-    { id: 'paver_sand',    name: 'Pavers / Joint Sand', count: 25,   pct: 1.3 },
-    { id: 'garage',        name: 'Garage',              count: 16,   pct: 0.9 },
-    { id: 'balcony',       name: 'Balcony',             count: 13,   pct: 0.7 },
+    { id: 'paver_sand',        name: 'Pavers / Joint Sand', count: 25,  pct: 1.3 },
+    { id: 'screen_enclosure',  name: 'Screen Enclosure',    count: 0,   pct: 0.0 },
+    { id: 'prep_for_painting', name: 'Prep for Painting',   count: 0,   pct: 0.0 },
+    { id: 'balcony',           name: 'Balcony',             count: 13,  pct: 0.7 },
   ],
   totalJobsAnalyzed: 1851,
   lastAnalyzed: '2026-05-02T00:00:00.000Z',
@@ -767,6 +768,12 @@ export default {
         const jobId = path.slice('admin/job/'.length);
         return await handlePatchJob(request, env, jobId, corsHeaders);
       }
+
+      // ── Law T1.18: CREATE path for new scheduled jobs — dual-writes KV+D1 ──────
+      // Called by submitScheduleNow() after saveDb() (KV write) completes.
+      // Previously missing: scheduleNow only wrote KV; calendar reads D1-only.
+      if (path === 'admin/scheduled-job' && request.method === 'POST')
+        return await handleCreateScheduledJob(request, env, corsHeaders);
 
       if (path === 'admin/partner' && request.method === 'POST')
         return await handleCreatePartner(request, env, corsHeaders);
@@ -3069,6 +3076,75 @@ async function handleReconcileKvD1(env, corsHeaders) {
     }
   } catch(e) { /* googlePlaceId index not yet migrated — skip */ }
 
+  // ── Gate: KV_ONLY_SCHEDULED_JOB (Law T1.18) ──────────────────────────────────
+  // KV customer has scheduledStatus.state='scheduled' with a future date but no
+  // matching D1 Job row. Root cause: submitScheduleNow wrote KV-only; D1 write missing.
+  // Fix: POST /admin/scheduled-job after saveDb(). This gate prevents future silent gaps.
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const kvDb  = await env.DATA.get('customer_db', 'json').then(d => d || { customers: [] });
+    const d1ScheduledJobIds = new Set(
+      (await env.DB.prepare(
+        `SELECT jobId FROM Job WHERE state='scheduled' AND scheduledDate >= ?`
+      ).bind(today).all().then(r => r.results || [])).map(j => j.jobId)
+    );
+    // Build the deterministic jobId each KV-scheduled customer would have
+    for (const c of (kvDb.customers || [])) {
+      const ss = c.scheduledStatus || {};
+      if (ss.state !== 'scheduled' || !ss.scheduledDate || ss.scheduledDate < today) continue;
+      const ph       = (c.phone || '').replace(/\D/g, '').slice(-10);
+      const personId = `person_1${ph}`;
+      const expectedJobId = `job_${personId}_${ss.scheduledDate}_scheduled`;
+      if (!d1ScheduledJobIds.has(expectedJobId)) {
+        discrepancies.push({
+          phone, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+          type: 'KV_ONLY_SCHEDULED_JOB',
+          field: 'scheduledStatus.state',
+          kvValue:  `scheduled/${ss.scheduledDate}/$${ss.approvedAmount}`,
+          d1Value:  'no matching Job row',
+          suggested_action: `POST /admin/scheduled-job with payerId=${personId} scheduledDate=${ss.scheduledDate} amount=${ss.approvedAmount}`,
+        });
+        typeCounts['KV_ONLY_SCHEDULED_JOB'] = (typeCounts['KV_ONLY_SCHEDULED_JOB'] || 0) + 1;
+      }
+    }
+  } catch(e) { /* skip — KV read failure is non-fatal */ }
+
+  // ── Gate: D1_ONLY_SCHEDULED_JOB (Law T1.18) ──────────────────────────────────
+  // D1 has a future-scheduled Job row but the corresponding KV customer shows no
+  // matching scheduledStatus. Calendar is authoritative (D1); this is informational.
+  // Common cause: calendar-side rescheduling updates D1 directly, KV catches up async.
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const kvDb  = kvDb || await env.DATA.get('customer_db', 'json').then(d => d || { customers: [] });
+    const kvScheduledByPerson = new Map();
+    for (const c of (kvDb.customers || [])) {
+      const ss  = c.scheduledStatus || {};
+      const ph  = (c.phone || '').replace(/\D/g, '').slice(-10);
+      if (ss.state === 'scheduled' && ss.scheduledDate >= today) {
+        kvScheduledByPerson.set(`person_1${ph}`, ss.scheduledDate);
+      }
+    }
+    const d1Future = await env.DB.prepare(
+      `SELECT j.jobId, j.payerId, j.scheduledDate, j.amount, p.firstName, p.lastName
+       FROM Job j JOIN Person p ON p.personId=j.payerId
+       WHERE j.state='scheduled' AND j.scheduledDate >= ?`
+    ).bind(today).all().then(r => r.results || []);
+    for (const j of d1Future) {
+      const kvDate = kvScheduledByPerson.get(j.payerId);
+      if (!kvDate || kvDate !== j.scheduledDate) {
+        discrepancies.push({
+          phone: null, name: `${j.firstName || ''} ${j.lastName || ''}`.trim(),
+          type: 'D1_ONLY_SCHEDULED_JOB',
+          field: 'Job.state',
+          kvValue:  kvDate ? `KV shows ${kvDate}` : 'no scheduledStatus',
+          d1Value:  `D1 has ${j.scheduledDate} $${j.amount} jobId=${j.jobId}`,
+          suggested_action: 'Informational — calendar (D1) is authoritative. KV will reconcile on next saveDb.',
+        });
+        typeCounts['D1_ONLY_SCHEDULED_JOB'] = (typeCounts['D1_ONLY_SCHEDULED_JOB'] || 0) + 1;
+      }
+    }
+  } catch(e) { /* skip — non-fatal */ }
+
   return jsonResponse({
     summary: {
       kvCustomersChecked: checked,
@@ -3299,6 +3375,68 @@ async function handleCreatePartner(request, env, corsHeaders) {
   } catch (e) {
     await _logD1Failure(env, 'handleCreatePartner', e.message);
     return jsonResponse({ error: 'Failed to create partner', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── POST /admin/scheduled-job ─────────────────────────────────────────────────
+// Law T1.18: CREATE paths dual-write KV + D1.
+// Called by submitScheduleNow() immediately after saveDb() (KV write).
+// Also used for kv_backfill recovery when KV-only jobs are detected.
+//
+// Required body fields: payerId, propertyId, scheduledDate, amount, servicesRequested
+// Optional: rigId, jobNotes, servicesRaw, workSiteAddress, workSiteCity,
+//           workSiteZip, endCustomerName, endCustomerPhone, source, roofStories, crewCount
+
+async function handleCreateScheduledJob(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const {
+    payerId, propertyId, scheduledDate, amount,
+    servicesRequested, servicesRaw, jobNotes,
+    rigId, workSiteAddress, workSiteCity, workSiteZip,
+    endCustomerName, endCustomerPhone,
+    source, roofStories, crewCount,
+  } = body;
+
+  if (!payerId)           return jsonResponse({ error: 'payerId required' }, corsHeaders, 400);
+  if (!propertyId)        return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  if (!scheduledDate)     return jsonResponse({ error: 'scheduledDate required' }, corsHeaders, 400);
+  if (amount == null)     return jsonResponse({ error: 'amount required' }, corsHeaders, 400);
+  if (!servicesRequested) return jsonResponse({ error: 'servicesRequested required' }, corsHeaders, 400);
+
+  // Deterministic jobId: payerId + date (matches backfill + revert patterns)
+  const jobId = `job_${payerId}_${scheduledDate}_scheduled`;
+  const now   = new Date().toISOString();
+  const src   = source || 'new_customer_form';
+
+  try {
+    // INSERT OR IGNORE — idempotent; re-submitting same date+payer is safe
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO Job
+         (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
+          servicesRequested, servicesRaw, jobNotes, rigId,
+          workSiteAddress, workSiteCity, workSiteZip,
+          endCustomerName, endCustomerPhone, roofStories, crewCount,
+          source, createdAt, modifiedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      jobId, payerId, propertyId, scheduledDate, 'scheduled', amount, 'pending',
+      servicesRequested, servicesRaw || servicesRequested, jobNotes || servicesRequested,
+      rigId || null,
+      workSiteAddress || null, workSiteCity || null, workSiteZip || null,
+      endCustomerName || null, endCustomerPhone || null,
+      roofStories || null, crewCount || null,
+      src, now, now
+    ).run();
+
+    await _logD1Failure(env, `handleCreateScheduledJob:${src}`,
+      `created jobId=${jobId} payerId=${payerId} scheduledDate=${scheduledDate} amount=${amount}`);
+
+    return jsonResponse({ success: true, jobId, scheduledDate, amount }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `handleCreateScheduledJob:error:${payerId}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
 }
 
