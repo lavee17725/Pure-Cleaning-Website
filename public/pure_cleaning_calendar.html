@@ -2011,6 +2011,7 @@ function _jobRowToShape(job, isMultiProperty) {
     lastName:       job.lastName    || '',
     address:        job.streetAddress || '',
     city:           job.city         || '',
+    gateCode:       job.gateCode     || null,
     workSiteAddress: job.workSiteAddress || null,
     workSiteCity:   job.workSiteCity   || null,
     customerType:   job.customerType   || 'residential',
@@ -5408,9 +5409,21 @@ table{width:auto;border-collapse:collapse;}
 function printJobSheet(phone, date, rig) {
   const c = findCustomer(phone);
   if (!c) return;
-  const jobs = getScheduledForRig(date, rig).filter(j => !j.isTest);
-  const idx  = jobs.findIndex(j => j.phone === phone);
-  _openPrintWin(_jobSheetBody(c, idx+1, jobs.length, date, rig), `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
+  const jobs     = getScheduledForRig(date, rig).filter(j => !j.isTest);
+  const idx      = jobs.findIndex(j => j.phone === phone);
+  const jobShape = idx >= 0 ? jobs[idx] : null;
+  // For multi-property customers, override address/city/gateCode/ss with
+  // job-specific data. KV customer retains notes, sqFt, addOns,
+  // quoteStatus, alerts (customer-level, not job-level fields).
+  const printC = jobShape ? {
+    ...c,
+    address:         jobShape.address  || c.address,
+    city:            jobShape.city     || c.city,
+    gateCode:        jobShape.gateCode ?? c.gateCode,
+    scheduledStatus: { ...(c.scheduledStatus || {}), ...jobShape.scheduledStatus },
+  } : c;
+  _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
+    `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
   pcpcApi.logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
 }
 
