@@ -1139,6 +1139,17 @@ export default {
         return await handlePropertyDuplicates(env, corsHeaders);
       }
 
+      // ── Person duplicate review endpoints ────────────────────────────────────
+      if (path === 'admin/person-merge-candidates' && request.method === 'GET') {
+        return await handlePersonMergeCandidates(env, corsHeaders);
+      }
+      if (path === 'admin/person-merge' && request.method === 'POST') {
+        return await handlePersonMerge(request, env, corsHeaders);
+      }
+      if (path === 'admin/person-merge-skip' && request.method === 'POST') {
+        return await handlePersonMergeSkip(request, env, corsHeaders);
+      }
+
       // ── Google Directions API proxy (protected) ───────────────────────────────
       if (path === 'admin/drive-time' && request.method === 'GET') {
         return await handleDriveTime(request, env, corsHeaders, url);
@@ -5495,6 +5506,194 @@ async function handleCanonicalizeAll(request, env, corsHeaders, url) {
 
 // ── GET /admin/property-duplicates ───────────────────────────────────────────
 // Returns any Property rows that share a googlePlaceId (post-migration residuals).
+// ── Person duplicate review endpoints ────────────────────────────────────────
+
+// GET /admin/person-merge-candidates
+// Returns Tier 2+3 candidates: same name + phone edit distance ≤ 5 OR same place_id.
+// Filters out pairs already decided (skip decisions stored in KV person_merge_skipped:*).
+async function handlePersonMergeCandidates(env, corsHeaders) {
+  // Load all persons with phone
+  const persons = await env.DB.prepare(
+    `SELECT p.personId, p.firstName, p.lastName, p.primaryPhone, p.createdAt, p.internalNotes AS notes
+     FROM Person p WHERE p.primaryPhone IS NOT NULL AND p.primaryPhone != ''`
+  ).all().then(r => r.results || []);
+
+  // Load job counts per person
+  const jobRows = await env.DB.prepare(
+    `SELECT payerId, COUNT(*) AS cnt, SUM(amount) AS total,
+            MIN(scheduledDate) AS firstJob, MAX(scheduledDate) AS lastJob
+     FROM Job GROUP BY payerId`
+  ).all().then(r => r.results || []);
+  const jobsByPerson = new Map(jobRows.map(j => [j.payerId, j]));
+
+  // Load properties per person (with place_id)
+  const ppRows = await env.DB.prepare(
+    `SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel,
+            p.streetAddress, p.city, p.googlePlaceId, p.formattedAddress
+     FROM PersonProperty pp JOIN Property p ON p.propertyId=pp.propertyId`
+  ).all().then(r => r.results || []);
+  const propsByPerson = {};
+  for (const pp of ppRows) {
+    if (!propsByPerson[pp.personId]) propsByPerson[pp.personId] = [];
+    propsByPerson[pp.personId].push(pp);
+  }
+
+  // Load skip decisions from KV
+  const skipKeys = await env.DATA.list({ prefix: 'person_merge_skipped:' });
+  const skipped  = new Set(skipKeys.keys.map(k => k.name));
+
+  // Compute edit distance (phone digits only, same length only)
+  function editDist(a, b) {
+    const da = (a||'').replace(/\D/g,''), db = (b||'').replace(/\D/g,'');
+    if (da.length !== db.length) return Math.abs(da.length - db.length) + da.split('').filter((c,i)=>c!==db[i]).length;
+    return da.split('').filter((c,i) => c !== db[i]).length;
+  }
+
+  const candidates = [];
+  const seen = new Set();
+
+  for (let i = 0; i < persons.length; i++) {
+    const p1 = persons[i];
+    const n1 = `${(p1.firstName||'').toLowerCase()} ${(p1.lastName||'').toLowerCase()}`.trim();
+    if (!n1 || n1 === ' ') continue;
+
+    for (let j = i + 1; j < persons.length; j++) {
+      const p2 = persons[j];
+      const n2 = `${(p2.firstName||'').toLowerCase()} ${(p2.lastName||'').toLowerCase()}`.trim();
+      if (n1 !== n2) continue;
+
+      const key = [p1.personId, p2.personId].sort().join(':');
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const skipKey = `person_merge_skipped:${key}`;
+      if (skipped.has(skipKey)) continue; // already decided
+
+      const dist = editDist(p1.primaryPhone, p2.primaryPhone);
+      const p1Props = propsByPerson[p1.personId] || [];
+      const p2Props = propsByPerson[p2.personId] || [];
+
+      // Shared place_id
+      const p1PlaceIds = new Set(p1Props.map(p => p.googlePlaceId).filter(Boolean));
+      const sharedPlaceId = p2Props.find(p => p.googlePlaceId && p1PlaceIds.has(p.googlePlaceId));
+
+      if (dist > 5 && !sharedPlaceId) continue; // not a candidate
+
+      candidates.push({
+        id:            key,
+        name:          `${p1.firstName} ${p1.lastName}`,
+        phoneDist:     dist,
+        sharedPlaceId: sharedPlaceId?.googlePlaceId || null,
+        sharedAddress: sharedPlaceId?.formattedAddress || null,
+        records: [p1, p2].map(p => ({
+          personId:   p.personId,
+          phone:      p.primaryPhone,
+          createdAt:  p.createdAt,
+          notes:      p.notes || null,
+          jobs:       jobsByPerson.get(p.personId) || { cnt: 0, total: 0, firstJob: null, lastJob: null },
+          properties: (propsByPerson[p.personId] || []).map(pp => ({
+            propertyId:       pp.propertyId,
+            streetAddress:    pp.streetAddress,
+            city:             pp.city,
+            primaryContact:   pp.primaryContact,
+            propertyLabel:    pp.propertyLabel,
+            googlePlaceId:    pp.googlePlaceId,
+            formattedAddress: pp.formattedAddress,
+          })),
+        })),
+      });
+    }
+  }
+
+  // Sort: shared place_id first (strongest signal), then by edit distance
+  candidates.sort((a, b) => {
+    if (a.sharedPlaceId && !b.sharedPlaceId) return -1;
+    if (!a.sharedPlaceId && b.sharedPlaceId) return 1;
+    return a.phoneDist - b.phoneDist;
+  });
+
+  return jsonResponse({ candidates, total: candidates.length }, corsHeaders);
+}
+
+// POST /admin/person-merge
+// Executes the 5-statement merge pattern: repoint jobs + properties, delete orphan.
+// Body: { canonicalPersonId, orphanPersonId, reason }
+async function handlePersonMerge(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const { canonicalPersonId, orphanPersonId, reason } = body;
+  if (!canonicalPersonId || !orphanPersonId) return jsonResponse({ error: 'canonicalPersonId + orphanPersonId required' }, corsHeaders, 400);
+  if (canonicalPersonId === orphanPersonId) return jsonResponse({ error: 'same personId' }, corsHeaders, 400);
+
+  try {
+    // Step 1: Repoint jobs
+    const j = await env.DB.prepare('UPDATE Job SET payerId=? WHERE payerId=?').bind(canonicalPersonId, orphanPersonId).run();
+    // Step 2: Move non-duplicate PersonProperty links
+    const pp = await env.DB.prepare(
+      `UPDATE PersonProperty SET personId=? WHERE personId=? AND propertyId NOT IN (SELECT propertyId FROM PersonProperty WHERE personId=?)`
+    ).bind(canonicalPersonId, orphanPersonId, canonicalPersonId).run();
+    // Step 3: Delete remaining orphan PersonProperty
+    const ppDel = await env.DB.prepare('DELETE FROM PersonProperty WHERE personId=?').bind(orphanPersonId).run();
+    // Step 4: Delete orphan Person
+    const pDel = await env.DB.prepare('DELETE FROM Person WHERE personId=?').bind(orphanPersonId).run();
+
+    // Clear skip key if it existed
+    const skipKey = `person_merge_skipped:${[canonicalPersonId, orphanPersonId].sort().join(':')}`;
+    await env.DATA.delete(skipKey).catch(() => {});
+
+    // Log
+    await _logD1Failure(env, `person_merge_tier2_3_2026_05_25`,
+      `merged orphan=${orphanPersonId} into canonical=${canonicalPersonId} reason=${reason||'review_ui'} jobs=${j.meta?.changes||0}`);
+
+    // Refresh canonical KV via d1CustomerToKvShape
+    const canon = await env.DB.prepare('SELECT primaryPhone FROM Person WHERE personId=?').bind(canonicalPersonId).first();
+    if (canon?.primaryPhone) {
+      const ph = canon.primaryPhone.replace(/\D/g,'').slice(-10);
+      const updC = await d1CustomerToKvShape(ph, env);
+      if (updC) {
+        const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+        const idx = (kvDb.customers||[]).findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
+        if (idx >= 0) kvDb.customers[idx] = updC; else kvDb.customers.push(updC);
+        // Also remove orphan from KV customers list if it exists
+        const orphanPh = (await env.DB.prepare('SELECT primaryPhone FROM Person WHERE personId=?').bind(orphanPersonId).first().catch(()=>null))?.primaryPhone;
+        if (orphanPh) {
+          const oph = orphanPh.replace(/\D/g,'').slice(-10);
+          const oi = (kvDb.customers||[]).findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === oph);
+          if (oi >= 0) kvDb.customers.splice(oi, 1);
+        }
+        await env.DATA.put('customer_db', JSON.stringify(kvDb));
+      }
+    }
+
+    return jsonResponse({
+      success: true, canonicalPersonId, orphanPersonId,
+      jobsRelinked: j.meta?.changes || 0,
+      propertiesRelinked: pp.meta?.changes || 0,
+      propertiesDeleted: ppDel.meta?.changes || 0,
+    }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `person_merge_error:${canonicalPersonId}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /admin/person-merge-skip
+// Records a "legitimate, not duplicates" decision so future audit runs don't re-flag.
+// Body: { personIdA, personIdB, reason }
+async function handlePersonMergeSkip(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const { personIdA, personIdB, reason } = body;
+  if (!personIdA || !personIdB) return jsonResponse({ error: 'personIdA + personIdB required' }, corsHeaders, 400);
+
+  const key = `person_merge_skipped:${[personIdA, personIdB].sort().join(':')}`;
+  await env.DATA.put(key, JSON.stringify({
+    skipped: true, reason: reason || 'different people', decidedAt: new Date().toISOString(), decidedBy: 'tyler',
+  }));
+  await _logD1Failure(env, 'person_merge_skip', `skipped ${personIdA} vs ${personIdB}: ${reason||'different people'}`);
+  return jsonResponse({ success: true, key }, corsHeaders);
+}
+
 // Zero results = clean. Non-zero = something to review or re-run dedup phase.
 
 async function handlePropertyDuplicates(env, corsHeaders) {
