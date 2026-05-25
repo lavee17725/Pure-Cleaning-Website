@@ -2046,6 +2046,7 @@ function _jobRowToShape(job, isMultiProperty) {
       estimatedDuration: durFromKv,
       duration:          durLabel,
       roofStories:       cust.scheduledStatus?.roofStories || null,
+      sqFt:              cust.scheduledStatus?.sqFt || cust.sqFt || null,
       confirmationSentAt:cust.scheduledStatus?.confirmationSentAt || null,
       confirmedByCustomer:cust.scheduledStatus?.confirmedByCustomer || false,
     },
@@ -5830,7 +5831,8 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feAddr').value  = _jh ? (_jh.address || '') : (_jobAddr || c.address || '');
   document.getElementById('feCity').value  = _jh ? (_jh.city    || '') : (_jobCity || c.city    || '');
   updateFeCopyBtn();
-  document.getElementById('feSqFt').value  = c.sqFt || ss.sqFt || svcAgreed.roofSqFt || '';
+  // Law T1.15: prefer job-specific sqFt, fall back to customer-level
+  document.getElementById('feSqFt').value  = (_jh && _jh.sqFt) || (_calJob && _calJob.sqFt) || ss.sqFt || c.sqFt || svcAgreed.roofSqFt || '';
   document.getElementById('feLeadSrc').value = c.leadSource?.primary || '';
 
   const svc = _jh
