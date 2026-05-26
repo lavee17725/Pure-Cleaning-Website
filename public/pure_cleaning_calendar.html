@@ -5275,12 +5275,18 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const gateStr   = gateCode ? `Gate: ${gateCode}` : null;
   const _dirs = new Set(['n','s','e','w','nw','ne','sw','se','nne','nnw','sse','ssw']);
   const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
-  const addrLine  = _titleAddr(c.address||'');
-  const cityLine  = c.city ? (_titleAddr(c.city)+', FL'+(c.zip?' '+c.zip:'')+(sqft?' &nbsp;·&nbsp; '+Number(sqft).toLocaleString()+' sq ft':'')+(storyStr?' &nbsp;·&nbsp; <strong>'+storyStr+'</strong>':'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : (sqft ? Number(sqft).toLocaleString()+' sq ft' : '');
+  // For partner_referral: show work site (where we're doing the work), not the
+  // partner's own billing address. workSiteAddress is copied into printC from
+  // the D1 Job row by printJobSheet. Fall back to c.address if no work site set.
+  const isPartner   = c.customerType === 'partner_referral';
+  const displayAddr = isPartner ? (c.workSiteAddress || c.address) : c.address;
+  const displayCity = isPartner ? (c.workSiteCity    || c.city)    : c.city;
+  const addrLine  = _titleAddr(displayAddr||'');
+  const cityLine  = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(sqft?' &nbsp;·&nbsp; '+Number(sqft).toLocaleString()+' sq ft':'')+(storyStr?' &nbsp;·&nbsp; <strong>'+storyStr+'</strong>':'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : (sqft ? Number(sqft).toLocaleString()+' sq ft' : '');
   const propLabelLine = (c.propertyLabel || ss.propertyLabel)
     ? `<div style="font-family:Arial,sans-serif;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#1d4ed8;margin-bottom:2px;">${esc(c.propertyLabel || ss.propertyLabel)}</div>`
     : '';
-  const addrHtml  = c.address ? `${propLabelLine}${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
+  const addrHtml  = displayAddr ? `${propLabelLine}${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
 
   const _addRoof = s => (roofLabel && /roof/i.test(s)) ? `${s} — ${roofLabel}` : s;
   const allItems = [...items.map(s=>_addRoof(s.toUpperCase())), ...addOns.map(a=>{const nm=_addRoof((a.name||'').toUpperCase());return nm+(a.bundle?` (+$${a.bundle})`:'');})];
@@ -5425,12 +5431,18 @@ function printJobSheet(phone, date, rig) {
   // For multi-property customers, override address/city/gateCode/ss with
   // job-specific data. KV customer retains notes, sqFt, addOns,
   // quoteStatus, alerts (customer-level, not job-level fields).
+  // For partner_referral jobs, workSiteAddress/workSiteCity come from the
+  // D1 Job row (stored at job creation). _jobSheetBody uses these to print
+  // the client's address (where work happens) instead of the partner's
+  // own billing property.
   const printC = jobShape ? {
     ...c,
-    address:         jobShape.address  || c.address,
-    city:            jobShape.city     || c.city,
-    gateCode:        jobShape.gateCode ?? c.gateCode,
-    scheduledStatus: { ...(c.scheduledStatus || {}), ...jobShape.scheduledStatus },
+    address:          jobShape.address         || c.address,
+    city:             jobShape.city            || c.city,
+    gateCode:         jobShape.gateCode        ?? c.gateCode,
+    workSiteAddress:  jobShape.workSiteAddress || c.workSiteAddress || null,
+    workSiteCity:     jobShape.workSiteCity    || c.workSiteCity    || null,
+    scheduledStatus:  { ...(c.scheduledStatus || {}), ...jobShape.scheduledStatus },
   } : c;
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
     `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
