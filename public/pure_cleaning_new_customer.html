@@ -2552,19 +2552,32 @@ async function submitScheduleNow() {
 
   document.getElementById('schedBtn').disabled = true;
   try {
-    // Step 1: KV write (existing path)
-    await saveDb();
-
-    // Step 2: D1 write — Law T1.18 dual-write for scheduled job CREATE.
-    // Calendar reads D1-only for state='scheduled'. Without this, the job is
-    // invisible on the calendar until a nightly sync (which doesn't exist).
     const ph       = (c.phone || '').replace(/\D/g, '').slice(-10);
     const personId = 'person_1' + ph;
-    const propId   = c.propertyId
-                   || (c.properties || []).find(p => p.primaryContact)?.propertyId
-                   || null;
     const svcStr   = c.scheduledStatus?.jobNotes || c.quoteStatus?.mainServices || notes || '';
     const pws      = c.quoteStatus?.partnerWorkSite || {};
+
+    // Step 1: Resolve propertyId via single-customer endpoint (full shape).
+    // dbRecord uses allCustomers shape (d1AllCustomersToKvShape → _d1PersonToKv) which
+    // excludes properties[]. c.properties is always undefined here. Must fetch individually.
+    // Law T1.20: propId required for D1 write; block with error if missing.
+    let propId = null;
+    try {
+      const fullR = await fetch(`${PCPC_API}/customer/${ph}`).catch(() => null);
+      if (fullR && fullR.ok) {
+        const fullD = await fullR.json().catch(() => null);
+        const props = (fullD?.customer?.properties) || [];
+        propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
+      }
+    } catch(_) {}
+
+    if (!propId) {
+      errEl.textContent = 'Cannot schedule — no confirmed address on file. Save the form first or contact admin.';
+      errEl.style.display = 'block';
+      document.getElementById('schedBtn').disabled = false;
+      return;
+    }
+
     const d1Payload = {
       payerId:           personId,
       propertyId:        propId,
@@ -2581,25 +2594,34 @@ async function submitScheduleNow() {
       roofStories:       c.quoteStatus?.servicesAgreed?.roofStories || null,
     };
 
-    // Only attempt D1 write if we have a propertyId — missing propertyId means
-    // the customer record isn't fully synced; calendar will still show it after
-    // the first reconcile, and operator can patch via pencil-edit.
-    if (d1Payload.propertyId) {
-      const d1Res = await fetch(PCPC_API + '/admin/scheduled-job', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(d1Payload),
-      }).catch(e => null);
-      if (!d1Res || !d1Res.ok) {
-        // Law T1.11: surface D1 failure — job IS in KV but won't appear on calendar
-        const errMsg = d1Res ? (await d1Res.json().catch(() => ({}))).error : 'network error';
-        if (typeof showToast === 'function') {
-          showToast('⚠️ Saved to customer record but calendar sync failed — run reconcile or contact admin. ' + (errMsg || ''), 'warn');
-        }
-        // Don't block the redirect — KV write succeeded, job exists, just won't be on calendar yet
-      }
+    // Step 2: D1 write FIRST — calendar reads D1 only for scheduled jobs.
+    // Law T1.20: D1 write is the gating write. Success toast only fires after BOTH confirmed.
+    // If D1 fails → show error, keep user on form, do NOT redirect.
+    const d1Res = await fetch(PCPC_API + '/admin/scheduled-job', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(d1Payload),
+    }).catch(() => null);
+
+    if (!d1Res || !d1Res.ok) {
+      const errBody = d1Res ? await d1Res.json().catch(() => ({})) : {};
+      errEl.textContent = 'Save failed — calendar sync error, please try again. (' + (errBody.error || 'D1 write failed') + ')';
+      errEl.style.display = 'block';
+      document.getElementById('schedBtn').disabled = false;
+      return; // Do NOT redirect. D1 write failed; nothing was written. Safe to retry.
     }
 
+    // Step 3: KV write — mirrors scheduledStatus to customer record after D1 confirmed.
+    // If KV fails, calendar still works (D1 is authoritative). Log and continue.
+    try {
+      await saveDb();
+    } catch(kvErr) {
+      // KV mirror failed but D1 succeeded — calendar will show the job.
+      // Warn user but still redirect since the job exists.
+      console.warn('[submitScheduleNow] KV mirror failed after D1 success:', kvErr.message);
+    }
+
+    // Both writes attempted. D1 confirmed. Show success.
     sucEl.textContent = '✅ Saved! Heading to calendar…';
     sucEl.style.display = 'block';
     setTimeout(() => {

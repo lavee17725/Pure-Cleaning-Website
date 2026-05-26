@@ -3156,6 +3156,28 @@ async function handleReconcileKvD1(env, corsHeaders) {
     }
   } catch(e) { /* skip — non-fatal */ }
 
+  // ── Gate: D1_SYNC_FAILURES_LAST_24H ──────────────────────────────────────────
+  // Counts entries in d1_sync_failures KV key from the last 24 hours.
+  // Catches transient D1 errors (internal error, UNIQUE constraint, etc.) that
+  // silently swallow writes. Count > 0 means at least one write needs investigation.
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const failures = await env.DATA.get('d1_sync_failures', 'json') || [];
+    const recent   = failures.filter(f => (f.ts || '') > cutoff);
+    if (recent.length > 0) {
+      discrepancies.push({
+        phone: null,
+        name:  `${recent.length} D1 sync failure(s) in last 24h`,
+        type:  'D1_SYNC_FAILURES_LAST_24H',
+        field: 'd1_sync_failures KV key',
+        kvValue: `${recent.length} recent entries`,
+        d1Value: recent.slice(0, 5).map(f => `[${(f.ts||'').slice(11,19)}] ${f.context}: ${(f.error||'').slice(0,60)}`).join(' | '),
+        suggested_action: 'Review d1_sync_failures KV key. Each entry is a silently-swallowed D1 write. Recover any missing jobs via POST /admin/scheduled-job.',
+      });
+      typeCounts['D1_SYNC_FAILURES_LAST_24H'] = recent.length;
+    }
+  } catch(e) { /* skip — non-fatal */ }
+
   return jsonResponse({
     summary: {
       kvCustomersChecked: checked,

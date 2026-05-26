@@ -10,6 +10,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Duplicate Person Review — Pure Cleaning</title>
+<script>
+// Auth guard — same pattern as all admin pages. Runs synchronously before body.
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||(!isNaN(e)&&e>0&&Date.now()>e)){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    window.location.replace('/pure_cleaning_login.html?next='+encodeURIComponent(window.location.pathname));
+    return;
+  }
+  // Inject Authorization header on all purecleaning-api calls
+  var _nativeFetch=window.fetch.bind(window);
+  window.fetch=function(u,o){
+    o=o||{};o.headers=o.headers||{};
+    if(typeof u==='string'&&u.includes('purecleaning-api'))
+      o.headers['Authorization']='Bearer '+(localStorage.getItem('admin_token')||'');
+    return _nativeFetch(u,o);
+  };
+})();
+</script>
 <style>
   :root{--navy:#1a2744;--sky:#3b82f6;--gold:#f59e0b;--green:#16a34a;--red:#dc2626;--border:#e8e1d8;--bg:#f9f6f0;--white:#fff;--muted:#6b7280;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -63,22 +83,9 @@
 
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
-let _token = localStorage.getItem('admin_token') || '';
+// Auth injected by IIFE guard above. No duplicate override needed here.
 let _candidates = [];
 let _resolved = new Set();
-
-// Inherit auth token from admin session
-const _stored = localStorage.getItem('admin_token');
-if (_stored) _token = _stored;
-
-// Override fetch to inject auth on API calls
-const _origFetch = window.fetch.bind(window);
-window.fetch = (url, opts={}) => {
-  if (typeof url==='string' && url.includes('purecleaning-api')) {
-    opts.headers = Object.assign({ Authorization: `Bearer ${_token}` }, opts.headers||{});
-  }
-  return _origFetch(url, opts);
-};
 
 function fmtPhone(raw) {
   const d = (raw||'').replace(/\D/g,'');
