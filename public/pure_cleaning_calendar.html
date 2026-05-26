@@ -4625,7 +4625,7 @@ function executeCancelJob(phone, jobId, reason) {
     // Return to queue — PATCH D1 fire-and-forget (KV update below is synchronous)
     if (jobId) {
       patchJob(jobId, { state: 'rescheduled' })
-        .then(() => refreshCalendarJobs())
+        .then(() => refreshCalendarJobs().then(() => render()))
         .catch(e => { console.error('[executeCancelJob reschedule] D1 PATCH FAILED:', e.message); showToast('⚠️ Reschedule D1 sync failed — check reconcile. ' + e.message); });
     }
     c.scheduledStatus.state = 'needs_scheduling';
@@ -4637,15 +4637,18 @@ function executeCancelJob(phone, jobId, reason) {
     return;
   }
 
-  // PATCH D1 to cancelled fire-and-forget — fixes respawn bug; KV update below is synchronous
+  // PATCH D1 to cancelled — primary write. Render only after calendarJobs refreshed.
+  // Bug fix: previous code called render() synchronously before patchJob completed,
+  // so calendarJobs still had the old job and the card re-appeared. Now render()
+  // runs inside the .then() chain after refreshCalendarJobs() returns fresh data.
   if (jobId) {
     patchJob(jobId, {
       state: 'cancelled',
       cancellationReason: reason,
       cancelledAt: new Date().toISOString(),
     })
-    .then(() => refreshCalendarJobs())
-    .catch(e => { console.error('[executeCancelJob] D1 PATCH FAILED:', e.message); showToast('⚠️ Cancel D1 sync failed — check reconcile. ' + e.message); });
+    .then(() => refreshCalendarJobs().then(() => render()))
+    .catch(e => { console.error('[executeCancelJob] D1 PATCH FAILED:', e.message); showToast('⚠️ Cancel D1 sync failed — check reconcile. ' + e.message); render(); });
   }
 
   c.scheduledStatus.state = 'canceled';
@@ -4678,7 +4681,9 @@ function executeCancelJob(phone, jobId, reason) {
 
   logEvent('job_canceled', phone, {name, reason, scheduledDate: ss.scheduledDate, service: ss.jobNotes});
   saveDb().catch(()=>{});
-  render();
+  // render() removed from here — now runs inside patchJob().then() after
+  // refreshCalendarJobs() returns. If no jobId (KV-only card), render immediately.
+  if (!jobId) render();
   showToast(`✕ ${esc(name)}'s job canceled`, 'Undo', () => undoDelete(phone));
 }
 
