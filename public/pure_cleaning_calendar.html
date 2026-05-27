@@ -2076,6 +2076,8 @@ function _jobRowToShape(job, isMultiProperty) {
     gateCode:       job.gateCode     || null,
     workSiteAddress: job.workSiteAddress || null,
     workSiteCity:   job.workSiteCity   || null,
+    endCustomerName:  job.endCustomerName  || null,
+    endCustomerPhone: job.endCustomerPhone || null,
     customerType:   job.customerType   || 'residential',
     propertyLabel:  job.propertyLabel || null,
     propertyType:   job.propertyType  || null,
@@ -2107,7 +2109,7 @@ function _jobRowToShape(job, isMultiProperty) {
       crew:              crewFromKv,
       estimatedDuration: durFromKv,
       duration:          durLabel,
-      roofStories:       cust.scheduledStatus?.roofStories || null,
+      roofStories:       job.roofStories || cust.scheduledStatus?.roofStories || null,  // T1.15: D1 first
       sqFt:              cust.scheduledStatus?.sqFt || cust.sqFt || null,
       confirmationSentAt:cust.scheduledStatus?.confirmationSentAt || null,
       confirmedByCustomer:cust.scheduledStatus?.confirmedByCustomer || false,
@@ -5356,8 +5358,8 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const addOns   = c.addOns || [];
   const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
   const rigLabel = RIG_LABELS[rig] || rig;
-  const sqft     = c.sqFt || (c.jobHistory||[]).find(j=>j.sqFt)?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null;
-  const _roofTypeKey = (qs.servicesAgreed||{}).roofType || null;
+  const sqft     = ss.sqFt || c.sqFt || (c.jobHistory||[]).find(j=>j.sqFt)?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null;
+  const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || null;  // T1.15: ss first
   const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
   const roofLabel   = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
   const noteParts = [c.notes, ss.customerNotes, ...(c.alerts||[]).map(a=>`⚠ ${a.label||a||''}`)].filter(Boolean);
@@ -5366,6 +5368,10 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const stories   = ss.roofStories || getLastKnownRoofStories(c) || null;
   const storyStr  = stories ? `${stories}-story` : null;
   const gateCode  = c.gateCode || null;
+  // Issue 4 — end customer (partner jobs only)
+  const endCustName  = c.endCustomerName  || qs.partnerWorkSite?.endCustName  || null;
+  const endCustPhone = c.endCustomerPhone || qs.partnerWorkSite?.endCustPhone || null;
+  const endCustLine  = [endCustName, endCustPhone ? fmtPh(endCustPhone) : null].filter(Boolean).join(' &nbsp;·&nbsp; ');
   const gateStr   = gateCode ? `Gate: ${gateCode}` : null;
   const _dirs = new Set(['n','s','e','w','nw','ne','sw','se','nne','nnw','sse','ssw']);
   const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
@@ -5376,7 +5382,8 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const displayAddr = isPartner ? (c.workSiteAddress || c.address) : c.address;
   const displayCity = isPartner ? (c.workSiteCity    || c.city)    : c.city;
   const addrLine  = _titleAddr(displayAddr||'');
-  const cityLine  = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(sqft?' &nbsp;·&nbsp; '+Number(sqft).toLocaleString()+' sq ft':'')+(storyStr?' &nbsp;·&nbsp; <strong>'+storyStr+'</strong>':'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : (sqft ? Number(sqft).toLocaleString()+' sq ft' : '');
+  // sqFt and storyStr moved to js-propdetails row (Issue 4). Keep gateStr here — it's address-relevant.
+  const cityLine  = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : '';
   const propLabelLine = (c.propertyLabel || ss.propertyLabel)
     ? `<div style="font-family:Arial,sans-serif;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#1d4ed8;margin-bottom:2px;">${esc(c.propertyLabel || ss.propertyLabel)}</div>`
     : '';
@@ -5446,6 +5453,13 @@ table{width:auto;border-collapse:collapse;}
 .js-total-methods{font-family:Arial,sans-serif;font-size:7.5pt;color:#333;}
 .js-footer{border-top:1pt solid #ddd;padding:5px 28px;display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
 .js-footer-text{font-family:Arial,sans-serif;font-size:6.5pt;color:#555;}
+.js-endcust{background:#fef9ec;border:1.5pt solid #f4a620;padding:5px 14px 6px;margin-bottom:8px;}
+.js-endcust-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#92400e;margin-bottom:3px;}
+.js-endcust-val{font-family:Georgia,serif;font-size:13pt;color:#0a1628;line-height:1.4;}
+.js-propdetails{background:#f7f8fa;border:1pt solid #ddd;padding:5px 14px;margin-bottom:8px;display:flex;gap:24px;align-items:baseline;}
+.js-propdetails-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;white-space:nowrap;}
+.js-propdetails-val{font-family:Arial,sans-serif;font-size:11pt;font-weight:600;color:#0a1628;}
+.js-propdetails-item{display:flex;flex-direction:column;gap:2px;}
 @media print{.svc-item{cursor:default;}.js-sheet{min-height:0;}}
 </style>
 
@@ -5479,6 +5493,28 @@ table{width:auto;border-collapse:collapse;}
       <div>
         <div class="js-cust-address">${addrHtml}</div>
         <div class="js-cust-phone">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+      </div>
+    </div>
+
+    ${isPartner && endCustLine ? `
+    <div class="js-endcust">
+      <div class="js-endcust-label">End Customer (Work Site)</div>
+      <div class="js-endcust-val">${endCustLine}</div>
+    </div>` : ''}
+
+    <div class="js-propdetails">
+      <div class="js-propdetails-label">Property Details</div>
+      <div class="js-propdetails-item">
+        <span class="js-propdetails-label">Roof Stories</span>
+        <span class="js-propdetails-val">${storyStr || 'N/A'}</span>
+      </div>
+      <div class="js-propdetails-item">
+        <span class="js-propdetails-label">Sq Ft</span>
+        <span class="js-propdetails-val">${sqft ? Number(sqft).toLocaleString() : 'N/A'}</span>
+      </div>
+      <div class="js-propdetails-item">
+        <span class="js-propdetails-label">Roof Type</span>
+        <span class="js-propdetails-val">${roofLabel || 'N/A'}</span>
       </div>
     </div>
 
@@ -5545,6 +5581,8 @@ function printJobSheet(phone, date, rig) {
     gateCode:         jobShape.gateCode        ?? c.gateCode,
     workSiteAddress:  jobShape.workSiteAddress || c.workSiteAddress || null,
     workSiteCity:     jobShape.workSiteCity    || c.workSiteCity    || null,
+    endCustomerName:  jobShape.endCustomerName  || c.endCustomerName  || null,
+    endCustomerPhone: jobShape.endCustomerPhone || c.endCustomerPhone || null,
     scheduledStatus:  { ...(c.scheduledStatus || {}), ...jobShape.scheduledStatus },
   } : c;
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),

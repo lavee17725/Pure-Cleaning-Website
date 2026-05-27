@@ -3343,6 +3343,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.workSiteGoogleVerified,
         j.endCustomerName,
         j.endCustomerPhone,
+        j.roofStories,
         j.partnerRate,
         j.crewCount,
         p.firstName,
