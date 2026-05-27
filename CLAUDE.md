@@ -56,6 +56,10 @@ When in doubt, follow this file. The other two are reference.
 
 **19.** D1 is canonical for customer-data reads. `GET /customers` and `GET /customer/:phone` read from D1 via compatibility layer (`d1AllCustomersToKvShape` / `d1CustomerToKvShape`). KV remains write-canonical via dual-write infrastructure. A TEMP KV bridge merges Bouncie GPS fields (`actualDuration`, `bouncieMetrics`, etc.) and geocoded coordinates into D1 read results — remove after D1 schema gains those columns. Day 2 migration completed 2026-05-20.
 
+**20.** (T1.20) Success toasts must verify end-to-end write before showing. Fire-and-forget bulk sync banned. All scheduled-state writes go through explicit POST /admin/scheduled-job with shared scheduleJobWithDualWrite helper.
+
+**21.** (T1.21) **Read paths require verified write paths.** When adding any new field to a read surface (print sheet, calendar card, edit modal, customer profile, API response), audit the write path FIRST. Confirm: (a) writes exist and connect to the UI Mom uses, (b) field is in worker `_JOB_MUTABLE_FIELDS` if PATCH-able, (c) round-trip tested in browser before commit. No false fallback defaults — render "N/A" when data unknown. Trusting a field name is insufficient — verify the actual data contract. *Earned by 4 instances: (1) Issue 5 notes read `ss.jobNotes` which stores services; (2) Issue 4 roofStories write silently dropped on D1-native path; (3) Carlos workflow read D1 scheduled while write was dead code; (4) Property migration — 92 properties read `place_id` before writes existed.*
+
 ---
 
 ## Working with Tyler

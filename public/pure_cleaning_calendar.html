@@ -3170,7 +3170,7 @@ function jobCardScheduled(c) {
   const _svcRaw  = (ss.jobNotes || c.quoteStatus?.mainServices || c.quoteStatus?.notes
                  || _jhMatch?.services || _jhMatch?.jobNotes || '').trim();
   const svcLine  = _svcRaw
-    ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || 1) : null; const _storyBadge = _stories ? `<span class="story-badge">${_stories}-story</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
+    ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || null) : null; const _storyBadge = _svcIsRoof ? `<span class="story-badge">${_stories != null ? `${_stories}-story` : '?-story'}</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
     : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
   // Multi-property label chip (Phase 2B-1)
   const propLabelChip = (c.isMultiProperty && c.propertyLabel)
@@ -5362,13 +5362,16 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || null;  // T1.15: ss first
   const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
   const roofLabel   = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
-  // Issue 5 — Notes always visible on print (T1.15: D1 job row first).
-  // ss.jobNotes = D1 Job.jobNotes (mapped via _jobRowToShape). KV fallbacks follow.
-  // Omit section entirely when all sources empty — no blank box.
+  // Issue 5 — Notes always visible on print (T1.15 chain).
+  // ss.jobNotes is intentionally EXCLUDED — it's a services alias, not a notes field.
+  // Every write to ss.jobNotes stores the services list (add_job:571, calendar:6198, worker:1993).
+  // Trusting the name "jobNotes" here caused Bug A (services rendered in the notes box).
+  // Clean notes sources only: c.notes (pencil edit) → ss.scheduleNote (tap-schedule modal)
+  // → fallback fields. Omit section entirely when all sources empty — no blank box.
   const _notesSources = [
-    ss.jobNotes,       // D1 job-level notes (T1.15 first) — e.g. "walkways, back gate"
-    ss.notes,          // alternate ss field
-    c.notes,           // customer-level persistent note
+    c.notes,           // customer-level persistent note (pencil edit writes here)
+    ss.scheduleNote,   // note from tap-schedule modal (was silently dropped before this fix)
+    ss.notes,          // alternate ss field (sparsely written, preserved for safety)
     ss.customerNotes,  // KV scheduledStatus.customerNotes
     qs.notes,          // quoteStatus.notes
   ].filter(v => v && v.toString().trim());
@@ -6202,7 +6205,12 @@ async function saveFullEdit() {
       const _rt = document.getElementById('feRoofType').value;
       const _sv = document.querySelector('input[name=feRoofStories]:checked')?.value;
       const _st = _sv ? parseInt(_sv) : null;
-      if (_st) { if (!qs.servicesAgreed) qs.servicesAgreed = {}; if (_rt) qs.servicesAgreed.roofType = _rt; }
+      if (_st) {
+        patchBody.roofStories = _st;   // Bug B2a fix: send to D1 via PATCH (whitelist updated in worker)
+        ss.roofStories = _st;          // Mirror locally so card reflects change without reload
+        if (!qs.servicesAgreed) qs.servicesAgreed = {};
+        if (_rt) qs.servicesAgreed.roofType = _rt;
+      }
     }
     if (phoneChanged) { c.phone = newPhone; logEvent('phone_changed', newPhone, { oldPhone: _fePhone, newPhone, changedBy:'admin' }); }
     // Mirror rig change to local dbRecord so render() places card in correct lane immediately

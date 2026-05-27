@@ -3525,6 +3525,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'workSitePlaceId', 'workSiteGoogleVerified',
   'endCustomerName', 'endCustomerPhone', 'partnerRate',
   'crewCount',
+  'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
 ]);
 
 const _JOB_VALID_STATES = new Set([
