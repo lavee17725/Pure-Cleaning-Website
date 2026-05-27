@@ -5515,7 +5515,16 @@ table{width:auto;border-collapse:collapse;}
 function printJobSheet(phone, date, rig) {
   const c = findCustomer(phone);
   if (!c) return;
-  const jobs     = getScheduledForRig(date, rig).filter(j => !j.isTest);
+  // Fix: when rig is empty/falsy (unassigned job, rigId=null in D1),
+  // getScheduledForRig filters j.rigId==='' which fails to match null.
+  // Bypass rig-equality and pull from calendarJobs by date+state only.
+  // Paired with Fix 2 (_d1BuildScheduledStatus priority) as defense-in-depth.
+  const jobs = rig
+    ? getScheduledForRig(date, rig).filter(j => !j.isTest)
+    : calendarJobs
+        .filter(j => j.scheduledDate === date && (j.state === 'scheduled' || j.state === 'in_progress'))
+        .map(j => _jobRowToShape(j, (_calPayerCounts()[j.payerId] || 0) > 1))
+        .filter(j => !j.isTest);
   const idx      = jobs.findIndex(j => j.phone === phone);
   const jobShape = idx >= 0 ? jobs[idx] : null;
   // For multi-property customers, override address/city/gateCode/ss with

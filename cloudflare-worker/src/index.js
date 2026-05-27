@@ -2551,11 +2551,18 @@ function _d1BuildScheduledStatus(personJobs) {
   //           (2) active scheduled job → state='scheduled'
   //           (3) most recent job of any state (dormant customer)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+  // Law T1.15: active scheduled state beats recently-completed.
+  // If a customer has BOTH a scheduled future job AND a recently-completed job,
+  // the calendar should reflect what they're currently booked for — not what
+  // they just finished. Old priority (recentCompleted first) caused c.scheduledStatus
+  // to carry stale completed data even when a new job was on the books, breaking
+  // print sheets and customer-list status for multi-job customers like Jessica Angellotti.
+  const activeScheduled = personJobs.find(j => j.state === 'scheduled');
   const recentCompleted = personJobs.find(j =>
     j.state === 'completed' && j.completedAt && j.completedAt >= thirtyDaysAgo
   );
-  const ss = recentCompleted
-           || personJobs.find(j => j.state === 'scheduled')
+  const ss = activeScheduled
+           || recentCompleted
            || personJobs[0];
   return {
     state:               ss.state,
