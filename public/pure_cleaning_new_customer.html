@@ -296,17 +296,31 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
       <div style="margin-top:10px;">
         <div class="partner-sec-title" style="margin-bottom:8px;">Work Site Address</div>
+        <!-- Google Places autocomplete search (Law T1.17) -->
+        <div class="field" style="position:relative;margin-bottom:6px;">
+          <input id="nWorkSiteSearch" class="fi ac-input" type="text" placeholder="🔍 Search address…" autocomplete="off" style="font-size:15px;">
+          <span class="ac-badge" id="nWorkSiteVerifiedBadge" style="display:none;">✓ Verified</span>
+          <div class="ac-dd" id="acWorkSiteDd" role="listbox"></div>
+        </div>
+        <!-- Street address + city + zip (populated by autocomplete or typed manually) -->
         <div class="field">
-          <input id="nWorkSiteAddr" class="fi" type="text" placeholder="9260 SW 57 Terr" oninput="checkReq()" style="margin-bottom:8px;">
+          <input id="nWorkSiteAddr" class="fi" type="text" placeholder="Street address" oninput="checkReq();_acClearVerified('worksite')" style="margin-bottom:6px;">
         </div>
         <div class="field-row">
           <div class="field">
-            <input id="nWorkSiteCity" class="fi" type="text" placeholder="Miami" oninput="checkReq()">
+            <input id="nWorkSiteCity" class="fi" type="text" placeholder="City" oninput="checkReq();_acClearVerified('worksite')">
           </div>
           <div class="field">
-            <input id="nWorkSiteZip" class="fi" type="text" placeholder="33173 (optional)">
+            <input id="nWorkSiteZip" class="fi" type="text" placeholder="Zip (optional)">
           </div>
         </div>
+        <!-- Hidden place fields -->
+        <input type="hidden" id="nWorkSitePlaceId">
+        <input type="hidden" id="nWorkSiteFormattedAddress">
+        <input type="hidden" id="nWorkSiteLat">
+        <input type="hidden" id="nWorkSiteLng">
+        <!-- Not-verified warning (informational only, does not block) -->
+        <div id="nWorkSiteNotVerifiedWarn" style="font-size:11px;color:#b45309;font-weight:600;margin-top:5px;display:none;">⚠ Address not Google-verified — consider using autocomplete for accuracy</div>
       </div>
       <div style="margin-top:10px;">
         <div class="partner-sec-title" style="margin-bottom:8px;">End Customer (optional)</div>
@@ -1268,6 +1282,7 @@ async function init() {
   // Initialize Google Address Autocomplete on both address surfaces
   _acInit('main', { searchId:'nAddrSearch', ddId:'acMainDd', addrId:'nAddr', cityId:'nCity', zipId:'nZip', placeIdId:'nPlaceId', latId:'nLat', lngId:'nLng', verifiedBadgeId:'nAddrVerifiedBadge' });
   _acInit('prop', { searchId:'newPropSearch', ddId:'acPropDd', addrId:'newPropAddr', cityId:'newPropCity', zipId:'newPropZip', placeIdId:'newPropPlaceId', latId:'newPropLat', lngId:'newPropLng', verifiedBadgeId:'newPropVerifiedBadge' });
+  _acInit('worksite', { searchId:'nWorkSiteSearch', ddId:'acWorkSiteDd', addrId:'nWorkSiteAddr', cityId:'nWorkSiteCity', zipId:'nWorkSiteZip', placeIdId:'nWorkSitePlaceId', latId:'nWorkSiteLat', lngId:'nWorkSiteLng', verifiedBadgeId:'nWorkSiteVerifiedBadge' });
   try {
     const data   = await getCachedCustomerDB();
     dbRecord     = data || {};
@@ -1381,7 +1396,9 @@ async function saveDb() {
 // Returns { success, error, message, propertyId, payerId }.
 async function scheduleJobWithDualWrite({
   phone, propertyId, scheduledDate, amount, rigId,
-  services, workSiteAddress, workSiteCity, source,
+  services, workSiteAddress, workSiteCity,
+  workSitePlaceId, workSiteGoogleVerified,
+  source,
 }) {
   const ph       = (phone || '').replace(/\D/g, '').slice(-10);
   const personId = 'person_1' + ph;
@@ -1408,7 +1425,10 @@ async function scheduleJobWithDualWrite({
       amount: amount || 0, rigId: rigId || null,
       servicesRequested: services || 'Pending', servicesRaw: services || 'Pending',
       jobNotes: services || null, workSiteAddress: workSiteAddress || null,
-      workSiteCity: workSiteCity || null, source: source || 'new_customer_form',
+      workSiteCity: workSiteCity || null,
+      workSitePlaceId: workSitePlaceId || null,
+      workSiteGoogleVerified: workSiteGoogleVerified ? 1 : 0,
+      source: source || 'new_customer_form',
     }),
   }).catch(() => null);
   if (!d1Res || !d1Res.ok) {
@@ -1452,9 +1472,14 @@ function resetForm() {
   ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nRoofSqFt',
    'nWorkSiteAddr','nWorkSiteCity','nWorkSiteZip','nEndCustName','nEndCustPhone',
    'nPartnerFn','nPartnerLn',
-   'nAddrSearch','nPlaceId','nFormattedAddress','nLat','nLng'].forEach(id => {
+   'nAddrSearch','nPlaceId','nFormattedAddress','nLat','nLng',
+   'nWorkSiteSearch','nWorkSitePlaceId','nWorkSiteFormattedAddress','nWorkSiteLat','nWorkSiteLng',
+  ].forEach(id => {
     const el = document.getElementById(id); if (el) el.value='';
   });
+  // Reset work site verified badge + warning
+  const wsVb = document.getElementById('nWorkSiteVerifiedBadge'); if (wsVb) wsVb.style.display='none';
+  const wsWn = document.getElementById('nWorkSiteNotVerifiedWarn'); if (wsWn) wsWn.style.display='none';
   const vb = document.getElementById('nAddrVerifiedBadge'); if (vb) vb.style.display='none';
   const vg = document.getElementById('nGoogleVerified'); if (vg) vg.value='0';
   _selectedPropertyId = null;
@@ -2241,6 +2266,10 @@ function checkReq() {
     const wsCity = (document.getElementById('nWorkSiteCity')?.value||'').trim();
     if (!wsAddr) missing.push('Work site address');
     if (!wsCity) missing.push('Work site city');
+    // Show "not verified" warning when address typed manually (no place_id). Informational only.
+    const wsPlaceId = (document.getElementById('nWorkSitePlaceId')?.value||'').trim();
+    const wsWarn = document.getElementById('nWorkSiteNotVerifiedWarn');
+    if (wsWarn) wsWarn.style.display = (wsAddr && !wsPlaceId) ? '' : 'none';
   } else {
     if (!fn || !ln)        missing.push('Full name');
     if (ph.length !== 10)  missing.push('Phone number');
@@ -2419,15 +2448,23 @@ async function submitPhonePath() {
     // Partner-referral: tag customer type + store work site in quoteStatus
     if (customer && currentCustomerType === 'partner_referral') {
       customer.customerType = 'partner_referral';
-      const _wsAddr = (document.getElementById('nWorkSiteAddr')?.value||'').trim();
-      const _wsCity = (document.getElementById('nWorkSiteCity')?.value||'').trim();
-      const _wsZip  = (document.getElementById('nWorkSiteZip')?.value||'').trim();
-      const _ecName = (document.getElementById('nEndCustName')?.value||'').trim();
+      const _wsAddr    = (document.getElementById('nWorkSiteAddr')?.value||'').trim();
+      const _wsCity    = (document.getElementById('nWorkSiteCity')?.value||'').trim();
+      const _wsZip     = (document.getElementById('nWorkSiteZip')?.value||'').trim();
+      const _wsPlaceId = (document.getElementById('nWorkSitePlaceId')?.value||'').trim();
+      const _wsFormatted = (document.getElementById('nWorkSiteFormattedAddress')?.value||'').trim();
+      const _ecName  = (document.getElementById('nEndCustName')?.value||'').trim();
       const _ecPhone = (document.getElementById('nEndCustPhone')?.value||'').replace(/\D/g,'').slice(-10);
       if (customer.quoteStatus) {
         customer.quoteStatus.partnerWorkSite = {
-          address: _wsAddr, city: _wsCity, zip: _wsZip||null,
-          endCustName: _ecName||null, endCustPhone: _ecPhone||null,
+          address:          _wsAddr,
+          city:             _wsCity,
+          zip:              _wsZip   || null,
+          placeId:          _wsPlaceId || null,
+          formattedAddress: _wsFormatted || null,
+          googleVerified:   !!_wsPlaceId,
+          endCustName:      _ecName  || null,
+          endCustPhone:     _ecPhone || null,
         };
       }
       // If brand-new partner, also create via POST /admin/partner (D1 direct)
@@ -2604,14 +2641,16 @@ async function submitScheduleNow() {
     // Helper resolves propertyId via GET /customer/{phone} (has full properties[] shape).
     // On failure → surface error, keep user on form for retry. Do NOT redirect.
     const d1Result = await scheduleJobWithDualWrite({
-      phone:           c.phone,
-      scheduledDate:   date,
-      amount:          price,
-      rigId:           rig || null,
-      services:        svcStr,
-      workSiteAddress: pws.address || c.address || null,
-      workSiteCity:    pws.city    || c.city    || null,
-      source:          'new_customer_form',
+      phone:                  c.phone,
+      scheduledDate:          date,
+      amount:                 price,
+      rigId:                  rig || null,
+      services:               svcStr,
+      workSiteAddress:        pws.address        || c.address || null,
+      workSiteCity:           pws.city           || c.city    || null,
+      workSitePlaceId:        pws.placeId        || null,
+      workSiteGoogleVerified: pws.googleVerified || false,
+      source:                 'new_customer_form',
     });
     if (!d1Result.success) {
       errEl.textContent = d1Result.message;

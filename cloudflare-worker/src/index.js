@@ -3186,6 +3186,35 @@ async function handleReconcileKvD1(env, corsHeaders) {
     }
   } catch(e) { /* skip — non-fatal */ }
 
+  // ── Gate: WORKSITE_NOT_GOOGLE_VERIFIED (Law T1.17) ───────────────────────────
+  // Partner jobs where the work site address was typed manually (no place_id).
+  // Mostly historical entries pre-T1.17. New entries via autocomplete set
+  // workSiteGoogleVerified=1. Count > 0 is informational — not actionable for
+  // historical jobs, but should not grow after this gate was added.
+  try {
+    const unverified = await env.DB.prepare(
+      `SELECT j.jobId, j.payerId, j.scheduledDate, j.workSiteAddress, j.workSiteCity,
+              p.firstName, p.lastName
+       FROM Job j
+       JOIN Person p ON p.personId = j.payerId
+       WHERE (j.workSiteAddress IS NOT NULL AND j.workSiteAddress != '')
+         AND (j.workSitePlaceId IS NULL OR j.workSitePlaceId = '')
+       ORDER BY j.scheduledDate DESC LIMIT 20`
+    ).all().then(r => r.results || []);
+    if (unverified.length > 0) {
+      discrepancies.push({
+        phone: null,
+        name:  `${unverified.length} partner job(s) with unverified work site`,
+        type:  'WORKSITE_NOT_GOOGLE_VERIFIED',
+        field: 'Job.workSitePlaceId',
+        kvValue: `${unverified.length} jobs without place_id`,
+        d1Value: unverified.slice(0, 5).map(j => `${j.firstName} ${j.lastName}: ${j.workSiteAddress||''}, ${j.workSiteCity||''} (${j.scheduledDate})`).join(' | '),
+        suggested_action: 'Historical entries — no action needed. New jobs entered via partner autocomplete will have workSiteGoogleVerified=1.',
+      });
+      typeCounts['WORKSITE_NOT_GOOGLE_VERIFIED'] = unverified.length;
+    }
+  } catch(e) { /* skip — non-fatal */ }
+
   return jsonResponse({
     summary: {
       kvCustomersChecked: checked,
@@ -3310,6 +3339,8 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.workSiteAddress,
         j.workSiteCity,
         j.workSiteZip,
+        j.workSitePlaceId,
+        j.workSiteGoogleVerified,
         j.endCustomerName,
         j.endCustomerPhone,
         j.partnerRate,
@@ -3426,7 +3457,8 @@ async function handleCreatePartner(request, env, corsHeaders) {
 //
 // Required body fields: payerId, propertyId, scheduledDate, amount, servicesRequested
 // Optional: rigId, jobNotes, servicesRaw, workSiteAddress, workSiteCity,
-//           workSiteZip, endCustomerName, endCustomerPhone, source, roofStories, crewCount
+//           workSiteZip, workSitePlaceId, workSiteGoogleVerified,
+//           endCustomerName, endCustomerPhone, source, roofStories, crewCount
 
 async function handleCreateScheduledJob(request, env, corsHeaders) {
   const body = await request.json().catch(() => null);
@@ -3436,6 +3468,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     payerId, propertyId, scheduledDate, amount,
     servicesRequested, servicesRaw, jobNotes,
     rigId, workSiteAddress, workSiteCity, workSiteZip,
+    workSitePlaceId, workSiteGoogleVerified,
     endCustomerName, endCustomerPhone,
     source, roofStories, crewCount,
   } = body;
@@ -3458,14 +3491,16 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
          (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
           servicesRequested, servicesRaw, jobNotes, rigId,
           workSiteAddress, workSiteCity, workSiteZip,
+          workSitePlaceId, workSiteGoogleVerified,
           endCustomerName, endCustomerPhone, roofStories, crewCount,
           source, createdAt, modifiedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       jobId, payerId, propertyId, scheduledDate, 'scheduled', amount, 'pending',
       servicesRequested, servicesRaw || servicesRequested, jobNotes || servicesRequested,
       rigId || null,
       workSiteAddress || null, workSiteCity || null, workSiteZip || null,
+      workSitePlaceId || null, workSiteGoogleVerified ? 1 : 0,
       endCustomerName || null, endCustomerPhone || null,
       roofStories || null, crewCount || null,
       src, now, now
@@ -3486,6 +3521,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'amount', 'jobNotes', 'servicesRaw', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
+  'workSitePlaceId', 'workSiteGoogleVerified',
   'endCustomerName', 'endCustomerPhone', 'partnerRate',
   'crewCount',
 ]);
