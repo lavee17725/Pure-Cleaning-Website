@@ -5362,8 +5362,19 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || null;  // T1.15: ss first
   const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
   const roofLabel   = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
-  const noteParts = [c.notes, ss.customerNotes, ...(c.alerts||[]).map(a=>`⚠ ${a.label||a||''}`)].filter(Boolean);
-  const notesText = noteParts.join(' · ');
+  // Issue 5 — Notes always visible on print (T1.15: D1 job row first).
+  // ss.jobNotes = D1 Job.jobNotes (mapped via _jobRowToShape). KV fallbacks follow.
+  // Omit section entirely when all sources empty — no blank box.
+  const _notesSources = [
+    ss.jobNotes,       // D1 job-level notes (T1.15 first) — e.g. "walkways, back gate"
+    ss.notes,          // alternate ss field
+    c.notes,           // customer-level persistent note
+    ss.customerNotes,  // KV scheduledStatus.customerNotes
+    qs.notes,          // quoteStatus.notes
+  ].filter(v => v && v.toString().trim());
+  const _notesBody  = _notesSources.map(v => v.toString().trim()).join('\n').trim();
+  const _alertsText = (c.alerts||[]).map(a=>`⚠ ${a.label||a||''}`).filter(Boolean).join('\n');
+  const operatorNotes = [_notesBody, _alertsText].filter(Boolean).join('\n') || null;
 
   const stories   = ss.roofStories || getLastKnownRoofStories(c) || null;
   const storyStr  = stories ? `${stories}-story` : null;
@@ -5440,9 +5451,9 @@ table{width:auto;border-collapse:collapse;}
 .svc-item.unchecked .svc-name{color:#bbb;}
 .svc-name{font-family:Arial,sans-serif;font-size:var(--svc-fs,16pt);font-weight:600;color:#0a1628;line-height:1.2;}
 .js-notes-row{margin-bottom:7px;}
-.js-notes-block{border:1pt solid #ccc;padding:8px 10px;min-height:5.5em;}
-.js-notes-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;margin-bottom:2px;}
-.js-notes-text{font-family:Arial,sans-serif;font-size:13pt;color:#111;line-height:1.3;}
+.js-notes-block{border:2pt solid #dc2626;background:#fff7f7;padding:8px 12px;}
+.js-notes-label{font-family:Arial,sans-serif;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:2pt;color:#dc2626;margin-bottom:4px;}
+.js-notes-text{font-family:Arial,sans-serif;font-size:13pt;color:#111;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
 .js-bottom{display:flex;align-items:stretch;justify-content:space-between;padding-top:8px;border-top:2pt solid #0a1628;margin-top:auto;}
 .js-stamp{width:2.2in;min-height:1.1in;border:2pt dashed #aaa;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;flex-shrink:0;}
 .js-stamp-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#555;text-align:center;}
@@ -5523,12 +5534,13 @@ table{width:auto;border-collapse:collapse;}
       ${svcChecks}
     </div>
 
+    ${operatorNotes ? `
     <div class="js-notes-row">
       <div class="js-notes-block">
-        <div class="js-notes-label">Notes</div>
-        ${notesText ? `<div class="js-notes-text">${esc(notesText)}</div>` : ''}
+        <div class="js-notes-label">⚑ Notes — Read Before Starting</div>
+        <div class="js-notes-text">${esc(operatorNotes)}</div>
       </div>
-    </div>
+    </div>` : ''}
 
     <div class="js-bottom">
       <div class="js-stamp">
