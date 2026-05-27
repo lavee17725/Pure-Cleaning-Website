@@ -1955,6 +1955,64 @@ async function saveDb() {
   sessionStorage.removeItem('pcpc_customer_db_cache');
 }
 
+// ── Law T1.20: Shared dual-write helper ───────────────────────────────────────
+// Encapsulates the T1.20 pattern: D1 write FIRST, KV mirrors after.
+// All scheduled-state creates go through this helper.
+// Returns { success, error, message, propertyId, payerId }
+async function scheduleJobWithDualWrite({
+  phone, propertyId, scheduledDate, amount, rigId,
+  services, workSiteAddress, workSiteCity, source,
+}) {
+  const ph       = (phone || '').replace(/\D/g, '').slice(-10);
+  const personId = 'person_1' + ph;
+
+  // Resolve propertyId via single-customer endpoint (has full properties[]).
+  // allCustomers (dbRecord) uses _d1PersonToKv shape which excludes properties[].
+  let propId = propertyId || null;
+  if (!propId) {
+    try {
+      const fullR = await fetch(`${PCPC_API}/customer/${ph}`).catch(() => null);
+      if (fullR && fullR.ok) {
+        const fullD = await fullR.json().catch(() => null);
+        const props = (fullD?.customer?.properties) || [];
+        propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
+      }
+    } catch(_) {}
+  }
+
+  if (!propId) {
+    const msg = 'Cannot schedule — no confirmed address on file. Save customer record first.';
+    return { success: false, error: 'no_property_id', message: msg };
+  }
+
+  // D1 write — calendar reads D1 only for state='scheduled'.
+  const d1Res = await fetch(`${PCPC_API}/admin/scheduled-job`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      payerId:           personId,
+      propertyId:        propId,
+      scheduledDate,
+      amount:            amount || 0,
+      rigId:             rigId  || null,
+      servicesRequested: services || 'Pending',
+      servicesRaw:       services || 'Pending',
+      jobNotes:          services || null,
+      workSiteAddress:   workSiteAddress || null,
+      workSiteCity:      workSiteCity    || null,
+      source:            source || 'calendar_schedule',
+    }),
+  }).catch(() => null);
+
+  if (!d1Res || !d1Res.ok) {
+    const errBody = d1Res ? await d1Res.json().catch(() => ({})) : {};
+    const msg = 'Save failed — calendar sync error. (' + (errBody.error || 'D1 write failed') + ')';
+    return { success: false, error: 'd1_write_failed', message: msg };
+  }
+
+  return { success: true, propertyId: propId, payerId: personId };
+}
+
 // ── Phase 2B-1: D1-native calendar job data ────────────────────────────────────
 
 async function loadCalendarJobs(weekStart) {
@@ -3783,9 +3841,29 @@ async function applyRigPick(rig) {
 function undoAction(phone, prevStatus) {
   const c = findCustomer(phone);
   if (!c) return;
+  const currentSs = c.scheduledStatus || {};
+  // If undoing a schedule action (current=scheduled, prev=not scheduled),
+  // PATCH the D1 job to 'rescheduled' so it disappears from calendar.
+  // Without this, D1 retains the scheduled row while KV reverts to queue state.
+  if (currentSs.state === 'scheduled' &&
+      (!prevStatus || !prevStatus.state || prevStatus.state !== 'scheduled')) {
+    const ph = (phone || '').replace(/\D/g, '').slice(-10);
+    const personId = 'person_1' + ph;
+    const scheduledDate = currentSs.scheduledDate;
+    if (scheduledDate && ph) {
+      // jobId matches format from POST /admin/scheduled-job (hyphens in date)
+      const jobId = `job_${personId}_${scheduledDate}_scheduled`;
+      patchJob(jobId, { state: 'rescheduled' })
+        .then(() => refreshCalendarJobs().then(() => render()))
+        .catch(e => { console.warn('[undoAction] D1 revert failed:', e.message); render(); });
+    } else {
+      render();
+    }
+  } else {
+    render();
+  }
   c.scheduledStatus = prevStatus;
   saveDb().catch(()=>{});
-  render();
   showToast('↩ Action undone');
 }
 
@@ -4614,6 +4692,7 @@ function executeCancelJob(phone, jobId, reason) {
   if (!c) return;
   _deletedSnapshot = {
     phone,
+    jobId:          jobId || null,  // stored so undoDelete can PATCH D1 back to 'scheduled'
     quoteStatus:    JSON.parse(JSON.stringify(c.quoteStatus    || {})),
     scheduledStatus:JSON.parse(JSON.stringify(c.scheduledStatus|| {})),
     quoteLifecycle: c.quoteLifecycle || null,
@@ -4691,13 +4770,24 @@ function undoDelete(phone) {
   if (!_deletedSnapshot || _deletedSnapshot.phone !== phone) return;
   const c = findCustomer(phone);
   if (!c) return;
+  const deletedJobId = _deletedSnapshot.jobId;
+  const restoredSs   = _deletedSnapshot.scheduledStatus;
+  // Restore D1 job from 'cancelled' back to 'scheduled' if there was a D1 job.
+  // Without this, D1 stays 'cancelled' while KV shows 'scheduled' → card won't
+  // appear on calendar (D1 is authoritative for scheduled state).
+  if (deletedJobId && restoredSs?.state === 'scheduled') {
+    patchJob(deletedJobId, { state: 'scheduled' })
+      .then(() => refreshCalendarJobs().then(() => render()))
+      .catch(e => { console.warn('[undoDelete] D1 restore failed:', e.message); render(); });
+  } else {
+    render();
+  }
   c.quoteStatus     = _deletedSnapshot.quoteStatus;
   c.scheduledStatus = _deletedSnapshot.scheduledStatus;
   c.quoteLifecycle  = _deletedSnapshot.quoteLifecycle;
   c.quoteHistory    = _deletedSnapshot.quoteHistory;
   _deletedSnapshot = null;
   saveDb().catch(()=>{});
-  render();
   showToast('↩ Action undone');
 }
 
@@ -6546,6 +6636,23 @@ async function confirmTapSchedule() {
     }
     if (_tapStories) c.scheduledStatus.roofStories = _tapStories;
   }
+  // D1 write FIRST (Law T1.20) — calendar reads D1 only for state='scheduled'.
+  // On failure: revert in-memory KV state, show error, do not saveDb().
+  const d1Result = await scheduleJobWithDualWrite({
+    phone:         _tapSchedPhone,
+    scheduledDate: date,
+    amount:        c.scheduledStatus.approvedAmount || 0,
+    rigId:         c.scheduledStatus.rig || null,
+    services:      c.scheduledStatus.jobNotes || c.quoteStatus?.mainServices || '',
+    source:        'tap_schedule',
+  });
+  if (!d1Result.success) {
+    c.scheduledStatus = prev;  // revert in-memory state
+    showToast('⚠️ Schedule failed — ' + d1Result.message);
+    return;
+  }
+
+  // KV write after D1 confirmed
   await saveDb();
   await refreshCalendarJobs();
   closeTapScheduleModal();
@@ -6650,10 +6757,24 @@ async function quickScheduleFromQueue(phone) {
   if (!date) { openTapScheduleModal(phone); return; }
   const prev = JSON.parse(JSON.stringify(ss));
 
-  c.scheduledStatus.state  = 'scheduled';
-  // scheduledDate, rig, window already set from queue edit
-  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning';
+  // D1 write FIRST (Law T1.20) — before modifying KV state.
+  // On failure: do NOT advance KV state; show error.
+  const d1Result = await scheduleJobWithDualWrite({
+    phone,
+    scheduledDate: date,
+    amount:        ss.approvedAmount || 0,
+    rigId:         ss.rig || null,
+    services:      ss.jobNotes || c.quoteStatus?.mainServices || '',
+    source:        'quick_schedule',
+  });
+  if (!d1Result.success) {
+    showToast('⚠️ Schedule failed — ' + d1Result.message);
+    return;
+  }
 
+  // KV write after D1 confirmed
+  c.scheduledStatus.state  = 'scheduled';
+  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning';
   await saveDb();
   render();
   const name     = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
@@ -6952,11 +7073,27 @@ async function handleDropToPool(phone, date) {
   const c = findCustomer(phone);
   if (!c) return;
   const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
+
+  // D1 write FIRST (Law T1.20) — before modifying KV state or re-rendering.
+  const d1Result = await scheduleJobWithDualWrite({
+    phone,
+    scheduledDate: date,
+    amount:        (c.scheduledStatus || {}).approvedAmount || 0,
+    rigId:         null,
+    services:      (c.scheduledStatus || {}).jobNotes || c.quoteStatus?.mainServices || '',
+    source:        'drag_to_pool',
+  });
+  if (!d1Result.success) {
+    showToast('⚠️ Schedule failed — ' + d1Result.message);
+    return;
+  }
+
+  // KV write after D1 confirmed
   if (!c.scheduledStatus) c.scheduledStatus = {};
   c.scheduledStatus.state         = 'scheduled';
   c.scheduledStatus.scheduledDate = date;
   c.scheduledStatus.rig           = null;
-  const name = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim();
+  const name    = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim();
   const dateStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   showToast(`📅 ${esc(name)} → ${dateStr} · Day Pool (rig TBD)`, 'Undo', () => { undoAction(phone, prev); });
   saveDb().catch(() => {});

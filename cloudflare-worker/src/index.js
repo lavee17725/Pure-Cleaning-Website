@@ -3744,7 +3744,9 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
     // New customer — insert Person + Property + PersonProperty
     if (!prev) {
       await _d1SyncNewCustomer(c, env, now);
-      await _d1SyncScheduledJob(c, env, now);
+      // _d1SyncScheduledJob removed — Law T1.20 (2026-05-26).
+      // Collateral scheduled-job creates from bulk sync caused 5 silent failures.
+      // All scheduled-state writes go through POST /admin/scheduled-job explicitly.
       continue;
     }
 
@@ -3772,23 +3774,19 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
       } catch(e) { await _logD1Failure(env, `_d1SyncCustomersPut:property_upsert:${ph}`, e.message); }
     }
 
-    // Sync newly scheduled status (changed scheduledDate or new schedule)
-    const ss = c.scheduledStatus;
-    const prevSs = prev.scheduledStatus;
-    if (ss?.state === 'scheduled' && ss.scheduledDate &&
-        ss.scheduledDate !== prevSs?.scheduledDate) {
-      // Delete the old scheduled row when date changes — INSERT OR ROLLBACK below
-      // creates the new one. Old row has no audit value (jobHistory captures completions).
-      if (prevSs?.scheduledDate) {
-        const oldJobId = _d1ScheduledJobId(personId, prevSs.scheduledDate);
-        try {
-          await env.DB.prepare(
-            `DELETE FROM Job WHERE jobId=? AND state='scheduled'`
-          ).bind(oldJobId).run();
-        } catch(e) { await _logD1Failure(env, `reschedule_old_delete:${ph}`, e.message); }
-      }
-      await _d1SyncScheduledJob(c, env, now);
-    }
+    // _d1SyncScheduledJob block removed — Law T1.20 (2026-05-26).
+    // Previously: bulk sync detected scheduledDate change and called _d1SyncScheduledJob.
+    // This caused Bug 3 (Carl Casagrande drag duplicate) and 5 collateral D1_ERROR entries
+    // in May 23-26: when any customer's PUT /customers fired, ALL 1,232 customers were
+    // iterated and scheduled-job INSERTs attempted for any with state='scheduled'.
+    // The INSERT OR ROLLBACK created duplicate jobs when drag patchJob updated D1 date
+    // but the KV blob still carried the old date (or vice versa after _patchJobKvSync).
+    //
+    // Fix: All scheduled-state writes now go through POST /admin/scheduled-job or
+    // PATCH /admin/job explicitly (calendar.html: confirmTapSchedule,
+    // quickScheduleFromQueue, handleDropToPool, undoAction, undoDelete;
+    // new_customer.html: submitScheduleNow). _d1SyncNewCustomer + _d1SyncPersonUpdate
+    // preserved — only the scheduled-job collateral creates are removed.
   }
 }
 
