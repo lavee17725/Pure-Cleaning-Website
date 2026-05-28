@@ -1963,6 +1963,7 @@ async function scheduleJobWithDualWrite({
   phone, propertyId, scheduledDate, amount, rigId,
   services, workSiteAddress, workSiteCity,
   workSitePlaceId, workSiteGoogleVerified,
+  roofStories,
   source,
 }) {
   const ph       = (phone || '').replace(/\D/g, '').slice(-10);
@@ -2004,6 +2005,7 @@ async function scheduleJobWithDualWrite({
       workSiteCity:           workSiteCity           || null,
       workSitePlaceId:        workSitePlaceId        || null,
       workSiteGoogleVerified: workSiteGoogleVerified ? 1 : 0,
+      roofStories:            roofStories            || null,
       source:                 source || 'calendar_schedule',
     }),
   }).catch(() => null);
@@ -6735,6 +6737,7 @@ async function confirmTapSchedule() {
     amount:        c.scheduledStatus.approvedAmount || 0,
     rigId:         c.scheduledStatus.rig || null,
     services:      c.scheduledStatus.jobNotes || c.quoteStatus?.mainServices || '',
+    roofStories:   c.scheduledStatus.roofStories || null,
     source:        'tap_schedule',
   });
   if (!d1Result.success) {
@@ -6856,6 +6859,7 @@ async function quickScheduleFromQueue(phone) {
     amount:        ss.approvedAmount || 0,
     rigId:         ss.rig || null,
     services:      ss.jobNotes || c.quoteStatus?.mainServices || '',
+    roofStories:   ss.roofStories || null,
     source:        'quick_schedule',
   });
   if (!d1Result.success) {
@@ -7172,6 +7176,7 @@ async function handleDropToPool(phone, date) {
     amount:        (c.scheduledStatus || {}).approvedAmount || 0,
     rigId:         null,
     services:      (c.scheduledStatus || {}).jobNotes || c.quoteStatus?.mainServices || '',
+    roofStories:   (c.scheduledStatus || {}).roofStories || null,
     source:        'drag_to_pool',
   });
   if (!d1Result.success) {
