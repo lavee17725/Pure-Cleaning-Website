@@ -3816,8 +3816,8 @@ async function _d1SyncNewCustomer(c, env, now) {
 
       // PersonProperty INSERT OR IGNORE
       await env.DB.prepare(
-        `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
-      ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+        `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
+      ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
 
       await _d1SyncPropertyUpdate(propId, {
         sqft:     c.sqFt || c.roofSqFt || null,
@@ -3954,8 +3954,8 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
           `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
         ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
         await env.DB.prepare(
-          `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
-        ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+          `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
+        ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
         await _d1SyncPropertyUpdate(propId, {
           sqft:     c.sqFt || null,
           roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
