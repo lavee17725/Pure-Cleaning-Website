@@ -1164,6 +1164,10 @@ body{background:#f0f2f5;}
       </select>
     </div>
     <div class="modal-field"><label>Sq Ft <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><input id="feSqFt" class="modal-input" type="number" min="0" placeholder="e.g. 2500"></div>
+    <div class="modal-field">
+      <label class="modal-label">Gate Code</label>
+      <input id="feGateCode" class="modal-input" type="text" placeholder="Gate code if needed">
+    </div>
 
     <div class="modal-section-hdr">Service Details</div>
     <div class="modal-field"><label>Services *</label><input id="feServices" class="modal-input" placeholder="e.g. Roof Softwash, Driveway…" oninput="checkFeRoof()"></div>
@@ -6051,6 +6055,7 @@ function openEditModal(phone, jhJobId, calJobId) {
 
   const roofType = _jh ? '' : (svcAgreed.roofType || '');
   document.getElementById('feRoofType').value = roofType;
+  document.getElementById('feGateCode').value = c.gateCode || '';
   const stories = _jh ? _jh.roofStories : (ss.roofStories || getLastKnownRoofStories(c) || null);
   const stEl = stories ? document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2))
                        : document.getElementById('feStoriesUnk');
@@ -6246,7 +6251,10 @@ async function saveFullEdit() {
         if (!qs.servicesAgreed) qs.servicesAgreed = {};
         if (_rt) qs.servicesAgreed.roofType = _rt;
       }
+      if (_rt) c.roofType = _rt;
     }
+    const _gc = document.getElementById('feGateCode').value.trim() || null;
+    c.gateCode = _gc;
     if (phoneChanged) { c.phone = newPhone; logEvent('phone_changed', newPhone, { oldPhone: _fePhone, newPhone, changedBy:'admin' }); }
     // Mirror rig change to local dbRecord so render() places card in correct lane immediately
     // and saveDb() writes the correct rig to KV (prevents stale-null overwriting _patchJobKvSync).
@@ -6347,7 +6355,10 @@ async function saveFullEdit() {
     if (stories) ss.roofStories = stories;
     if (!qs.servicesAgreed) qs.servicesAgreed = {};
     if (roofType) qs.servicesAgreed.roofType = roofType;
+    if (roofType) c.roofType = roofType;
   }
+  const _gc2 = document.getElementById('feGateCode').value.trim() || null;
+  c.gateCode = _gc2;
 
   if (phoneChanged) {
     const oldPhone = _fePhone;
