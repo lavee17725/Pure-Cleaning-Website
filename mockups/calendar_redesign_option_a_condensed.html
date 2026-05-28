@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Option A — Condensed Cards</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#1a2744;color:#1a1f2e;font-size:13px;}
+:root{
+  --navy:#0a1628;--navy2:#0d1e35;--sky:#2d7dd2;--gold:#c9a227;--terra:#c25a2e;
+  --green:#059669;--border:#e8e2d8;--muted:#6b7280;--white:#fff;
+  --rig1:#3b82f6;--rig2:#10b981;--rig3:#f59e0b;
+}
+
+/* ── LABEL / META ── */
+.opt-label{padding:12px 20px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.5);}
+.opt-title{padding:0 20px 4px;font-size:22px;font-weight:800;color:#fff;}
+.opt-desc{padding:0 20px 10px;font-size:12px;color:rgba(255,255,255,.55);line-height:1.5;max-width:800px;}
+.vp-pill{display:inline-block;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);font-size:10px;font-weight:700;border-radius:12px;padding:3px 10px;margin:0 20px 14px;vertical-align:middle;}
+.vs-current{background:rgba(255,107,107,.15);color:#ff6b6b;}
+
+/* ── TOPBAR ── */
+.topbar{height:46px;background:var(--navy);display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.08);}
+.topbar-logo{font-size:15px;font-weight:800;color:#fff;letter-spacing:.3px;margin-right:auto;}
+.topbar-logo span{color:var(--gold);}
+.tb-pill{font-size:11px;font-weight:700;padding:4px 12px;border:1.5px solid rgba(255,255,255,.2);border-radius:8px;color:rgba(255,255,255,.7);cursor:pointer;background:none;}
+.tb-pill:hover{border-color:rgba(255,255,255,.5);color:#fff;}
+.week-nav{display:flex;align-items:center;gap:6px;}
+.nav-btn{font-size:11px;padding:4px 10px;border:1.5px solid rgba(255,255,255,.15);border-radius:7px;background:none;color:rgba(255,255,255,.6);cursor:pointer;}
+.week-lbl{font-size:12px;font-weight:700;color:rgba(255,255,255,.8);padding:0 4px;min-width:100px;text-align:center;}
+
+/* ── CALENDAR GRID ── */
+.cal-outer{overflow-x:auto;}
+.cal-grid{display:grid;grid-template-columns:repeat(6,minmax(175px,1fr));min-width:1050px;border-top:1px solid rgba(255,255,255,.07);}
+.day-col{border-right:1px solid rgba(255,255,255,.07);}
+.day-col:last-child{border-right:none;}
+
+/* ── DAY HEADER ── */
+.day-hdr{padding:8px 10px 6px;background:var(--navy2);border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;}
+.dh-top{display:flex;justify-content:space-between;align-items:flex-start;}
+.dh-name{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gold);}
+.dh-date{font-size:16px;font-weight:700;color:#fff;line-height:1.2;}
+.dh-rev{font-size:12px;color:rgba(255,255,255,.6);font-weight:600;margin-top:2px;}
+.dh-rev strong{color:#86efac;}
+.today-col .day-hdr{background:#1b2e46;border-bottom:2px solid var(--gold);}
+.today-col .dh-name{color:var(--gold);}
+
+/* ── RIG SECTION ── */
+.rig-section{border-bottom:1px solid rgba(255,255,255,.06);}
+.rig-section:last-child{border-bottom:none;}
+.rig-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 10px;background:#f8f9fb;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:600;color:var(--navy);}
+.rig-hdr:hover{background:#eff3f9;}
+.rig-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.rig-name{flex:1;font-size:11px;font-weight:700;}
+.rig-crew{font-size:10px;color:var(--sky);font-weight:600;}
+.rig-jobs{min-height:40px;padding:5px 6px;background:#fff;}
+
+/* ── OPTION A: CONDENSED CARD ── */
+.job-card{background:#fff;border:1.5px solid #dbeafe;border-left:4px solid var(--sky);border-radius:8px;padding:5px 8px;margin-bottom:4px;cursor:pointer;font-size:12px;transition:box-shadow .12s;}
+.job-card:hover{box-shadow:0 2px 8px rgba(45,125,210,.15);}
+.job-card.completed{background:#d1fae5;border-left-color:var(--green);border-color:#6ee7b7;}
+.job-card-mini{display:flex;align-items:center;gap:6px;min-height:0;}
+.jc-status{font-size:11px;width:14px;flex-shrink:0;color:var(--green);font-weight:700;}
+.jc-name{font-weight:700;color:var(--navy);font-size:13px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.jc-amount{font-weight:700;color:var(--terra);font-size:12px;flex-shrink:0;white-space:nowrap;}
+.jc-time{font-size:10px;color:var(--muted);flex-shrink:0;}
+.jc-svc{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;}
+
+/* ── EXPANDED STATE ── */
+.job-card-detail{display:none;padding-top:6px;border-top:1px solid #e5e7eb;margin-top:5px;}
+.job-card.expanded .job-card-detail{display:block;}
+.jd-row{font-size:11px;color:var(--muted);margin-bottom:2px;}
+.jd-row strong{color:var(--navy);}
+.jd-btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+.jd-btn{font-size:10px;padding:4px 9px;border:1.5px solid var(--border);border-radius:6px;background:#f9f9f7;color:var(--muted);font-family:inherit;cursor:pointer;font-weight:600;}
+.jd-btn.green{background:#f0fdf4;border-color:#86efac;color:#166534;}
+.jd-btn.blue{background:#eff6ff;border-color:#93c5fd;color:#1e40af;}
+.jd-btn.red{background:#fef2f2;border-color:#fca5a5;color:#991b1b;}
+.expand-hint{font-size:9px;color:#9ca3af;text-align:right;margin-top:2px;}
+
+/* ── COMMUTE SUMMARY ── */
+.rig-summary{font-size:10px;color:var(--sky);font-weight:700;padding:3px 8px 5px;background:#f5f8ff;}
+
+/* ── EMPTY RIG ── */
+.rig-empty{min-height:28px;background:#fafaf9;}
+
+/* ── HEIGHT COMPARISON CALLOUT ── */
+.callout{background:#0d1e35;border-left:3px solid var(--gold);padding:10px 14px;margin:12px 20px;border-radius:0 8px 8px 0;font-size:12px;color:rgba(255,255,255,.7);line-height:1.6;}
+.callout strong{color:#fff;}
+
+/* ── PHONE VIEW ── */
+@media(max-width:640px){
+  .cal-grid{grid-template-columns:repeat(3,minmax(130px,1fr));min-width:390px;}
+}
+</style>
+</head><body>
+
+<div class="opt-label">Option A of 3</div>
+<div class="opt-title">Condensed Cards</div>
+<div class="opt-desc">Same 3-rig swimlane layout. Cards shrink 50%+ by default — name, amount, time on one row. Click any card to expand and reveal address, services, action buttons. Everything is still there, just hidden until needed.</div>
+
+<div class="callout">
+  <strong>Current vs Option A:</strong> Current card height ~120–140px · Option A collapsed ~36px · Option A expanded ~120px<br>
+  A typical 2-job rig day column: current requires 500px+ of scroll · Option A shows all 2 jobs in ~120px collapsed (no scroll needed on most days).<br>
+  <strong>Mom's mental model is unchanged</strong> — same 3 swimlanes, same order, same colors. Just denser.
+</div>
+
+<!-- DESKTOP -->
+<div class="vp-pill">Desktop ~1440px</div>
+<div style="background:#0a1628;padding:0;">
+<div class="topbar">
+  <div class="topbar-logo">Pure <span>Cleaning</span></div>
+  <div class="week-nav">
+    <button class="nav-btn">‹ Prev</button>
+    <div class="week-lbl">May 19 – 24, 2026</div>
+    <button class="nav-btn">Next ›</button>
+    <button class="nav-btn">Today</button>
+  </div>
+  <button class="tb-pill">📍 Day Route</button>
+  <button class="tb-pill">📊 Payroll</button>
+  <button class="tb-pill">👥 Crew</button>
+</div>
+
+<div class="cal-outer">
+<div class="cal-grid">
+
+<!-- MON 19 -->
+<div class="day-col today-col">
+  <div class="day-hdr">
+    <div class="dh-top"><div><div class="dh-name">Mon</div><div class="dh-date">19</div></div><div style="font-size:10px;color:rgba(255,255,255,.4);">☀️ 84°</div></div>
+    <div class="dh-rev"><strong>$835</strong> · 3 jobs</div>
+  </div>
+  <!-- Old Tacoma -->
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig1);"></div><div class="rig-name">Old Tacoma</div><div class="rig-crew">Byron + Jonathan</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Oscar Perez</div>
+          <div class="jc-amount">$350</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Roof + Driveway · 1-story</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 15902 Stonetower St, Pembroke Pines</div>
+          <div class="jd-row">🚗 ~6.2 mi from home</div>
+          <div class="jd-row">est. 9:00 – 11:30 AM</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">🖨 Print</button>
+            <button class="jd-btn">✏️ Edit</button>
+            <button class="jd-btn">↔ Rig</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+      <div class="job-card completed" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status">✓</div>
+          <div class="jc-name">Andreina Garcia</div>
+          <div class="jc-amount">$185</div>
+          <div class="jc-time">PM</div>
+        </div>
+        <div class="jc-svc">Driveway + Steps</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 2487 Quail Roost Dr, Pembroke Pines</div>
+          <div class="jd-row">💰 Log Payment</div>
+          <div class="jd-btns">
+            <button class="jd-btn green">💰 Log Payment</button>
+            <button class="jd-btn">🖨 Print</button>
+            <button class="jd-btn blue">📄 Send Receipt</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 9.1 mi · ~16 min drive · 2 jobs</div>
+  </div>
+  <!-- New Tacoma -->
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig2);"></div><div class="rig-name">New Tacoma</div><div class="rig-crew">Danny</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Valerie Bornstein</div>
+          <div class="jc-amount">$225</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Driveway</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 2834 Oakleigh Ln, Davie</div>
+          <div class="jd-row">est. 9:30 – 11:00 AM</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 4.8 mi · ~8 min drive · 1 job</div>
+  </div>
+  <!-- Chevy -->
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig3);"></div><div class="rig-name">Chevy</div><div class="rig-crew">Tony</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+</div>
+
+<!-- TUE 20 -->
+<div class="day-col">
+  <div class="day-hdr">
+    <div class="dh-top"><div><div class="dh-name">Tue</div><div class="dh-date">20</div></div></div>
+    <div class="dh-rev"><strong>$675</strong> · 2 jobs</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig1);"></div><div class="rig-name">Old Tacoma</div><div class="rig-crew">Byron</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Bob Kirk</div>
+          <div class="jc-amount">$275</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Driveway + Pool deck</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 804 Heritage Dr, Davie</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 3.2 mi · ~5 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig2);"></div><div class="rig-name">New Tacoma</div><div class="rig-crew">Danny + Jonathan</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Alkesh Mevada</div>
+          <div class="jc-amount">$400</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Roof + Driveway + Steps · 1-story</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 1190 Balboa Ct, Weston</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 7.4 mi · ~13 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig3);"></div><div class="rig-name">Chevy</div><div class="rig-crew">—</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+</div>
+
+<!-- WED 21 -->
+<div class="day-col">
+  <div class="day-hdr">
+    <div class="dh-top"><div><div class="dh-name">Wed</div><div class="dh-date">21</div></div></div>
+    <div class="dh-rev"><strong>$925</strong> · 3 jobs</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig1);"></div><div class="rig-name">Old Tacoma</div><div class="rig-crew">Byron + Jonathan</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Joseiky Garcia</div>
+          <div class="jc-amount">$175</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Driveway</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 4721 NW 94 Ct, Doral</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 5.1 mi · ~9 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig2);"></div><div class="rig-name">New Tacoma</div><div class="rig-crew">Danny</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Felicia Schwartz</div>
+          <div class="jc-amount">$350</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Roof · 1-story</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 1855 NW 107 Terr, Coral Springs</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 6.8 mi · ~12 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig3);"></div><div class="rig-name">Chevy</div><div class="rig-crew">Tony</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Amy Caress</div>
+          <div class="jc-amount">$400</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Roof + Driveway · 2-story</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 19421 SW 30 St, Miramar</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 8.3 mi · ~14 min drive · 1 job</div>
+  </div>
+</div>
+
+<!-- THU 22 -->
+<div class="day-col">
+  <div class="day-hdr">
+    <div class="dh-top"><div><div class="dh-name">Thu</div><div class="dh-date">22</div></div></div>
+    <div class="dh-rev"><strong>$550</strong> · 2 jobs</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig1);"></div><div class="rig-name">Old Tacoma</div><div class="rig-crew">Byron + Jonathan</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Nidia Tesoriero</div>
+          <div class="jc-amount">$225</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Driveway</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 1118 Skylark Dr, Weston</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 4.1 mi · ~7 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig2);"></div><div class="rig-name">New Tacoma</div><div class="rig-crew">Danny</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Debra Pashley</div>
+          <div class="jc-amount">$325</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Roof + Driveway · 1-story</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 20011 NW 5th St, Pembroke Pines</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 5.9 mi · ~10 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig3);"></div><div class="rig-name">Chevy</div><div class="rig-crew">—</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+</div>
+
+<!-- FRI 23 -->
+<div class="day-col">
+  <div class="day-hdr">
+    <div class="dh-top"><div><div class="dh-name">Fri</div><div class="dh-date">23</div></div></div>
+    <div class="dh-rev"><strong>$425</strong> · 2 jobs</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig1);"></div><div class="rig-name">Old Tacoma</div><div class="rig-crew">Byron + Jonathan</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Tanner Huysman</div>
+          <div class="jc-amount">$250</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Driveway + Sidewalk</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 9320 Oak Grove Circle, Davie</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 3.8 mi · ~7 min drive · 1 job</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig2);"></div><div class="rig-name">New Tacoma</div><div class="rig-crew">—</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig3);"></div><div class="rig-name">Chevy</div><div class="rig-crew">Tony</div></div>
+    <div class="rig-jobs">
+      <div class="job-card" onclick="toggleCard(this)">
+        <div class="job-card-mini">
+          <div class="jc-status"></div>
+          <div class="jc-name">Keith Beckler</div>
+          <div class="jc-amount">$175</div>
+          <div class="jc-time">AM</div>
+        </div>
+        <div class="jc-svc">Driveway</div>
+        <div class="job-card-detail">
+          <div class="jd-row">📍 743 NW 135 Ave, Pembroke Pines</div>
+          <div class="jd-btns">
+            <button class="jd-btn blue">📍 Text ETA</button>
+            <button class="jd-btn">✏️ Edit</button>
+          </div>
+        </div>
+        <div class="expand-hint">tap to expand</div>
+      </div>
+    </div>
+    <div class="rig-summary">📊 2.9 mi · ~5 min drive · 1 job</div>
+  </div>
+</div>
+
+<!-- SAT 24 -->
+<div class="day-col">
+  <div class="day-hdr">
+    <div class="dh-top"><div><div class="dh-name">Sat</div><div class="dh-date">24</div></div></div>
+    <div class="dh-rev" style="color:rgba(255,255,255,.3);">—</div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig1);"></div><div class="rig-name">Old Tacoma</div><div class="rig-crew">—</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig2);"></div><div class="rig-name">New Tacoma</div><div class="rig-crew">—</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+  <div class="rig-section">
+    <div class="rig-hdr"><div class="rig-dot" style="background:var(--rig3);"></div><div class="rig-name">Chevy</div><div class="rig-crew">—</div></div>
+    <div class="rig-jobs rig-empty"></div>
+  </div>
+</div>
+
+</div><!-- cal-grid -->
+</div><!-- cal-outer -->
+</div><!-- bg -->
+
+<!-- PHONE SIM -->
+<div style="padding:20px 0 8px;">
+<div class="vp-pill">Phone ~400px (same card expand behavior)</div>
+</div>
+<div style="max-width:400px;margin:0 20px 24px;background:#0a1628;border-radius:10px;overflow:hidden;">
+<div class="topbar" style="padding:0 12px;">
+  <div class="topbar-logo" style="font-size:13px;">Pure <span>Cleaning</span></div>
+  <div class="week-nav"><button class="nav-btn">‹</button><div class="week-lbl" style="font-size:11px;min-width:80px;">May 19–24</div><button class="nav-btn">›</button></div>
+</div>
+<div class="cal-outer">
+<div class="cal-grid" style="grid-template-columns:repeat(3,1fr);min-width:0;">
+  <div class="day-col today-col">
+    <div class="day-hdr"><div class="dh-top"><div><div class="dh-name">Mon</div><div class="dh-date" style="font-size:14px;">19</div></div></div><div class="dh-rev" style="font-size:10px;"><strong>$835</strong> · 3</div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig1);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">Old Tacoma</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;">
+      <div class="job-card" style="padding:3px 6px;margin-bottom:3px;" onclick="toggleCard(this)">
+        <div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">Oscar Perez</div><div class="jc-amount" style="font-size:10px;">$350</div></div>
+        <div class="job-card-detail"><div class="jd-row">Roof + Driveway · 1-story</div><div class="jd-row">📍 15902 Stonetower St</div></div>
+      </div>
+    </div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig2);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">New Tacoma</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;">
+      <div class="job-card" style="padding:3px 6px;margin-bottom:3px;" onclick="toggleCard(this)">
+        <div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">V. Bornstein</div><div class="jc-amount" style="font-size:10px;">$225</div></div>
+      </div>
+    </div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig3);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">Chevy</div></div><div class="rig-jobs rig-empty" style="min-height:16px;"></div></div>
+  </div>
+  <div class="day-col">
+    <div class="day-hdr"><div class="dh-top"><div><div class="dh-name">Tue</div><div class="dh-date" style="font-size:14px;">20</div></div></div><div class="dh-rev" style="font-size:10px;"><strong>$675</strong> · 2</div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig1);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">Old Tacoma</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;"><div class="job-card" style="padding:3px 6px;margin-bottom:3px;" onclick="toggleCard(this)"><div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">Bob Kirk</div><div class="jc-amount" style="font-size:10px;">$275</div></div></div></div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig2);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">New Tacoma</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;"><div class="job-card" style="padding:3px 6px;margin-bottom:3px;" onclick="toggleCard(this)"><div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">A. Mevada</div><div class="jc-amount" style="font-size:10px;">$400</div></div></div></div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig3);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">Chevy</div></div><div class="rig-jobs rig-empty" style="min-height:16px;"></div></div>
+  </div>
+  <div class="day-col">
+    <div class="day-hdr"><div class="dh-top"><div><div class="dh-name">Wed</div><div class="dh-date" style="font-size:14px;">21</div></div></div><div class="dh-rev" style="font-size:10px;"><strong>$925</strong> · 3</div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig1);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">Old Tacoma</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;"><div class="job-card" style="padding:3px 6px;margin-bottom:3px;" onclick="toggleCard(this)"><div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">J. Garcia</div><div class="jc-amount" style="font-size:10px;">$175</div></div></div></div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig2);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">New Tacoma</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;"><div class="job-card" style="padding:3px 6px;margin-bottom:3px;" onclick="toggleCard(this)"><div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">F. Schwartz</div><div class="jc-amount" style="font-size:10px;">$350</div></div></div></div></div>
+    <div class="rig-section"><div class="rig-hdr" style="padding:3px 6px;"><div class="rig-dot" style="background:var(--rig3);width:6px;height:6px;"></div><div class="rig-name" style="font-size:10px;">Chevy</div></div>
+    <div class="rig-jobs" style="padding:3px 4px;"><div class="job-card" style="padding:3px 6px;border-left-color:var(--rig3);border-color:#fef3c7;margin-bottom:3px;" onclick="toggleCard(this)"><div class="job-card-mini" style="gap:4px;"><div class="jc-name" style="font-size:11px;">A. Caress</div><div class="jc-amount" style="font-size:10px;">$400</div></div></div></div></div>
+  </div>
+</div>
+</div>
+</div>
+
+<script>
+function toggleCard(card) {
+  card.classList.toggle('expanded');
+  const hint = card.querySelector('.expand-hint');
+  if (hint) hint.style.display = card.classList.contains('expanded') ? 'none' : 'block';
+}
+</script>
+</body></html>

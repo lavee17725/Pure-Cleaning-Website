@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Labor Hours Math Correction Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#e2e8f0;padding:20px;color:#1a1f2e;font-size:13px;}
+h2{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:16px;}
+.badge-fix{display:inline-block;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:20px;}
+.fix-note{background:#fff7ed;border:1.5px solid #fed7aa;border-radius:8px;padding:10px 14px;font-size:12px;color:#7c2d12;margin-bottom:24px;max-width:820px;line-height:1.6;}
+.fix-note code{background:#ffedd5;padding:1px 5px;border-radius:3px;font-family:monospace;}
+.section-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8pt;color:#64748b;margin-bottom:8px;}
+.before{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:16px;margin-bottom:16px;max-width:820px;}
+.after{background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:16px;margin-bottom:28px;max-width:820px;}
+:root{--navy:#0a1628;--sky:#2d7dd2;--terra:#c25a2e;--border:#e8e2d8;--muted:#6b7280;--white:#ffffff;}
+table{width:100%;border-collapse:collapse;background:var(--white);border-radius:8px;overflow:hidden;}
+thead th{background:var(--navy);color:rgba(255,255,255,.7);padding:9px 11px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;text-align:left;}
+thead th.highlight{color:#93c5fd;}
+thead th.highlight-fix{color:#86efac;}
+tbody tr{border-bottom:1px solid #f0ede8;}
+tbody tr:last-child{border-bottom:none;}
+td{padding:9px 11px;font-size:13px;}
+td.muted{color:var(--muted);}
+td.money{font-weight:700;color:var(--terra);}
+td.wrong{font-size:12px;font-weight:600;color:#dc2626;}
+td.right{font-size:12px;font-weight:600;color:#0a1628;}
+td.none{font-size:12px;color:#d1d5db;}
+.tier-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;}
+.sind{font-size:9px;opacity:.4;margin-left:3px;}
+.diff-arrow{color:#64748b;font-size:11px;margin:0 8px;}
+.calc-note{font-size:10px;color:#64748b;font-style:italic;margin-top:8px;}
+</style></head><body>
+
+<h2>Labor Hours Math Correction</h2>
+<p class="sub">Column "Avg Time/Worker" → "Avg Labor/Job" · Math inverted: was ÷ crew, now × crew</p>
+<div class="badge-fix">MATH FIX</div>
+
+<div class="fix-note">
+  <strong>Bug (commit d9626d3):</strong> <code>perWorkerMinutes = actualDuration ÷ DEFAULT_CREW_COUNT</code>
+  — divided when it should multiply. A 93-min job with 2 crew showed 47 min (half the job time), not 186 min (what Tyler actually pays for).<br><br>
+  <strong>Fix:</strong> <code>laborMinutes = actualDuration × DEFAULT_CREW_COUNT</code>
+  — labor hours = time × people. A 93-min job with 2 crew = 186 labor-minutes (3h 6m) billed.<br><br>
+  <strong>Field rename:</strong> <code>avgMinPerWorker</code> → <code>avgLaborMinutes</code> · <code>lastMinPerWorker</code> → <code>lastLaborMinutes</code><br>
+  <strong>Column rename:</strong> "Avg Time/Worker" → "Avg Labor/Job"<br>
+  <strong>All 1244 records recomputed</strong> via <code>POST /admin/compute-metrics</code>
+</div>
+
+<!-- BEFORE -->
+<div class="section-lbl">Before (d9626d3 — wrong math)</div>
+<div class="before">
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>Tier</th><th>Last Service</th>
+      <th class="highlight">Avg Time/Worker ← wrong</th>
+      <th>Jobs</th><th>Lifetime $</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Joseiky Garcia</td><td><span class="tier-chip" style="background:#16a34a;">🏆 LOYAL</span></td><td class="muted">May 14</td><td class="wrong">Last: 0h 47m</td><td>4</td><td class="money">$1,100</td></tr>
+    <tr><td>Janille Faulkner</td><td><span class="tier-chip" style="background:#d97706;">🔥 WARM</span></td><td class="muted">May 18</td><td class="wrong">Last: 1h 21m</td><td>1</td><td class="money">$350</td></tr>
+    <tr><td>Keith Beckler</td><td><span class="tier-chip" style="background:#d97706;">🔥 WARM</span></td><td class="muted">May 4</td><td class="wrong">Last: 0h 19m</td><td>2</td><td class="money">$600</td></tr>
+    <tr><td>Alkesh Mevada</td><td><span class="tier-chip" style="background:#16a34a;">🏆 LOYAL</span></td><td class="muted">May 11</td><td class="wrong">Last: 1h 2m</td><td>6</td><td class="money">$2,400</td></tr>
+    <tr><td>Andreina Garcia</td><td><span class="tier-chip" style="background:#16a34a;">🏆 LOYAL</span></td><td class="muted">May 12</td><td class="wrong">Last: 1h 33m</td><td>4</td><td class="money">$1,200</td></tr>
+    <tr><td>Robin Shulman</td><td><span class="tier-chip" style="background:#9333ea;">⏰ OVERDUE</span></td><td class="muted">Mar 3</td><td class="none">—</td><td>3</td><td class="money">$750</td></tr>
+  </tbody>
+</table>
+<div class="calc-note">93-min job ÷ 2 = 47 min shown — wrong. Told Tyler one worker did half a job.</div>
+</div>
+
+<!-- AFTER -->
+<div class="section-lbl">After (this fix — correct math)</div>
+<div class="after">
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>Tier</th><th>Last Service</th>
+      <th class="highlight-fix">Avg Labor/Job ← correct</th>
+      <th>Jobs</th><th>Lifetime $</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Joseiky Garcia</td><td><span class="tier-chip" style="background:#16a34a;">🏆 LOYAL</span></td><td class="muted">May 14</td><td class="right">Last: 3h 6m</td><td>4</td><td class="money">$1,100</td></tr>
+    <tr><td>Janille Faulkner</td><td><span class="tier-chip" style="background:#d97706;">🔥 WARM</span></td><td class="muted">May 18</td><td class="right">Last: 5h 24m</td><td>1</td><td class="money">$350</td></tr>
+    <tr><td>Keith Beckler</td><td><span class="tier-chip" style="background:#d97706;">🔥 WARM</span></td><td class="muted">May 4</td><td class="right">Last: 1h 16m</td><td>2</td><td class="money">$600</td></tr>
+    <tr><td>Alkesh Mevada</td><td><span class="tier-chip" style="background:#16a34a;">🏆 LOYAL</span></td><td class="muted">May 11</td><td class="right">Last: 4h 8m</td><td>6</td><td class="money">$2,400</td></tr>
+    <tr><td>Andreina Garcia</td><td><span class="tier-chip" style="background:#16a34a;">🏆 LOYAL</span></td><td class="muted">May 12</td><td class="right">Last: 6h 10m</td><td>4</td><td class="money">$1,200</td></tr>
+    <tr><td>Robin Shulman</td><td><span class="tier-chip" style="background:#9333ea;">⏰ OVERDUE</span></td><td class="muted">Mar 3</td><td class="none">—</td><td>3</td><td class="money">$750</td></tr>
+  </tbody>
+</table>
+<div class="calc-note">93-min job × 2 crew = 3h 6m labor shown — correct. This is what Tyler pays for and what matters for profitability.</div>
+</div>
+
+</body></html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Exclusion Modal Minimal Fix Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#e2e8f0;padding:24px;color:#1a1f2e;font-size:13px;}
+h2{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+.badge{display:inline-block;background:#16a34a;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:20px;}
+
+.fix-note{background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 14px;font-size:12px;color:#14532d;margin-bottom:20px;max-width:700px;line-height:1.6;}
+.fix-note code{background:#dcfce7;padding:1px 5px;border-radius:3px;font-family:monospace;}
+
+/* viewport labels */
+.vp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8pt;color:#64748b;margin-bottom:8px;}
+
+/* backdrop simulation */
+.backdrop{
+  background:rgba(0,0,0,.65);
+  display:flex;align-items:center;justify-content:center;
+  padding:16px;
+  border-radius:10px;
+  margin-bottom:24px;
+}
+
+/* THE FIXED MODAL — exact production CSS + two changes */
+.excl-modal{
+  background:#fff;
+  border:1px solid #e8e2d8;
+  border-radius:16px;
+  padding:1.5rem;
+  max-width:440px;
+  width:100%;
+  min-width:0;           /* FIX 2: was missing, caused modal to exceed max-width */
+  max-height:90vh;
+  overflow-y:auto;
+}
+.excl-modal h3{
+  font-family:-apple-system,sans-serif;
+  font-size:22px;
+  font-weight:800;
+  letter-spacing:.5px;
+  color:#0a1628;          /* FIX 1: was var(--white)=#fff, now var(--navy)=#0a1628 */
+  margin-bottom:.25rem;
+}
+.excl-modal p{font-size:13px;color:#6b7280;line-height:1.5;margin:0 0 .25rem;}
+.excl-modal .why-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-top:.75rem;display:block;}
+.excl-radio-group{display:flex;flex-direction:column;gap:7px;margin:.875rem 0;}
+.excl-radio-label{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 12px;
+  border:1.5px solid #e8e2d8;border-radius:8px;
+  cursor:pointer;transition:border-color .15s,background .15s;
+}
+.excl-radio-label:hover{border-color:#2d7dd2;background:rgba(45,125,210,.06);}
+.excl-radio-label input{accent-color:#2d7dd2;flex-shrink:0;cursor:pointer;}
+.excl-radio-label span{font-size:13px;color:#1a1f2e;}
+.excl-notes{width:100%;padding:9px 12px;background:#fff;border:1.5px solid #e8e2d8;border-radius:8px;color:#1a1f2e;font-family:inherit;font-size:13px;resize:none;margin-top:.75rem;}
+.excl-btn-row{display:flex;gap:10px;margin-top:1.25rem;}
+.excl-cancel{flex:1;padding:11px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;color:#6b7280;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;}
+.excl-confirm-red{flex:2;padding:11px;border:none;border-radius:10px;background:#dc2626;color:#fff;font-family:-apple-system,sans-serif;font-size:16px;font-weight:800;cursor:pointer;}
+</style></head><body>
+
+<h2>Exclusion Modal — Minimal Fix Preview</h2>
+<p class="sub">Two property changes. No HTML restructure. No new overflow rules.</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<div class="fix-note">
+  <strong>Fix 1:</strong> <code>color:var(--white)</code> → <code>color:var(--navy)</code> on <code>#exclModalTitle</code> inline style. Title was white text on white background.<br>
+  <strong>Fix 2:</strong> <code>min-width:0</code> added to <code>.excl-modal</code>. As a flex item in the backdrop's <code>display:flex</code> container, <code>max-width:440px</code> was being overridden by <code>min-width:auto</code> (intrinsic content width). Now the modal actually stays ≤ 440px.
+</div>
+
+<!-- PHONE ~390px -->
+<div class="vp-label">Phone (~390px viewport)</div>
+<div class="backdrop" style="max-width:390px;">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">🚫</div>
+    <h3>Don't Reactivate Robin Shulman?</h3>
+    <p>954-770-3928</p>
+    <span class="why-lbl">Why?</span>
+    <div class="excl-radio-group">
+      <label class="excl-radio-label"><input type="radio" name="r1" checked><span>Customer asked to stop (opted out)</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r1"><span>Moved away</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r1"><span>Deceased</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r1"><span>Friend or family</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r1"><span>Do not contact (my call)</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r1"><span>Commercial account (wrong list)</span></label>
+    </div>
+    <label class="why-lbl">Notes <span style="font-weight:400;text-transform:none;font-size:10px;">(optional)</span></label>
+    <textarea class="excl-notes" rows="2" placeholder="My cousin's house, called and asked to stop, etc."></textarea>
+    <div class="excl-btn-row">
+      <button class="excl-cancel">Cancel</button>
+      <button class="excl-confirm-red">Confirm Exclusion</button>
+    </div>
+  </div>
+</div>
+
+<!-- TABLET ~768px -->
+<div class="vp-label">Tablet (~768px viewport)</div>
+<div class="backdrop" style="max-width:768px;">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">🚫</div>
+    <h3>Don't Reactivate Robin Shulman?</h3>
+    <p>954-770-3928</p>
+    <span class="why-lbl">Why?</span>
+    <div class="excl-radio-group">
+      <label class="excl-radio-label"><input type="radio" name="r2" checked><span>Customer asked to stop (opted out)</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r2"><span>Moved away</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r2"><span>Deceased</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r2"><span>Friend or family</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r2"><span>Do not contact (my call)</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r2"><span>Commercial account (wrong list)</span></label>
+    </div>
+    <label class="why-lbl">Notes <span style="font-weight:400;text-transform:none;font-size:10px;">(optional)</span></label>
+    <textarea class="excl-notes" rows="2" placeholder="My cousin's house, called and asked to stop, etc."></textarea>
+    <div class="excl-btn-row">
+      <button class="excl-cancel">Cancel</button>
+      <button class="excl-confirm-red">Confirm Exclusion</button>
+    </div>
+  </div>
+</div>
+
+<!-- DESKTOP ~1280px -->
+<div class="vp-label">Desktop (~1280px viewport) — modal capped at 440px</div>
+<div class="backdrop" style="max-width:1280px;">
+  <div class="excl-modal">
+    <div style="font-size:1.75rem;margin-bottom:.25rem;">🚫</div>
+    <h3>Don't Reactivate Robin Shulman?</h3>
+    <p>954-770-3928</p>
+    <span class="why-lbl">Why?</span>
+    <div class="excl-radio-group">
+      <label class="excl-radio-label"><input type="radio" name="r3" checked><span>Customer asked to stop (opted out)</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r3"><span>Moved away</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r3"><span>Deceased</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r3"><span>Friend or family</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r3"><span>Do not contact (my call)</span></label>
+      <label class="excl-radio-label"><input type="radio" name="r3"><span>Commercial account (wrong list)</span></label>
+    </div>
+    <label class="why-lbl">Notes <span style="font-weight:400;text-transform:none;font-size:10px;">(optional)</span></label>
+    <textarea class="excl-notes" rows="2" placeholder="My cousin's house, called and asked to stop, etc."></textarea>
+    <div class="excl-btn-row">
+      <button class="excl-cancel">Cancel</button>
+      <button class="excl-confirm-red">Confirm Exclusion</button>
+    </div>
+  </div>
+</div>
+
+</body></html>

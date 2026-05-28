@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer Profile — Cards Mockup</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'Helvetica Neue',sans-serif;background:#0f1623;color:#e8edf3;min-height:100vh;padding:0;}
+
+/* ── Top bar ── */
+.topbar{background:#111c2b;border-bottom:1px solid #1e2e42;padding:.625rem 1.5rem;display:flex;align-items:center;gap:1rem;}
+.topbar-back{color:#6b7a8d;font-size:13px;text-decoration:none;display:flex;align-items:center;gap:.375rem;}
+.topbar-back:hover{color:#e8edf3;}
+.topbar-label{font-size:12px;color:#6b7a8d;background:#1a2332;border:1px solid #2a3a4a;border-radius:4px;padding:2px 8px;margin-left:auto;}
+
+/* ── Layout ── */
+.page{max-width:860px;margin:0 auto;padding:1.5rem 1.25rem 3rem;}
+
+/* ── ZONE 1 — Identity ── */
+.zone-identity{background:#1a2332;border:1px solid #2a3a4a;border-radius:14px;padding:1.5rem 1.75rem 1.25rem;margin-bottom:1.125rem;}
+.customer-name{font-size:28px;font-weight:800;color:#fff;letter-spacing:-.5px;line-height:1.15;margin-bottom:.375rem;}
+.customer-address{font-size:14px;color:#8a9ab0;margin-bottom:.2rem;}
+.customer-phone{font-size:14px;color:#8a9ab0;margin-bottom:1.25rem;}
+.customer-phone a{color:#5b9cf6;text-decoration:none;}
+.customer-phone a:hover{text-decoration:underline;}
+
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.875rem;}
+.stat-box{background:#111c2b;border:1px solid #2a3a4a;border-radius:10px;padding:1rem 1.125rem;}
+.stat-label{font-size:11px;font-weight:600;color:#5d7083;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.35rem;}
+.stat-value{font-size:24px;font-weight:800;line-height:1.1;}
+.stat-value.gold{color:#f5a623;}
+.stat-value.white{color:#e8edf3;}
+.stat-sub{font-size:12px;color:#6b7a8d;margin-top:.25rem;}
+.stat-sub.green{color:#4ade80;}
+.stat-sub.amber{color:#fbbf24;}
+
+/* ── ZONE 2 — Service History ── */
+.zone-history{background:#1a2332;border:1px solid #2a3a4a;border-radius:14px;padding:1.5rem 1.75rem;margin-bottom:1.125rem;}
+.zone-heading{display:flex;align-items:baseline;gap:.625rem;margin-bottom:1.125rem;}
+.zone-heading h2{font-size:17px;font-weight:700;color:#fff;}
+.zone-heading .badge{font-size:12px;font-weight:600;background:#111c2b;border:1px solid #2a3a4a;border-radius:20px;padding:2px 10px;color:#8a9ab0;}
+
+/* ── Job cards ── */
+.job-card{background:#111c2b;border:1px solid #2a3a4a;border-radius:10px;padding:1rem 1.125rem 0.875rem;margin-bottom:.75rem;position:relative;}
+.job-card:last-child{margin-bottom:0;}
+.job-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.5rem;}
+.job-date{font-size:15px;font-weight:700;color:#fff;}
+.job-days{font-size:12px;font-weight:500;padding:2px 8px;border-radius:12px;margin-left:.5rem;vertical-align:middle;}
+.job-days.green{background:rgba(74,222,128,.12);color:#4ade80;border:1px solid rgba(74,222,128,.25);}
+.job-days.amber{background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.2);}
+.job-days.muted{background:#1a2332;color:#6b7a8d;border:1px solid #2a3a4a;}
+.job-amount{font-size:22px;font-weight:800;color:#f5a623;white-space:nowrap;}
+.job-services{font-size:14.5px;color:#c8d4e0;line-height:1.55;margin-bottom:.625rem;}
+.job-meta{display:flex;flex-wrap:wrap;gap:.5rem;padding-top:.625rem;border-top:1px solid #1e2e42;}
+.job-meta-chip{font-size:11.5px;color:#5d7083;background:#0f1623;border:1px solid #1e2e42;border-radius:5px;padding:2px 8px;display:flex;align-items:center;gap:.3rem;}
+.job-meta-chip span.label{color:#4a5c6d;}
+
+/* ── Show all toggle ── */
+.history-hidden{display:none;}
+.history-hidden.open{display:block;}
+.show-all-btn{width:100%;margin-top:.75rem;background:#111c2b;border:1px solid #2a3a4a;border-radius:8px;color:#8a9ab0;font-size:13px;font-weight:600;padding:.625rem 1rem;cursor:pointer;text-align:center;transition:all .15s;}
+.show-all-btn:hover{border-color:#3a5068;color:#e8edf3;}
+.show-all-btn .arrow{display:inline-block;transition:transform .2s;margin-left:.3rem;}
+.show-all-btn.open .arrow{transform:rotate(180deg);}
+
+/* ── ZONE 3 — Secondary ── */
+.zone-secondary{background:#1a2332;border:1px solid #2a3a4a;border-radius:14px;padding:1.5rem 1.75rem;}
+.zone-secondary h2{font-size:17px;font-weight:700;color:#fff;margin-bottom:1rem;}
+.secondary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.875rem;}
+.secondary-item{background:#111c2b;border:1px solid #2a3a4a;border-radius:8px;padding:.875rem 1rem;}
+.secondary-item .s-label{font-size:11px;font-weight:600;color:#5d7083;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.35rem;}
+.secondary-item .s-value{font-size:14px;color:#c8d4e0;}
+.secondary-item .s-value.muted{color:#6b7a8d;font-style:italic;}
+.at-risk-banner{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:.875rem 1rem;margin-bottom:.875rem;}
+.at-risk-banner .s-label{font-size:11px;font-weight:600;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.35rem;}
+.at-risk-banner .s-value{font-size:14px;color:#fca5a5;}
+.tyler-only{font-size:10px;font-weight:700;background:rgba(239,68,68,.15);color:#f87171;border-radius:3px;padding:1px 5px;margin-left:.4rem;vertical-align:middle;letter-spacing:.05em;}
+
+/* ── Mockup label ── */
+.mockup-label{position:fixed;bottom:1rem;right:1rem;background:#f5a623;color:#0f1623;font-size:11px;font-weight:800;padding:.375rem .75rem;border-radius:6px;letter-spacing:.04em;z-index:100;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="#" class="topbar-back">← Calendar</a>
+  <span class="topbar-label">MOCKUP 1 of 2 — CARDS LAYOUT — not production</span>
+</div>
+
+<div class="page">
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ZONE 1 — Identity + Headline Stats
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="zone-identity">
+    <div class="customer-name">David Leshner</div>
+    <div class="customer-address">10691 Hawks Vista St, Plantation, FL 33324</div>
+    <div class="customer-phone">
+      <a href="tel:+13053429527">(305) 342-9527</a>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-label">Lifetime Value</div>
+        <div class="stat-value gold">$2,825</div>
+        <div class="stat-sub">11 jobs total</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Last Service</div>
+        <div class="stat-value white" style="font-size:18px;padding-top:3px;">Apr 23, 2026</div>
+        <div class="stat-sub green">24 days ago</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Avg Job Value</div>
+        <div class="stat-value white">$257</div>
+        <div class="stat-sub">across 11 jobs</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ZONE 2 — Service History (Cards)
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="zone-history">
+    <div class="zone-heading">
+      <h2>Service History</h2>
+      <span class="badge">11 jobs</span>
+    </div>
+
+    <!-- ── Recent 5 (always visible) ── -->
+    <div class="job-card">
+      <div class="job-card-top">
+        <div>
+          <span class="job-date">Apr 23, 2026</span>
+          <span class="job-days green">24 days ago</span>
+        </div>
+        <div class="job-amount">$300</div>
+      </div>
+      <div class="job-services">Rinse Walls</div>
+      <div class="job-meta">
+        <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+        <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+        <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+      </div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-card-top">
+        <div>
+          <span class="job-date">Jan 28, 2026</span>
+          <span class="job-days muted">109 days ago</span>
+        </div>
+        <div class="job-amount">$300</div>
+      </div>
+      <div class="job-services">Rinse Walls and floors</div>
+      <div class="job-meta">
+        <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+        <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+        <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+      </div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-card-top">
+        <div>
+          <span class="job-date">Dec 9, 2025</span>
+          <span class="job-days muted">159 days ago</span>
+        </div>
+        <div class="job-amount">$300</div>
+      </div>
+      <div class="job-services">Rinse full house</div>
+      <div class="job-meta">
+        <span class="job-meta-chip"><span class="label">Rig</span> rig_2 (New Tacoma)</span>
+        <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+        <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+      </div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-card-top">
+        <div>
+          <span class="job-date">Oct 10, 2025</span>
+          <span class="job-days muted">219 days ago</span>
+        </div>
+        <div class="job-amount">$300</div>
+      </div>
+      <div class="job-services">Patio / driveway / rinse walls</div>
+      <div class="job-meta">
+        <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+        <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+        <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+      </div>
+    </div>
+
+    <div class="job-card">
+      <div class="job-card-top">
+        <div>
+          <span class="job-date">Jun 19, 2025</span>
+          <span class="job-days muted">332 days ago</span>
+        </div>
+        <div class="job-amount">$250</div>
+      </div>
+      <div class="job-services">Rinse Walls</div>
+      <div class="job-meta">
+        <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+        <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+        <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+      </div>
+    </div>
+
+    <!-- ── Jobs 6–11 (hidden until toggle) ── -->
+    <div class="history-hidden" id="history-extra">
+
+      <div class="job-card">
+        <div class="job-card-top">
+          <div>
+            <span class="job-date">Apr 23, 2025</span>
+            <span class="job-days muted">389 days ago</span>
+          </div>
+          <div class="job-amount">$250</div>
+        </div>
+        <div class="job-services">Patio - around house</div>
+        <div class="job-meta">
+          <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+          <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+          <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+        </div>
+      </div>
+
+      <div class="job-card">
+        <div class="job-card-top">
+          <div>
+            <span class="job-date">Apr 2, 2025</span>
+            <span class="job-days muted">410 days ago</span>
+          </div>
+          <div class="job-amount">$300</div>
+        </div>
+        <div class="job-services">Patio / Driveway - all walkways</div>
+        <div class="job-meta">
+          <span class="job-meta-chip"><span class="label">Rig</span> rig_2 (New Tacoma)</span>
+          <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+          <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+        </div>
+      </div>
+
+      <div class="job-card">
+        <div class="job-card-top">
+          <div>
+            <span class="job-date">Feb 14, 2025</span>
+            <span class="job-days muted">457 days ago</span>
+          </div>
+          <div class="job-amount">$200</div>
+        </div>
+        <div class="job-services">2-story / Rinse Walls</div>
+        <div class="job-meta">
+          <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+          <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+          <span class="job-meta-chip"><span class="label">Roof</span> Tile · <strong style="color:#c8d4e0;">2-story</strong></span>
+        </div>
+      </div>
+
+      <div class="job-card">
+        <div class="job-card-top">
+          <div>
+            <span class="job-date">Jul 25, 2024</span>
+            <span class="job-days muted">661 days ago</span>
+          </div>
+          <div class="job-amount">$250</div>
+        </div>
+        <div class="job-services">Rinse Walls</div>
+        <div class="job-meta">
+          <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+          <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+          <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+        </div>
+      </div>
+
+      <div class="job-card">
+        <div class="job-card-top">
+          <div>
+            <span class="job-date">Mar 11, 2024</span>
+            <span class="job-days muted">797 days ago</span>
+          </div>
+          <div class="job-amount">$250</div>
+        </div>
+        <div class="job-services">Rinse Walls</div>
+        <div class="job-meta">
+          <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+          <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+          <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+        </div>
+      </div>
+
+      <div class="job-card">
+        <div class="job-card-top">
+          <div>
+            <span class="job-date">Feb 21, 2024</span>
+            <span class="job-days muted">816 days ago</span>
+          </div>
+          <div class="job-amount">$125</div>
+        </div>
+        <div class="job-services">Remove stains patio</div>
+        <div class="job-meta">
+          <span class="job-meta-chip"><span class="label">Rig</span> rig_1 (Old Tacoma)</span>
+          <span class="job-meta-chip"><span class="label">Sqft</span> 2,800</span>
+          <span class="job-meta-chip"><span class="label">Roof</span> Tile · 1-story</span>
+        </div>
+      </div>
+
+    </div><!-- /history-extra -->
+
+    <button class="show-all-btn" id="show-all-btn" onclick="toggleHistory()">
+      Show all 11 jobs <span class="arrow">▾</span>
+    </button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ZONE 3 — Secondary Info
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="zone-secondary">
+    <h2>Details</h2>
+
+    <div class="at-risk-banner">
+      <div class="s-label">At-Risk Signal <span class="tyler-only">TYLER ONLY</span></div>
+      <div class="s-value">Last service 24 days ago · On track. Next expected around Jun 2026.</div>
+    </div>
+
+    <div class="secondary-grid">
+      <div class="secondary-item">
+        <div class="s-label">Gate Code</div>
+        <div class="s-value muted">None on file</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Payment Preference</div>
+        <div class="s-value muted">Not specified</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Internal Notes</div>
+        <div class="s-value muted">None</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Lead Source</div>
+        <div class="s-value muted">Not specified</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Property Size</div>
+        <div class="s-value">~2,800 sqft · 1-story · Tile roof</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Customer Since</div>
+        <div class="s-value">Feb 2024 · 2+ years</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<div class="mockup-label">MOCKUP 1 — CARDS</div>
+
+<script>
+function toggleHistory() {
+  const extra = document.getElementById('history-extra');
+  const btn   = document.getElementById('show-all-btn');
+  const open  = extra.classList.toggle('open');
+  btn.classList.toggle('open', open);
+  btn.innerHTML = open
+    ? 'Hide older jobs <span class="arrow">▾</span>'
+    : 'Show all 11 jobs <span class="arrow">▾</span>';
+}
+</script>
+</body>
+</html>

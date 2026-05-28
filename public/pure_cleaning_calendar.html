@@ -1235,6 +1235,10 @@ body{background:#f0f2f5;}
     <div class="modal-section-hdr">Notes</div>
     <div class="modal-field"><textarea id="feNotes" class="modal-input" rows="2" placeholder="Any notes…" style="resize:vertical;"></textarea></div>
 
+    <div id="feSplitRow" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+      <button class="mbtn-cancel" style="width:100%;" onclick="openSplitModal()">✂️ Split into multiple days</button>
+    </div>
+
     <div id="feError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
     <div class="modal-footer" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <a id="feMoreLink" href="#" style="font-size:13px;color:var(--sky);font-weight:600;white-space:nowrap;" onclick="event.preventDefault();openFeMoreOptions()">More options →</a>
@@ -1326,6 +1330,25 @@ body{background:#f0f2f5;}
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 <div id="alertContainer"></div>
+
+<!-- SPLIT JOB MODAL -->
+<div class="overlay hidden" id="splitJobModal" onclick="if(event.target===this)closeSplitModal()">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-title">✂️ Split into Multiple Days</div>
+    <div id="splitOrigAmtLine" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;margin-bottom:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+      <span>Date</span><span>Phase</span><span>Amount</span><span></span>
+    </div>
+    <div id="splitDayRows"></div>
+    <a href="#" style="font-size:13px;color:var(--sky);font-weight:600;" onclick="event.preventDefault();_splitAddDay()">+ Add day</a>
+    <div id="splitTotalLine" style="font-size:13px;margin-top:10px;font-weight:600;"></div>
+    <div id="splitError" style="color:var(--red);font-size:12px;margin-top:6px;display:none;"></div>
+    <div class="modal-footer" style="justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="mbtn-cancel" onclick="closeSplitModal()">Cancel</button>
+      <button class="mbtn-save" onclick="submitSplitJob()">✂️ Split</button>
+    </div>
+  </div>
+</div>
 
 <!-- ADD UNSCHEDULED JOB MODAL -->
 <div class="overlay hidden" id="addUnscheduledModal" onclick="if(event.target===this)closeAddUnscheduledModal()">
@@ -2089,6 +2112,11 @@ function _jobRowToShape(job, isMultiProperty) {
     propertyLabel:  job.propertyLabel || null,
     propertyType:   job.propertyType  || null,
     isMultiProperty,
+    isMultiDayParent: job.isMultiDayParent || 0,
+    parentJobId:      job.parentJobId || null,
+    dayNumber:        job.dayNumber   || null,
+    totalDays:        job.totalDays   || null,
+    dayPhase:         job.dayPhase    || null,
     coordinates:    (job.latitude && job.longitude)
                       ? { lat: +job.latitude, lng: +job.longitude } : null,
     geocoded:       (job.latitude && job.longitude)
@@ -6085,6 +6113,9 @@ function openEditModal(phone, jhJobId, calJobId) {
   const saveBtn = document.getElementById('feSaveBtn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
 
+  const _showSplit = !!(_feCalJobId && _calJob?.state === 'scheduled' && !_calJob?.isMultiDayParent);
+  document.getElementById('feSplitRow').style.display = _showSplit ? '' : 'none';
+
   document.getElementById('fullEditModal').classList.remove('hidden');
 }
 
@@ -6127,6 +6158,160 @@ function closeFullEditModal() {
   _feJhJobId  = null;
   _feCalJobId = null;
 }
+
+// === SPLIT JOB MODAL (Phase 2B) ===
+let _splitParentJobId = null;
+let _splitOrigAmount  = 0;
+let _splitRigId       = null;
+let _splitDayCount    = 0;
+
+const _SPLIT_PHASES = ['Pressure Clean', 'Sand', 'Seal', 'Rinse', 'Other'];
+
+function _getSplitDefaultDate(idx) {
+  if (!_splitParentJobId) return '';
+  const job = calendarJobs.find(j => j.jobId === _splitParentJobId);
+  if (!job || !job.scheduledDate) return '';
+  const d = new Date(job.scheduledDate + 'T12:00:00');
+  d.setDate(d.getDate() + (idx - 1));
+  return d.toISOString().split('T')[0];
+}
+
+function _splitPhaseSelect(idx) {
+  const sel      = document.getElementById('splitPhase_' + idx);
+  const otherRow = document.getElementById('splitPhaseOther_' + idx);
+  if (sel && otherRow) otherRow.style.display = sel.value === 'Other' ? '' : 'none';
+}
+
+function _splitAddDay() {
+  _splitDayCount++;
+  const idx       = _splitDayCount;
+  const container = document.getElementById('splitDayRows');
+  const div       = document.createElement('div');
+  div.id          = 'splitRow_' + idx;
+  div.style.cssText = 'margin-bottom:10px;';
+  div.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center;">
+      <input type="date" id="splitDate_${idx}" value="${_getSplitDefaultDate(idx)}" class="modal-input" style="font-size:13px;">
+      <select id="splitPhase_${idx}" class="modal-input" style="font-size:13px;" onchange="_splitPhaseSelect(${idx})">
+        ${_SPLIT_PHASES.map(p => `<option value="${p}">${p}</option>`).join('')}
+      </select>
+      <input type="number" id="splitAmt_${idx}" class="modal-input" style="font-size:13px;" min="0" placeholder="Amount" oninput="_splitUpdateTotal()">
+      ${idx > 2 ? `<button class="mbtn-cancel" style="padding:4px 8px;font-size:11px;" onclick="_splitRemoveDay(${idx})">✕</button>` : '<span></span>'}
+    </div>
+    <div id="splitPhaseOther_${idx}" style="display:none;margin-top:4px;">
+      <input type="text" id="splitPhaseOtherVal_${idx}" class="modal-input" style="font-size:13px;" placeholder="Describe phase…">
+    </div>
+  `;
+  container.appendChild(div);
+  _splitUpdateTotal();
+}
+
+function _splitRemoveDay(idx) {
+  const el = document.getElementById('splitRow_' + idx);
+  if (el) el.remove();
+  _splitUpdateTotal();
+}
+
+function _splitUpdateTotal() {
+  let total = 0;
+  for (let i = 1; i <= _splitDayCount; i++) {
+    const el = document.getElementById('splitAmt_' + i);
+    if (el && el.closest('#splitDayRows')) total += parseFloat(el.value) || 0;
+  }
+  const diff    = total - _splitOrigAmount;
+  const diffStr = diff === 0 ? '✅ Balanced'
+    : diff > 0 ? `⚠️ +$${diff.toFixed(2)} over`
+    : `⚠️ -$${Math.abs(diff).toFixed(2)} under`;
+  document.getElementById('splitTotalLine').textContent =
+    `Total: $${total.toFixed(2)} of $${_splitOrigAmount.toFixed(2)} — ${diffStr}`;
+}
+
+function openSplitModal() {
+  if (!_feCalJobId) return;
+  const job = calendarJobs.find(j => j.jobId === _feCalJobId);
+  if (!job) return;
+  _splitParentJobId = _feCalJobId;
+  _splitOrigAmount  = parseFloat(job.amount) || 0;
+  _splitRigId       = job.rigId || null;
+  _splitDayCount    = 0;
+  document.getElementById('splitDayRows').innerHTML = '';
+  document.getElementById('splitOrigAmtLine').textContent = `Original job: $${_splitOrigAmount.toFixed(2)}`;
+
+  // Smart pre-fill by service type
+  const svcText = (document.getElementById('feServices')?.value || '').toLowerCase();
+  let prePhases;
+  if (svcText.includes('seal') || svcText.includes('sand')) {
+    prePhases = ['Pressure Clean', 'Sand', 'Seal'];
+  } else if (svcText.includes('roof') || svcText.includes('softwash')) {
+    prePhases = ['Pressure Clean', 'Rinse'];
+  } else {
+    prePhases = ['', ''];
+  }
+
+  for (let i = 0; i < prePhases.length; i++) _splitAddDay();
+
+  // Apply phase pre-fills
+  for (let i = 0; i < prePhases.length; i++) {
+    const sel = document.getElementById('splitPhase_' + (i + 1));
+    if (sel && prePhases[i]) sel.value = prePhases[i];
+  }
+
+  // Distribute evenly as default
+  const perDay = (_splitOrigAmount / prePhases.length).toFixed(2);
+  for (let i = 1; i <= prePhases.length; i++) {
+    const el = document.getElementById('splitAmt_' + i);
+    if (el) el.value = perDay;
+  }
+  _splitUpdateTotal();
+  document.getElementById('splitJobModal').classList.remove('hidden');
+}
+
+function closeSplitModal() {
+  document.getElementById('splitJobModal').classList.add('hidden');
+  _splitParentJobId = null;
+}
+
+async function submitSplitJob() {
+  const days = [];
+  for (let i = 1; i <= _splitDayCount; i++) {
+    const dateEl     = document.getElementById('splitDate_' + i);
+    const phaseEl    = document.getElementById('splitPhase_' + i);
+    const otherValEl = document.getElementById('splitPhaseOtherVal_' + i);
+    const amtEl      = document.getElementById('splitAmt_' + i);
+    if (!dateEl || !dateEl.closest('#splitDayRows')) continue;
+    const scheduledDate = dateEl.value;
+    if (!scheduledDate) { alert('Please set a date for Day ' + i); return; }
+    const phaseRaw = phaseEl ? phaseEl.value : '';
+    const dayPhase = phaseRaw === 'Other' ? (otherValEl?.value.trim() || 'Other') : phaseRaw;
+    const amount   = parseFloat(amtEl ? amtEl.value : 0) || 0;
+    days.push({ scheduledDate, amount, dayPhase: dayPhase || null, rigId: _splitRigId });
+  }
+  if (days.length < 2) { alert('Split requires at least 2 days.'); return; }
+
+  document.getElementById('splitError').style.display = 'none';
+
+  // No manual auth header — fetch interceptor (lines 9-20) adds Bearer token automatically
+  const resp = await fetch(`${PCPC_API}/admin/job/split`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parentJobId: _splitParentJobId, days }),
+  });
+
+  if (!resp.ok) {
+    const err   = await resp.json().catch(() => ({ error: 'Unknown error' }));
+    const errEl = document.getElementById('splitError');
+    errEl.textContent   = err.error || 'Split failed.';
+    errEl.style.display = '';
+    return;
+  }
+
+  closeSplitModal();
+  closeFullEditModal();
+  showToast('✅ Job split into ' + days.length + ' days');
+  await refreshCalendarJobs();
+  render();
+}
+
 function updateFeCopyBtn() {
   const btn = document.getElementById('feCopyAddrBtn');
   if (!btn) return;

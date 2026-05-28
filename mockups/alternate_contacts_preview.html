@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Alternate Contacts Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'DM Sans',Arial,sans-serif;background:#f1f5f9;padding:24px;color:#1e293b;font-size:14px;}
+h2{font-size:16px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+.badge{display:inline-block;background:#c2410c;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:16px;}
+.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6pt;color:#94a3b8;margin:24px 0 10px;}
+
+/* ── Shared card ── */
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;max-width:480px;margin-bottom:16px;}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#64748b;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;}
+
+/* ── Intake form ── */
+.field-group{margin-bottom:14px;}
+label.fl{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4pt;color:#374151;margin-bottom:5px;}
+label.fl .opt{font-weight:400;text-transform:none;letter-spacing:0;color:#94a3b8;font-size:10px;}
+.fi{width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;color:#0a1628;}
+.fi.filled{border-color:#94a3b8;background:#fafafa;}
+select.fi{background:#fff;}
+
+/* Add another contact button */
+.add-btn{display:inline-flex;align-items:center;gap:6px;background:none;border:1.5px dashed #94a3b8;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;color:#475569;cursor:pointer;font-family:inherit;}
+.add-btn:hover{border-color:#2d7dd2;color:#2d7dd2;}
+
+/* Alternate sub-form */
+.alt-subform{background:#f8fafc;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-top:12px;position:relative;}
+.alt-label{font-size:11px;font-weight:700;color:#2d7dd2;text-transform:uppercase;letter-spacing:.4pt;margin-bottom:10px;}
+.alt-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.alt-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.remove-btn{position:absolute;top:10px;right:12px;background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;line-height:1;}
+.remove-btn:hover{color:#ef4444;}
+
+/* ── Profile card ── */
+.profile-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;max-width:360px;margin-bottom:16px;}
+.profile-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#94a3b8;margin-bottom:10px;}
+.info-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;font-size:13px;color:#1e293b;}
+.info-icon{font-size:14px;width:18px;text-align:center;margin-top:1px;flex-shrink:0;}
+.info-val{line-height:1.45;}
+.alt-entry{display:flex;align-items:center;gap:6px;margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9;}
+.alt-entry a{color:#2d7dd2;text-decoration:none;font-size:12px;}
+.alt-entry a:hover{text-decoration:underline;}
+.alt-rel{font-size:11px;color:#94a3b8;}
+
+/* ── Directory row ── */
+.dir-row{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;max-width:480px;margin-bottom:8px;}
+.dir-avatar{width:38px;height:38px;border-radius:50%;background:#0a1628;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;}
+.dir-info{flex:1;}
+.dir-name{font-size:14px;font-weight:700;color:#0a1628;}
+.dir-sub{font-size:11px;color:#64748b;margin-top:2px;}
+.dir-note{font-size:10px;color:#94a3b8;font-style:italic;margin-top:3px;}
+
+/* ── Data model box ── */
+.code-box{background:#1e293b;color:#e2e8f0;border-radius:10px;padding:14px 16px;font-family:'Menlo','Courier New',monospace;font-size:11px;line-height:1.6;max-width:480px;margin-bottom:16px;overflow-x:auto;}
+.c-key{color:#7dd3fc;}.c-str{color:#86efac;}.c-num{color:#fbbf24;}
+
+.change-box{background:#fef9c3;border:1.5px solid #fbbf24;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:20px;max-width:480px;}
+</style></head><body>
+
+<h2>Alternate Contacts — Feature Mockup</h2>
+<p class="sub">MOCKUP ONLY — no production files modified</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<div class="change-box">
+  <strong>Data model:</strong> <code>alternateContacts: [{name, phone, relationship}]</code> appended to customer record in KV.<br>
+  Primary name/phone fields unchanged. Alternates are purely additive.
+</div>
+
+<!-- ── SECTION A: Intake form ── -->
+<div class="section-label">A — Intake form (New Customer)</div>
+<div class="card">
+  <div class="card-title">Customer contact section</div>
+
+  <div class="field-group">
+    <label class="fl">Customer name</label>
+    <input class="fi filled" type="text" value="Luis Leon" readonly>
+  </div>
+
+  <div class="field-group">
+    <label class="fl">Primary phone</label>
+    <input class="fi filled" type="tel" value="954-555-1234" readonly>
+  </div>
+
+  <!-- Alternate contact sub-form (expanded state) -->
+  <div class="alt-subform">
+    <div class="alt-label">Alternate contact #1</div>
+    <button class="remove-btn" title="Remove">×</button>
+
+    <div class="field-group" style="margin-bottom:10px;">
+      <label class="fl">Relationship <span class="opt">(optional)</span></label>
+      <select class="fi">
+        <option value="">Select…</option>
+        <option value="spouse" selected>Spouse</option>
+        <option value="family">Family member</option>
+        <option value="property_manager">Property manager</option>
+        <option value="tenant">Tenant</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+
+    <div class="alt-row">
+      <div>
+        <label class="fl">Contact name</label>
+        <input class="fi filled" type="text" value="Rishel Leon" readonly>
+      </div>
+      <div>
+        <label class="fl">Contact phone</label>
+        <input class="fi filled" type="tel" value="954-555-5678" readonly>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;">
+    <button class="add-btn">+ Add another contact</button>
+  </div>
+</div>
+
+<!-- ── SECTION B: Customer profile About card ── -->
+<div class="section-label">B — Customer profile · About card</div>
+<div class="profile-card">
+  <div class="profile-section-title">About</div>
+
+  <div class="info-row">
+    <div class="info-icon">📞</div>
+    <div class="info-val">
+      <a href="tel:9545551234" style="color:#2d7dd2;text-decoration:none;font-weight:600;">954-555-1234</a>
+      <span style="font-size:11px;color:#94a3b8;margin-left:4px;">primary</span>
+      <div class="alt-entry">
+        <span class="alt-rel">Spouse —</span>
+        <span style="font-size:12px;color:#1e293b;font-weight:600;">Rishel Leon</span>
+        <a href="tel:9545555678">954-555-5678</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-row">
+    <div class="info-icon">📍</div>
+    <div class="info-val">4821 NW 112th Ave, Doral FL 33178</div>
+  </div>
+
+  <div class="info-row">
+    <div class="info-icon">🏠</div>
+    <div class="info-val">2,400 sqft · Tile roof</div>
+  </div>
+</div>
+
+<!-- ── SECTION C: Directory row ── -->
+<div class="section-label">C — Customer directory row</div>
+<div class="dir-row">
+  <div class="dir-avatar">LL</div>
+  <div class="dir-info">
+    <div class="dir-name">Luis Leon</div>
+    <div class="dir-sub">954-555-1234 · Doral FL</div>
+    <div class="dir-note">Searching "Rishel Leon" or "954-555-5678" would also surface this record.</div>
+  </div>
+</div>
+
+<!-- ── Data model ── -->
+<div class="section-label">KV data shape</div>
+<div class="code-box">
+{<br>
+&nbsp;&nbsp;<span class="c-key">"name"</span>: <span class="c-str">"Luis Leon"</span>,<br>
+&nbsp;&nbsp;<span class="c-key">"phone"</span>: <span class="c-str">"9545551234"</span>,<br>
+&nbsp;&nbsp;<span class="c-key">"alternateContacts"</span>: [<br>
+&nbsp;&nbsp;&nbsp;&nbsp;{<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-key">"name"</span>: <span class="c-str">"Rishel Leon"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-key">"phone"</span>: <span class="c-str">"9545555678"</span>,<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="c-key">"relationship"</span>: <span class="c-str">"spouse"</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;],<br>
+&nbsp;&nbsp;<span class="c-key">"address"</span>: <span class="c-str">"4821 NW 112th Ave, Doral FL 33178"</span>,<br>
+&nbsp;&nbsp;<span class="c-key">"..."</span>: <span class="c-str">"other fields unchanged"</span><br>
+}
+</div>
+
+<!-- Implementation notes -->
+<div class="card" style="max-width:480px;">
+  <div class="card-title">Implementation checklist (production, not in this mockup)</div>
+  <div style="font-size:12px;color:#374151;line-height:1.8;">
+    <div>□ Intake form: <code>nAltContacts[]</code> array, "+ Add" button, remove × per entry</div>
+    <div>□ Save handler: build <code>alternateContacts</code> array, include in PUT payload</div>
+    <div>□ Profile About card: render <code>c.alternateContacts</code> below primary phone</div>
+    <div>□ Directory search: include alternate names + phones in filter pass</div>
+    <div>□ Edit flow (<code>preloadCustomerForEdit</code>): restore alternate contact rows</div>
+    <div>□ No D1 schema change needed — KV-only until dual-write phase</div>
+  </div>
+</div>
+
+</body></html>

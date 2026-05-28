@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Customer Directory — Avg Time/Worker Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#e2e8f0;padding:20px;color:#1a1f2e;font-size:13px;}
+h2{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:16px;}
+.badge{display:inline-block;background:#2d7dd2;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:20px;}
+.fix-note{background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;padding:10px 14px;font-size:12px;color:#0c4a6e;margin-bottom:24px;max-width:900px;line-height:1.6;}
+.fix-note code{background:#e0f2fe;padding:1px 5px;border-radius:3px;font-family:monospace;}
+.vp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8pt;color:#64748b;margin-bottom:8px;}
+.frame{background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:28px;overflow:hidden;}
+
+/* ── Directory table styles (matching production) ── */
+:root{
+  --navy:#0a1628;--sky:#2d7dd2;--gold:#c9a227;--terra:#c25a2e;
+  --white:#ffffff;--card:#ffffff;--border:#e8e2d8;--muted:#6b7280;
+  --text:#1a1f2e;--input-bg:#f9f7f4;
+}
+table{width:100%;border-collapse:collapse;background:var(--white);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+thead th{background:var(--navy);color:rgba(255,255,255,.7);padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;cursor:pointer;user-select:none;text-align:left;}
+thead th.new-col{color:#93c5fd;} /* highlight the new column */
+thead th.sorted{color:#c9a227;}
+tbody tr{border-bottom:1px solid #f0ede8;cursor:pointer;transition:background .1s;}
+tbody tr:hover{background:#fafaf8;}
+tbody tr:last-child{border-bottom:none;}
+td{padding:10px 12px;font-size:13px;}
+td.muted{color:var(--muted);}
+td.money{font-weight:700;color:var(--terra);}
+td.avg-time{font-size:12px;font-weight:600;}
+td.avg-time.has-data{color:#0a1628;}
+td.avg-time.no-data{color:#d1d5db;}
+.tier-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;white-space:nowrap;}
+.badge-loyal{background:#16a34a;}
+.badge-warm{background:#d97706;}
+.badge-hot{background:#dc2626;}
+.badge-new{background:#2d7dd2;}
+.badge-overdue{background:#9333ea;}
+.sind{font-size:9px;opacity:.45;margin-left:3px;}
+
+/* New column highlight bar for demo */
+th.new-col .sind{color:#93c5fd;}
+.col-annotation{font-size:10px;font-style:italic;color:#94a3b8;padding:4px 12px;background:#f8fafc;}
+
+/* Mobile card view (<=640px) */
+.card-list{display:none;}
+.cust-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--white);border-bottom:1px solid var(--border);cursor:pointer;}
+.cust-card:last-child{border-bottom:none;}
+.cust-card-badge{width:36px;height:36px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.cust-card-body{flex:1;min-width:0;}
+.cust-card-name{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cust-card-meta{font-size:12px;color:var(--muted);}
+.cust-card-right{text-align:right;flex-shrink:0;}
+.cust-card-spend{font-size:15px;font-weight:800;color:var(--terra);}
+.cust-card-jobs{font-size:12px;color:var(--muted);}
+/* NEW: avg time added to card */
+.cust-card-avg{font-size:11px;font-weight:600;color:var(--navy);margin-top:2px;}
+
+@media(max-width:700px){.col-avg-time{display:none!important;}}
+@media(max-width:640px){.table-outer{display:none;}.card-list{display:block;}.card-list-wrap{background:var(--white);border-radius:10px;overflow:hidden;}}
+@media(min-width:641px){.card-list{display:none;}}
+</style></head><body>
+
+<h2>Customer Directory — Avg Time/Worker Column</h2>
+<p class="sub">New column between "Last Service" and "Jobs". Four display states covered.</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<div class="fix-note">
+  <strong>New column: "Avg Time/Worker"</strong> between Last Service and Jobs.<br>
+  <strong>Sort key:</strong> numeric <code>_avgTPW</code> (minutes) — missing data sorts to bottom.<br>
+  <strong>Display format:</strong> <code>"Last: 1h 21m"</code> when n=1 matched job · <code>"Avg: 1h 33m"</code> when n≥2 · <code>"—"</code> when no Bouncie data.<br>
+  <strong>Computation:</strong> <code>bouncieMetrics[address].avgMinPerWorker</code> — pre-cached on customer record by Phase 3. Aggregated across properties for multi-property customers.<br>
+  <strong>Mobile:</strong> column hidden at ≤700px via <code>.col-avg-time{display:none}</code>. Full table hides at ≤640px (existing behavior). Card view gets avg time in <code>.cust-card-avg</code> sub-line.
+</div>
+
+<!-- DESKTOP ~1440px -->
+<div class="vp-label">Desktop (~1440px)</div>
+<div class="frame">
+<div class="table-outer">
+<table>
+  <thead>
+    <tr>
+      <th data-sort="name">Name <span class="sind">▲▼</span></th>
+      <th data-sort="tier">Tier <span class="sind">▲▼</span></th>
+      <th data-sort="phone">Phone <span class="sind">▲▼</span></th>
+      <th data-sort="city">City <span class="sind">▲▼</span></th>
+      <th data-sort="lastService">Last Service <span class="sind">▲▼</span></th>
+      <th data-sort="avgTimePerWorker" class="new-col col-avg-time">Avg Time/Worker <span class="sind">▲▼</span></th>
+      <th data-sort="totalJobs">Jobs <span class="sind">▲▼</span></th>
+      <th data-sort="lifetimeSpend">Lifetime $ <span class="sind">▲▼</span></th>
+      <th class="no-sort">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <!-- Multi-job avg -->
+    <tr>
+      <td class="wrap">Andreina Garcia</td>
+      <td><span class="tier-chip badge-loyal">🏆 LOYAL</span></td>
+      <td class="muted">(954) 536-7977</td>
+      <td class="muted">Pembroke Pines</td>
+      <td class="muted">May 12, 2026</td>
+      <td class="avg-time has-data col-avg-time">Avg: 1h 33m</td>
+      <td>4</td>
+      <td class="money">$1,200</td>
+      <td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td>
+    </tr>
+    <!-- Single job — "Last:" label -->
+    <tr>
+      <td class="wrap">Janille Faulkner</td>
+      <td><span class="tier-chip badge-warm">🔥 WARM</span></td>
+      <td class="muted">(954) 298-2779</td>
+      <td class="muted">Davie</td>
+      <td class="muted">May 18, 2026</td>
+      <td class="avg-time has-data col-avg-time">Last: 1h 21m</td>
+      <td>1</td>
+      <td class="money">$250</td>
+      <td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td>
+    </tr>
+    <!-- No Bouncie data -->
+    <tr>
+      <td class="wrap">Robin Shulman</td>
+      <td><span class="tier-chip badge-overdue">⏰ OVERDUE</span></td>
+      <td class="muted">(954) 770-3928</td>
+      <td class="muted">Cooper City</td>
+      <td class="muted">Mar 3, 2026</td>
+      <td class="avg-time no-data col-avg-time">—</td>
+      <td>3</td>
+      <td class="money">$750</td>
+      <td><span style="font-size:11px;color:#9333ea;font-weight:700;">⏰ Overdue</span></td>
+    </tr>
+    <!-- Multi-property aggregate (hypothetical) -->
+    <tr>
+      <td class="wrap">Kristina Seeber</td>
+      <td><span class="tier-chip badge-loyal">🏆 LOYAL ★</span></td>
+      <td class="muted">(954) 555-0100</td>
+      <td class="muted">Weston</td>
+      <td class="muted">May 15, 2026</td>
+      <td class="avg-time has-data col-avg-time" title="Aggregate across 2 properties">Avg: 1h 48m</td>
+      <td>8</td>
+      <td class="money">$3,200</td>
+      <td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td>
+    </tr>
+    <!-- New customer, no history -->
+    <tr>
+      <td class="wrap">New Customer</td>
+      <td><span class="tier-chip badge-new">🆕 NEW</span></td>
+      <td class="muted">(305) 555-0123</td>
+      <td class="muted">Miramar</td>
+      <td class="muted">—</td>
+      <td class="avg-time no-data col-avg-time">—</td>
+      <td>0</td>
+      <td class="money">—</td>
+      <td><span style="font-size:11px;color:#2d7dd2;font-weight:700;">📋 Queue</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<div class="card-list">
+  <div style="font-size:12px;color:#94a3b8;padding:8px 12px;">Card view (≤640px) — Avg Time added as sub-line on card</div>
+  <div style="background:#fff;border-radius:8px;overflow:hidden;">
+    <div class="cust-card"><div class="cust-card-badge" style="border-color:#16a34a;color:#16a34a;">🏆</div><div class="cust-card-body"><div class="cust-card-name">Andreina Garcia</div><div class="cust-card-meta">Pembroke Pines · Last: May 12, 2026</div><div class="cust-card-avg">Avg: 1h 33m/worker</div></div><div class="cust-card-right"><div class="cust-card-spend">$1,200</div><div class="cust-card-jobs">4 jobs</div></div></div>
+    <div class="cust-card"><div class="cust-card-badge" style="border-color:#d97706;color:#d97706;">🔥</div><div class="cust-card-body"><div class="cust-card-name">Janille Faulkner</div><div class="cust-card-meta">Davie · Last: May 18, 2026</div><div class="cust-card-avg">Last: 1h 21m/worker</div></div><div class="cust-card-right"><div class="cust-card-spend">$250</div><div class="cust-card-jobs">1 job</div></div></div>
+    <div class="cust-card"><div class="cust-card-badge" style="border-color:#9333ea;color:#9333ea;">⏰</div><div class="cust-card-body"><div class="cust-card-name">Robin Shulman</div><div class="cust-card-meta">Cooper City · Last: Mar 3, 2026</div></div><div class="cust-card-right"><div class="cust-card-spend">$750</div><div class="cust-card-jobs">3 jobs</div></div></div>
+  </div>
+</div>
+</div>
+
+<!-- TABLET ~900px — avg time column visible -->
+<div class="vp-label">Tablet (~900px) — column still visible</div>
+<div class="frame" style="max-width:900px;">
+<div class="table-outer">
+<table>
+  <thead>
+    <tr>
+      <th>Name <span class="sind">▲▼</span></th>
+      <th>Tier <span class="sind">▲▼</span></th>
+      <th>Phone <span class="sind">▲▼</span></th>
+      <th>City <span class="sind">▲▼</span></th>
+      <th>Last Service <span class="sind">▲▼</span></th>
+      <th class="new-col">Avg Time/Worker <span class="sind">▲▼</span></th>
+      <th>Jobs <span class="sind">▲▼</span></th>
+      <th>Lifetime $ <span class="sind">▲▼</span></th>
+      <th class="no-sort">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="wrap">Andreina Garcia</td><td><span class="tier-chip badge-loyal">🏆 LOYAL</span></td><td class="muted">(954) 536-7977</td><td class="muted">Pembroke Pines</td><td class="muted">May 12, 2026</td><td class="avg-time has-data">Avg: 1h 33m</td><td>4</td><td class="money">$1,200</td><td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td></tr>
+    <tr><td class="wrap">Janille Faulkner</td><td><span class="tier-chip badge-warm">🔥 WARM</span></td><td class="muted">(954) 298-2779</td><td class="muted">Davie</td><td class="muted">May 18, 2026</td><td class="avg-time has-data">Last: 1h 21m</td><td>1</td><td class="money">$250</td><td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td></tr>
+    <tr><td class="wrap">Robin Shulman</td><td><span class="tier-chip badge-overdue">⏰ OVERDUE</span></td><td class="muted">(954) 770-3928</td><td class="muted">Cooper City</td><td class="muted">Mar 3, 2026</td><td class="avg-time no-data">—</td><td>3</td><td class="money">$750</td><td><span style="font-size:11px;color:#9333ea;font-weight:700;">⏰ Overdue</span></td></tr>
+  </tbody>
+</table>
+</div>
+</div>
+
+<!-- NARROW TABLET ~700px — column hidden -->
+<div class="vp-label">Narrow tablet (~700px) — Avg Time/Worker column hidden</div>
+<div class="fix-note" style="max-width:700px;">Column hides at ≤700px. Table still visible at 640–700px without the new column crowding it.</div>
+<div class="frame" style="max-width:700px;">
+<div class="table-outer">
+<table>
+  <thead>
+    <tr>
+      <th>Name <span class="sind">▲▼</span></th>
+      <th>Tier <span class="sind">▲▼</span></th>
+      <th>Phone <span class="sind">▲▼</span></th>
+      <th>City <span class="sind">▲▼</span></th>
+      <th>Last Service <span class="sind">▲▼</span></th>
+      <!-- avg time hidden at this width -->
+      <th>Jobs <span class="sind">▲▼</span></th>
+      <th>Lifetime $ <span class="sind">▲▼</span></th>
+      <th class="no-sort">Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="wrap">Andreina Garcia</td><td><span class="tier-chip badge-loyal">🏆 LOYAL</span></td><td class="muted">(954) 536-7977</td><td class="muted">Pembroke Pines</td><td class="muted">May 12, 2026</td><td>4</td><td class="money">$1,200</td><td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td></tr>
+    <tr><td class="wrap">Janille Faulkner</td><td><span class="tier-chip badge-warm">🔥 WARM</span></td><td class="muted">(954) 298-2779</td><td class="muted">Davie</td><td class="muted">May 18, 2026</td><td>1</td><td class="money">$250</td><td><span style="font-size:11px;color:#16a34a;font-weight:700;">✓ Done</span></td></tr>
+  </tbody>
+</table>
+</div>
+</div>
+
+<!-- PHONE ~400px — card view -->
+<div class="vp-label">Phone (~400px) — card view (table hidden, avg time in card sub-line)</div>
+<div class="frame" style="max-width:400px;">
+<div class="card-list-wrap">
+  <div class="cust-card"><div class="cust-card-badge" style="border-color:#16a34a;color:#16a34a;">🏆</div><div class="cust-card-body"><div class="cust-card-name">Andreina Garcia</div><div class="cust-card-meta">Pembroke Pines · Last: May 12, 2026</div><div class="cust-card-avg">Avg: 1h 33m/worker</div></div><div class="cust-card-right"><div class="cust-card-spend">$1,200</div><div class="cust-card-jobs">4 jobs</div></div></div>
+  <div class="cust-card"><div class="cust-card-badge" style="border-color:#d97706;color:#d97706;">🔥</div><div class="cust-card-body"><div class="cust-card-name">Janille Faulkner</div><div class="cust-card-meta">Davie · Last: May 18, 2026</div><div class="cust-card-avg">Last: 1h 21m/worker</div></div><div class="cust-card-right"><div class="cust-card-spend">$250</div><div class="cust-card-jobs">1 job</div></div></div>
+  <div class="cust-card"><div class="cust-card-badge" style="border-color:#9333ea;color:#9333ea;">⏰</div><div class="cust-card-body"><div class="cust-card-name">Robin Shulman</div><div class="cust-card-meta">Cooper City · Last: Mar 3, 2026</div></div><div class="cust-card-right"><div class="cust-card-spend">$750</div><div class="cust-card-jobs">3 jobs</div></div></div>
+</div>
+</div>
+
+</body></html>

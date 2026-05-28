@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Services Validation Fix Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'DM Sans',Arial,sans-serif;background:#f1f5f9;padding:24px;color:#1e293b;font-size:14px;}
+h2{font-size:16px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+.badge{display:inline-block;background:#c2410c;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:16px;}
+.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6pt;color:#94a3b8;margin:24px 0 10px;}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;max-width:480px;margin-bottom:16px;}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#64748b;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;}
+
+/* Error/status row */
+.status-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.err-box{background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:8px 13px;font-size:12px;font-weight:600;color:#92400e;flex:1;}
+.err-box.hidden{background:#f1f5f9;border-color:#e2e8f0;color:#94a3b8;}
+.err-box.clear{background:#f0fdf4;border-color:#86efac;color:#166534;}
+.btn-save{padding:10px 20px;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-enabled{background:#0a1628;color:#fff;}
+.btn-disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+
+/* Service tiles */
+.svc-grid{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+.svc-tile{padding:7px 12px;border:2px solid #e2e8f0;border-radius:8px;font-size:12px;font-weight:600;color:#374151;background:#fff;}
+.svc-tile.sel{background:#0a1628;color:#fff;border-color:#0a1628;}
+
+/* Annotation */
+.annotation{font-size:11px;color:#64748b;margin-bottom:10px;line-height:1.5;}
+.note-bug{color:#dc2626;font-weight:600;}
+.note-fix{color:#16a34a;font-weight:600;}
+.arrow{color:#94a3b8;font-size:16px;margin:0 4px;}
+
+/* Code diff */
+.code-diff{background:#1e293b;color:#e2e8f0;border-radius:10px;padding:14px 16px;font-family:'Menlo','Courier New',monospace;font-size:11px;line-height:1.7;max-width:640px;margin-bottom:16px;overflow-x:auto;}
+.del{color:#fca5a5;text-decoration:line-through;}
+.add{color:#86efac;}
+.ctx{color:#94a3b8;}
+
+/* Root cause box */
+.root-cause{background:#fef2f2;border:1.5px solid #fca5a5;border-radius:10px;padding:14px 16px;font-size:12px;color:#7f1d1d;max-width:640px;margin-bottom:16px;line-height:1.6;}
+.root-cause code{background:#fee2e2;padding:1px 5px;border-radius:4px;font-family:'Menlo',monospace;}
+</style></head><body>
+
+<h2>Services Validation Fix — Pre-commit Preview</h2>
+<p class="sub">Fix 1: checkReq reads _svcSel directly · Fix 2: ph ReferenceError in getServicesAgreedValue</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<!-- Root cause box -->
+<div class="root-cause">
+  <strong>Root cause:</strong> <code>getServicesAgreedValue()</code> contains an IIFE that runs whenever <code>roof_cleaning</code> is in <code>_svcSel</code>. That IIFE references <code>ph</code> — which is not declared in its scope or at module scope. Result: <code>ReferenceError: ph is not defined</code> every time roof cleaning is selected. <code>checkReq()</code> has no try/catch → throws → button state and error display frozen at previous values.<br><br>
+  <strong>Why "services selected but error persists":</strong> <code>toggleService()</code> updates <code>_svcSel</code> and re-renders tiles correctly. But <code>checkReq()</code> crashes before it can clear the error.
+</div>
+
+<!-- Code diff -->
+<div class="section-label">Fixes applied</div>
+<div class="code-diff">
+<span class="ctx">// Fix 1 — checkReq() validation (reads canonical _svcSel, not derived fullDescription)</span><br>
+<span class="del">- const svc = getServicesAgreedValue();</span><br>
+<span class="del">- if (!svc.fullDescription) {</span><br>
+<span class="add">+ const _customSvc = (document.getElementById('customServiceText')?.value||'').trim();</span><br>
+<span class="add">+ if (_svcSel.size === 0 && !_customSvc) {</span><br>
+<span class="ctx">    missing.push('At least one service');</span><br>
+<span class="ctx">  } else {</span><br>
+<span class="ctx">    if (_svcSel.has('roof_cleaning') && !_roofType) missing.push('Roof type');</span><br>
+<span class="ctx">    ...</span><br>
+<span class="ctx">  }</span><br><br>
+<span class="ctx">// Fix 2 — getServicesAgreedValue() IIFE (replace undeclared ph with DOM read)</span><br>
+<span class="del">- (ph||'').replace(/\D/g,'').slice(-10)</span><br>
+<span class="add">+ const _nph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(0,10);</span><br>
+<span class="add">+ c.phone?.replace(/\D/g,'').slice(-10) === _nph</span>
+</div>
+
+<!-- Scenario 1 -->
+<div class="section-label">Scenario 1 — Roof cleaning only (the Mom-blocker)</div>
+<div class="card">
+  <div class="card-title">All required fields filled · Roof Cleaning selected as ONLY service</div>
+  <div class="annotation">
+    <span class="note-bug">BEFORE fix:</span> Selecting roof cleaning triggered ReferenceError → checkReq frozen → button disabled, error persists.<br>
+    <span class="note-fix">AFTER fix:</span> checkReq reads <code>_svcSel.size === 0</code> → false (1 service) → no service error → button enables.
+  </div>
+  <div class="svc-grid">
+    <div class="svc-tile sel">✓ Roof Cleaning</div>
+    <div class="svc-tile sel">✓ Rinse Walls <span style="font-size:10px;opacity:.6;">(auto)</span></div>
+    <div class="svc-tile" style="opacity:.4;">Driveway</div>
+    <div class="svc-tile" style="opacity:.4;">Patio</div>
+    <div class="svc-tile" style="opacity:.4;">Sidewalk</div>
+  </div>
+  <div class="status-row">
+    <div class="err-box clear">✅ No error — roof cleaning counts as a service</div>
+    <button class="btn-save btn-enabled">✅ Save Customer</button>
+  </div>
+</div>
+
+<!-- Scenario 2 -->
+<div class="section-label">Scenario 2 — All required fields + roof cleaning</div>
+<div class="card">
+  <div class="card-title">Name · Phone · Address · City all filled · Roof Cleaning selected</div>
+  <div class="annotation">
+    Roof type sub-selection required (separate validation). If roof type is set, form is fully valid.
+  </div>
+  <div class="svc-grid">
+    <div class="svc-tile sel">✓ Roof Cleaning (Softwash)</div>
+    <div class="svc-tile sel">✓ Rinse Walls</div>
+  </div>
+  <div class="status-row">
+    <div class="err-box clear">✅ No error — all fields valid</div>
+    <button class="btn-save btn-enabled">✅ Save Customer</button>
+  </div>
+  <div class="annotation" style="margin-top:8px;">If roof type NOT selected yet, "Roof type" would show as still needed — that's correct behavior, unaffected by this fix.</div>
+</div>
+
+<!-- Scenario 3 -->
+<div class="section-label">Scenario 3 — Custom service text only (no tiles)</div>
+<div class="card">
+  <div class="card-title">No service tiles selected · Custom service text filled in</div>
+  <div class="annotation">
+    <code>_customSvc = "Boat ramp cleaning"</code> → truthy → <code>_svcSel.size === 0 && !_customSvc</code> is false → no error.
+  </div>
+  <div class="svc-grid">
+    <div class="svc-tile" style="opacity:.4;">Roof Cleaning</div>
+    <div class="svc-tile" style="opacity:.4;">Driveway</div>
+    <div class="svc-tile" style="opacity:.4;">Patio</div>
+  </div>
+  <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px;">
+    Custom: <strong>Boat ramp cleaning</strong>
+  </div>
+  <div class="status-row">
+    <div class="err-box clear">✅ No error — custom text counts</div>
+    <button class="btn-save btn-enabled">✅ Save Customer</button>
+  </div>
+</div>
+
+<!-- Scenario 4 -->
+<div class="section-label">Scenario 4 — Non-roof service + then add roof (no regression)</div>
+<div class="card">
+  <div class="card-title">Driveway selected first · Roof cleaning added after</div>
+  <div class="annotation">
+    <span class="note-fix">Step 1:</span> Driveway selected → <code>_svcSel = {driveway, entranceway, walkway}</code> → button enables.<br>
+    <span class="note-fix">Step 2:</span> Roof cleaning added → <code>_svcSel = {driveway, entranceway, walkway, roof_cleaning, rinse_walls}</code> → checkReq runs correctly (no crash) → button stays enabled.
+  </div>
+  <div class="svc-grid">
+    <div class="svc-tile sel">✓ Roof Cleaning</div>
+    <div class="svc-tile sel">✓ Rinse Walls</div>
+    <div class="svc-tile sel">✓ Driveway</div>
+    <div class="svc-tile sel">✓ Entranceway</div>
+    <div class="svc-tile sel">✓ Sidewalk</div>
+  </div>
+  <div class="status-row">
+    <div class="err-box clear">✅ No error — all 5 services valid</div>
+    <button class="btn-save btn-enabled">✅ Save Customer</button>
+  </div>
+</div>
+
+<!-- Edge case: no services, no custom -->
+<div class="section-label">Edge case — Nothing selected (correct block)</div>
+<div class="card">
+  <div class="card-title">No tiles · No custom text → still correctly blocked</div>
+  <div class="annotation">
+    <code>_svcSel.size === 0 && !_customSvc</code> → true → error shows. Fix doesn't break the block, it just uses the right variable.
+  </div>
+  <div class="svc-grid">
+    <div class="svc-tile" style="opacity:.3;">Roof Cleaning</div>
+    <div class="svc-tile" style="opacity:.3;">Driveway</div>
+    <div class="svc-tile" style="opacity:.3;">Patio</div>
+    <div class="svc-tile" style="opacity:.3;">Sidewalk</div>
+  </div>
+  <div class="status-row">
+    <div class="err-box">⚠️ Still needed: <strong>At least one service</strong></div>
+    <button class="btn-save btn-disabled">✅ Save Customer</button>
+  </div>
+</div>
+
+<!-- Law F1 box -->
+<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:14px 16px;font-size:12px;color:#14532d;max-width:640px;margin-top:8px;line-height:1.7;">
+  <strong>Law F1 (captured post-commit to Drive):</strong><br>
+  Form validation must read from the same source the UI writes to. If UI updates a Set/Map, validation reads from that Set/Map. If UI updates DOM, validation reads from that DOM. Never two variables tracking the same value, never a derived display string as a validation signal.<br><br>
+  <strong>Three bugs today trace to this pattern:</strong>
+  <div style="margin-top:6px;">① Driveway material always-required — wrong source in required check</div>
+  <div>② How-heard false mandatory — useMatch didn't write to nLeadSource DOM; validation read DOM</div>
+  <div>③ Services/roof — validation read derived fullDescription instead of _svcSel; derivation threw ReferenceError</div>
+</div>
+
+</body></html>

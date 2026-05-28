@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edit Propagation Fix Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#e2e8f0;padding:20px;color:#1a1f2e;font-size:13px;}
+h2{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:16px;}
+.badge-fix{display:inline-block;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:4px;margin-right:6px;}
+.badge-ok{display:inline-block;background:#16a34a;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:4px;}
+.fix-note{background:#fff7ed;border:1.5px solid #fed7aa;border-radius:8px;padding:10px 14px;font-size:12px;color:#7c2d12;margin-bottom:24px;max-width:900px;line-height:1.6;}
+.fix-note code{background:#ffedd5;padding:1px 5px;border-radius:3px;font-family:monospace;}
+.vp-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8pt;color:#64748b;margin-bottom:8px;margin-top:24px;}
+
+/* ── Data state cards ── */
+.state-card{background:#fff;border-radius:10px;padding:16px;max-width:440px;display:inline-block;vertical-align:top;margin-right:12px;margin-bottom:12px;border:1.5px solid #e8e2d8;}
+.state-card h4{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
+.state-card.broken{border-color:#fca5a5;background:#fef2f2;}
+.state-card.broken h4{color:#dc2626;}
+.state-card.fixed{border-color:#86efac;background:#f0fdf4;}
+.state-card.fixed h4{color:#16a34a;}
+.field-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f0ede8;font-size:12px;}
+.field-row:last-child{border-bottom:none;}
+.field-name{color:#6b7280;font-weight:600;}
+.field-val{font-weight:700;color:#0a1628;}
+.field-val.wrong{color:#dc2626;text-decoration:line-through;}
+.field-val.right{color:#16a34a;}
+.field-val.unchanged{color:#6b7280;}
+
+/* ── Payment warning modal ── */
+.modal-wrap{background:rgba(0,0,0,.55);border-radius:10px;padding:40px 20px;max-width:500px;margin-top:16px;position:relative;display:flex;align-items:center;justify-content:center;}
+.modal-box{background:#fff;border-radius:14px;padding:1.25rem;width:360px;box-shadow:0 8px 30px rgba(0,0,0,.3);}
+.modal-title{font-size:15px;font-weight:800;color:#0a1628;margin-bottom:.75rem;}
+.modal-body{font-size:13px;color:#374151;line-height:1.6;margin-bottom:1.25rem;}
+.modal-body strong{color:#0a1628;}
+.btn-primary{width:100%;padding:11px;border:none;border-radius:10px;background:#2d7dd2;color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;}
+.btn-secondary{width:100%;padding:10px;border:1.5px solid #e8e2d8;border-radius:10px;background:none;color:#374151;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;}
+.btn-ghost{width:100%;padding:8px;border:none;background:none;color:#9ca3af;font-family:inherit;font-size:12px;cursor:pointer;}
+
+.arrow-divider{display:inline-block;font-size:24px;color:#94a3b8;vertical-align:middle;margin:0 12px;line-height:1;}
+</style></head><body>
+
+<h2>Edit Propagation Fix + Payment Modal Warning</h2>
+<p class="sub">Fix 1: saveFullEdit propagates amount to jobHistory + recomputes lifetimeSpend. Fix 2: payment modal warns when paidAmount ≠ approvedAmount.</p>
+<div class="badge-fix">BUG FIX 1</div><div class="badge-fix">BUG FIX 2</div><div class="badge-ok">DATA FIX via UI</div>
+
+<div class="fix-note">
+  <strong>Fix 1 (code):</strong> <code>saveFullEdit()</code> at line 5476 only writes <code>ss.approvedAmount + qs.*</code> when price changes on a completed job. <code>jobHistory[].amount</code> and <code>lifetimeSpend</code> silently drift.<br>
+  After fix: also finds matching <code>jobHistory</code> entry by date (non-csv_backfill), updates <code>.amount</code>, then recomputes <code>lifetimeSpend</code> from <code>jh.reduce((s,j) => s + j.amount, 0)</code> — same formula as the worker's <code>handleBackfillStats</code>.<br><br>
+  <strong>Fix 2 (code):</strong> <code>saveJobLog()</code> currently calls <code>_doCompleteJob</code> directly. When <code>paymentAmount ≠ approvedAmount</code>, modal hides and a warning dialog appears: 3 choices — <em>Update Job Price + Record Payment</em> / <em>Record Payment Only</em> / <em>← Go back</em>.<br><br>
+  <strong>Data fix (Yolanda via UI):</strong> After Fix 1 deploys, Tyler uses ✏️ Edit → sets price to $250 → Save. Fix 1 propagates: <code>ss.approvedAmount $300→$250</code>, <code>jh[2026-05-19].amount $300→$250</code>, <code>lifetimeSpend $2,425→$2,375</code>.
+</div>
+
+<!-- FIX 1: BEFORE/AFTER data state -->
+<div class="vp-label">Fix 1 — saveFullEdit: before vs after price edit on completed job (Yolanda example)</div>
+
+<div class="state-card broken">
+  <h4>Before fix — Edit sets price to $250</h4>
+  <div class="field-row"><span class="field-name">ss.approvedAmount</span><span class="field-val right">$250 ✓</span></div>
+  <div class="field-row"><span class="field-name">qs.mainAmount</span><span class="field-val right">$250 ✓</span></div>
+  <div class="field-row"><span class="field-name">jobHistory[2026-05-19].amount</span><span class="field-val wrong">$300 ✗ (not updated)</span></div>
+  <div class="field-row"><span class="field-name">lifetimeSpend</span><span class="field-val wrong">$2,425 ✗ (not recomputed)</span></div>
+  <div class="field-row"><span class="field-name">Calendar shows</span><span class="field-val wrong">$250 on card, $300 in profile history</span></div>
+</div>
+
+<span class="arrow-divider">→</span>
+
+<div class="state-card fixed">
+  <h4>After fix — Edit sets price to $250</h4>
+  <div class="field-row"><span class="field-name">ss.approvedAmount</span><span class="field-val right">$250 ✓</span></div>
+  <div class="field-row"><span class="field-name">qs.mainAmount</span><span class="field-val right">$250 ✓</span></div>
+  <div class="field-row"><span class="field-name">jobHistory[2026-05-19].amount</span><span class="field-val right">$250 ✓ (propagated)</span></div>
+  <div class="field-row"><span class="field-name">lifetimeSpend</span><span class="field-val right">$2,375 ✓ (recomputed)</span></div>
+  <div class="field-row"><span class="field-name">Calendar + profile</span><span class="field-val right">$250 everywhere ✓</span></div>
+</div>
+
+<!-- FIX 2: PAYMENT WARNING MODAL -->
+<div class="vp-label">Fix 2 — Payment modal warning: Tyler enters $250, approvedAmount is $300</div>
+
+<p style="font-size:12px;color:#64748b;margin-bottom:12px;max-width:600px;">
+  When "Save &amp; Complete" is clicked with a paymentAmount ≠ approvedAmount, the job log modal closes and this dialog replaces it. Tyler must explicitly choose — no auto-save.
+</p>
+
+<div class="modal-wrap">
+  <div class="modal-box">
+    <div class="modal-title">⚠ Payment ≠ Job Price</div>
+    <div class="modal-body">
+      Payment <strong>$250</strong> differs from job price <strong>$300</strong>.<br><br>
+      <strong>Update Job Price + Record Payment</strong> — if the job was actually $250. Updates the price everywhere (jobHistory, lifetimeSpend) and records $250 collected.<br><br>
+      <strong>Record Payment Only</strong> — if collecting a different amount than the agreed price (partial payment, discount after the fact). Job price stays $300, $250 logged as collected.
+    </div>
+    <button class="btn-primary" onclick="void 0">Update Job Price + Record Payment</button>
+    <button class="btn-secondary" onclick="void 0">Record Payment Only (keep $300 price)</button>
+    <button class="btn-ghost" onclick="void 0">← Go back to job log</button>
+  </div>
+</div>
+
+<!-- EDGE CASE NOTE -->
+<div class="vp-label">Edge case: no matching jobHistory entry (job not yet written)</div>
+<div class="fix-note" style="background:#f0fdf4;border-color:#86efac;color:#14532d;margin-top:8px;">
+  If <code>saveFullEdit</code> finds no matching jobHistory entry for the completed job (shouldn't happen for normal calendar completions, could happen for legacy data), it logs a warning to the console and still recomputes <code>lifetimeSpend</code> from existing entries — no silent skip. Tyler won't see it unless DevTools is open, but it won't corrupt data.
+</div>
+
+</body></html>

@@ -103,6 +103,14 @@ When in doubt, follow this file. The other two are reference.
 - Never patch one hole knowing others exist — surface them all first, fix together
 - This applies to every completion path, every write path, every read path
 
+### DL-08: OAuth Tokens Must Auto-Renew — Never Require Manual Re-Auth
+- Any OAuth integration must implement proactive token refresh before expiry
+- Never rely on Google (or any provider) refresh tokens lasting indefinitely
+- Refresh tokens must be renewed on a schedule (every 30 days minimum) not on-demand when they fail
+- Token health must be included in the weekly export health check
+- If a token refresh fails, alert immediately — never fail silently
+- This applies to every third-party OAuth integration: Google, Bouncie, any future service
+
 ---
 
 ## Working with Tyler

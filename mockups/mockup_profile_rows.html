@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer Profile — Rows Mockup</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'Helvetica Neue',sans-serif;background:#0f1623;color:#e8edf3;min-height:100vh;}
+
+/* ── Top bar ── */
+.topbar{background:#111c2b;border-bottom:1px solid #1e2e42;padding:.625rem 1.5rem;display:flex;align-items:center;gap:1rem;}
+.topbar-back{color:#6b7a8d;font-size:13px;text-decoration:none;}
+.topbar-back:hover{color:#e8edf3;}
+.topbar-label{font-size:12px;color:#6b7a8d;background:#1a2332;border:1px solid #2a3a4a;border-radius:4px;padding:2px 8px;margin-left:auto;}
+
+/* ── Layout ── */
+.page{max-width:960px;margin:0 auto;padding:1.5rem 1.25rem 3rem;}
+
+/* ── ZONE 1 — Identity ── */
+.zone-identity{background:#1a2332;border:1px solid #2a3a4a;border-radius:14px;padding:1.375rem 1.75rem 1.25rem;margin-bottom:1rem;}
+.id-row{display:flex;align-items:flex-start;justify-content:space-between;gap:2rem;}
+.id-left{}
+.customer-name{font-size:26px;font-weight:800;color:#fff;letter-spacing:-.4px;line-height:1.15;margin-bottom:.3rem;}
+.customer-address{font-size:13.5px;color:#7a8c9e;margin-bottom:.15rem;}
+.customer-phone{font-size:13.5px;color:#7a8c9e;}
+.customer-phone a{color:#5b9cf6;text-decoration:none;}
+.customer-phone a:hover{text-decoration:underline;}
+
+.stats-row{display:flex;gap:.75rem;margin-top:1.125rem;}
+.stat-box{flex:1;background:#111c2b;border:1px solid #2a3a4a;border-radius:9px;padding:.875rem 1rem;}
+.stat-label{font-size:10.5px;font-weight:600;color:#5d7083;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.3rem;}
+.stat-value{font-size:21px;font-weight:800;line-height:1.1;}
+.stat-value.gold{color:#f5a623;}
+.stat-value.white{color:#e8edf3;}
+.stat-sub{font-size:11.5px;color:#6b7a8d;margin-top:.2rem;}
+.stat-sub.green{color:#4ade80;}
+.stat-sub.muted{color:#6b7a8d;}
+
+/* ── ZONE 2 — Service History (Rows) ── */
+.zone-history{background:#1a2332;border:1px solid #2a3a4a;border-radius:14px;padding:1.375rem 1.75rem;margin-bottom:1rem;}
+.zone-heading{display:flex;align-items:baseline;gap:.625rem;margin-bottom:.875rem;}
+.zone-heading h2{font-size:16px;font-weight:700;color:#fff;}
+.zone-heading .badge{font-size:11.5px;font-weight:600;background:#111c2b;border:1px solid #2a3a4a;border-radius:20px;padding:2px 9px;color:#8a9ab0;}
+
+/* ── Table ── */
+.history-table{width:100%;border-collapse:collapse;}
+.history-table thead th{font-size:10.5px;font-weight:700;color:#5d7083;text-transform:uppercase;letter-spacing:.07em;padding:.5rem .75rem .5rem;text-align:left;border-bottom:1px solid #1e2e42;white-space:nowrap;}
+.history-table thead th.right{text-align:right;}
+
+.history-table tbody tr{border-bottom:1px solid #1a2332;transition:background .1s;}
+.history-table tbody tr:hover{background:rgba(255,255,255,.025);}
+.history-table tbody tr.history-hidden-row{display:none;}
+.history-table tbody tr.history-hidden-row.open{display:table-row;}
+
+.history-table td{padding:.625rem .75rem;vertical-align:top;}
+
+/* Date column */
+.td-date{white-space:nowrap;}
+.td-date .date-main{font-size:14px;font-weight:700;color:#fff;}
+.td-date .date-ago{font-size:11px;color:#6b7a8d;margin-top:2px;}
+.td-date .date-ago.green{color:#4ade80;}
+
+/* Services column */
+.td-services{width:100%;}
+.td-services .svc-text{font-size:13.5px;color:#c8d4e0;line-height:1.5;}
+
+/* Amount column */
+.td-amount{white-space:nowrap;text-align:right;}
+.td-amount .amt{font-size:16px;font-weight:800;color:#f5a623;}
+
+/* Property meta column */
+.td-meta{white-space:nowrap;}
+.td-meta .meta-line{font-size:11.5px;color:#5d7083;line-height:1.6;}
+.td-meta .meta-line strong{color:#7a8c9e;font-weight:500;}
+
+/* Rig column */
+.td-rig{white-space:nowrap;}
+.td-rig .rig-pill{font-size:11px;font-weight:600;padding:2px 7px;border-radius:5px;background:#111c2b;border:1px solid #2a3a4a;color:#7a8c9e;display:inline-block;}
+
+/* ── Show all row ── */
+.show-all-row td{padding:.625rem .75rem;}
+.show-all-btn{background:none;border:1px solid #2a3a4a;border-radius:7px;color:#6b7a8d;font-size:12.5px;font-weight:600;padding:.45rem .875rem;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:.3rem;}
+.show-all-btn:hover{border-color:#3a5068;color:#e8edf3;}
+.show-all-btn .arrow{display:inline-block;transition:transform .2s;}
+.show-all-btn.open .arrow{transform:rotate(180deg);}
+
+/* ── ZONE 3 — Secondary ── */
+.zone-secondary{background:#1a2332;border:1px solid #2a3a4a;border-radius:14px;padding:1.375rem 1.75rem;}
+.zone-secondary h2{font-size:16px;font-weight:700;color:#fff;margin-bottom:.875rem;}
+.secondary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;}
+.secondary-item{background:#111c2b;border:1px solid #2a3a4a;border-radius:8px;padding:.75rem .875rem;}
+.secondary-item .s-label{font-size:10.5px;font-weight:600;color:#5d7083;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;}
+.secondary-item .s-value{font-size:13.5px;color:#c8d4e0;}
+.secondary-item .s-value.muted{color:#6b7a8d;font-style:italic;}
+.at-risk-item{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.18);border-radius:8px;padding:.75rem .875rem;grid-column:1/-1;}
+.at-risk-item .s-label{font-size:10.5px;font-weight:600;color:#f87171;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem;}
+.at-risk-item .s-value{font-size:13.5px;color:#fca5a5;}
+.tyler-only{font-size:9.5px;font-weight:700;background:rgba(239,68,68,.15);color:#f87171;border-radius:3px;padding:1px 4px;margin-left:.35rem;letter-spacing:.05em;}
+
+/* ── Mockup label ── */
+.mockup-label{position:fixed;bottom:1rem;right:1rem;background:#5b9cf6;color:#0f1623;font-size:11px;font-weight:800;padding:.375rem .75rem;border-radius:6px;letter-spacing:.04em;z-index:100;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="#" class="topbar-back">← Calendar</a>
+  <span class="topbar-label">MOCKUP 2 of 2 — ROWS LAYOUT — not production</span>
+</div>
+
+<div class="page">
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ZONE 1 — Identity + Headline Stats
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="zone-identity">
+    <div class="id-row">
+      <div class="id-left">
+        <div class="customer-name">David Leshner</div>
+        <div class="customer-address">10691 Hawks Vista St, Plantation, FL 33324</div>
+        <div class="customer-phone"><a href="tel:+13053429527">(305) 342-9527</a></div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-label">Lifetime Value</div>
+        <div class="stat-value gold">$2,825</div>
+        <div class="stat-sub muted">11 jobs total</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Last Service</div>
+        <div class="stat-value white" style="font-size:17px;padding-top:3px;">Apr 23, 2026</div>
+        <div class="stat-sub green">24 days ago — active</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Avg Job Value</div>
+        <div class="stat-value white">$257</div>
+        <div class="stat-sub muted">across 11 jobs</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ZONE 2 — Service History (Rows / Table)
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="zone-history">
+    <div class="zone-heading">
+      <h2>Service History</h2>
+      <span class="badge">11 jobs</span>
+    </div>
+
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Services Performed</th>
+          <th class="right">Amount</th>
+          <th>Property</th>
+          <th>Rig</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <!-- Job 1 -->
+        <tr>
+          <td class="td-date">
+            <div class="date-main">Apr 23, 2026</div>
+            <div class="date-ago green">24d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Rinse Walls</span></td>
+          <td class="td-amount"><span class="amt">$300</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <!-- Job 2 -->
+        <tr>
+          <td class="td-date">
+            <div class="date-main">Jan 28, 2026</div>
+            <div class="date-ago">109d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Rinse Walls and floors</span></td>
+          <td class="td-amount"><span class="amt">$300</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <!-- Job 3 -->
+        <tr>
+          <td class="td-date">
+            <div class="date-main">Dec 9, 2025</div>
+            <div class="date-ago">159d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Rinse full house</span></td>
+          <td class="td-amount"><span class="amt">$300</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_2</span></td>
+        </tr>
+
+        <!-- Job 4 -->
+        <tr>
+          <td class="td-date">
+            <div class="date-main">Oct 10, 2025</div>
+            <div class="date-ago">219d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Patio / driveway / rinse walls</span></td>
+          <td class="td-amount"><span class="amt">$300</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <!-- Job 5 -->
+        <tr>
+          <td class="td-date">
+            <div class="date-main">Jun 19, 2025</div>
+            <div class="date-ago">332d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Rinse Walls</span></td>
+          <td class="td-amount"><span class="amt">$250</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <!-- Jobs 6–11 (hidden) -->
+        <tr class="history-hidden-row" id="hr6">
+          <td class="td-date">
+            <div class="date-main">Apr 23, 2025</div>
+            <div class="date-ago">389d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Patio - around house</span></td>
+          <td class="td-amount"><span class="amt">$250</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <tr class="history-hidden-row" id="hr7">
+          <td class="td-date">
+            <div class="date-main">Apr 2, 2025</div>
+            <div class="date-ago">410d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Patio / Driveway - all walkways</span></td>
+          <td class="td-amount"><span class="amt">$300</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_2</span></td>
+        </tr>
+
+        <tr class="history-hidden-row" id="hr8">
+          <td class="td-date">
+            <div class="date-main">Feb 14, 2025</div>
+            <div class="date-ago">457d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">2-story / Rinse Walls</span></td>
+          <td class="td-amount"><span class="amt">$200</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · <strong style="color:#c8d4e0;">2-story</strong></div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <tr class="history-hidden-row" id="hr9">
+          <td class="td-date">
+            <div class="date-main">Jul 25, 2024</div>
+            <div class="date-ago">661d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Rinse Walls</span></td>
+          <td class="td-amount"><span class="amt">$250</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <tr class="history-hidden-row" id="hr10">
+          <td class="td-date">
+            <div class="date-main">Mar 11, 2024</div>
+            <div class="date-ago">797d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Rinse Walls</span></td>
+          <td class="td-amount"><span class="amt">$250</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <tr class="history-hidden-row" id="hr11">
+          <td class="td-date">
+            <div class="date-main">Feb 21, 2024</div>
+            <div class="date-ago">816d ago</div>
+          </td>
+          <td class="td-services"><span class="svc-text">Remove stains patio</span></td>
+          <td class="td-amount"><span class="amt">$125</span></td>
+          <td class="td-meta">
+            <div class="meta-line">2,800 sqft</div>
+            <div class="meta-line">Tile · 1-story</div>
+          </td>
+          <td class="td-rig"><span class="rig-pill">rig_1</span></td>
+        </tr>
+
+        <!-- Show all row -->
+        <tr class="show-all-row">
+          <td colspan="5">
+            <button class="show-all-btn" id="show-all-btn" onclick="toggleHistory()">
+              Show 6 older jobs <span class="arrow">▾</span>
+            </button>
+          </td>
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ZONE 3 — Secondary Info
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="zone-secondary">
+    <h2>Details</h2>
+
+    <div class="secondary-grid">
+      <div class="at-risk-item">
+        <div class="s-label">At-Risk Signal <span class="tyler-only">TYLER ONLY</span></div>
+        <div class="s-value">Last service 24 days ago · On track. Next expected around Jun 2026.</div>
+      </div>
+
+      <div class="secondary-item">
+        <div class="s-label">Gate Code</div>
+        <div class="s-value muted">None on file</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Payment Preference</div>
+        <div class="s-value muted">Not specified</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Internal Notes</div>
+        <div class="s-value muted">None</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Property</div>
+        <div class="s-value">~2,800 sqft · 1-story · Tile</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Lead Source</div>
+        <div class="s-value muted">Not specified</div>
+      </div>
+      <div class="secondary-item">
+        <div class="s-label">Customer Since</div>
+        <div class="s-value">Feb 2024 · 2+ years</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<div class="mockup-label">MOCKUP 2 — ROWS</div>
+
+<script>
+function toggleHistory() {
+  const rows = document.querySelectorAll('.history-hidden-row');
+  const btn  = document.getElementById('show-all-btn');
+  const open = btn.classList.toggle('open');
+  rows.forEach(r => r.classList.toggle('open', open));
+  btn.innerHTML = open
+    ? 'Hide older jobs <span class="arrow">▾</span>'
+    : 'Show 6 older jobs <span class="arrow">▾</span>';
+}
+</script>
+</body>
+</html>

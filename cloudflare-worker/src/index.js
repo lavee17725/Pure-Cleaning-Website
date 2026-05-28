@@ -3490,7 +3490,12 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         prop.accessNotes,
         pp.propertyLabel,
         pp.propertyType,
-        pp.primaryContact
+        pp.primaryContact,
+        j.isMultiDayParent,
+        j.parentJobId,
+        j.dayNumber,
+        j.totalDays,
+        j.dayPhase
       FROM Job j
       JOIN Person p ON p.personId = j.payerId
       LEFT JOIN Property prop ON prop.propertyId = j.propertyId

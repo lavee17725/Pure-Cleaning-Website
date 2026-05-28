@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crew Modal Centered Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#e2e8f0;padding:20px;color:#1a1f2e;font-size:13px;}
+h2{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:16px;}
+.badge{display:inline-block;background:#2d7dd2;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:20px;}
+.fix-note{background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:8px;padding:10px 14px;font-size:12px;color:#0c4a6e;margin-bottom:24px;max-width:840px;line-height:1.6;}
+.fix-note code{background:#e0f2fe;padding:1px 5px;border-radius:3px;font-family:monospace;}
+.vp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8pt;color:#64748b;margin-bottom:8px;}
+.frame{border-radius:10px;overflow:hidden;margin-bottom:28px;position:relative;}
+
+/* ── Production calendar dark background sim ── */
+.cal-bg{background:#0a1628;padding:20px;min-height:180px;}
+.rig-lane{background:#0d1e35;border-radius:8px;padding:0;width:200px;overflow:hidden;}
+.rig-hdr{background:#0d1e35;border-left:3px solid #3b82f6;padding:8px 10px;font-size:12px;font-weight:700;color:#fff;cursor:pointer;}
+.rig-hdr:hover{background:#112240;}
+.rig-job{background:#112240;border-radius:6px;margin:6px 8px;padding:8px;font-size:12px;color:#e2e8f0;}
+
+/* ── BEFORE: positioned relative to click anchor ── */
+.crew-pop-old{
+  position:absolute;
+  background:#fff;
+  border:1.5px solid #e8e2d8;
+  border-radius:14px;
+  padding:1rem;
+  width:240px;
+  box-shadow:0 8px 30px rgba(0,0,0,.2);
+  z-index:500;
+  /* Simulating anchored to rig header — clips at bottom of small viewports */
+  top:60px;
+  left:30px;
+}
+
+/* ── AFTER: viewport-centered with backdrop ── */
+.crew-pop-backdrop{
+  position:absolute;
+  inset:0;
+  background:rgba(0,0,0,.55);
+  z-index:499;
+  border-radius:10px;
+}
+.crew-pop-new{
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  background:#fff;
+  border:1.5px solid #e8e2d8;
+  border-radius:14px;
+  padding:1rem;
+  width:240px;
+  min-width:0;
+  max-height:90%;
+  overflow-y:auto;
+  box-shadow:0 8px 30px rgba(0,0,0,.35);
+  z-index:500;
+}
+
+/* ── Shared modal content styles ── */
+.cp-title{font-size:14px;font-weight:800;color:#0a1628;margin-bottom:.75rem;}
+.cp-daytpe-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:6px;}
+.cp-daytype-row{display:flex;gap:16px;margin-bottom:.75rem;padding-bottom:.625rem;border-bottom:1px solid #e8e2d8;}
+.cp-daytype-row label{display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:600;color:#1a1f2e;}
+.cp-item{display:flex;align-items:center;gap:10px;padding:6px 4px;border-radius:8px;}
+.cp-item input{width:16px;height:16px;accent-color:#2d7dd2;}
+.cp-name{font-size:13px;font-weight:600;}
+.cp-rate{font-size:11px;color:#6b7280;}
+.cp-footer{display:flex;gap:8px;margin-top:.75rem;}
+.mbtn-cancel{flex:1;padding:9px;border:1.5px solid #e8e2d8;border-radius:8px;background:none;color:#6b7280;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.mbtn-save{flex:2;padding:9px;border:none;border-radius:8px;background:#2d7dd2;color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;}
+
+/* ── Clipping warning for before ── */
+.clip-warn{position:absolute;bottom:-2px;left:30px;width:240px;background:#dc2626;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:0 0 4px 4px;text-align:center;}
+</style></head><body>
+
+<h2>Crew Modal — Viewport Centered Fix</h2>
+<p class="sub">Modal was anchored to rig label click position. Clips when scrolled down. Fix: viewport-centered with backdrop.</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<div class="fix-note">
+  <strong>Bug:</strong> <code>pop.style.top = Math.min(rect.bottom + 4, window.innerHeight - 320) + 'px'</code> — anchors to click position. Clips on short viewports or when scrolled far down.<br>
+  <strong>Fix:</strong> Remove JS top/left assignment. CSS: <code>top: 50%; left: 50%; transform: translate(-50%, -50%); max-height: 90vh; overflow-y: auto; min-width: 0</code><br>
+  Backdrop: <code>position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 499</code> — click backdrop to close.<br>
+  Body scroll locked while open. <code>min-width: 0</code> per Law T1.5 (flex item intrinsic-width gotcha).
+</div>
+
+<!-- BEFORE: clipped anchor positioning -->
+<div class="vp-label">Before — anchored to rig label, clips when scrolled down</div>
+<div class="frame" style="max-width:600px;height:260px;">
+  <div class="cal-bg" style="position:relative;height:100%;">
+    <div class="rig-lane">
+      <div class="rig-hdr">Old Tacoma · Byron + Jonathan</div>
+      <div class="rig-job">Joseiky Garcia · 9:00 AM</div>
+    </div>
+    <!-- Modal clipping at bottom of viewport -->
+    <div class="crew-pop-old" style="top:50px;left:24px;">
+      <div class="cp-title">Old Tacoma · Mon May 19</div>
+      <div class="cp-daytpe-lbl">Day type</div>
+      <div class="cp-daytype-row">
+        <label><input type="radio" checked> Full day</label>
+        <label><input type="radio"> ½ Half day</label>
+      </div>
+      <div class="cp-item"><input type="checkbox" checked><div><div class="cp-name" style="color:#3b82f6;">Byron</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox"><div><div class="cp-name" style="color:#10b981;">Danny</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox" checked><div><div class="cp-name" style="color:#f59e0b;">Jonathan</div><div class="cp-rate">$160/day</div></div></div>
+      <div class="cp-item"><input type="checkbox"><div><div class="cp-name" style="color:#a855f7;">Tyler</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox"><div><div class="cp-name" style="color:#ef4444;">Tony</div><div class="cp-rate">Owner</div></div></div>
+      <div class="cp-footer">
+        <button class="mbtn-cancel">Cancel</button>
+        <button class="mbtn-save">Save</button>
+      </div>
+    </div>
+    <div class="clip-warn">⚠ Clips here when viewport is short or page is scrolled</div>
+  </div>
+</div>
+
+<!-- AFTER: viewport-centered with backdrop -->
+<div class="vp-label">After — viewport-centered with backdrop, never clips</div>
+<div class="frame" style="max-width:600px;height:260px;">
+  <div class="cal-bg" style="position:relative;height:100%;">
+    <div class="rig-lane">
+      <div class="rig-hdr">Old Tacoma · Byron + Jonathan</div>
+      <div class="rig-job">Joseiky Garcia · 9:00 AM</div>
+    </div>
+    <!-- Backdrop -->
+    <div class="crew-pop-backdrop"></div>
+    <!-- Modal centered -->
+    <div class="crew-pop-new">
+      <div class="cp-title">Old Tacoma · Mon May 19</div>
+      <div class="cp-daytpe-lbl">Day type</div>
+      <div class="cp-daytype-row">
+        <label><input type="radio" checked> Full day</label>
+        <label><input type="radio"> ½ Half day</label>
+      </div>
+      <div class="cp-item"><input type="checkbox" checked><div><div class="cp-name" style="color:#3b82f6;">Byron</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox"><div><div class="cp-name" style="color:#10b981;">Danny</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox" checked><div><div class="cp-name" style="color:#f59e0b;">Jonathan</div><div class="cp-rate">$160/day</div></div></div>
+      <div class="cp-item"><input type="checkbox"><div><div class="cp-name" style="color:#a855f7;">Tyler</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox"><div><div class="cp-name" style="color:#ef4444;">Tony</div><div class="cp-rate">Owner</div></div></div>
+      <div class="cp-footer">
+        <button class="mbtn-cancel">Cancel</button>
+        <button class="mbtn-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Phone sim -->
+<div class="vp-label">Phone (~400px) — same centered behavior</div>
+<div class="frame" style="max-width:400px;height:260px;">
+  <div class="cal-bg" style="position:relative;height:100%;">
+    <div class="crew-pop-backdrop"></div>
+    <div class="crew-pop-new">
+      <div class="cp-title">Old Tacoma · Mon May 19</div>
+      <div class="cp-daytype-row" style="margin-bottom:.5rem;padding-bottom:.5rem;border-bottom:1px solid #e8e2d8;">
+        <label><input type="radio" checked> Full</label>
+        <label><input type="radio"> ½ Half</label>
+      </div>
+      <div class="cp-item"><input type="checkbox" checked><div><div class="cp-name" style="color:#3b82f6;">Byron</div><div class="cp-rate">$150/day</div></div></div>
+      <div class="cp-item"><input type="checkbox" checked><div><div class="cp-name" style="color:#f59e0b;">Jonathan</div><div class="cp-rate">$160/day</div></div></div>
+      <div class="cp-footer">
+        <button class="mbtn-cancel">Cancel</button>
+        <button class="mbtn-save">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body></html>

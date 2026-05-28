@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Option B — Card-Style Rows</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f8f9fb;color:#1a1f2e;font-size:13px;}
+
+/* ── Page chrome ── */
+.page-header{background:#0a1628;padding:14px 24px;display:flex;align-items:center;gap:12px;}
+.logo{font-size:18px;font-weight:800;color:#fff;letter-spacing:.5px;}
+.logo span{color:#f4a620;}
+.badge{font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:12px;letter-spacing:.5px;}
+.toolbar{background:#fff;border-bottom:1px solid #e8e2d8;padding:10px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.stat-pill{background:#f1f5f9;border-radius:8px;padding:5px 12px;font-size:12px;font-weight:600;color:#374151;}
+.stat-pill strong{color:#0a1628;}
+.pool-tab{background:none;border:1.5px solid #e8e2d8;border-radius:8px;padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;color:#6b7280;}
+.pool-tab.active{background:#eff6ff;border-color:#2d7dd2;color:#2d7dd2;}
+.spacer{flex:1;}
+.search-box{border:1.5px solid #e8e2d8;border-radius:8px;padding:6px 12px;font-size:12px;width:200px;color:#374151;}
+
+/* ── Sort bar (replaces column headers) ── */
+.sort-bar{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 0 8px;
+  font-size:12px;color:#64748b;
+}
+.sort-label{font-weight:600;color:#374151;}
+.sort-sel{
+  border:1.5px solid #e8e2d8;border-radius:8px;
+  padding:5px 10px;font-size:12px;font-family:inherit;
+  background:#fff;color:#374151;cursor:pointer;
+  font-weight:600;
+}
+.sort-sel:focus{outline:none;border-color:#2d7dd2;}
+.count-badge{
+  background:#f1f5f9;border-radius:6px;
+  padding:3px 9px;font-size:11px;font-weight:600;color:#64748b;
+  margin-left:auto;
+}
+
+/* ── Select All row ── */
+.select-bar{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 0;border-bottom:1px solid #f1f5f9;
+  font-size:12px;color:#64748b;margin-bottom:2px;
+}
+.select-bar input{width:16px;height:16px;accent-color:#2d7dd2;}
+
+/* ── Viewport simulation ── */
+.vp-row{display:flex;gap:20px;padding:0 24px 24px;align-items:flex-start;}
+.vp-col{flex:1;}
+.vp-col.narrow{max-width:920px;min-width:0;flex:0 0 auto;}
+.vp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8pt;color:#94a3b8;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.vp-label span{background:#e2e8f0;border-radius:4px;padding:2px 7px;}
+.pad{padding:0 24px;}
+
+/* ── CARD ROW — the hero component ── */
+.card-list{display:flex;flex-direction:column;gap:0;}
+
+.card-row{
+  display:flex;align-items:stretch;
+  background:#fff;
+  border-bottom:1px solid #f1f5f9;
+  transition:background .12s, border-color .12s;
+  cursor:pointer;
+  min-height:100px;
+  overflow:hidden;
+}
+.card-row:first-child{border-radius:12px 12px 0 0;}
+.card-row:last-child{border-radius:0 0 12px 12px;border-bottom:none;}
+.card-row:hover{background:#f5f9ff;}
+.card-row.selected{background:#eff6ff;border-left:3px solid #2d7dd2;}
+.card-row.selected .card-left{border-right-color:#bfdbfe;}
+
+/* ── LEFT ZONE — sticky action panel ── */
+.card-left{
+  position:sticky;left:0;
+  flex:0 0 148px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;
+  padding:14px 10px;
+  background:inherit;
+  border-right:1px solid #f1f5f9;
+  z-index:2;
+}
+.card-row:hover .card-left{background:#f5f9ff;}
+.card-row.selected .card-left{background:#eff6ff;}
+
+.check-row{display:flex;align-items:center;gap:6px;}
+.check-row input{width:15px;height:15px;accent-color:#2d7dd2;cursor:pointer;flex-shrink:0;}
+
+.btn-text-now{
+  background:#2d7dd2;color:#fff;
+  border:none;border-radius:9px;
+  padding:11px 0;width:118px;
+  font-size:15px;font-weight:700;
+  cursor:pointer;font-family:inherit;
+  transition:background .12s;
+  text-align:center;
+  letter-spacing:.3px;
+}
+.btn-text-now:hover{background:#1d6bb5;}
+.btn-test-send{
+  background:none;color:#94a3b8;
+  border:1px solid #e8e2d8;border-radius:7px;
+  padding:4px 0;width:118px;font-size:10px;font-weight:600;
+  cursor:pointer;font-family:inherit;text-align:center;
+  transition:all .12s;
+}
+.btn-test-send:hover{color:#2d7dd2;border-color:#bfdbfe;}
+
+/* Previously texted state */
+.btn-texted{
+  background:rgba(29,158,117,.1);color:#065f46;
+  border:1px solid #86efac;border-radius:9px;
+  padding:9px 0;width:118px;
+  font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
+  text-align:center;
+}
+
+/* ── CENTER ZONE — customer identity ── */
+.card-center{
+  flex:1;min-width:0;
+  display:flex;flex-direction:column;justify-content:center;
+  padding:14px 16px 14px 18px;
+  gap:5px;
+}
+.cust-name{
+  font-size:21px;font-weight:800;
+  color:#0a1628;line-height:1.15;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.cust-meta{
+  display:flex;align-items:center;flex-wrap:wrap;gap:6px;
+  font-size:12px;color:#94a3b8;
+  line-height:1.4;
+}
+.meta-phone{font-family:'DM Mono',monospace;font-size:12px;}
+.meta-sep{color:#e2e8f0;}
+.last-svc{
+  display:inline-flex;align-items:center;gap:4px;
+  background:#fee2e2;color:#7f1d1d;
+  border-radius:5px;padding:2px 7px;
+  font-size:11px;font-weight:700;
+}
+.last-svc.warn{background:#fef3c7;color:#92400e;}
+.last-svc.amber{background:#fed7aa;color:#9a3412;}
+.tier-inline{
+  display:inline-block;padding:2px 8px;border-radius:8px;
+  font-size:11px;font-weight:700;
+}
+.tier-top{background:#fef3c7;color:#92400e;}
+.tier-loyal{background:#dbeafe;color:#1d4ed8;}
+.tier-active{background:#dcfce7;color:#166534;}
+.tier-new{background:#f1f5f9;color:#64748b;}
+
+/* ── RIGHT ZONE — financial signal ── */
+.card-right{
+  flex:0 0 110px;
+  display:flex;flex-direction:column;align-items:flex-end;justify-content:center;
+  padding:14px 18px 14px 8px;
+  gap:4px;
+}
+.spend-amount{
+  font-size:22px;font-weight:800;
+  color:#c2410c;
+  font-family:'DM Mono',monospace;
+  line-height:1.1;
+  text-align:right;
+}
+.spend-label{font-size:10px;color:#94a3b8;text-align:right;font-weight:500;}
+.menu-btn{
+  background:none;border:1px solid #e8e2d8;border-radius:5px;
+  padding:3px 7px;font-size:12px;color:#94a3b8;cursor:pointer;
+  margin-top:6px;
+  transition:all .12s;
+}
+.menu-btn:hover{border-color:#2d7dd2;color:#2d7dd2;}
+
+/* Card list container */
+.card-list-wrap{
+  border:1.5px solid #e8e2d8;border-radius:12px;
+  background:#fff;
+  box-shadow:0 1px 6px rgba(0,0,0,.06);
+  overflow:hidden;
+}
+
+/* Narrow viewport: stack text NOW slightly smaller */
+@media(max-width:1000px){
+  .btn-text-now{font-size:13px;padding:9px 0;width:110px;}
+  .btn-test-send{width:110px;}
+  .card-left{flex:0 0 130px;padding:12px 8px;}
+  .cust-name{font-size:18px;}
+  .spend-amount{font-size:18px;}
+  .card-right{flex:0 0 90px;padding:12px 12px 12px 6px;}
+}
+
+.design-note{background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:11px;color:#1d4ed8;margin-bottom:10px;line-height:1.7;}
+.design-note strong{font-weight:700;}
+</style></head><body>
+
+<!-- Page chrome -->
+<div class="page-header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="badge">Option B — Card-Style Rows</div>
+</div>
+
+<div class="toolbar">
+  <div class="stat-pill"><strong>1,240</strong> total</div>
+  <div class="stat-pill">Due now: <strong>0</strong></div>
+  <div class="stat-pill">This week: <strong>110</strong></div>
+  <div class="pool-tab active">📋 All Due</div>
+  <div class="pool-tab">💧 Ground</div>
+  <div class="pool-tab">🏠 Roof</div>
+  <div class="spacer"></div>
+  <input class="search-box" placeholder="Search customers…" type="text">
+</div>
+
+<div class="vp-row">
+
+  <!-- Desktop 1280px -->
+  <div class="vp-col">
+    <div class="pad">
+    <div class="vp-label" style="padding-top:16px;">Desktop 1280px <span>zero horizontal scroll</span></div>
+    <div class="design-note">
+      <strong>Key changes from production:</strong> Column headers gone → sort dropdown replaces them · Customer name 13pt→21pt, scan-weight bold · Meta line: phone · city · last service (urgency-colored) · jobs in one row · Lifetime $ right-anchored at 22pt for instant value signal · TEXT NOW padded large for thumb tap · Card border turns blue on selection
+    </div>
+
+    <!-- Sort bar -->
+    <div class="sort-bar">
+      <span class="sort-label">Sort by:</span>
+      <select class="sort-sel">
+        <option>Months since — urgent first</option>
+        <option>Lifetime $ — high first</option>
+        <option>Last service date</option>
+        <option>Customer name A–Z</option>
+        <option>Tier — top first</option>
+      </select>
+      <span class="count-badge">9 customers</span>
+    </div>
+
+    <!-- Select all -->
+    <div class="select-bar">
+      <input type="checkbox"> <span>Select all</span>
+    </div>
+
+    <!-- Card list -->
+    <div class="card-list-wrap">
+    <div class="card-list">
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Pat Brown</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(954) 112-3344</span>
+            <span class="meta-sep">·</span>Miramar
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 30 mo ago</span>
+            <span class="meta-sep">·</span>4 jobs
+            <span class="tier-inline tier-loyal">Loyal</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$1,800</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Alexander Ruedo</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(305) 444-2211</span>
+            <span class="meta-sep">·</span>Hialeah
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 29 mo ago</span>
+            <span class="meta-sep">·</span>1 job
+            <span class="tier-inline tier-new">New</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$450</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Robin Shulman</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(561) 678-9000</span>
+            <span class="meta-sep">·</span>Boca Raton
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 28 mo ago</span>
+            <span class="meta-sep">·</span>9 jobs
+            <span class="tier-inline tier-top">⭐ Top</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$6,300</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Tricia Meave</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(954) 987-6543</span>
+            <span class="meta-sep">·</span>Coral Springs
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 28 mo ago</span>
+            <span class="meta-sep">·</span>3 jobs
+            <span class="tier-inline tier-loyal">Loyal</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$1,240</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <!-- Selected state example -->
+      <div class="card-row selected">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox" checked></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">John Levitz</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(786) 234-5678</span>
+            <span class="meta-sep">·</span>Miami Lakes
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 27 mo ago</span>
+            <span class="meta-sep">·</span>2 jobs
+            <span class="tier-inline tier-active">Active</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$900</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Ed Cruz Febus</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(786) 555-8901</span>
+            <span class="meta-sep">·</span>Doral
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 27 mo ago</span>
+            <span class="meta-sep">·</span>2 jobs
+            <span class="tier-inline tier-active">Active</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$680</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Tom Barbaglia</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(954) 321-4567</span>
+            <span class="meta-sep">·</span>Weston
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 26 mo ago</span>
+            <span class="meta-sep">·</span>7 jobs
+            <span class="tier-inline tier-top">⭐ Top</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$4,890</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now">Text Now</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Keith Helm</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(954) 876-5432</span>
+            <span class="meta-sep">·</span>Pembroke Pines
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 25 mo ago</span>
+            <span class="meta-sep">·</span>5 jobs
+            <span class="tier-inline tier-loyal">Loyal</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$2,750</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+      <!-- "Already texted" state example -->
+      <div class="card-row">
+        <div class="card-left">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-texted">✓ Texted May 17</button>
+          <button class="btn-test-send">Test Send to Me</button>
+        </div>
+        <div class="card-center">
+          <div class="cust-name">Carol Reed</div>
+          <div class="cust-meta">
+            <span class="meta-phone">(954) 999-0001</span>
+            <span class="meta-sep">·</span>Fort Lauderdale
+            <span class="meta-sep">·</span>
+            <span class="last-svc">🔴 27 mo ago</span>
+            <span class="meta-sep">·</span>6 jobs
+            <span class="tier-inline tier-top">⭐ Top</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="spend-amount">$3,600</div>
+          <div class="spend-label">lifetime</div>
+          <button class="menu-btn">⋯</button>
+        </div>
+      </div>
+
+    </div><!-- card-list -->
+    </div><!-- card-list-wrap -->
+    </div><!-- pad -->
+  </div>
+
+  <!-- Tablet 900px — same layout, just narrower, no columns to hide -->
+  <div class="vp-col narrow" style="flex:0 0 460px;">
+    <div class="pad">
+    <div class="vp-label" style="padding-top:16px;">Tablet / Phone <span>no scroll needed</span></div>
+    <div class="design-note" style="font-size:10px;">Card layout naturally narrows. No columns to hide — no horizontal scroll at any width. Left zone shrinks slightly at &lt;1000px.</div>
+
+    <div class="sort-bar">
+      <span class="sort-label">Sort:</span>
+      <select class="sort-sel" style="font-size:11px;padding:4px 8px;">
+        <option>Months since — urgent first</option>
+      </select>
+    </div>
+    <div class="select-bar">
+      <input type="checkbox"> <span>Select all</span>
+    </div>
+
+    <div class="card-list-wrap">
+    <div class="card-list">
+
+      <div class="card-row">
+        <div class="card-left" style="flex:0 0 126px;padding:12px 8px;">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now" style="width:108px;font-size:13px;padding:9px 0;">Text Now</button>
+          <button class="btn-test-send" style="width:108px;font-size:10px;">Test Send</button>
+        </div>
+        <div class="card-center" style="padding:12px 10px;">
+          <div class="cust-name" style="font-size:17px;">Pat Brown</div>
+          <div class="cust-meta" style="font-size:11px;">
+            (954) 112-3344
+            <span class="meta-sep">·</span>
+            <span class="last-svc" style="font-size:10px;">🔴 30 mo</span>
+            <span class="meta-sep">·</span>4 jobs
+          </div>
+        </div>
+        <div class="card-right" style="flex:0 0 78px;padding:12px 10px 12px 4px;">
+          <div class="spend-amount" style="font-size:17px;">$1,800</div>
+          <div class="spend-label">lifetime</div>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left" style="flex:0 0 126px;padding:12px 8px;">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now" style="width:108px;font-size:13px;padding:9px 0;">Text Now</button>
+          <button class="btn-test-send" style="width:108px;font-size:10px;">Test Send</button>
+        </div>
+        <div class="card-center" style="padding:12px 10px;">
+          <div class="cust-name" style="font-size:17px;">Robin Shulman</div>
+          <div class="cust-meta" style="font-size:11px;">
+            (561) 678-9000
+            <span class="meta-sep">·</span>
+            <span class="last-svc" style="font-size:10px;">🔴 28 mo</span>
+            <span class="meta-sep">·</span>9 jobs
+          </div>
+        </div>
+        <div class="card-right" style="flex:0 0 78px;padding:12px 10px 12px 4px;">
+          <div class="spend-amount" style="font-size:17px;">$6,300</div>
+          <div class="spend-label">lifetime</div>
+        </div>
+      </div>
+
+      <div class="card-row selected">
+        <div class="card-left" style="flex:0 0 126px;padding:12px 8px;">
+          <div class="check-row"><input type="checkbox" checked></div>
+          <button class="btn-text-now" style="width:108px;font-size:13px;padding:9px 0;">Text Now</button>
+          <button class="btn-test-send" style="width:108px;font-size:10px;">Test Send</button>
+        </div>
+        <div class="card-center" style="padding:12px 10px;">
+          <div class="cust-name" style="font-size:17px;">Tom Barbaglia</div>
+          <div class="cust-meta" style="font-size:11px;">
+            (954) 321-4567
+            <span class="meta-sep">·</span>
+            <span class="last-svc" style="font-size:10px;">🔴 26 mo</span>
+            <span class="meta-sep">·</span>7 jobs
+          </div>
+        </div>
+        <div class="card-right" style="flex:0 0 78px;padding:12px 10px 12px 4px;">
+          <div class="spend-amount" style="font-size:17px;">$4,890</div>
+          <div class="spend-label">lifetime</div>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left" style="flex:0 0 126px;padding:12px 8px;">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-text-now" style="width:108px;font-size:13px;padding:9px 0;">Text Now</button>
+          <button class="btn-test-send" style="width:108px;font-size:10px;">Test Send</button>
+        </div>
+        <div class="card-center" style="padding:12px 10px;">
+          <div class="cust-name" style="font-size:17px;">Carol Reed</div>
+          <div class="cust-meta" style="font-size:11px;">
+            (954) 999-0001
+            <span class="meta-sep">·</span>
+            <span class="last-svc" style="font-size:10px;">🔴 27 mo</span>
+            <span class="meta-sep">·</span>6 jobs
+          </div>
+        </div>
+        <div class="card-right" style="flex:0 0 78px;padding:12px 10px 12px 4px;">
+          <div class="spend-amount" style="font-size:17px;">$3,600</div>
+          <div class="spend-label">lifetime</div>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <div class="card-left" style="flex:0 0 126px;padding:12px 8px;">
+          <div class="check-row"><input type="checkbox"></div>
+          <button class="btn-texted" style="width:108px;font-size:11px;">✓ Texted May 17</button>
+          <button class="btn-test-send" style="width:108px;font-size:10px;">Test Send</button>
+        </div>
+        <div class="card-center" style="padding:12px 10px;">
+          <div class="cust-name" style="font-size:17px;">Keith Helm</div>
+          <div class="cust-meta" style="font-size:11px;">
+            (954) 876-5432
+            <span class="meta-sep">·</span>
+            <span class="last-svc" style="font-size:10px;">🔴 25 mo</span>
+            <span class="meta-sep">·</span>5 jobs
+          </div>
+        </div>
+        <div class="card-right" style="flex:0 0 78px;padding:12px 10px 12px 4px;">
+          <div class="spend-amount" style="font-size:17px;">$2,750</div>
+          <div class="spend-label">lifetime</div>
+        </div>
+      </div>
+
+    </div><!-- card-list -->
+    </div><!-- wrap -->
+    </div><!-- pad -->
+  </div>
+
+</div><!-- vp-row -->
+</body></html>

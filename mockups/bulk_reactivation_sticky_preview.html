@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>Bulk Reactivation — Sticky TEXT NOW Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f1f5f9;padding:20px;color:#1e293b;font-size:13px;}
+h1{font-size:15px;font-weight:700;color:#0a1628;margin-bottom:3px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:16px;}
+.badge{display:inline-block;background:#c2410c;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:16px;}
+
+/* viewport containers */
+.vp-section{margin-bottom:32px;}
+.vp-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6pt;color:#64748b;margin-bottom:6px;display:flex;align-items:center;gap:8px;}
+.vp-label span{background:#e2e8f0;border-radius:4px;padding:2px 8px;font-size:10px;}
+.vp-label .hidden-note{background:#fef3c7;color:#92400e;border-radius:4px;padding:2px 8px;font-size:10px;}
+.vp-label .sticky-note{background:#dcfce7;color:#14532d;border-radius:4px;padding:2px 8px;font-size:10px;}
+
+/* scroll demo container */
+.table-container{overflow-x:auto;border:1.5px solid #e2e8f0;border-radius:10px;background:#fff;}
+
+/* Instruction callout */
+.scroll-hint{font-size:11px;color:#2d7dd2;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:5px 10px;margin-bottom:6px;display:inline-block;}
+
+/* ───── TABLE STYLES (matching production) ───── */
+:root{
+  --navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;
+  --gold:#f4a620;--green:#1d9e75;
+  --border:#e8e2d8;--muted:#6b7280;
+  --text:#1a1f2e;--bg:#fafaf7;--card:#fff;
+  --terra:#c2410c;
+}
+table{border-collapse:collapse;font-size:13px;background:var(--card);white-space:nowrap;}
+table.full-width{width:100%;}
+
+/* NEW padding (reduced from 9px 12px → 8px 8px) */
+thead th{
+  background:var(--navy);
+  padding:9px 8px;
+  text-align:left;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:1px;
+  color:rgba(255,255,255,.6);
+  white-space:nowrap;cursor:pointer;user-select:none;
+  position:sticky;top:0;z-index:10;
+}
+thead th:hover{color:#fff;}
+td{padding:8px 8px;vertical-align:middle;white-space:nowrap;color:var(--text);border-top:1px solid var(--border);}
+tbody tr:hover{background:#f0f7ff;}
+tbody tr:hover td{background:transparent;}
+
+/* ── STICKY: Checkbox (col 1) + TEXT NOW (col 2) — KEY CHANGE ── */
+thead th.col-check{position:sticky;left:0;z-index:15;background:var(--navy);}
+tbody td.col-check{position:sticky;left:0;z-index:2;background:var(--card);}
+tbody tr:hover td.col-check{background:#f0f7ff;}
+
+thead th.col-action{position:sticky;left:32px;z-index:15;background:var(--navy);box-shadow:2px 0 6px rgba(0,0,0,.15);}
+tbody td.col-action{position:sticky;left:32px;z-index:2;background:var(--card);box-shadow:2px 0 6px rgba(0,0,0,.08);}
+tbody tr:hover td.col-action{background:#f0f7ff;}
+
+/* Name (no longer sticky — scrolls with table) */
+td.name{font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis;}
+td.phone{font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);}
+td.money{font-family:'DM Mono',monospace;color:var(--terra);font-weight:700;}
+.tier-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+.tier-a{background:#fef3c7;color:#92400e;}.tier-b{background:#dbeafe;color:#1d4ed8;}
+.tier-c{background:#f0fdf4;color:#166534;}.tier-d{background:#f8fafc;color:#64748b;}
+
+/* Buttons */
+.text-now-btn{background:var(--sky);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.test-send-btn{background:none;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.action-cell-inner{display:flex;flex-direction:column;gap:3px;}
+.check-input{width:16px;height:16px;accent-color:var(--sky);}
+.sort-ind{font-size:9px;opacity:.4;margin-left:2px;}
+
+/* Responsive column hiding */
+.col-city{} /* shown by default */
+.col-jobs{} /* shown by default */
+/* Tablet ≤900px: hide city */
+/* Phone ≤600px: hide city + jobs */
+
+/* Width spec badges */
+.col-always{font-weight:700;color:var(--sky);}
+.col-tablet-hide{color:#f59e0b;}
+.col-phone-hide{color:#dc2626;}
+
+/* --- Annotation legend --- */
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;}
+.leg{display:flex;align-items:center;gap:5px;}
+.leg-dot{width:10px;height:10px;border-radius:50%;}
+.leg-always{background:#2d7dd2;}
+.leg-tablet{background:#f59e0b;}
+.leg-phone{background:#dc2626;}
+
+/* --- Comparison note --- */
+.compare-box{background:#fef9c3;border:1.5px solid #fbbf24;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:16px;max-width:700px;}
+.compare-box strong{color:#78350f;}
+
+/* --- Header row highlight colors for legend --- */
+.h-always{background:rgba(45,125,210,.12)!important;color:#1e40af!important;}
+.h-tablet{background:rgba(245,158,11,.12)!important;color:#92400e!important;}
+.h-phone{background:rgba(220,38,38,.12)!important;color:#7f1d1d!important;}
+</style></head><body>
+
+<h1>Bulk Reactivation — Sticky TEXT NOW Column Preview</h1>
+<p class="sub">Pre-commit preview · Fix 1: sticky TEXT NOW · Fix 2: responsive column hiding + tighter padding</p>
+<div class="badge">PRE-COMMIT PREVIEW — scroll right to test sticky</div>
+
+<div class="compare-box">
+  <strong>What changed from production:</strong><br>
+  • Sticky moved from <em>Name</em> (col 3) to <em>Checkbox + TEXT NOW</em> (cols 1–2). Shadow on right edge of TEXT NOW marks the freeze boundary.<br>
+  • Cell padding reduced: <code>9px 12px</code> → <code>8px 8px</code>. Saves ~96px total per row.<br>
+  • Table <code>min-width</code> reduced: <code>960px</code> → <code>680px</code>.<br>
+  • Responsive hiding: City hides at ≤900px · Jobs hides at ≤600px (simulated below).
+</div>
+
+<div class="legend">
+  <div class="leg"><div class="leg-dot leg-always"></div>Always visible (all viewports)</div>
+  <div class="leg"><div class="leg-dot leg-tablet"></div>Hidden at ≤900px tablet</div>
+  <div class="leg"><div class="leg-dot leg-phone"></div>Hidden at ≤600px phone</div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- VIEWPORT 1: Desktop wide (1440px) — full table, no scroll needed -->
+<!-- ════════════════════════════════════════════ -->
+<div class="vp-section">
+  <div class="vp-label">
+    Desktop wide (1440px)
+    <span>Full table — all columns</span>
+    <span class="sticky-note">TEXT NOW sticky ✓</span>
+  </div>
+  <div class="scroll-hint">↔ Scroll right to test sticky anchor on TEXT NOW column</div>
+  <div class="table-container" style="max-width:1440px;">
+  <table style="min-width:900px;width:100%;">
+    <thead><tr>
+      <th class="col-check" style="width:32px;cursor:default;"></th>
+      <th class="col-action" style="width:120px;cursor:default;">Text Now</th>
+      <th>Name <span class="sort-ind">▲▼</span></th>
+      <th>Phone <span class="sort-ind">▲▼</span></th>
+      <th class="h-tablet">City <span class="sort-ind">▲▼</span></th>
+      <th>Last Service <span class="sort-ind">▲▼</span></th>
+      <th class="h-phone">Jobs <span class="sort-ind">▲▼</span></th>
+      <th>Lifetime $ <span class="sort-ind">▲▼</span></th>
+      <th>Avg Ticket <span class="sort-ind">▲▼</span></th>
+      <th>Months Since <span class="sort-ind">▲▼</span></th>
+      <th>Tier <span class="sort-ind">▲▼</span></th>
+      <th style="width:60px;cursor:default;"></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Tricia Meave</td><td class="phone">(954) 987-6543</td><td>Coral Springs</td><td>Jan 15, 2024</td><td class="money">3</td><td class="money">$1,240</td><td class="money">$413</td><td class="money">16</td><td><span class="tier-badge tier-b">Loyal</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Tom Barbaglia</td><td class="phone">(954) 321-4567</td><td>Weston</td><td>Mar 8, 2024</td><td class="money">7</td><td class="money">$4,890</td><td class="money">$699</td><td class="money">14</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Ed Cruz Febus</td><td class="phone">(786) 555-8901</td><td>Doral</td><td>Feb 22, 2024</td><td class="money">2</td><td class="money">$680</td><td class="money">$340</td><td class="money">15</td><td><span class="tier-badge tier-c">Active</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Alexander Ruedo</td><td class="phone">(305) 444-2211</td><td>Hialeah</td><td>Dec 10, 2023</td><td class="money">1</td><td class="money">$450</td><td class="money">$450</td><td class="money">17</td><td><span class="tier-badge tier-d">New</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Keith Helm</td><td class="phone">(954) 876-5432</td><td>Pembroke Pines</td><td>Apr 3, 2024</td><td class="money">5</td><td class="money">$2,750</td><td class="money">$550</td><td class="money">13</td><td><span class="tier-badge tier-b">Loyal</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Pat Brown</td><td class="phone">(954) 112-3344</td><td>Miramar</td><td>Nov 19, 2023</td><td class="money">4</td><td class="money">$1,800</td><td class="money">$450</td><td class="money">18</td><td><span class="tier-badge tier-b">Loyal</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Robin Shulman</td><td class="phone">(561) 678-9000</td><td>Boca Raton</td><td>Jan 30, 2024</td><td class="money">9</td><td class="money">$6,300</td><td class="money">$700</td><td class="money">15</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">John Levitz</td><td class="phone">(786) 234-5678</td><td>Miami Lakes</td><td>Feb 14, 2024</td><td class="money">2</td><td class="money">$900</td><td class="money">$450</td><td class="money">15</td><td><span class="tier-badge tier-c">Active</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Carol Reed</td><td class="phone">(954) 999-0001</td><td>Fort Lauderdale</td><td>Mar 2, 2024</td><td class="money">6</td><td class="money">$3,600</td><td class="money">$600</td><td class="money">14</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- VIEWPORT 2: Narrow desktop / wide tablet — scroll demo (TEXT NOW stays anchored) -->
+<!-- ════════════════════════════════════════════ -->
+<div class="vp-section">
+  <div class="vp-label">
+    Narrow desktop / wide tablet (900–1100px) — scroll right to verify sticky anchor
+    <span class="hidden-note">City hidden</span>
+    <span class="sticky-note">TEXT NOW anchored left ✓</span>
+  </div>
+  <div class="scroll-hint">👆 Scroll this table right — TEXT NOW stays visible the whole way</div>
+  <div class="table-container" style="max-width:900px;">
+  <table style="min-width:750px;">
+    <thead><tr>
+      <th class="col-check" style="width:32px;cursor:default;"></th>
+      <th class="col-action" style="width:120px;cursor:default;">Text Now</th>
+      <th>Name <span class="sort-ind">▲▼</span></th>
+      <th>Phone <span class="sort-ind">▲▼</span></th>
+      <!-- City HIDDEN at this width -->
+      <th>Last Service <span class="sort-ind">▲▼</span></th>
+      <th>Jobs <span class="sort-ind">▲▼</span></th>
+      <th>Lifetime $ <span class="sort-ind">▲▼</span></th>
+      <th>Avg Ticket <span class="sort-ind">▲▼</span></th>
+      <th>Months Since <span class="sort-ind">▲▼</span></th>
+      <th>Tier <span class="sort-ind">▲▼</span></th>
+      <th style="width:60px;cursor:default;"></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Tricia Meave</td><td class="phone">(954) 987-6543</td>
+        <td>Jan 15, 2024</td><td class="money">3</td><td class="money">$1,240</td><td class="money">$413</td><td class="money">16</td><td><span class="tier-badge tier-b">Loyal</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Tom Barbaglia</td><td class="phone">(954) 321-4567</td>
+        <td>Mar 8, 2024</td><td class="money">7</td><td class="money">$4,890</td><td class="money">$699</td><td class="money">14</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Keith Helm</td><td class="phone">(954) 876-5432</td>
+        <td>Apr 3, 2024</td><td class="money">5</td><td class="money">$2,750</td><td class="money">$550</td><td class="money">13</td><td><span class="tier-badge tier-b">Loyal</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Robin Shulman</td><td class="phone">(561) 678-9000</td>
+        <td>Jan 30, 2024</td><td class="money">9</td><td class="money">$6,300</td><td class="money">$700</td><td class="money">15</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send to Me</button></div></td>
+        <td class="name">Carol Reed</td><td class="phone">(954) 999-0001</td>
+        <td>Mar 2, 2024</td><td class="money">6</td><td class="money">$3,600</td><td class="money">$600</td><td class="money">14</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;font-size:13px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<!-- VIEWPORT 3: Phone (400px) — City + Jobs hidden -->
+<!-- ════════════════════════════════════════════ -->
+<div class="vp-section">
+  <div class="vp-label">
+    Phone (≤600px)
+    <span class="hidden-note">City hidden</span>
+    <span class="hidden-note">Jobs hidden</span>
+    <span class="sticky-note">TEXT NOW anchored left ✓</span>
+  </div>
+  <div class="scroll-hint">Minimal columns — TEXT NOW always accessible</div>
+  <div class="table-container" style="max-width:400px;">
+  <table style="min-width:480px;">
+    <thead><tr>
+      <th class="col-check" style="width:32px;cursor:default;"></th>
+      <th class="col-action" style="width:110px;cursor:default;">Text Now</th>
+      <th>Name</th>
+      <th>Phone</th>
+      <!-- City HIDDEN -->
+      <th>Last Service</th>
+      <!-- Jobs HIDDEN -->
+      <th>Lifetime $</th>
+      <th>Tier</th>
+      <th style="width:50px;cursor:default;"></th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send</button></div></td>
+        <td class="name">Tricia Meave</td><td class="phone">(954) 987-6543</td>
+        <td>Jan 15, 2024</td><td class="money">$1,240</td><td><span class="tier-badge tier-b">Loyal</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 6px;font-size:12px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send</button></div></td>
+        <td class="name">Tom Barbaglia</td><td class="phone">(954) 321-4567</td>
+        <td>Mar 8, 2024</td><td class="money">$4,890</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 6px;font-size:12px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+      <tr>
+        <td class="col-check"><input type="checkbox" class="check-input"></td>
+        <td class="col-action"><div class="action-cell-inner"><button class="text-now-btn">Text Now</button><button class="test-send-btn">Test Send</button></div></td>
+        <td class="name">Robin Shulman</td><td class="phone">(561) 678-9000</td>
+        <td>Jan 30, 2024</td><td class="money">$6,300</td><td><span class="tier-badge tier-a">⭐ Top</span></td><td><button style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 6px;font-size:12px;color:#6b7280;cursor:pointer;">⋯</button></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- Column visibility summary -->
+<div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:10px;padding:14px 16px;max-width:640px;margin-top:8px;">
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5pt;color:#64748b;margin-bottom:10px;">Column visibility by viewport</div>
+  <table style="min-width:0;font-size:12px;border-collapse:collapse;width:100%;">
+    <thead><tr style="background:#f8fafc;">
+      <th style="padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;border:none;">Column</th>
+      <th style="padding:6px 10px;text-align:center;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;border:none;">1440px</th>
+      <th style="padding:6px 10px;text-align:center;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;border:none;">1280px</th>
+      <th style="padding:6px 10px;text-align:center;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;border:none;">900px</th>
+      <th style="padding:6px 10px;text-align:center;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;border:none;">&lt;600px</th>
+    </tr></thead>
+    <tbody>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;font-weight:600;color:#0a1628;border:none;">✓ Checkbox (sticky)</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;font-weight:600;color:#2d7dd2;border:none;">📱 TEXT NOW (sticky)</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Name</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Phone</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;background:#fffbeb;"><td style="padding:5px 10px;color:#92400e;border:none;">City</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#dc2626;border:none;">—</td><td style="text-align:center;color:#dc2626;border:none;">—</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Last Service</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;background:#fef2f2;"><td style="padding:5px 10px;color:#7f1d1d;border:none;">Jobs</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#dc2626;border:none;">—</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Lifetime $</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Avg Ticket</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#dc2626;border:none;">—</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Months Since</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#dc2626;border:none;">—</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">Tier</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+      <tr style="border-top:1px solid #f1f5f9;"><td style="padding:5px 10px;border:none;">⋯ Menu</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td><td style="text-align:center;color:#16a34a;border:none;">✓</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</body></html>

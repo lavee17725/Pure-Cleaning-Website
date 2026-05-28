@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Review Hub v2 — Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--red:#dc2626;--terra:#c2410c;--white:#fff;--bg:#fafaf7;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;--card:#fff;--input-bg:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+/* ── PREVIEW BANNER ── */
+.preview-banner{background:#7c3aed;color:#fff;padding:8px 16px;font-size:12px;font-weight:700;text-align:center;letter-spacing:1px;display:flex;align-items:center;justify-content:center;gap:12px;}
+.preview-banner span{background:rgba(255,255,255,.2);border-radius:4px;padding:2px 8px;font-size:10px;}
+/* ── SECTION LABELS ── */
+.section-label{background:#1e293b;color:#94a3b8;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:6px 16px;}
+/* ── HUB CHROME ── */
+.back-bar{background:var(--navy2);border-bottom:1px solid var(--border);padding:6px 1.25rem;}
+.back-bar a{color:var(--muted);text-decoration:none;font-size:12px;font-weight:600;}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:1rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--navy);letter-spacing:1px;}
+.logo span{color:var(--gold);}
+.badge{font-size:11px;font-weight:600;background:rgba(244,166,32,.2);color:var(--gold);padding:3px 10px;border-radius:20px;letter-spacing:1px;}
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--border);overflow-x:auto;}
+.tab{flex-shrink:0;padding:.875rem 1rem;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2.5px solid transparent;white-space:nowrap;}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.tab-badge{display:inline-flex;align-items:center;justify-content:center;background:var(--gold);color:var(--navy);border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:5px;}
+.wrap{max-width:800px;margin:0 auto;padding:1.25rem;}
+.card{background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:.75rem;}
+.card.urgent{border-color:rgba(220,38,38,.5);background:rgba(220,38,38,.04);}
+.card.soon{border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.03);}
+.card.reviewed-card{border-color:rgba(29,158,117,.4);background:rgba(29,158,117,.04);}
+.card-name{font-size:15px;font-weight:700;color:var(--text);margin-bottom:3px;}
+.card-meta{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.5;}
+.card-btns{display:flex;flex-wrap:wrap;gap:7px;margin-top:.75rem;}
+.btn{padding:7px 13px;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
+.btn-primary{background:var(--sky);color:#fff;}
+.btn-green{background:var(--green);color:#fff;}
+.btn-danger{background:rgba(220,38,38,.18);color:#fca5a5;border:1.5px solid rgba(220,38,62,.35);}
+.btn-muted{background:rgba(122,138,170,.15);color:var(--muted);border:1.5px solid var(--border);}
+.btn-gold{background:var(--gold);color:var(--navy);}
+.days-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;}
+.days-green{background:rgba(29,158,117,.2);color:#5de0b3;}
+.days-yellow{background:rgba(245,158,11,.2);color:#fbbf24;}
+.days-orange{background:rgba(234,88,12,.2);color:#fb923c;}
+.days-red{background:rgba(220,38,38,.2);color:#fca5a5;}
+.section-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;display:flex;align-items:center;gap:8px;}
+.section-hdr::after{content:'';flex:1;height:1px;background:var(--border);}
+/* ── COUNTDOWN PILL ── */
+.window-pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;margin-left:8px;}
+.window-ok{background:rgba(29,158,117,.15);color:#34d399;}
+.window-warn{background:rgba(245,158,11,.15);color:#fbbf24;}
+.window-close{background:rgba(220,38,38,.15);color:#fca5a5;}
+/* ── STAR PICKER INLINE ── */
+.star-picker-inline{background:var(--navy2);border:1.5px solid var(--border);border-radius:10px;padding:.75rem 1rem;margin-top:.75rem;display:flex;flex-direction:column;gap:.5rem;}
+.star-picker-label{font-size:12px;font-weight:600;color:var(--muted);}
+.star-row{display:flex;align-items:flex-end;gap:.3rem;}
+.star-btn{background:#fff;border:1.5px solid #d1d5db;border-radius:7px;cursor:pointer;color:#9ca3af;font-weight:700;transition:all .1s;line-height:1.1;padding:.2rem .5rem;}
+.star-btn.hovered,.star-btn:hover~.star-btn-reset .star-btn,.star-btn.active{color:#f59e0b;border-color:#fbbf24;background:#fffbeb;}
+.star-cancel{font-size:11px;color:var(--muted);cursor:pointer;margin-top:2px;align-self:flex-start;}
+/* ── REVIEW BADGE ── */
+.review-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;vertical-align:middle;}
+.rb-5{background:rgba(29,158,117,.2);color:#34d399;}
+.rb-4{background:rgba(245,158,11,.2);color:#fbbf24;}
+.rb-low{background:rgba(220,38,38,.2);color:#fca5a5;}
+/* ── REVIEWED TAB ── */
+.star-display{font-size:20px;color:#f59e0b;margin:.25rem 0;line-height:1;}
+/* ── NO RESPONSE TAB ── */
+.expired-pill{background:rgba(107,114,128,.15);color:var(--muted);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px;}
+/* ── CUSTOMER DIRECTORY SNIPPET ── */
+.dir-wrap{max-width:900px;margin:0 auto;padding:1.25rem;}
+.dir-table{width:100%;border-collapse:collapse;font-size:13px;}
+.dir-table th{text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);padding:8px 10px;border-bottom:1.5px solid var(--border);cursor:pointer;}
+.dir-table td{padding:10px 10px;border-bottom:1px solid var(--border);color:var(--text);}
+.dir-table tr:hover td{background:#f8f7f3;}
+.money{font-family:'DM Mono',monospace;font-weight:700;color:var(--terra);}
+/* ── PROFILE BADGE SECTION ── */
+.profile-card{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1.25rem;max-width:440px;margin:0 auto;}
+.profile-name{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:4px;}
+.profile-meta{font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:.75rem;}
+.profile-review-block{background:#0d2640;border:1px solid rgba(29,158,117,.4);border-radius:10px;padding:.75rem 1rem;display:flex;align-items:center;justify-content:space-between;}
+.prb-left{font-size:13px;font-weight:700;color:#34d399;}
+.prb-stars{font-size:22px;color:#f59e0b;letter-spacing:1px;}
+.prb-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+/* ── AUTO-TAIL-OFF DIAGRAM ── */
+.flow-wrap{display:flex;align-items:center;gap:0;flex-wrap:wrap;justify-content:center;margin:1.5rem 0;}
+.flow-box{background:var(--card);border:1.5px solid var(--border);border-radius:10px;padding:.75rem 1rem;text-align:center;min-width:130px;}
+.flow-box .fb-title{font-size:12px;font-weight:700;color:var(--text);}
+.flow-box .fb-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+.flow-arrow{font-size:20px;color:var(--muted);padding:0 6px;flex-shrink:0;}
+.flow-box.active-box{border-color:var(--gold);background:rgba(244,166,32,.06);}
+.flow-box.resolved{border-color:rgba(29,158,117,.5);background:rgba(29,158,117,.06);}
+.flow-box.expired{border-color:rgba(107,114,128,.4);background:rgba(107,114,128,.05);}
+/* ── PANEL ── */
+.panel{display:none;}.panel.active{display:block;}
+</style>
+</head>
+<body>
+
+<div class="preview-banner">
+  MOCKUP PREVIEW — Review Hub v2
+  <span>Not live · Review and approve</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 1 — Auto-tail-off state machine (new logic)</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div style="max-width:800px;margin:0 auto;padding:1.25rem;">
+  <div style="font-size:13px;color:var(--muted);margin-bottom:1rem;">
+    When Tyler sends a request, customer enters <strong style="color:#f4a620">Requested</strong> with a 7-day window. After 7 days with no action, server auto-promotes to <strong style="color:var(--muted)">No Response</strong> (re-ask eligible in 30 days). Tyler can override at any time.
+  </div>
+  <div class="flow-wrap">
+    <div class="flow-box">
+      <div class="fb-title">🎯 Ready</div>
+      <div class="fb-sub">Completed job, never asked</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box active-box">
+      <div class="fb-title">📬 Requested</div>
+      <div class="fb-sub">7-day window<br>countdown visible</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div class="flow-box resolved">
+        <div class="fb-title">⭐ Reviewed</div>
+        <div class="fb-sub">Tyler marks + stars</div>
+      </div>
+      <div class="flow-box expired">
+        <div class="fb-title">💭 No Response</div>
+        <div class="fb-sub">Auto after 7 days<br>Re-ask in 30 days</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 2 — Requested tab (new countdown + star-picker button)</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div class="back-bar"><a href="#">← Admin Home</a></div>
+<div class="header">
+  <div class="logo">Pure <span>Cleaning</span></div>
+  <div class="badge">⭐ Reviews Hub</div>
+</div>
+<div class="tabs">
+  <div class="tab" data-tab="ready">🎯 Ready <span class="tab-badge">12</span></div>
+  <div class="tab active" data-tab="requested">📬 Requested <span class="tab-badge" style="background:rgba(45,125,210,.4);color:#93c5fd;">4</span></div>
+  <div class="tab" data-tab="reviewed">⭐ Reviewed <span class="tab-badge" style="background:rgba(29,158,117,.4);color:#6ee7b7;">8</span></div>
+  <div class="tab" data-tab="no_response">💭 No Response <span class="tab-badge" style="background:rgba(107,114,128,.3);color:var(--muted);">3</span></div>
+  <div class="tab" data-tab="wontask">🚫 Won't Ask <span class="tab-badge" style="background:rgba(107,114,128,.3);color:var(--muted);">5</span></div>
+</div>
+<div class="wrap">
+  <div class="section-hdr">📬 Awaiting confirmation · 4 sent since May 1</div>
+
+  <!-- Card 1: 1 day old — good window -->
+  <div class="card" id="req-5550001">
+    <div class="card-name">
+      Maria Johnson
+      <span class="window-pill window-ok">⏱ 6 days left</span>
+    </div>
+    <div class="card-meta">📞 (555) 000-0001 · Roof + Driveway · Requested May 18, 2026</div>
+    <div class="card-btns" id="btns-5550001">
+      <button class="btn btn-green" onclick="showStarPickerInline('5550001')">⭐ Yes, they reviewed!</button>
+      <button class="btn btn-muted">↩ Didn't review yet</button>
+      <button class="btn btn-primary">⏰ Ask again</button>
+      <button class="btn btn-danger">🚫 Don't ask anymore</button>
+    </div>
+    <div id="star-inline-5550001" style="display:none;">
+      <div class="star-picker-inline">
+        <div class="star-picker-label">How many stars did Maria leave?</div>
+        <div class="star-row" id="star-row-5550001">
+          <button class="star-btn" onclick="demoStar(1,'5550001')" style="font-size:15px;">1★</button>
+          <button class="star-btn" onclick="demoStar(2,'5550001')" style="font-size:17px;">2★</button>
+          <button class="star-btn" onclick="demoStar(3,'5550001')" style="font-size:19px;">3★</button>
+          <button class="star-btn" onclick="demoStar(4,'5550001')" style="font-size:21px;">4★</button>
+          <button class="star-btn" onclick="demoStar(5,'5550001')" style="font-size:23px;">5★</button>
+        </div>
+        <div class="star-cancel" onclick="document.getElementById('star-inline-5550001').style.display='none';document.getElementById('btns-5550001').style.display='flex';">✕ Cancel</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 2: 4 days old — getting close -->
+  <div class="card soon" id="req-5550002">
+    <div class="card-name">
+      Carlos Diaz
+      <span class="window-pill window-warn">⏱ 3 days left</span>
+    </div>
+    <div class="card-meta">📞 (555) 000-0002 · Softwash + Gutter Cleaning · Requested May 15, 2026</div>
+    <div class="card-btns">
+      <button class="btn btn-green" onclick="showStarPickerInline('5550002')">⭐ Yes, they reviewed!</button>
+      <button class="btn btn-muted">↩ Didn't review yet</button>
+      <button class="btn btn-primary">⏰ Ask again</button>
+      <button class="btn btn-danger">🚫 Don't ask anymore</button>
+    </div>
+    <div id="star-inline-5550002" style="display:none;">
+      <div class="star-picker-inline">
+        <div class="star-picker-label">How many stars did Carlos leave?</div>
+        <div class="star-row">
+          <button class="star-btn" style="font-size:15px;">1★</button>
+          <button class="star-btn" style="font-size:17px;">2★</button>
+          <button class="star-btn" style="font-size:19px;">3★</button>
+          <button class="star-btn" style="font-size:21px;">4★</button>
+          <button class="star-btn" style="font-size:23px;">5★</button>
+        </div>
+        <div class="star-cancel" onclick="document.getElementById('star-inline-5550002').style.display='none';">✕ Cancel</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 3: 6 days old — window closing -->
+  <div class="card urgent" id="req-5550003">
+    <div class="card-name">
+      Sandra Williams
+      <span class="window-pill window-close">⏱ 1 day left</span>
+    </div>
+    <div class="card-meta">📞 (555) 000-0003 · Full pressure wash · Requested May 13, 2026</div>
+    <div class="card-btns">
+      <button class="btn btn-green" onclick="showStarPickerInline('5550003')">⭐ Yes, they reviewed!</button>
+      <button class="btn btn-muted">↩ Didn't review yet</button>
+      <button class="btn btn-primary">⏰ Ask again</button>
+      <button class="btn btn-danger">🚫 Don't ask anymore</button>
+    </div>
+    <div id="star-inline-5550003" style="display:none;">
+      <div class="star-picker-inline">
+        <div class="star-picker-label">How many stars did Sandra leave?</div>
+        <div class="star-row">
+          <button class="star-btn" style="font-size:15px;">1★</button>
+          <button class="star-btn" style="font-size:17px;">2★</button>
+          <button class="star-btn" style="font-size:19px;">3★</button>
+          <button class="star-btn" style="font-size:21px;">4★</button>
+          <button class="star-btn" style="font-size:23px;">5★</button>
+        </div>
+        <div class="star-cancel" onclick="document.getElementById('star-inline-5550003').style.display='none';">✕ Cancel</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 3 — Reviewed tab (star badge + no-rating indicator)</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="wrap">
+  <div class="section-hdr">⭐ 8 reviews tracked since May 1, 2026</div>
+
+  <div class="card reviewed-card">
+    <div class="card-name">⭐ Janet Smith</div>
+    <div class="card-meta">📞 (555) 100-0001 · Reviewed May 16, 2026 · Pembroke Pines</div>
+    <div class="star-display">★★★★★ <span style="font-size:13px;color:var(--muted);vertical-align:middle;">(5 stars)</span></div>
+    <div class="card-btns">
+      <button class="btn btn-muted">✏️ Edit rating</button>
+      <button class="btn btn-muted">📝 Add note</button>
+      <button class="btn" style="border:1px solid #6b7280;color:#6b7280;background:#fff;">↩️ Mark not reviewed</button>
+    </div>
+  </div>
+
+  <div class="card reviewed-card">
+    <div class="card-name">⭐ Robert Torres</div>
+    <div class="card-meta">📞 (555) 100-0002 · Reviewed May 14, 2026 · Weston</div>
+    <div class="star-display">★★★★☆ <span style="font-size:13px;color:var(--muted);vertical-align:middle;">(4 stars)</span></div>
+    <div class="card-btns">
+      <button class="btn btn-muted">✏️ Edit rating</button>
+      <button class="btn btn-muted">📝 Add note</button>
+    </div>
+  </div>
+
+  <div class="card reviewed-card" style="border-color:rgba(107,114,128,.3);">
+    <div class="card-name">⭐ Pat Williams</div>
+    <div class="card-meta">📞 (555) 100-0003 · Reviewed May 12, 2026 · Davie</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:.5rem;font-style:italic;">No rating captured — click Edit to add</div>
+    <div class="card-btns">
+      <button class="btn btn-gold">✏️ Add rating</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 4 — Review badge on customer profile</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div style="max-width:480px;margin:0 auto;padding:1.25rem;">
+  <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:.75rem;letter-spacing:1px;">CUSTOMER PROFILE (modal or directory row)</div>
+  <div class="profile-card">
+    <div class="profile-name">
+      Janet Smith
+      <span class="review-badge rb-5">⭐ 5★</span>
+    </div>
+    <div class="profile-meta">
+      📞 (555) 100-0001 · 📍 Pembroke Pines<br>
+      Last service: May 16, 2026 · 4 jobs total
+    </div>
+    <div class="profile-review-block">
+      <div>
+        <div class="prb-left">⭐ Left a Google review</div>
+        <div class="prb-stars">★★★★★</div>
+        <div class="prb-meta">May 16, 2026 · Requested May 15</div>
+      </div>
+      <div style="font-size:32px;">5</div>
+    </div>
+  </div>
+
+  <div style="margin-top:1.25rem;">
+  <div class="profile-card">
+    <div class="profile-name">
+      Carlos Diaz
+      <span class="review-badge rb-4">⭐ 4★</span>
+    </div>
+    <div class="profile-meta">
+      📞 (555) 000-0002 · 📍 Weston<br>
+      Last service: May 10, 2026 · 2 jobs total
+    </div>
+    <div class="profile-review-block" style="border-color:rgba(245,158,11,.4);">
+      <div>
+        <div class="prb-left" style="color:#fbbf24;">⭐ Left a Google review</div>
+        <div class="prb-stars">★★★★☆</div>
+        <div class="prb-meta">May 14, 2026</div>
+      </div>
+      <div style="font-size:32px;">4</div>
+    </div>
+  </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 5 — Customer directory with review column</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div class="dir-wrap">
+  <table class="dir-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Tier</th>
+        <th>City</th>
+        <th>Last Service</th>
+        <th>Jobs</th>
+        <th>Lifetime $</th>
+        <th>Review</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Janet Smith</strong> <span class="review-badge rb-5">⭐ 5★</span></td>
+        <td><span style="color:#f59e0b;font-weight:700;font-size:11px;">REPEAT</span></td>
+        <td style="color:var(--muted);">Pembroke Pines</td>
+        <td style="color:var(--muted);">May 16, 2026</td>
+        <td>4</td>
+        <td class="money">$1,850</td>
+        <td><span class="review-badge rb-5" style="margin-left:0;">★★★★★</span></td>
+        <td><span style="color:#1d9e75;font-size:12px;font-weight:600;">Active</span></td>
+      </tr>
+      <tr>
+        <td><strong>Maria Johnson</strong></td>
+        <td><span style="color:#6b7280;font-weight:700;font-size:11px;">NEW</span></td>
+        <td style="color:var(--muted);">Weston</td>
+        <td style="color:var(--muted);">May 18, 2026</td>
+        <td>1</td>
+        <td class="money">$350</td>
+        <td><span style="font-size:11px;color:var(--muted);">📬 Requested</span></td>
+        <td><span style="color:#2d7dd2;font-size:12px;font-weight:600;">Scheduled</span></td>
+      </tr>
+      <tr>
+        <td><strong>Carlos Diaz</strong> <span class="review-badge rb-4">⭐ 4★</span></td>
+        <td><span style="color:#f59e0b;font-weight:700;font-size:11px;">REPEAT</span></td>
+        <td style="color:var(--muted);">Davie</td>
+        <td style="color:var(--muted);">May 10, 2026</td>
+        <td>3</td>
+        <td class="money">$1,100</td>
+        <td><span class="review-badge rb-4" style="margin-left:0;">★★★★☆</span></td>
+        <td><span style="color:#1d9e75;font-size:12px;font-weight:600;">Active</span></td>
+      </tr>
+      <tr>
+        <td><strong>Sandra Williams</strong></td>
+        <td><span style="color:#c2410c;font-weight:700;font-size:11px;">VIP</span></td>
+        <td style="color:var(--muted);">Pembroke Pines</td>
+        <td style="color:var(--muted);">May 13, 2026</td>
+        <td>8</td>
+        <td class="money">$4,200</td>
+        <td><span style="font-size:11px;color:var(--muted);">—</span></td>
+        <td><span style="color:#1d9e75;font-size:12px;font-weight:600;">Active</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="font-size:11px;color:var(--muted);margin-top:.5rem;">Review column: shows star rating if reviewed, "📬 Requested" if pending, "—" otherwise. Sortable by rating.</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 6 — No Response tab (auto-tail-off result after 7 days)</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div class="wrap">
+  <div class="section-hdr">💭 No response · 3 customers · Re-ask eligible in 30 days</div>
+
+  <div class="card" style="border-color:rgba(107,114,128,.3);">
+    <div class="card-name">
+      Pat Williams
+      <span class="expired-pill">📅 Expired May 12</span>
+      <span class="window-pill window-close" style="font-size:9px;">Re-ask eligible Jun 12</span>
+    </div>
+    <div class="card-meta">📞 (555) 100-0003 · Full house wash · Requested May 5, 2026 · Auto-expired after 7 days</div>
+    <div class="card-btns">
+      <button class="btn btn-primary">⏰ Ask again now</button>
+      <button class="btn btn-green">⭐ They reviewed (add rating)</button>
+      <button class="btn btn-danger">🚫 Don't ask anymore</button>
+    </div>
+  </div>
+
+  <div class="card" style="border-color:rgba(107,114,128,.3);">
+    <div class="card-name">
+      Tom Garcia
+      <span class="expired-pill">📅 Expired May 8</span>
+      <span class="window-pill window-close" style="font-size:9px;">Re-ask eligible Jun 8</span>
+    </div>
+    <div class="card-meta">📞 (555) 100-0004 · Driveway + Patio · Requested May 1, 2026 · Auto-expired after 7 days</div>
+    <div class="card-btns">
+      <button class="btn btn-primary">⏰ Ask again now</button>
+      <button class="btn btn-green">⭐ They reviewed (add rating)</button>
+      <button class="btn btn-danger">🚫 Don't ask anymore</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 7 — Fetch error handling (what Tyler sees when write fails)</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div class="wrap">
+  <div style="background:rgba(220,38,38,.08);border:1.5px solid rgba(220,38,38,.3);border-radius:10px;padding:.875rem 1rem;font-size:13px;color:#fca5a5;margin-bottom:1rem;">
+    <strong>Error sending request:</strong> Server returned 500 — please try again.
+    <div style="margin-top:.5rem;"><button class="btn btn-danger" style="font-size:12px;padding:5px 12px;">Try again</button></div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);">Previously: 404/500 showed "Request sent" toast even when write failed. Now: non-2xx shows red error with retry button.</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="section-label">SECTION 8 — Migration summary (what Tyler will see after deploy)</div>
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<div style="max-width:600px;margin:0 auto;padding:1.25rem;">
+  <div style="background:rgba(29,158,117,.08);border:1.5px solid rgba(29,158,117,.3);border-radius:12px;padding:1.25rem;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:#34d399;letter-spacing:1px;margin-bottom:.75rem;">✓ Migration complete</div>
+    <div style="font-size:13px;color:var(--muted);line-height:1.8;">
+      <strong style="color:#e5e7eb;">14 customers migrated</strong> — googleReview data moved to review_states KV key<br>
+      <strong style="color:#e5e7eb;">0 customers</strong> had data conflicts<br>
+      review_states is now isolated from the nightly Bouncie cron<br>
+      <span style="color:#fbbf24;">Yesterday's 6 requests were lost to the cron — re-send from Ready tab</span>
+    </div>
+  </div>
+</div>
+
+<script>
+function showStarPickerInline(phone) {
+  const btns = document.getElementById('btns-' + phone);
+  const picker = document.getElementById('star-inline-' + phone);
+  if (btns) btns.style.display = 'none';
+  if (picker) picker.style.display = 'block';
+}
+
+function demoStar(n, phone) {
+  const card = document.getElementById('req-' + phone);
+  if (!card) return;
+  card.innerHTML = `
+    <div class="card-name">
+      Maria Johnson
+      <span class="review-badge rb-5">⭐ 5★</span>
+    </div>
+    <div class="card-meta" style="color:#34d399;">✓ Marked as reviewed · 5 stars · Moving to Reviewed tab…</div>
+  `;
+  card.style.borderColor = 'rgba(29,158,117,.5)';
+  card.style.background = 'rgba(29,158,117,.04)';
+  setTimeout(() => { card.style.opacity = '.4'; card.style.pointerEvents = 'none'; }, 800);
+}
+</script>
+</body>
+</html>

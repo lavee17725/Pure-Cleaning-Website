@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Confirmation SMS Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'DM Sans',Arial,sans-serif;background:#f1f5f9;padding:24px;color:#1e293b;font-size:14px;}
+h2{font-size:16px;font-weight:700;color:#0a1628;margin-bottom:4px;}
+.sub{font-size:12px;color:#64748b;margin-bottom:20px;}
+.badge{display:inline-block;background:#c2410c;color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;margin-bottom:16px;}
+.section-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6pt;color:#94a3b8;margin:20px 0 8px;}
+
+/* SMS bubble */
+.sms-wrap{max-width:480px;margin-bottom:16px;}
+.scenario-title{font-size:12px;font-weight:700;color:#374151;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.slot-chip{background:#e2e8f0;color:#475569;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4pt;}
+.slot-chip.morning{background:#dbeafe;color:#1d4ed8;}
+.slot-chip.afternoon{background:#fef9c3;color:#92400e;}
+.slot-chip.late{background:#fed7aa;color:#9a3412;}
+
+.sms-bubble{
+  background:#e9f5ff;border-radius:18px 18px 4px 18px;
+  padding:13px 16px;font-size:14px;line-height:1.6;
+  color:#1e293b;max-width:340px;
+  box-shadow:0 1px 4px rgba(0,0,0,.08);
+  position:relative;
+}
+.sms-bubble::after{
+  content:'';position:absolute;bottom:0;right:-6px;
+  width:0;height:0;
+  border-left:8px solid #e9f5ff;
+  border-top:8px solid transparent;
+  border-bottom:8px solid transparent;
+}
+.sms-char{font-size:10px;color:#94a3b8;margin-top:4px;text-align:right;}
+
+/* Change callout */
+.change-box{background:#fef9c3;border:1.5px solid #fbbf24;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:20px;max-width:480px;line-height:1.6;}
+
+/* Comparison table */
+.cmp-table{width:100%;max-width:700px;border-collapse:collapse;font-size:12px;margin-bottom:20px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;}
+.cmp-table th{background:#0a1628;color:rgba(255,255,255,.7);padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5pt;}
+.cmp-table td{padding:9px 12px;border-top:1px solid #f1f5f9;vertical-align:top;}
+.old{color:#94a3b8;text-decoration:line-through;}
+.new{color:#0a1628;font-weight:600;}
+.slot-label{font-size:11px;font-weight:600;color:#374151;}
+</style></head><body>
+
+<h2>Night-Prior Confirmation SMS — Template Preview</h2>
+<p class="sub">Shows rendered SMS text for all slot scenarios · MOCKUP ONLY</p>
+<div class="badge">PRE-COMMIT PREVIEW</div>
+
+<div class="change-box">
+  <strong>Template change:</strong><br>
+  OLD: <code>Hi {n}, I wanted to confirm that we will be pressure cleaning {svc} tomorrow around {time}. Thank you.</code><br>
+  NEW: <code>Hi {firstName}, I wanted to confirm that we will be pressure cleaning your home tomorrow in the {window}. Thank you.</code><br><br>
+  <strong>Window mapping change:</strong> <code>early_afternoon</code> slot now renders as <strong>"afternoon"</strong> (was "early afternoon") · <code>late_afternoon</code> stays <strong>"late afternoon"</strong> · <code>morning</code> stays <strong>"morning"</strong>
+</div>
+
+<!-- Comparison table -->
+<div class="section-label">Before vs After — all slots</div>
+<table class="cmp-table">
+  <thead><tr><th>Slot</th><th>Old SMS text</th><th>New SMS text</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="slot-label">Morning</td>
+      <td class="old">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow around 10 AM. Thank you.</td>
+      <td class="new">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow in the morning. Thank you.</td>
+    </tr>
+    <tr>
+      <td class="slot-label">Early afternoon</td>
+      <td class="old">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow around early afternoon. Thank you.</td>
+      <td class="new">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow in the afternoon. Thank you.</td>
+    </tr>
+    <tr>
+      <td class="slot-label">Late afternoon</td>
+      <td class="old">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow around late afternoon. Thank you.</td>
+      <td class="new">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow in the late afternoon. Thank you.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- Scenario bubbles -->
+<div class="section-label">Rendered message bubbles</div>
+
+<!-- 1: Aimee Lewinter, afternoon -->
+<div class="sms-wrap">
+  <div class="scenario-title">Aimee Lewinter <span class="slot-chip afternoon">early_afternoon slot → "afternoon"</span></div>
+  <div class="sms-bubble">Hi Aimee, I wanted to confirm that we will be pressure cleaning your home tomorrow in the afternoon. Thank you.</div>
+  <div class="sms-char">165 chars</div>
+</div>
+
+<!-- 2: Tricia Meave, morning -->
+<div class="sms-wrap">
+  <div class="scenario-title">Tricia Meave <span class="slot-chip morning">morning slot</span></div>
+  <div class="sms-bubble">Hi Tricia, I wanted to confirm that we will be pressure cleaning your home tomorrow in the morning. Thank you.</div>
+  <div class="sms-char">163 chars</div>
+</div>
+
+<!-- 3: Late afternoon -->
+<div class="sms-wrap">
+  <div class="scenario-title">Tom Barbaglia <span class="slot-chip late">late_afternoon slot</span></div>
+  <div class="sms-bubble">Hi Tom, I wanted to confirm that we will be pressure cleaning your home tomorrow in the late afternoon. Thank you.</div>
+  <div class="sms-char">168 chars</div>
+</div>
+
+<!-- 4: No first name fallback -->
+<div class="sms-wrap">
+  <div class="scenario-title">No first name on record <span class="slot-chip afternoon">fallback → "there"</span></div>
+  <div class="sms-bubble">Hi there, I wanted to confirm that we will be pressure cleaning your home tomorrow in the afternoon. Thank you.</div>
+  <div class="sms-char">164 chars · fallback already handled by existing code: <code>|| 'there'</code></div>
+</div>
+
+<!-- Notes -->
+<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 14px;font-size:12px;color:#14532d;max-width:480px;margin-top:8px;line-height:1.7;">
+  <strong>Implementation notes:</strong><br>
+  • Template function signature changes from <code>(n, svc)</code> to <code>(n)</code> — "your home" is now static<br>
+  • <code>early_afternoon</code> window key → <code>"afternoon"</code> in SMS text<br>
+  • <code>late_afternoon</code> window key → <code>"late afternoon"</code> in SMS text<br>
+  • <code>morning</code> window key → <code>"morning"</code> in SMS text<br>
+  • <code>firstName</code> fallback <code>|| 'there'</code> already exists on line 5041 — no change needed<br>
+  • Single file change: <code>ARRIVAL_SLOTS</code> object in <code>pure_cleaning_calendar.html</code>
+</div>
+
+</body></html>

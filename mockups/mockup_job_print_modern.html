@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Sheet — Modern Work Order · Maria Rodriguez</title>
+<style>
+/* ── Base / Print setup ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, 'Helvetica Neue', 'Arial', sans-serif;
+  background: #e8e8e8;
+  color: #111;
+  padding: 24px;
+}
+.sheet {
+  background: #fff;
+  width: 8.5in;
+  min-height: 11in;
+  margin: 0 auto;
+  padding: 0;
+  box-shadow: 0 4px 32px rgba(0,0,0,.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Top accent strip ────────────────────────────────────────────────────── */
+.accent-strip { height: 5px; background: linear-gradient(90deg, #0a1628 0%, #2d7dd2 60%, #f4a620 100%); }
+
+/* ── Header: logo + company side by side, compact ───────────────────────── */
+.sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 36px 14px;
+  border-bottom: 1px solid #e8e2d8;
+}
+.logo-wrap img {
+  height: 52px;
+  width: auto;
+  display: block;
+}
+.company-block {
+  text-align: right;
+}
+.company-name {
+  font-size: 9.5pt;
+  font-weight: 700;
+  color: #0a1628;
+  letter-spacing: .2pt;
+  line-height: 1.35;
+}
+.company-details {
+  font-size: 7.5pt;
+  color: #6b7280;
+  line-height: 1.7;
+  margin-top: 3px;
+}
+
+/* ── DATE — the hero element, top of body ────────────────────────────────── */
+.date-hero {
+  background: #0a1628;
+  padding: 24px 36px 20px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+.date-hero-left {}
+.date-label-small {
+  font-size: 7pt;
+  font-weight: 700;
+  letter-spacing: 2pt;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.5);
+  margin-bottom: 4px;
+}
+.date-big {
+  font-size: 38pt;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1;
+  letter-spacing: -.5pt;
+}
+.date-sub {
+  font-size: 11pt;
+  color: #f4a620;
+  margin-top: 4px;
+  font-weight: 600;
+}
+.job-badge {
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 6px;
+  padding: 8px 14px;
+  text-align: right;
+}
+.job-badge-rig {
+  font-size: 9pt;
+  color: rgba(255,255,255,.6);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.job-badge-num {
+  font-size: 16pt;
+  color: #f4a620;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ── Customer strip ──────────────────────────────────────────────────────── */
+.cust-strip {
+  background: #fdf8f2;
+  padding: 16px 36px;
+  border-bottom: 1px solid #e8e2d8;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.cust-name {
+  font-size: 26pt;
+  font-weight: 800;
+  color: #0a1628;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.cust-contact {
+  font-size: 11pt;
+  color: #374151;
+  margin-bottom: 3px;
+}
+.cust-address {
+  font-size: 12pt;
+  font-weight: 600;
+  color: #0a1628;
+  line-height: 1.5;
+}
+.cust-sqft {
+  font-size: 9pt;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.cust-right {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────── */
+.sheet-body {
+  padding: 24px 36px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ── Services checklist ──────────────────────────────────────────────────── */
+.section-label {
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 1.5pt;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e8e2d8;
+}
+
+.services-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.svc-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #e8e2d8;
+  cursor: pointer;
+  transition: all .15s;
+  user-select: none;
+  background: #fff;
+}
+.svc-item:hover { border-color: #2d7dd2; background: #f0f7ff; }
+.svc-item.done {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+.svc-check {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #cbd5e1;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  background: #fff;
+}
+.svc-item.done .svc-check {
+  background: #15803d;
+  border-color: #15803d;
+}
+.svc-item.done .svc-check::after {
+  content: '✓';
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+.svc-item.done .svc-name {
+  color: #6b7280;
+  text-decoration: line-through;
+}
+.svc-name {
+  font-size: 15pt;
+  font-weight: 600;
+  color: #0a1628;
+  line-height: 1.2;
+}
+
+/* ── Gate + Notes ────────────────────────────────────────────────────────── */
+.gate-notes-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+.gate-card {
+  background: #0a1628;
+  border-radius: 10px;
+  padding: 14px 20px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+.gate-icon { font-size: 18px; margin-bottom: 4px; }
+.gate-label { font-size: 7pt; font-weight: 700; letter-spacing: 1.5pt; text-transform: uppercase; color: rgba(255,255,255,.5); margin-bottom: 6px; }
+.gate-code {
+  font-size: 28pt;
+  font-weight: 800;
+  color: #f4a620;
+  letter-spacing: 4pt;
+  line-height: 1;
+}
+.notes-card {
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: 10px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.notes-text {
+  font-size: 11.5pt;
+  color: #374151;
+  line-height: 1.6;
+}
+
+/* ── Total (smaller, lower) ──────────────────────────────────────────────── */
+.total-section {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 0;
+  padding-top: 12px;
+  border-top: 1.5px solid #e8e2d8;
+}
+.total-block {
+  text-align: right;
+}
+.total-label {
+  font-size: 7.5pt;
+  font-weight: 700;
+  letter-spacing: 1.5pt;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+.total-amount {
+  font-size: 18pt;
+  font-weight: 700;
+  color: #0a1628;
+  line-height: 1;
+}
+.total-methods {
+  font-size: 7.5pt;
+  color: #9ca3af;
+  margin-top: 3px;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.sheet-footer {
+  border-top: 1px solid #e8e2d8;
+  padding: 9px 36px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fdf8f2;
+}
+.footer-text { font-size: 7pt; color: #9ca3af; }
+.footer-brand { font-size: 7pt; font-weight: 700; color: #6b7280; }
+
+/* ── Mockup badge ────────────────────────────────────────────────────────── */
+.mockup-badge {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  background: #c2410c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-family: 'Arial', sans-serif;
+  z-index: 100;
+  letter-spacing: .04em;
+}
+
+/* ── Print ───────────────────────────────────────────────────────────────── */
+@media print {
+  body { background: #fff; padding: 0; }
+  .sheet { box-shadow: none; width: 100%; min-height: auto; }
+  .mockup-badge { display: none; }
+  .svc-item:hover { border-color: #e8e2d8; background: #fff; }
+}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <!-- Accent strip -->
+  <div class="accent-strip"></div>
+
+  <!-- ── Header: logo + company ── -->
+  <div class="sheet-header">
+    <div class="logo-wrap">
+      <img src="https://i.imgur.com/1lIyuLS.png" alt="Pure Cleaning logo">
+    </div>
+    <div class="company-block">
+      <div class="company-name">PURE CLEANING PRESSURE CLEANING<br>COMMERCIAL AND RESIDENTIAL</div>
+      <div class="company-details">
+        16621 SW 62ND STREET · SOUTHWEST RANCHES, FLORIDA 33331<br>
+        PHONE: 954-389-2642 · pure_cleaning@live.com
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Date hero — the most visible element ── -->
+  <div class="date-hero">
+    <div class="date-hero-left">
+      <div class="date-label-small">Service Date</div>
+      <div class="date-big">May 20, 2026</div>
+      <div class="date-sub">Wednesday</div>
+    </div>
+    <div class="job-badge">
+      <div class="job-badge-rig">Old Tacoma</div>
+      <div class="job-badge-num">2 / 3</div>
+    </div>
+  </div>
+
+  <!-- ── Customer strip ── -->
+  <div class="cust-strip">
+    <div>
+      <div class="cust-name">Maria Rodriguez</div>
+      <div class="cust-contact">(954) 555-0182</div>
+      <div class="cust-address">4722 Sunset Ridge Way<br>Weston, FL 33331</div>
+      <div class="cust-sqft">📐 2,400 sq ft</div>
+    </div>
+  </div>
+
+  <div class="sheet-body">
+
+    <!-- ── Services checklist ── -->
+    <div>
+      <div class="section-label">Services — tap to check off</div>
+      <div class="services-list">
+        <div class="svc-item" onclick="this.classList.toggle('done')">
+          <div class="svc-check"></div>
+          <div class="svc-name">Soft wash roof</div>
+        </div>
+        <div class="svc-item" onclick="this.classList.toggle('done')">
+          <div class="svc-check"></div>
+          <div class="svc-name">Pressure wash driveway</div>
+        </div>
+        <div class="svc-item" onclick="this.classList.toggle('done')">
+          <div class="svc-check"></div>
+          <div class="svc-name">Pressure wash patio</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Gate code + Notes ── -->
+    <div>
+      <div class="section-label">Access &amp; Notes</div>
+      <div class="gate-notes-row">
+        <div class="gate-card">
+          <div class="gate-icon">🔑</div>
+          <div class="gate-label">Gate Code</div>
+          <div class="gate-code">3847</div>
+        </div>
+        <div class="notes-card">
+          <div class="notes-text">Dog in backyard — please keep gate closed at all times.<br><br>Customer prefers Zelle payment after the job is done.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Total ── -->
+    <div class="total-section">
+      <div class="total-block">
+        <div class="total-label">Job Total</div>
+        <div class="total-amount">$850</div>
+        <div class="total-methods">Zelle · Cash · Check · Venmo</div>
+      </div>
+    </div>
+
+  </div><!-- /sheet-body -->
+
+  <!-- ── Footer ── -->
+  <div class="sheet-footer">
+    <span class="footer-text">Printed May 20, 2026</span>
+    <span class="footer-brand">Pure Cleaning Pressure Cleaning · 954-389-2642</span>
+  </div>
+
+</div><!-- /sheet -->
+
+<div class="mockup-badge">MOCKUP — Modern Work Order</div>
+
+</body>
+</html>

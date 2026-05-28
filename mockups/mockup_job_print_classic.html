@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Sheet — Classic Invoice · Maria Rodriguez</title>
+<style>
+/* ── Base / Print setup ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Georgia', serif;
+  background: #f0f0f0;
+  color: #111;
+  padding: 24px;
+}
+.sheet {
+  background: #fff;
+  width: 8.5in;
+  min-height: 11in;
+  margin: 0 auto;
+  padding: 0;
+  box-shadow: 0 4px 32px rgba(0,0,0,.18);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.sheet-header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 24px;
+  padding: 22px 36px 18px;
+  border-bottom: 3px solid #0a1628;
+}
+.logo-block img {
+  height: 64px;
+  width: auto;
+  display: block;
+}
+.company-block {
+  text-align: right;
+}
+.company-name {
+  font-family: 'Arial', sans-serif;
+  font-size: 13pt;
+  font-weight: 700;
+  color: #0a1628;
+  letter-spacing: .3pt;
+  line-height: 1.2;
+}
+.company-sub {
+  font-size: 8.5pt;
+  color: #444;
+  margin-top: 4px;
+  line-height: 1.6;
+  font-family: 'Arial', sans-serif;
+}
+
+/* ── Document title bar ──────────────────────────────────────────────────── */
+.title-bar {
+  background: #0a1628;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 36px;
+}
+.title-bar-left {
+  font-family: 'Arial', sans-serif;
+  font-size: 12pt;
+  font-weight: 700;
+  letter-spacing: 2pt;
+  color: #fff;
+  text-transform: uppercase;
+}
+.title-bar-right {
+  font-family: 'Arial', sans-serif;
+  font-size: 10pt;
+  color: rgba(255,255,255,.75);
+  letter-spacing: .5pt;
+}
+.title-bar-right strong {
+  color: #f4a620;
+}
+
+/* ── Body padding ────────────────────────────────────────────────────────── */
+.sheet-body {
+  padding: 28px 36px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ── Date block (prominent) ──────────────────────────────────────────────── */
+.date-block {
+  background: #f7f8fa;
+  border-left: 5px solid #0a1628;
+  padding: 14px 20px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.date-label {
+  font-family: 'Arial', sans-serif;
+  font-size: 8pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5pt;
+  color: #666;
+}
+.date-value {
+  font-family: 'Georgia', serif;
+  font-size: 28pt;
+  font-weight: 700;
+  color: #0a1628;
+  line-height: 1;
+}
+
+/* ── Two-column info layout ──────────────────────────────────────────────── */
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 26px;
+}
+
+/* ── Customer panel ──────────────────────────────────────────────────────── */
+.panel {
+  border: 1.5pt solid #ccc;
+  padding: 14px 18px;
+}
+.panel-label {
+  font-family: 'Arial', sans-serif;
+  font-size: 7.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5pt;
+  color: #888;
+  border-bottom: 1pt solid #e0e0e0;
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+.cust-name {
+  font-size: 22pt;
+  font-weight: 700;
+  color: #0a1628;
+  line-height: 1.15;
+  margin-bottom: 6px;
+}
+.cust-phone {
+  font-family: 'Arial', sans-serif;
+  font-size: 13pt;
+  color: #333;
+  margin-bottom: 8px;
+}
+.cust-address {
+  font-family: 'Arial', sans-serif;
+  font-size: 12pt;
+  color: #1a1a1a;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.cust-sqft {
+  font-family: 'Arial', sans-serif;
+  font-size: 9.5pt;
+  color: #555;
+  margin-top: 6px;
+}
+
+/* ── Job info panel ──────────────────────────────────────────────────────── */
+.job-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 5px 0;
+  border-bottom: .5pt solid #eee;
+  font-family: 'Arial', sans-serif;
+  font-size: 11pt;
+}
+.job-row:last-child { border-bottom: none; }
+.job-row-label { color: #888; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .8pt; padding-top: 2px; }
+.job-row-val { font-weight: 600; color: #1a1a1a; text-align: right; }
+
+/* ── Services table ──────────────────────────────────────────────────────── */
+.services-section {
+  margin-bottom: 20px;
+}
+.services-header {
+  font-family: 'Arial', sans-serif;
+  font-size: 7.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5pt;
+  color: #888;
+  border-bottom: 1.5pt solid #0a1628;
+  padding-bottom: 5px;
+  margin-bottom: 12px;
+}
+.svc-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 10px;
+  border-bottom: .5pt solid #f0f0f0;
+  cursor: pointer;
+  transition: background .1s;
+  user-select: none;
+}
+.svc-item:hover { background: #fafafa; }
+.svc-item:last-child { border-bottom: none; }
+.svc-check {
+  width: 20px;
+  height: 20px;
+  border: 2pt solid #333;
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  background: #fff;
+}
+.svc-item.done .svc-check {
+  background: #15803d;
+  border-color: #15803d;
+}
+.svc-item.done .svc-check::after {
+  content: '✓';
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+.svc-item.done .svc-name {
+  color: #555;
+  text-decoration: line-through;
+}
+.svc-name {
+  font-family: 'Arial', sans-serif;
+  font-size: 14pt;
+  color: #111;
+  line-height: 1.3;
+}
+
+/* ── Notes / gate code ────────────────────────────────────────────────────── */
+.notes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 26px;
+}
+.gate-block {
+  border: 2pt solid #0a1628;
+  padding: 12px 16px;
+  background: #f7f8fa;
+}
+.gate-label {
+  font-family: 'Arial', sans-serif;
+  font-size: 7.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5pt;
+  color: #888;
+  margin-bottom: 6px;
+}
+.gate-code {
+  font-family: 'Arial', sans-serif;
+  font-size: 24pt;
+  font-weight: 700;
+  color: #0a1628;
+  letter-spacing: 3pt;
+}
+.notes-block {
+  border: 1pt solid #ccc;
+  padding: 12px 16px;
+}
+.notes-label {
+  font-family: 'Arial', sans-serif;
+  font-size: 7.5pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5pt;
+  color: #888;
+  margin-bottom: 6px;
+}
+.notes-text {
+  font-family: 'Arial', sans-serif;
+  font-size: 11pt;
+  color: #222;
+  line-height: 1.5;
+}
+
+/* ── Total + payment ─────────────────────────────────────────────────────── */
+.total-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 2pt solid #0a1628;
+  border-bottom: 1pt solid #ddd;
+  margin-bottom: 10px;
+}
+.total-label {
+  font-family: 'Arial', sans-serif;
+  font-size: 9pt;
+  text-transform: uppercase;
+  letter-spacing: 1.5pt;
+  color: #666;
+}
+.total-amount {
+  font-family: 'Georgia', serif;
+  font-size: 20pt;
+  font-weight: 700;
+  color: #0a1628;
+}
+.payment-methods {
+  font-family: 'Arial', sans-serif;
+  font-size: 8.5pt;
+  color: #888;
+  text-align: right;
+  margin-bottom: 20px;
+}
+
+/* ── Signature line ──────────────────────────────────────────────────────── */
+.sig-line {
+  display: flex;
+  gap: 40px;
+  margin-top: auto;
+  padding-top: 20px;
+}
+.sig-field {
+  flex: 1;
+}
+.sig-line-bar {
+  border-bottom: 1pt solid #888;
+  height: 28px;
+  margin-bottom: 4px;
+}
+.sig-caption {
+  font-family: 'Arial', sans-serif;
+  font-size: 7.5pt;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1pt;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.sheet-footer {
+  border-top: 1pt solid #ddd;
+  padding: 8px 36px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-text {
+  font-family: 'Arial', sans-serif;
+  font-size: 7.5pt;
+  color: #aaa;
+}
+
+/* ── Mockup badge ────────────────────────────────────────────────────────── */
+.mockup-badge {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  background: #c2410c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-family: 'Arial', sans-serif;
+  z-index: 100;
+  letter-spacing: .04em;
+}
+
+/* ── Print ───────────────────────────────────────────────────────────────── */
+@media print {
+  body { background: #fff; padding: 0; }
+  .sheet { box-shadow: none; width: 100%; min-height: auto; }
+  .mockup-badge { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <!-- ── Header: logo left, company right ── -->
+  <div class="sheet-header">
+    <div class="logo-block">
+      <img src="https://i.imgur.com/1lIyuLS.png" alt="Pure Cleaning logo">
+    </div>
+    <div class="company-block">
+      <div class="company-name">PURE CLEANING PRESSURE CLEANING<br>COMMERCIAL AND RESIDENTIAL</div>
+      <div class="company-sub">
+        16621 SW 62ND STREET &nbsp;·&nbsp; SOUTHWEST RANCHES, FLORIDA 33331<br>
+        PHONE: 954-389-2642 &nbsp;·&nbsp; EMAIL: pure_cleaning@live.com
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Document title bar ── -->
+  <div class="title-bar">
+    <div class="title-bar-left">Work Order / Job Sheet</div>
+    <div class="title-bar-right">Old Tacoma &nbsp;·&nbsp; <strong>Job 2 of 3</strong></div>
+  </div>
+
+  <div class="sheet-body">
+
+    <!-- ── Date (large, prominent) ── -->
+    <div class="date-block">
+      <span class="date-label">Service Date</span>
+      <span class="date-value">Wednesday, May 20, 2026</span>
+    </div>
+
+    <!-- ── Customer + Job info ── -->
+    <div class="info-grid">
+      <div class="panel">
+        <div class="panel-label">Customer</div>
+        <div class="cust-name">Maria Rodriguez</div>
+        <div class="cust-phone">(954) 555-0182</div>
+        <div class="cust-address">
+          4722 Sunset Ridge Way<br>
+          Weston, FL 33331
+        </div>
+        <div class="cust-sqft">📐 2,400 sq ft</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-label">Job Details</div>
+        <div class="job-row"><span class="job-row-label">Rig</span><span class="job-row-val">Old Tacoma</span></div>
+        <div class="job-row"><span class="job-row-label">Job #</span><span class="job-row-val">2 of 3</span></div>
+        <div class="job-row"><span class="job-row-label">Status</span><span class="job-row-val">Scheduled</span></div>
+        <div class="job-row"><span class="job-row-label">Payment</span><span class="job-row-val">Zelle · Cash · Check</span></div>
+      </div>
+    </div>
+
+    <!-- ── Services (interactive checkboxes) ── -->
+    <div class="services-section">
+      <div class="services-header">Services — check off when complete</div>
+      <div class="svc-item" onclick="this.classList.toggle('done')">
+        <div class="svc-check"></div>
+        <div class="svc-name">Soft wash roof</div>
+      </div>
+      <div class="svc-item" onclick="this.classList.toggle('done')">
+        <div class="svc-check"></div>
+        <div class="svc-name">Pressure wash driveway</div>
+      </div>
+      <div class="svc-item" onclick="this.classList.toggle('done')">
+        <div class="svc-check"></div>
+        <div class="svc-name">Pressure wash patio</div>
+      </div>
+    </div>
+
+    <!-- ── Gate code + Notes ── -->
+    <div class="notes-grid">
+      <div class="gate-block">
+        <div class="gate-label">Gate / Entry Code</div>
+        <div class="gate-code">3847</div>
+      </div>
+      <div class="notes-block">
+        <div class="notes-label">Notes</div>
+        <div class="notes-text">Dog in backyard — please keep gate closed at all times. Customer prefers Zelle payment after job.</div>
+      </div>
+    </div>
+
+    <!-- ── Total ── -->
+    <div class="total-row">
+      <span class="total-label">Job Total</span>
+      <span class="total-amount">$850</span>
+    </div>
+    <div class="payment-methods">Accepted: Zelle · Cash · Check · Venmo</div>
+
+    <!-- ── Signature ── -->
+    <div class="sig-line">
+      <div class="sig-field">
+        <div class="sig-line-bar"></div>
+        <div class="sig-caption">Customer Signature</div>
+      </div>
+      <div class="sig-field">
+        <div class="sig-line-bar"></div>
+        <div class="sig-caption">Crew Lead</div>
+      </div>
+      <div class="sig-field">
+        <div class="sig-line-bar"></div>
+        <div class="sig-caption">Completion Time</div>
+      </div>
+    </div>
+
+  </div><!-- /sheet-body -->
+
+  <!-- ── Footer ── -->
+  <div class="sheet-footer">
+    <span class="footer-text">Pure Cleaning Pressure Cleaning &nbsp;·&nbsp; 954-389-2642 &nbsp;·&nbsp; pure_cleaning@live.com</span>
+    <span class="footer-text">Printed May 20, 2026</span>
+  </div>
+
+</div><!-- /sheet -->
+
+<div class="mockup-badge">MOCKUP — Classic Invoice</div>
+
+<script>
+// Checkbox toggle is handled by onclick in markup (no JS needed beyond what's inline)
+// Demonstrates the empty box → green checkmark transition
+</script>
+
+</body>
+</html>
