@@ -285,12 +285,27 @@ export default {
       const today = new Date(Date.now() - 86400000).toISOString().split('T')[0];
       ctx.waitUntil((async () => {
         const startMs = Date.now();
-        const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, errors: [], durationMs: 0 };
+        const heartbeat = { ranAt: new Date().toISOString(), date: today, status: 'error', jobsMatched: 0, jobsTotal: 0, matchRate: null, errors: [], anomalyReason: null, durationMs: 0 };
         try {
           const result = await bouncieJobDurationMatcher(today, env);
-          heartbeat.status = 'success';
-          heartbeat.jobsMatched = result?.matched ?? result?.jobsMatched ?? 0;
-          heartbeat.jobsTotal   = result?.total ?? 0;
+          const total   = result?.total   ?? 0;
+          const matched = result?.matched ?? result?.jobsMatched ?? 0;
+          heartbeat.jobsMatched = matched;
+          heartbeat.jobsTotal   = total;
+          heartbeat.matchRate   = total > 0 ? Math.round((matched / total) * 100) / 100 : null;
+
+          // Honest status — T1.20: don't log success when no work was done.
+          // Pure Cleaning doesn't work Sundays — zero jobs on Sunday is expected.
+          const dow = new Date(today + 'T12:00:00Z').getUTCDay(); // 0=Sun
+          if (total === 0 && dow !== 0) {
+            heartbeat.status      = 'anomaly_zero_jobs';
+            heartbeat.anomalyReason = `Zero completed jobs found in D1 for ${today} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]}). Check if jobs were completed without rigId, or if D1 query failed silently.`;
+          } else if (total > 0 && matched / total < 0.5) {
+            heartbeat.status      = 'partial_match_failure';
+            heartbeat.anomalyReason = `Match rate ${Math.round(matched/total*100)}% below 50% threshold on ${today}. Bouncie token or GPS coverage issue likely.`;
+          } else {
+            heartbeat.status = 'success';
+          }
         } catch (e) {
           console.error('duration cron error:', e.message);
           heartbeat.errors.push(e.message);
@@ -4744,25 +4759,48 @@ async function geocodeAddress(address, env = null) {
 }
 
 async function bouncieJobDurationMatcher(date, env) {
+  console.log(`[Bouncie matcher] Start: date=${date}`);
+
+  // KV load — still needed for write-back mirror to jhEntry/ss (T1.13).
+  // Discovery source has changed to D1 (see below), but KV write-back preserves
+  // legacy calendar reads and per-customer rolling stats.
   const db = await env.DATA.get(KV_KEYS.customers, 'json');
   const customers = (db?.customers || []).filter(Boolean);
+  const _ph10 = p => (p||'').replace(/\D/g,'').slice(-10);
 
-  // Match any customer with a completed job on this date, via:
-  //   a) scheduledStatus.state=completed + scheduledDate=date (calendar-scheduled jobs still active)
-  //   b) jobHistory entry with date=date + rigId present (archived calendar jobs, status may be absent)
-  const completedToday = customers.filter(c => {
-    const ss = c.scheduledStatus;
-    if (ss && ss.state === 'completed') {
-      if (ss.scheduledDate === date) return true;
-      if (ss.completedAt?.startsWith(date)) return true;
-    }
-    // Archived jobs: status may be 'completed' or absent; require rigId to exclude stale CSV backfill rows
-    return (c.jobHistory || []).some(j =>
-      j.date === date && (!j.status || j.status === 'completed') && j.rigId
-    );
-  });
-  if (!completedToday.length) {
-    return { date, total: 0, matched: 0, message: `No completed jobs on ${date}` };
+  // ── D1 discovery (T1.15 + T1.21) ──────────────────────────────────────────
+  // Previous approach: KV scan for ss.state='completed' || jh[].date=date.
+  // Root cause of May 19-present gap: post-Day-2 migration (May 20), completed
+  // jobs live in D1. KV scan returned 0 → matcher exited in 584ms every night.
+  // Fix: query D1 directly. actualDuration IS NULL keeps re-runs idempotent.
+  // rigId IS NOT NULL skips jobs that can't be GPS-matched (hand-delivery etc).
+  if (!env.DB) {
+    console.error('[Bouncie matcher] D1 not available');
+    return { date, total: 0, matched: 0, error: 'D1 not available' };
+  }
+  let d1Jobs = [];
+  try {
+    const r = await env.DB.prepare(`
+      SELECT j.jobId, j.payerId, j.propertyId, j.scheduledDate, j.rigId,
+             j.servicesRaw, j.jobNotes,
+             p.streetAddress, p.city, p.latitude, p.longitude,
+             pr.firstName, pr.lastName, pr.primaryPhone
+      FROM Job j
+      JOIN Property p  ON j.propertyId = p.propertyId
+      JOIN Person   pr ON j.payerId    = pr.personId
+      WHERE j.state = 'completed'
+        AND j.scheduledDate = ?
+        AND j.actualDuration IS NULL
+        AND j.rigId IS NOT NULL
+    `).bind(date).all();
+    d1Jobs = r.results || [];
+  } catch(e) {
+    console.error(`[Bouncie matcher] D1 query failed: ${e.message}`);
+    return { date, total: 0, matched: 0, error: 'd1_query_failed', message: e.message };
+  }
+  console.log(`[Bouncie matcher] D1 query: ${d1Jobs.length} jobs need matching`);
+  if (!d1Jobs.length) {
+    return { date, total: 0, matched: 0, message: `No unmatched completed jobs in D1 for ${date}` };
   }
 
   const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
@@ -4842,25 +4880,50 @@ async function bouncieJobDurationMatcher(date, env) {
   }
 
   const results = [];
-  const d1BouncieUpdates = []; // D1 dual-write: Job rows to UPDATE after KV PUT
+  const d1BouncieUpdates = []; // accumulated for batch D1 UPDATE after KV write
   let matched = 0;
+  let coordsCached = 0, coordsGeocoded = 0, coordsFailed = 0;
+  const kvDirty = new Set(); // KV customers modified — written back once at end
 
-  for (const customer of completedToday) {
-    const ss = customer.scheduledStatus || {};
+  for (const row of d1Jobs) {
+    const rowPh10 = _ph10(row.primaryPhone || row.payerId);
+    const rowName = [row.firstName, row.lastName].filter(Boolean).join(' ') || rowPh10;
 
-    // Geocode job address — build full string so Census geocoder finds FL addresses
-    let jobLat = ss.lat || customer.geocoded?.lat || null;
-    let jobLon = ss.lon || customer.geocoded?.lng || null;
-    let geocodeSource = null;
+    // KV lookup for write-back mirror (T1.13).
+    // D1 is the discovery source; KV gets a mirror so legacy calendar reads
+    // and per-customer rolling stats (avgJobDuration, bouncieMetrics) stay current.
+    const kvCust = customers.find(c => _ph10(c.phone) === rowPh10);
+    const ss      = kvCust?.scheduledStatus || {};
+
+    // Coordinates: Property.latitude/longitude cached in 96% of rows.
+    // Fall back to geocoder only for the remaining 4%; cache result back to
+    // Property so subsequent runs skip the API call.
+    // NOTE: Property has no geocodedAt column — update modifiedAt instead.
+    //       Tyler to decide whether to add geocodedAt in a future schema commit.
+    let jobLat = row.latitude  || null;
+    let jobLon = row.longitude || null;
+    let geocodeSource = row.latitude ? 'property_cached' : null;
     if (!jobLat || !jobLon) {
-      const addrParts = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean);
-      const fullAddr  = addrParts.join(', ');
+      const fullAddr = [row.streetAddress, row.city, 'FL'].filter(Boolean).join(', ');
       const geo = await geocodeAddress(fullAddr, env);
-      if (geo) { jobLat = geo.lat; jobLon = geo.lon || geo.lng; geocodeSource = geo.source; }
+      if (geo) {
+        jobLat = geo.lat; jobLon = geo.lon || geo.lng; geocodeSource = geo.source;
+        // Cache coords back to Property — best-effort, non-fatal
+        try {
+          await env.DB.prepare(
+            'UPDATE Property SET latitude=?, longitude=?, geocodeSource=?, modifiedAt=? WHERE propertyId=?'
+          ).bind(jobLat, jobLon, geocodeSource, new Date().toISOString(), row.propertyId).run();
+        } catch(_) { /* non-fatal */ }
+        coordsGeocoded++;
+      }
+    } else {
+      coordsCached++;
     }
+
     if (!jobLat || !jobLon) {
-      const addrTried = [customer.address, customer.city, 'FL', customer.zip].filter(Boolean).join(', ');
-      results.push({ phone: customer.phone, name: fullName(customer), status: 'geocode_failed', address: customer.address, addrTried, hasCity: !!customer.city });
+      results.push({ jobId: row.jobId, name: rowName, status: 'geocode_failed',
+        address: row.streetAddress, city: row.city });
+      coordsFailed++;
       continue;
     }
 
@@ -4888,7 +4951,7 @@ async function bouncieJobDurationMatcher(date, env) {
     // No mapped rigs had any GPS data at all
     const mappedRigsWithTrips = allRigEntries.filter(([rig]) => (rigTripsMap[rig] || []).length > 0);
     if (!bestRig && mappedRigsWithTrips.length === 0) {
-      results.push({ phone: customer.phone, name: fullName(customer), status: 'no_data',
+      results.push({ jobId: row.jobId, name: rowName, status: 'no_data',
         note: 'No GPS data for any mapped rig on this date.' });
       continue;
     }
@@ -4898,13 +4961,9 @@ async function bouncieJobDurationMatcher(date, env) {
       const closestDistFt = Math.round(globalClosestDistKm * 3280.84);
       const closestMi     = (globalClosestDistKm * 0.621371).toFixed(2);
       results.push({
-        phone:    customer.phone,
-        name:     fullName(customer),
-        status:   'no_reliable_match',
-        note:     `No reliable proximity match. Manual rig assignment needed. Best stop was ${closestDistFt} ft (${closestMi} mi) away — exceeds 500 ft threshold.`,
-        closestRig:        globalClosestRig,
-        closestDistFt,
-        closestArrival:    globalClosestArrival,
+        jobId: row.jobId, name: rowName, status: 'no_reliable_match',
+        note:  `No reliable proximity match. Best stop was ${closestDistFt} ft (${closestMi} mi) away — exceeds 500 ft threshold.`,
+        closestRig: globalClosestRig, closestDistFt, closestArrival: globalClosestArrival,
       });
       continue;
     }
@@ -4917,8 +4976,8 @@ async function bouncieJobDurationMatcher(date, env) {
     const geocodeDistFt = Math.round(geocodeDistKm * 3280.84);
     const isHigh   = geocodeDistKm <= HIGH_KM && rigsWithinThreshold.length === 1;
     const isMedium = geocodeDistKm <= MEDIUM_KM;
-    const matchStatus  = isHigh ? 'matched_high' : 'matched_medium';
-    const intentRig    = ss.rig || null;
+    const matchStatus = isHigh ? 'matched_high' : 'matched_medium';
+    const intentRig   = row.rigId || ss.rig || null;
 
     // GPS timing data — written for both high and medium
     const timingData = {
@@ -4933,53 +4992,58 @@ async function bouncieJobDurationMatcher(date, env) {
 
     // Rig attribution — ONLY for high-confidence matches
     if (isHigh) {
-      timingData.actualRig  = bestRig;
-      timingData.intentRig  = intentRig !== bestRig ? intentRig : undefined;
+      timingData.actualRig   = bestRig;
+      timingData.intentRig   = intentRig !== bestRig ? intentRig : undefined;
       timingData.rigsPresent = rigsWithinThreshold.length > 1 ? rigsWithinThreshold : undefined;
     }
 
-    const jhEntry = (customer.jobHistory || []).slice().reverse().find(j => j.date === date);
-    if (jhEntry) {
-      Object.assign(jhEntry, timingData);
+    // KV mirror (T1.13) — write to jhEntry and/or ss when KV customer found.
+    // If not found, D1 update below still runs — D1 is canonical post-Day 2.
+    if (kvCust) {
+      const jhEntry = (kvCust.jobHistory || []).slice().reverse().find(j => j.date === date);
+      if (jhEntry) {
+        Object.assign(jhEntry, timingData);
+      }
+      // Mirror to ss when it covers this job's date
+      if (ss.scheduledDate === date || ss.completedAt?.startsWith(date)) {
+        Object.assign(ss, timingData);
+        // Rig auto-migration: high-confidence only
+        if (isHigh && bestRig && ss.rig !== bestRig) {
+          ss.intentRig = intentRig;
+          ss.rig       = bestRig;
+        }
+      }
+      // Rolling duration stats
+      kvCust.lastJobDuration = bestMatch.durationMin;
+      const allDurs = (kvCust.jobHistory || []).filter(j => j.actualDuration).map(j => j.actualDuration);
+      if (ss.actualDuration) allDurs.push(ss.actualDuration);
+      if (allDurs.length) {
+        kvCust.avgJobDuration = Math.round(allDurs.reduce((a, b) => a + b, 0) / allDurs.length);
+      }
+      computeBouncieMetrics(kvCust);
+      kvDirty.add(kvCust);
     } else {
-      Object.assign(ss, timingData);
+      console.warn(`[Bouncie matcher] No KV customer for ${row.payerId} (${rowName}) — D1 update only`);
     }
-
-    // Auto-migrate calendar card rig ONLY for high-confidence matches
-    if (isHigh && bestRig && ss.rig !== bestRig) {
-      ss.intentRig = intentRig;
-      ss.rig       = bestRig;
-    }
-
-    // Update rolling duration stats
-    customer.lastJobDuration = bestMatch.durationMin;
-    const allDurs = (customer.jobHistory || []).filter(j => j.actualDuration).map(j => j.actualDuration);
-    if (ss.actualDuration && !jhEntry) allDurs.push(ss.actualDuration);
-    if (allDurs.length) {
-      customer.avgJobDuration = Math.round(allDurs.reduce((a, b) => a + b, 0) / allDurs.length);
-    }
-
-    // Recompute per-property avg time/worker metric now that match data is written
-    computeBouncieMetrics(customer);
 
     results.push({
-      phone:        customer.phone,
-      name:         fullName(customer),
-      status:       matchStatus,
-      actualRig:    isHigh ? bestRig : null,
+      jobId:      row.jobId,
+      name:       rowName,
+      status:     matchStatus,
+      actualRig:  isHigh ? bestRig : null,
       intentRig,
-      rigChanged:   isHigh && intentRig && intentRig !== bestRig,
-      duration:     bestMatch.durationMin,
+      rigChanged: isHigh && intentRig && intentRig !== bestRig,
+      duration:   bestMatch.durationMin,
       geocodeDistFt,
-      arrival:      bestMatch.arrivalTs,
-      departure:    bestMatch.departureTs,
-      rigsPresent:  rigsWithinThreshold,
-      ...(isMedium && !isHigh ? { note: `Medium confidence — GPS within 500 ft but > 250 ft. Operator confirmation recommended.` } : {}),
+      arrival:    bestMatch.arrivalTs,
+      departure:  bestMatch.departureTs,
+      rigsPresent: rigsWithinThreshold,
+      ...(isMedium && !isHigh ? { note: 'Medium confidence — GPS within 500 ft but > 250 ft. Operator confirmation recommended.' } : {}),
     });
-    // Accumulate for D1 dual-write after KV PUT
+
+    // Accumulate for D1 update — keyed by jobId (survives Bug 4 UUID migration cleanly)
     d1BouncieUpdates.push({
-      phone:              customer.phone,
-      scheduledDate:      ss.scheduledDate,
+      jobId:              row.jobId,
       actualDuration:     bestMatch.durationMin,
       actualArrival:      bestMatch.arrivalTs  || null,
       actualDeparture:    bestMatch.departureTs || null,
@@ -4989,23 +5053,33 @@ async function bouncieJobDurationMatcher(date, env) {
     matched++;
   }
 
-  if (matched > 0) {
+  console.log(`[Bouncie matcher] Coords: cached=${coordsCached}, geocoded=${coordsGeocoded}, failed=${coordsFailed}`);
+  console.log(`[Bouncie matcher] Match results: ${matched}/${d1Jobs.length} matched (high=${results.filter(r=>r.status==='matched_high').length}, medium=${results.filter(r=>r.status==='matched_medium').length}, unmatched=${d1Jobs.length - matched})`);
+
+  // KV write-back — single PUT covering all dirty customers
+  if (kvDirty.size > 0) {
     await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
-    // D1 Job dual-write: update Bouncie fields for each matched customer
-    const now = new Date().toISOString();
-    for (const upd of d1BouncieUpdates) {
-      try {
-        const ph10 = (upd.phone||'').replace(/\D/g,'').slice(-10);
-        await env.DB.prepare(
-          `UPDATE Job SET actualDuration=?, actualArrival=?, actualDeparture=?, bouncieMatchStatus=?, bouncieMatchConfidence=NULL, geocodeSource=?, modifiedAt=? WHERE payerId=? AND scheduledDate=? AND state='completed'`
-        ).bind(
-          upd.actualDuration, upd.actualArrival, upd.actualDeparture,
-          upd.bouncieMatchStatus, upd.geocodeSource, now,
-          'person_1' + ph10, upd.scheduledDate
-        ).run();
-      } catch(e) { await _logD1Failure(env, `bouncie_job_update:${upd.phone}`, e.message); }
-    }
+    console.log(`[Bouncie matcher] KV mirror: ${kvDirty.size} customers updated`);
   }
+
+  // D1 update — keyed by jobId, not payerId+scheduledDate (Bug 4 safe)
+  const now = new Date().toISOString();
+  let d1UpdateCount = 0;
+  for (const upd of d1BouncieUpdates) {
+    try {
+      await env.DB.prepare(
+        `UPDATE Job SET actualDuration=?, actualArrival=?, actualDeparture=?,
+         bouncieMatchStatus=?, bouncieMatchConfidence=NULL, geocodeSource=?, modifiedAt=?
+         WHERE jobId=?`
+      ).bind(
+        upd.actualDuration, upd.actualArrival, upd.actualDeparture,
+        upd.bouncieMatchStatus, upd.geocodeSource, now,
+        upd.jobId
+      ).run();
+      d1UpdateCount++;
+    } catch(e) { await _logD1Failure(env, `bouncie_job_update:${upd.jobId}`, e.message); }
+  }
+  console.log(`[Bouncie matcher] D1 updates: ${d1UpdateCount}/${d1BouncieUpdates.length} succeeded`);
 
   // ── Morning stop validation ────────────────────────────────────────────────
   const morningStops = {};
@@ -5034,7 +5108,7 @@ async function bouncieJobDurationMatcher(date, env) {
     { expirationTtl: 90 * 86400 },
   );
 
-  return { date, total: completedToday.length, matched, results, morningStops };
+  return { date, total: d1Jobs.length, matched, results, morningStops };
 }
 
 // ── TruckEvent persistence — Bouncie full event stream to D1 ─────────────────
