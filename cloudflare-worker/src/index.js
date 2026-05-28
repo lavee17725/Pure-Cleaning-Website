@@ -4,7 +4,7 @@
 import {
   GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, GOOGLE_REDIRECT_URI,
   KV_GOOGLE_STATE, KV_GOOGLE_FOLDER,
-  getGoogleAccessToken, writeToGoogleDrive, runWeeklyExport,
+  getGoogleAccessToken, writeToGoogleDrive, runWeeklyExport, proactiveRefreshGoogleOAuthToken,
 } from './exports.js';
 
 const ALLOWED_ORIGINS = [
@@ -277,6 +277,11 @@ export default {
         console.error('auto-snapshot cron error:', e.message);
         return appendToSnapshotFailures(env, { ranAt: new Date().toISOString(), error: e.message, type: 'unhandled' }).catch(() => {});
       }));
+    } else if (event.cron === '0 9 1 * *') {
+      // Google OAuth proactive renewal — 9 AM UTC on the 1st of each month (DL-08)
+      ctx.waitUntil(proactiveRefreshGoogleOAuthToken(env).then(r => {
+        if (!r.success) console.error('[Google OAuth cron] Renewal failed:', r.errorCode, r.errorMessage);
+      }).catch(e => console.error('[Google OAuth cron] Unexpected error:', e.message)));
     } else {
       // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
       // Use previous calendar day (UTC-24h) so ET-scheduled jobs (2 PM-9 PM UTC = same UTC day)
@@ -866,10 +871,38 @@ export default {
         return jsonResponse({ success: true, folderId: body.folderId }, corsHeaders);
       }
       if (path === 'admin/google-drive/status' && request.method === 'GET') {
-        const refresh = await env.DATA.get('google_oauth:refresh_token');
-        const folder  = await env.DATA.get(KV_GOOGLE_FOLDER);
-        const lastRun = await env.DATA.get('google_export:last_run', 'json');
-        return jsonResponse({ authorized: !!refresh, folderId: folder || null, lastExport: lastRun || null }, corsHeaders);
+        const [refresh, folder, lastRun, refreshedAt, lastErr] = await Promise.all([
+          env.DATA.get('google_oauth:refresh_token'),
+          env.DATA.get(KV_GOOGLE_FOLDER),
+          env.DATA.get('google_export:last_run', 'json'),
+          env.DATA.get('google_oauth:token_refreshed_at'),
+          env.DATA.get('google_oauth:last_error', 'json'),
+        ]);
+        const daysSinceRefresh = refreshedAt
+          ? Math.round((Date.now() - new Date(refreshedAt).getTime()) / 86400000)
+          : null;
+        // null = never proactively refreshed → degraded (not healthy — we don't know token age)
+        const oauthStatus = lastErr ? 'failed'
+          : (daysSinceRefresh === null || daysSinceRefresh > 35) ? 'degraded'
+          : 'healthy';
+        return jsonResponse({
+          authorized:  !!refresh,
+          folderId:    folder || null,
+          lastExport:  lastRun || null,
+          google_oauth: {
+            status:          oauthStatus,
+            lastRefreshedAt: refreshedAt || null,
+            daysSinceRefresh,
+            lastError:       lastErr || null,
+          },
+        }, corsHeaders);
+      }
+
+      // ── Google OAuth: manual proactive refresh trigger (DL-08) ─────────────────
+      // Useful for post-re-auth validation and manual recovery without waiting for cron.
+      if (path === 'admin/google-oauth/refresh' && request.method === 'POST') {
+        const result = await proactiveRefreshGoogleOAuthToken(env);
+        return jsonResponse(result, corsHeaders, result.success ? 200 : 500);
       }
 
       // ── Weekly export: manual trigger ─────────────────────────────────────────

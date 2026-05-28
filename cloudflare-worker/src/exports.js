@@ -45,7 +45,59 @@ export async function getGoogleAccessToken(env) {
     expires_at:   Date.now() + ((tokens.expires_in || 3600) - 120) * 1000,
   }));
   if (tokens.refresh_token) await env.DATA.put(KV_GOOGLE_REFRESH, tokens.refresh_token);
+  await env.DATA.put('google_oauth:token_refreshed_at', new Date().toISOString()); // DL-08: stamp on-demand path
   return tokens.access_token;
+}
+
+// ─── Proactive OAuth renewal (DL-08) ─────────────────────────────────────────
+// Called by monthly cron (0 9 1 * *). Catch-log-persist semantics — never
+// throws; writes KV health state instead. Does NOT replace getGoogleAccessToken
+// (on-demand path stays unchanged per diagnosis agreement).
+export async function proactiveRefreshGoogleOAuthToken(env) {
+  const refreshToken = await env.DATA.get(KV_GOOGLE_REFRESH);
+  if (!refreshToken) {
+    const err = { timestamp: new Date().toISOString(), errorCode: 'no_refresh_token', errorMessage: 'No refresh token stored — visit /oauth/google/start', attemptedAt: new Date().toISOString() };
+    await env.DATA.put('google_oauth:last_error', JSON.stringify(err));
+    console.error('[Google OAuth] Proactive refresh failed: no refresh token stored');
+    return { success: false, ...err };
+  }
+  try {
+    const res = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id:     env.GOOGLE_OAUTH_CLIENT_ID,
+        client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type:    'refresh_token',
+      }),
+    });
+    const tokens = await res.json();
+    if (!tokens.access_token) {
+      const err = { timestamp: new Date().toISOString(), errorCode: tokens.error || 'no_access_token', errorMessage: tokens.error_description || JSON.stringify(tokens), attemptedAt: new Date().toISOString() };
+      await env.DATA.put('google_oauth:last_error', JSON.stringify(err));
+      console.error('[Google OAuth] Proactive refresh failed:', err.errorCode, err.errorMessage);
+      return { success: false, ...err };
+    }
+    // Success — update cache, stamp refreshed_at, clear last_error
+    const now = new Date().toISOString();
+    await Promise.all([
+      env.DATA.put(KV_GOOGLE_ACCESS, JSON.stringify({
+        access_token: tokens.access_token,
+        expires_at:   Date.now() + ((tokens.expires_in || 3600) - 120) * 1000,
+      })),
+      env.DATA.put('google_oauth:token_refreshed_at', now),
+      env.DATA.delete('google_oauth:last_error'),
+      ...(tokens.refresh_token ? [env.DATA.put(KV_GOOGLE_REFRESH, tokens.refresh_token)] : []),
+    ]);
+    console.log('[Google OAuth] Proactive refresh succeeded at', now);
+    return { success: true, refreshedAt: now };
+  } catch(e) {
+    const err = { timestamp: new Date().toISOString(), errorCode: 'network_error', errorMessage: e.message, attemptedAt: new Date().toISOString() };
+    await env.DATA.put('google_oauth:last_error', JSON.stringify(err)).catch(() => {});
+    console.error('[Google OAuth] Proactive refresh network error:', e.message);
+    return { success: false, ...err };
+  }
 }
 
 // ─── Drive upload ─────────────────────────────────────────────────────────────
