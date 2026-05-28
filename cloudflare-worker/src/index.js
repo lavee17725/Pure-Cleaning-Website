@@ -3780,6 +3780,17 @@ async function _logD1Failure(env, context, error) {
   } catch { /* never throw from failure logger */ }
 }
 
+async function _d1SyncPropertyUpdate(propId, fields, env, now) {
+  if (!propId) return;
+  const sets = [], vals = [];
+  if (fields.sqft     !== undefined) { sets.push('sqft=?');     vals.push(fields.sqft     || null); }
+  if (fields.roofType !== undefined) { sets.push('roofType=?'); vals.push(fields.roofType || null); }
+  if (fields.gateCode !== undefined) { sets.push('gateCode=?'); vals.push(fields.gateCode || null); }
+  if (!sets.length) return;
+  sets.push('modifiedAt=?'); vals.push(now); vals.push(propId);
+  await env.DB.prepare(`UPDATE Property SET ${sets.join(',')} WHERE propertyId=?`).bind(...vals).run();
+}
+
 async function _d1SyncNewCustomer(c, env, now) {
   const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
   if (!ph || ph.length !== 10) return;
@@ -3807,6 +3818,12 @@ async function _d1SyncNewCustomer(c, env, now) {
       await env.DB.prepare(
         `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
       ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+
+      await _d1SyncPropertyUpdate(propId, {
+        sqft:     c.sqFt || c.roofSqFt || null,
+        roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+        gateCode: c.gateCode || null,
+      }, env, now);
     }
   } catch(e) { await _logD1Failure(env, `_d1SyncNewCustomer:${ph}`, e.message); }
 }
@@ -3939,6 +3956,11 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
         await env.DB.prepare(
           `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact) VALUES (?,?,?,?)`
         ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1).run();
+        await _d1SyncPropertyUpdate(propId, {
+          sqft:     c.sqFt || null,
+          roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+          gateCode: c.gateCode || null,
+        }, env, now);
       } catch(e) { await _logD1Failure(env, `_d1SyncCustomersPut:property_upsert:${ph}`, e.message); }
     }
 
