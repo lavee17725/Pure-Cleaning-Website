@@ -796,6 +796,9 @@ export default {
       if (path === 'admin/scheduled-job' && request.method === 'POST')
         return await handleCreateScheduledJob(request, env, corsHeaders);
 
+      if (path === 'admin/job/split' && request.method === 'POST')
+        return await handleSplitJob(request, env, corsHeaders);
+
       if (path === 'admin/partner' && request.method === 'POST')
         return await handleCreatePartner(request, env, corsHeaders);
 
@@ -3598,6 +3601,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     workSitePlaceId, workSiteGoogleVerified,
     endCustomerName, endCustomerPhone,
     source, roofStories, crewCount, sqFt, roofType,
+    parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent,
   } = body;
 
   if (!payerId)           return jsonResponse({ error: 'payerId required' }, corsHeaders, 400);
@@ -3622,8 +3626,9 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
           workSiteAddress, workSiteCity, workSiteZip,
           workSitePlaceId, workSiteGoogleVerified,
           endCustomerName, endCustomerPhone, roofStories, crewCount,
-          source, createdAt, modifiedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          source, createdAt, modifiedAt,
+          parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       jobId, payerId, propertyId, scheduledDate, 'scheduled', amount, 'pending',
       servicesRequested, servicesRaw || servicesRequested, jobNotes || servicesRequested,
@@ -3632,7 +3637,9 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
       workSitePlaceId || null, workSiteGoogleVerified ? 1 : 0,
       endCustomerName || null, endCustomerPhone || null,
       roofStories || null, crewCount || null,
-      src, now, now
+      src, now, now,
+      parentJobId || null, dayNumber || null, totalDays || null, dayPhase || null,
+      isMultiDayParent ? 1 : 0
     ).run();
 
     // Sync sqFt and roofType to Property — best-effort, non-fatal
@@ -3649,6 +3656,124 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     return jsonResponse({ success: true, jobId, scheduledDate, amount }, corsHeaders);
   } catch(e) {
     await _logD1Failure(env, `handleCreateScheduledJob:error:${payerId}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── POST /admin/job/split ─────────────────────────────────────────────────────
+// Splits an existing scheduled job into a multi-day set.
+// Body: { parentJobId, days: [{ scheduledDate, amount, dayPhase, rigId? }, ...] }
+// days[0] = Day 1 (updates the parent row in place).
+// days[1..N-1] = child rows, each with parentJobId pointing to the parent.
+//
+// TODO (future): "add day" to an existing split (insert one more child, increment totalDays on all).
+// TODO (future): "remove day" from an existing split (cancel child, decrement totalDays on remainder).
+async function handleSplitJob(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { parentJobId, days } = body;
+  if (!parentJobId)
+    return jsonResponse({ error: 'parentJobId required' }, corsHeaders, 400);
+  if (!Array.isArray(days) || days.length < 2)
+    return jsonResponse({ error: 'days must be array of ≥2' }, corsHeaders, 400);
+
+  const now       = new Date().toISOString();
+  const totalDays = days.length;
+
+  // Fetch parent row
+  const parent = await env.DB.prepare('SELECT * FROM Job WHERE jobId=?').bind(parentJobId).first();
+  if (!parent)
+    return jsonResponse({ error: 'parent job not found' }, corsHeaders, 404);
+  if (parent.state !== 'scheduled')
+    return jsonResponse({ error: 'can only split scheduled jobs' }, corsHeaders, 400);
+  if (parent.isMultiDayParent)
+    return jsonResponse({ error: 'job is already split' }, corsHeaders, 400);
+
+  try {
+    // ── Update parent → Day 1 ──────────────────────────────────────────────
+    const day1 = days[0];
+    await env.DB.prepare(
+      `UPDATE Job SET isMultiDayParent=1, dayNumber=1, totalDays=?,
+       dayPhase=?, amount=?, scheduledDate=?, rigId=?, modifiedAt=?
+       WHERE jobId=?`
+    ).bind(
+      totalDays,
+      day1.dayPhase         || null,
+      day1.amount,
+      day1.scheduledDate    || parent.scheduledDate,
+      day1.rigId            != null ? day1.rigId : parent.rigId,
+      now,
+      parentJobId
+    ).run();
+
+    // ── Insert child rows for days 2..N ───────────────────────────────────
+    const childIds = [];
+    for (let i = 1; i < days.length; i++) {
+      const d       = days[i];
+      const dayNum  = i + 1;
+      const childId = `${parentJobId}_d${dayNum}`;
+      childIds.push(childId);
+
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO Job
+           (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
+            servicesRequested, servicesRaw, jobNotes, rigId,
+            workSiteAddress, workSiteCity, workSiteZip,
+            workSitePlaceId, workSiteGoogleVerified,
+            endCustomerName, endCustomerPhone, roofStories, crewCount,
+            source, createdAt, modifiedAt,
+            parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        childId,
+        parent.payerId,
+        parent.propertyId,
+        d.scheduledDate,
+        'scheduled',
+        d.amount,
+        'pending',
+        parent.servicesRequested,
+        parent.servicesRaw             || parent.servicesRequested,
+        d.dayPhase                     || parent.jobNotes || parent.servicesRequested,
+        d.rigId != null ? d.rigId      : parent.rigId,
+        parent.workSiteAddress         || null,
+        parent.workSiteCity            || null,
+        parent.workSiteZip             || null,
+        parent.workSitePlaceId         || null,
+        parent.workSiteGoogleVerified  || 0,
+        parent.endCustomerName         || null,
+        parent.endCustomerPhone        || null,
+        parent.roofStories             || null,
+        parent.crewCount               || null,
+        'split_job',
+        now, now,
+        parentJobId,      // parentJobId — children point at parent
+        dayNum,           // dayNumber
+        totalDays,        // totalDays
+        d.dayPhase        || null,
+        0                 // isMultiDayParent — children are never parents
+      ).run();
+    }
+
+    // ── KV sync: update parent's scheduledStatus.amount to Day 1 slice ────
+    // Child rows appear on their own scheduledDate via calendarJobs[]; only the
+    // parent has a KV scheduledStatus slot (one per customer). Reflect Day 1 amount.
+    await _patchJobKvSync(
+      { ...parent,
+        amount:        day1.amount,
+        scheduledDate: day1.scheduledDate || parent.scheduledDate,
+        rigId:         day1.rigId != null ? day1.rigId : parent.rigId },
+      { amount: true, scheduledDate: true, rigId: true },
+      env, now
+    ).catch(e => console.error('handleSplitJob:kvSync', e.message));
+
+    await _logD1Failure(env, 'handleSplitJob',
+      `split ${parentJobId} into ${totalDays} days: [${childIds.join(', ')}]`);
+
+    return jsonResponse({ success: true, parentJobId, childIds, totalDays }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `handleSplitJob:error:${parentJobId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
 }
