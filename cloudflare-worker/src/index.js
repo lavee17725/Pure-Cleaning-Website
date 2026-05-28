@@ -3230,6 +3230,77 @@ async function handleReconcileKvD1(env, corsHeaders) {
     }
   } catch(e) { /* skip — non-fatal */ }
 
+  // ── Gate: COMPLETED_JOBS_MISSING_BOUNCIE_24H (T1.21) ─────────────────────
+  // Completed jobs from yesterday that have a rigId but no actualDuration.
+  // Means last night's Bouncie cron either didn't run, found no jobs, or
+  // failed to match. Should be zero every morning after the matcher runs.
+  // Gate starts 2026-05-28 (post-fix) — older history is pre-integration.
+  // Severity: WARNING — one day's gap isn't urgent but surfaces within 24h.
+  try {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const missingBouncie = await env.DB.prepare(
+      `SELECT j.jobId, j.scheduledDate, j.rigId,
+              p.firstName, p.lastName, p.primaryPhone
+       FROM Job j
+       JOIN Person p ON p.personId = j.payerId
+       WHERE j.state = 'completed'
+         AND j.scheduledDate = ?
+         AND j.actualDuration IS NULL
+         AND j.rigId IS NOT NULL
+         AND j.scheduledDate >= '2026-05-28'
+       ORDER BY j.scheduledDate DESC`
+    ).bind(yesterday).all().then(r => r.results || []);
+    if (missingBouncie.length > 0) {
+      discrepancies.push({
+        phone: null,
+        name:  `${missingBouncie.length} completed job(s) on ${yesterday} missing Bouncie duration`,
+        type:  'COMPLETED_JOBS_MISSING_BOUNCIE_24H',
+        field: 'Job.actualDuration',
+        kvValue: `${missingBouncie.length} jobs with rigId, no actualDuration`,
+        d1Value: missingBouncie.map(j => `${j.firstName} ${j.lastName} (${j.rigId}): ${j.jobId}`).join(' | '),
+        suggested_action: `Run GET /api/bouncie/match?date=${yesterday} to trigger matcher manually. Check bouncie:last_cron_run for heartbeat status. If Bouncie token expired, visit /oauth/bouncie/start.`,
+      });
+      typeCounts['COMPLETED_JOBS_MISSING_BOUNCIE_24H'] = missingBouncie.length;
+    }
+  } catch(e) { /* skip — non-fatal */ }
+
+  // ── Gate: BOUNCIE_MATCH_RATE_7D (T1.21) ──────────────────────────────────
+  // Match rate over the last 7 days. Below 70% suggests GPS coverage issue,
+  // token degradation, or rig mapping drift. Catches gradual failures that
+  // single-day gates miss (e.g. one rig's IMEI stops reporting quietly).
+  // Only fires when there are ≥3 completed jobs in the window to avoid
+  // noise from light weeks.
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const yesterday7   = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const r7 = await env.DB.prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN actualDuration IS NOT NULL THEN 1 ELSE 0 END) AS matched
+       FROM Job
+       WHERE state = 'completed'
+         AND rigId IS NOT NULL
+         AND scheduledDate >= ?
+         AND scheduledDate <= ?
+         AND scheduledDate >= '2026-05-28'`
+    ).bind(sevenDaysAgo, yesterday7).first();
+    const total7   = r7?.total   || 0;
+    const matched7 = r7?.matched || 0;
+    const rate7    = total7 > 0 ? matched7 / total7 : null;
+    if (rate7 !== null && total7 >= 3 && rate7 < 0.7) {
+      discrepancies.push({
+        phone: null,
+        name:  `Bouncie match rate ${Math.round(rate7 * 100)}% over last 7 days (${matched7}/${total7} jobs)`,
+        type:  'BOUNCIE_MATCH_RATE_7D',
+        field: 'Job.actualDuration',
+        kvValue: `${matched7}/${total7} jobs matched (${Math.round(rate7 * 100)}%)`,
+        d1Value: `7-day window ${sevenDaysAgo} → ${yesterday7}. Below 70% threshold.`,
+        suggested_action: 'Check rig IMEI mapping (bouncie:rig_mapping KV key). Verify Bouncie keepalive is running every 4h. Low rate may mean one rig stopped reporting GPS.',
+      });
+      typeCounts['BOUNCIE_MATCH_RATE_7D'] = Math.round(rate7 * 100);
+    }
+  } catch(e) { /* skip — non-fatal */ }
+
   return jsonResponse({
     summary: {
       kvCustomersChecked: checked,
