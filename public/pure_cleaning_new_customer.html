@@ -1400,11 +1400,15 @@ async function saveDb() {
 // D1 write FIRST (calendar reads D1 for state='scheduled'); KV mirrors after.
 // Returns { success, error, message, propertyId, payerId }.
 // T1.16: duplicate of calendar.html:1962. Keep in sync. FWQ 1.10 to consolidate.
+// Sync required: sqFt, roofType, endCustomerName, endCustomerPhone added 2026-05-28.
+// calendar.html copy must also carry these params — verify before any signature change.
 async function scheduleJobWithDualWrite({
   phone, propertyId, scheduledDate, amount, rigId,
   services, workSiteAddress, workSiteCity,
   workSitePlaceId, workSiteGoogleVerified,
   roofStories,
+  sqFt, roofType,
+  endCustomerName, endCustomerPhone,
   source,
 }) {
   const ph       = (phone || '').replace(/\D/g, '').slice(-10);
@@ -1436,6 +1440,10 @@ async function scheduleJobWithDualWrite({
       workSitePlaceId: workSitePlaceId || null,
       workSiteGoogleVerified: workSiteGoogleVerified ? 1 : 0,
       roofStories: roofStories || null,
+      sqFt: sqFt || null,
+      roofType: roofType || null,
+      endCustomerName: endCustomerName || null,
+      endCustomerPhone: endCustomerPhone || null,
       source: source || 'new_customer_form',
     }),
   }).catch(() => null);
@@ -2651,7 +2659,11 @@ async function submitScheduleNow() {
     state: 'scheduled', scheduledDate: date,
     rig, jobNotes: c.quoteStatus?.mainServices || notes || null,
     approvedAmount: price, window: 'morning',
-    roofStories: c.quoteStatus?.servicesAgreed?.roofStories || null,
+    roofStories:      c.quoteStatus?.servicesAgreed?.roofStories || null,
+    sqFt:             parseInt(document.getElementById('nRoofSqFt')?.value) || c.sqFt || null,
+    roofType:         document.querySelector('input[name=roofType]:checked')?.value || c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+    endCustomerName:  (document.getElementById('nEndCustName')?.value?.trim())  || c.endCustomerName  || c.quoteStatus?.partnerWorkSite?.endCustName  || null,
+    endCustomerPhone: (document.getElementById('nEndCustPhone')?.value?.trim()) || c.endCustomerPhone || c.quoteStatus?.partnerWorkSite?.endCustPhone || null,
     ...(notes ? { scheduleNote: notes } : {})
   });
   c.quoteLifecycle = 'confirmed';
@@ -2676,6 +2688,10 @@ async function submitScheduleNow() {
       workSitePlaceId:        pws.placeId        || null,
       workSiteGoogleVerified: pws.googleVerified || false,
       roofStories:            svcAgreed.roofStories || null,
+      sqFt:             parseInt(document.getElementById('nRoofSqFt')?.value) || c.sqFt || null,
+      roofType:         document.querySelector('input[name=roofType]:checked')?.value || c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+      endCustomerName:  (document.getElementById('nEndCustName')?.value?.trim())  || c.endCustomerName  || c.quoteStatus?.partnerWorkSite?.endCustName  || null,
+      endCustomerPhone: (document.getElementById('nEndCustPhone')?.value?.trim()) || c.endCustomerPhone || c.quoteStatus?.partnerWorkSite?.endCustPhone || null,
       source:                 'new_customer_form',
     });
     if (!d1Result.success) {

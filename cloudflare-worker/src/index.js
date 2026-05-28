@@ -3591,7 +3591,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     rigId, workSiteAddress, workSiteCity, workSiteZip,
     workSitePlaceId, workSiteGoogleVerified,
     endCustomerName, endCustomerPhone,
-    source, roofStories, crewCount,
+    source, roofStories, crewCount, sqFt, roofType,
   } = body;
 
   if (!payerId)           return jsonResponse({ error: 'payerId required' }, corsHeaders, 400);
@@ -3628,6 +3628,14 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
       roofStories || null, crewCount || null,
       src, now, now
     ).run();
+
+    // Sync sqFt and roofType to Property — best-effort, non-fatal
+    if (propertyId && (sqFt != null || roofType != null)) {
+      await _d1SyncPropertyUpdate(propertyId, {
+        ...(sqFt     != null ? { sqft:     sqFt || null }     : {}),
+        ...(roofType != null ? { roofType: roofType || null } : {}),
+      }, env, now).catch(e => console.error('handleCreateScheduledJob:propSync', e.message));
+    }
 
     await _logD1Failure(env, `handleCreateScheduledJob:${src}`,
       `created jobId=${jobId} payerId=${payerId} scheduledDate=${scheduledDate} amount=${amount}`);
