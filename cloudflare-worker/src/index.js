@@ -3884,8 +3884,9 @@ async function _d1SyncPersonUpdate(newC, prevC, env, now) {
   diff('firstName',    newC.firstName,    prevC.firstName);
   diff('lastName',     newC.lastName,     prevC.lastName);
   diff('email',        newC.email,        prevC.email);
-  diff('customerType', newC.customerType, prevC.customerType);
-  diff('partnerNotes', newC.partnerNotes, prevC.partnerNotes);
+  diff('customerType',  newC.customerType, prevC.customerType);
+  diff('partnerNotes',  newC.partnerNotes, prevC.partnerNotes);
+  diff('internalNotes', newC.notes,        prevC.notes);
   const newDnc = newC.optOut ? 1 : 0, prevDnc = prevC.optOut ? 1 : 0;
   if (newDnc !== prevDnc) { sets.push('doNotContact=?'); vals.push(newDnc); }
   if (!sets.length) return;
