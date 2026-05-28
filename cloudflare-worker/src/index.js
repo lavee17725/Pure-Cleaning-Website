@@ -2612,7 +2612,8 @@ function _d1BuildScheduledStatus(personJobs) {
   );
   const ss = activeScheduled
            || recentCompleted
-           || personJobs[0];
+           || personJobs.find(j => j.state !== 'cancelled');
+  if (!ss) return null;
   return {
     state:               ss.state,
     scheduledDate:       ss.scheduledDate  || null,
