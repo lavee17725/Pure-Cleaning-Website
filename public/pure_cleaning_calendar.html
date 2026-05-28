@@ -1955,6 +1955,7 @@ async function saveDb() {
   sessionStorage.removeItem('pcpc_customer_db_cache');
 }
 
+// T1.16: duplicate of new_customer.html:1398. Keep in sync. FWQ 1.10 to consolidate.
 // ── Law T1.20: Shared dual-write helper ───────────────────────────────────────
 // Encapsulates the T1.20 pattern: D1 write FIRST, KV mirrors after.
 // All scheduled-state creates go through this helper.
@@ -4689,6 +4690,11 @@ function executeDeleteFromQueue(phone) {
     c.scheduledStatus = null;
   }
   logEvent('job_deleted', phone, {name, reason:'removed_from_queue'});
+  // Fix B (T1.21): cancel active D1 Job row so deletion persists post-reload.
+  // Without this, D1 (canonical) rebuilds scheduledStatus on next refresh.
+  const ph10 = (phone || '').replace(/\D/g,'').slice(-10);
+  const activeJob = calendarJobs.find(j => j.payerId === 'person_1' + ph10 && j.state === 'scheduled');
+  if (activeJob) await patchJob(activeJob.jobId, { state: 'cancelled' }).catch(e => console.error('queue-delete D1 cancel failed', e));
   saveDb().catch(()=>{});
   render();
   showToast(`🗑 ${esc(name)} removed`, 'Undo', () => undoDelete(phone));

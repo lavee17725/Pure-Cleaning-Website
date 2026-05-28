@@ -705,7 +705,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 </div>
 
 <!-- WHAT'S NEXT MODAL (post-save: phone-quote path) -->
-<div class="moverlay hidden" id="whatNextModal">
+<div class="moverlay hidden" id="whatNextModal" onclick="if(event.target===this)closeWhatNextModal()">
   <div class="msheet" style="max-width:440px;">
     <div class="msheet-title">✅ Quote saved!</div>
     <div id="whatNextSub" style="font-size:14px;color:var(--muted);margin-bottom:1.25rem;"></div>
@@ -724,6 +724,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </button>
     </div>
     <button class="mbtn-c" onclick="whatNextLater()" style="width:100%;">Save for later</button>
+    <button onclick="closeWhatNextModal()" style="width:100%;margin-top:8px;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:10px;">← Back</button>
   </div>
 </div>
 
@@ -1394,10 +1395,12 @@ async function saveDb() {
 // Law T1.20: shared dual-write helper — duplicated from calendar.html (no shared JS file).
 // D1 write FIRST (calendar reads D1 for state='scheduled'); KV mirrors after.
 // Returns { success, error, message, propertyId, payerId }.
+// T1.16: duplicate of calendar.html:1962. Keep in sync. FWQ 1.10 to consolidate.
 async function scheduleJobWithDualWrite({
   phone, propertyId, scheduledDate, amount, rigId,
   services, workSiteAddress, workSiteCity,
   workSitePlaceId, workSiteGoogleVerified,
+  roofStories,
   source,
 }) {
   const ph       = (phone || '').replace(/\D/g, '').slice(-10);
@@ -1428,6 +1431,7 @@ async function scheduleJobWithDualWrite({
       workSiteCity: workSiteCity || null,
       workSitePlaceId: workSitePlaceId || null,
       workSiteGoogleVerified: workSiteGoogleVerified ? 1 : 0,
+      roofStories: roofStories || null,
       source: source || 'new_customer_form',
     }),
   }).catch(() => null);
@@ -2628,14 +2632,16 @@ async function submitScheduleNow() {
     state: 'scheduled', scheduledDate: date,
     rig, jobNotes: c.quoteStatus?.mainServices || notes || null,
     approvedAmount: price, window: 'morning',
+    roofStories: c.quoteStatus?.servicesAgreed?.roofStories || null,
     ...(notes ? { scheduleNote: notes } : {})
   });
   c.quoteLifecycle = 'confirmed';
 
   document.getElementById('schedBtn').disabled = true;
   try {
-    const svcStr = c.scheduledStatus?.jobNotes || c.quoteStatus?.mainServices || notes || '';
-    const pws    = c.quoteStatus?.partnerWorkSite || {};
+    const svcStr   = c.scheduledStatus?.jobNotes || c.quoteStatus?.mainServices || notes || '';
+    const pws      = c.quoteStatus?.partnerWorkSite || {};
+    const svcAgreed = c.quoteStatus?.servicesAgreed || {};
 
     // Steps 1+2: D1 write FIRST via shared helper (Law T1.20).
     // Helper resolves propertyId via GET /customer/{phone} (has full properties[] shape).
@@ -2650,6 +2656,7 @@ async function submitScheduleNow() {
       workSiteCity:           pws.city           || c.city    || null,
       workSitePlaceId:        pws.placeId        || null,
       workSiteGoogleVerified: pws.googleVerified || false,
+      roofStories:            svcAgreed.roofStories || null,
       source:                 'new_customer_form',
     });
     if (!d1Result.success) {
