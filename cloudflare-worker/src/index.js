@@ -3606,9 +3606,11 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
   const src   = source || 'new_customer_form';
 
   try {
-    // INSERT OR IGNORE — idempotent; re-submitting same date+payer is safe
+    // INSERT OR REPLACE — re-submitting same date+payer overwrites cancelled/stale row.
+    // INSERT OR IGNORE silently dropped re-submissions when a cancelled row existed for
+    // the same jobId (payer+date deterministic), leaving the job invisible on the calendar.
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO Job
+      `INSERT OR REPLACE INTO Job
          (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
           servicesRequested, servicesRaw, jobNotes, rigId,
           workSiteAddress, workSiteCity, workSiteZip,
