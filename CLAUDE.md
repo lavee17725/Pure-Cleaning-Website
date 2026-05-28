@@ -62,6 +62,49 @@ When in doubt, follow this file. The other two are reference.
 
 ---
 
+## Data Integrity Laws
+
+### DL-01: roofStories — Single Source of Truth
+- `roofStories` lives in TWO places: the Job record (per-job) and the Customer property record (permanent default)
+- The Customer property record is the master default — editable directly from any page at any time
+- When a job is completed, `roofStories` MUST be written to the `jobHistory[]` entry at completion time (`_doCompleteJob` must capture it)
+- When a new quote or job is created for a returning customer, `roofStories` pre-fills from the Customer property record first, then falls back to most recent completed `jobHistory[]` entry
+- NEVER guess `roofStories` from free text parsing — if it's not set, show blank and require selection
+- `getLastKnownRoofStories()` is a temporary fallback only — every completion path must write it so this function becomes unnecessary over time
+
+### DL-02: System-Wide Adjustability
+- Any field that affects pricing, scheduling, or reporting must be editable system-wide from a single admin control
+- No field should be locked to the page it was first entered on
+- When a master record is updated, all dependent views reflect it immediately — no stale cache
+
+### DL-03: jobHistory[] is Canonical
+- `jobHistory[]` is the permanent record of all completed work — it is never reconstructed from `scheduledStatus` or `quoteStatus`
+- `scheduledStatus` is temporary — it holds the current scheduled job state only
+- `quoteStatus` is temporary — it holds quote information only
+- Once a job is completed and written to `jobHistory[]`, that entry is the truth
+
+### DL-04: CSV Backfill Entries
+- All CSV backfill entries are flagged `source: 'csv_backfill'`
+- CSV backfill entries are excluded from the review request queue
+- CSV backfill entries are excluded from any automated outreach
+
+### DL-05: Minimum Ticket Rule
+- $150 minimum per job — flag any job under $150 in reporting
+- Never filter these out — surface them for Tyler to review
+
+### DL-06: Customer Segments
+- Residential customers, commercial customers, and partners (Hearts Painting, Richard Carlos, Pro Build) are separate segments
+- Partners and commercial accounts are excluded from residential bulk reactivation campaigns
+- Each segment has its own reactivation logic — never mix them
+
+### DL-07: Fix the Full Surface, Not Just the Symptom
+- Before fixing any field or bug, audit every place that field touches
+- If multiple fields have the same class of problem, fix them all in one pass
+- Never patch one hole knowing others exist — surface them all first, fix together
+- This applies to every completion path, every write path, every read path
+
+---
+
 ## Working with Tyler
 
 - **One fix at a time.** Validate before moving to the next.
@@ -71,6 +114,9 @@ When in doubt, follow this file. The other two are reference.
 - **Hard refresh is muscle memory.** Visual issues are not cache. Don't say cache.
 - **When the same pattern fails three times, STOP.** Diagnose the deeper layer.
 - **Honest feedback over hype.** If something is wrong, say so directly.
+- **Tyler speaks in business intent, not technical specs.** Translate plain language into the best functional, time-saving, money-making solution. Never make Tyler decode technical language.
+- **Always read Google Drive docs at session start.** Laws doc ID: `1piyusFUPyOTuTUFEsWxMARJZ0B8L6BWXxgMdFNNXSVI`. Forward Work Queue ID: `13BZU949DS_UYalrKFvyfl_65UahC93qs`.
+- **Fix the full surface, not just the symptom.** Before any fix, audit every place that field or pattern touches. Fix all instances in one pass.
 
 ---
 

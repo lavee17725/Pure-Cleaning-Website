@@ -3612,6 +3612,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'endCustomerName', 'endCustomerPhone', 'partnerRate',
   'crewCount',
   'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
+  'roofType',      // DL-01: roof material type, written at completion and pencil edit
 ]);
 
 const _JOB_VALID_STATES = new Set([

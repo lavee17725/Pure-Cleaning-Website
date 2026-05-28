@@ -4484,6 +4484,17 @@ async function _doCompleteJob(log) {
     geocodedCoords: _mlCoords,
     // Tier 2 ML context
     morningStops:   _mlMorningStops,
+    // Job property + operator context (DL-01, DL-07)
+    roofStories:     ss.roofStories || getLastKnownRoofStories(c) || null,
+    roofType:        ss.roofType || null,
+    customerType:    c.customerType || null,
+    scheduleNote:    ss.scheduleNote || null,
+    jobLog:          ss.jobLog || null,
+    window:          ss.window || null,
+    crewCount:       ss.crewCount || null,
+    propertyLabel:   ss.propertyLabel || c.propertyLabel || null,
+    workSiteAddress: c.workSiteAddress || null,
+    leadSource:      c.leadSource?.primary || null,
     ...(log.paymentStatus === 'paid' ? {
       payment:       log.paymentMethod || null,
       paymentMethod: log.paymentMethod || null,
@@ -4513,7 +4524,16 @@ async function _doCompleteJob(log) {
 
   // PATCH D1 first — awaited so Fix D guard in _d1SyncJobHistory sees completed row and skips INSERT
   if (jmJobId) {
-    const patchBody = { state: 'completed', completedAt: ss.completedAt };
+    const patchBody = {
+      state:            'completed',
+      completedAt:      ss.completedAt,
+      roofStories:      ss.roofStories      || null,
+      roofType:         ss.roofType         || null,
+      crewCount:        ss.crewCount        || null,
+      endCustomerName:  c.endCustomerName   || null,
+      endCustomerPhone: c.endCustomerPhone  || null,
+      workSiteAddress:  c.workSiteAddress   || null,
+    };
     if (log.paymentStatus === 'paid') {
       patchBody.paymentStatus = 'paid';
       patchBody.paymentMethod = log.paymentMethod || null;
