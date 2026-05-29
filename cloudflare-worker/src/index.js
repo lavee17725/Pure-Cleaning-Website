@@ -280,6 +280,7 @@ export default {
     } else if (event.cron === '0 9 1 * *') {
       // Google OAuth proactive renewal — 9 AM UTC on the 1st of each month (DL-08)
       ctx.waitUntil(proactiveRefreshGoogleOAuthToken(env).then(r => {
+        // @ts-ignore — union: success branch lacks errorCode/errorMessage; r.success guard above makes this safe
         if (!r.success) console.error('[Google OAuth cron] Renewal failed:', r.errorCode, r.errorMessage);
       }).catch(e => console.error('[Google OAuth cron] Unexpected error:', e.message)));
     } else {
@@ -784,6 +785,11 @@ export default {
       // ── Calendar jobs: D1-native read + mutation (Phase 2A) ──────────────────
       if (path === 'admin/calendar-jobs' && request.method === 'GET')
         return await handleCalendarJobs(request, env, corsHeaders);
+
+      if (path.startsWith('admin/job/') && path.endsWith('/days') && request.method === 'GET') {
+        const jobId = path.slice('admin/job/'.length, -'/days'.length);
+        return await handleGetJobDays(request, env, jobId, corsHeaders);
+      }
 
       if (path.startsWith('admin/job/') && request.method === 'PATCH') {
         const jobId = path.slice('admin/job/'.length);
@@ -2317,7 +2323,7 @@ async function handleReviewsHub(env, corsHeaders) {
 
   const now            = new Date();
   const nowIso         = now.toISOString();
-  const thirtyDays     = new Date(now - 30  * 86400000).toISOString();
+  const thirtyDays     = new Date(+now - 30  * 86400000).toISOString();
   const thisMonthStart = now.toISOString().slice(0, 7) + '-01';
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10);
   const lastMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10);
@@ -3174,7 +3180,7 @@ async function handleReconcileKvD1(env, corsHeaders) {
       const expectedJobId = `job_${personId}_${ss.scheduledDate}_scheduled`;
       if (!d1ScheduledJobIds.has(expectedJobId)) {
         discrepancies.push({
-          phone, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+          phone: c.phone, name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
           type: 'KV_ONLY_SCHEDULED_JOB',
           field: 'scheduledStatus.state',
           kvValue:  `scheduled/${ss.scheduledDate}/$${ss.approvedAmount}`,
@@ -3192,7 +3198,7 @@ async function handleReconcileKvD1(env, corsHeaders) {
   // Common cause: calendar-side rescheduling updates D1 directly, KV catches up async.
   try {
     const today = new Date().toISOString().slice(0, 10);
-    const kvDb  = kvDb || await env.DATA.get('customer_db', 'json').then(d => d || { customers: [] });
+    const kvDb  = await env.DATA.get('customer_db', 'json').then(d => d || { customers: [] });
     const kvScheduledByPerson = new Map();
     for (const c of (kvDb.customers || [])) {
       const ss  = c.scheduledStatus || {};
@@ -3665,14 +3671,42 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
   }
 }
 
+// ── GET /admin/job/:id/days ───────────────────────────────────────────────────
+// Returns all active (non-cancelled) days in a multi-day set, ordered by dayNumber.
+// :id may be the root parent OR any child — rootId is resolved automatically.
+// Response: { parentJobId: rootId, days: [{ jobId, scheduledDate, amount, dayPhase,
+//             dayNumber, totalDays, rigId }, ...] }
+async function handleGetJobDays(request, env, jobId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!jobId)  return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+
+  const rootRow = await env.DB.prepare(
+    'SELECT COALESCE(parentJobId, jobId) AS rootId FROM Job WHERE jobId=?'
+  ).bind(jobId).first();
+  if (!rootRow) return jsonResponse({ error: 'job not found' }, corsHeaders, 404);
+  const rootId = rootRow.rootId;
+
+  const { results } = await env.DB.prepare(`
+    SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, totalDays, rigId
+    FROM Job
+    WHERE (jobId=? OR parentJobId=?)
+      AND state != 'cancelled'
+    ORDER BY dayNumber
+  `).bind(rootId, rootId).all();
+
+  return jsonResponse({ parentJobId: rootId, days: results || [] }, corsHeaders);
+}
+
 // ── POST /admin/job/split ─────────────────────────────────────────────────────
-// Splits an existing scheduled job into a multi-day set.
+// Creates OR reconciles a multi-day job set. UI sends complete desired state;
+// worker makes D1 match exactly.
 // Body: { parentJobId, days: [{ scheduledDate, amount, dayPhase, rigId? }, ...] }
-// days[0] = Day 1 (updates the parent row in place).
-// days[1..N-1] = child rows, each with parentJobId pointing to the parent.
 //
-// TODO (future): "add day" to an existing split (insert one more child, increment totalDays on all).
-// TODO (future): "remove day" from an existing split (cancel child, decrement totalDays on remainder).
+// parentJobId may be the root parent OR any child — rootId resolved automatically.
+//
+// days.length === 1  → un-split: reset parent to standalone, cancel all children
+// days.length >= 2   → reconcile: update parent as Day 1, INSERT OR REPLACE _d2.._dN,
+//                      cancel any existing children with dayNumber > N
 async function handleSplitJob(request, env, corsHeaders) {
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
@@ -3680,23 +3714,69 @@ async function handleSplitJob(request, env, corsHeaders) {
   const { parentJobId, days } = body;
   if (!parentJobId)
     return jsonResponse({ error: 'parentJobId required' }, corsHeaders, 400);
-  if (!Array.isArray(days) || days.length < 2)
-    return jsonResponse({ error: 'days must be array of ≥2' }, corsHeaders, 400);
+  if (!Array.isArray(days) || days.length < 1)
+    return jsonResponse({ error: 'days must be a non-empty array' }, corsHeaders, 400);
 
-  const now       = new Date().toISOString();
-  const totalDays = days.length;
+  const now = new Date().toISOString();
 
-  // Fetch parent row
-  const parent = await env.DB.prepare('SELECT * FROM Job WHERE jobId=?').bind(parentJobId).first();
+  // ── Resolve root: body may pass a child's jobId ──────────────────────────
+  const rootRow = await env.DB.prepare(
+    'SELECT COALESCE(parentJobId, jobId) AS rootId FROM Job WHERE jobId=?'
+  ).bind(parentJobId).first();
+  if (!rootRow) return jsonResponse({ error: 'job not found' }, corsHeaders, 404);
+  const rootId = rootRow.rootId;
+
+  // ── Fetch root parent row ─────────────────────────────────────────────────
+  const parent = await env.DB.prepare('SELECT * FROM Job WHERE jobId=?').bind(rootId).first();
   if (!parent)
     return jsonResponse({ error: 'parent job not found' }, corsHeaders, 404);
   if (parent.state !== 'scheduled')
     return jsonResponse({ error: 'can only split scheduled jobs' }, corsHeaders, 400);
-  if (parent.isMultiDayParent)
-    return jsonResponse({ error: 'job is already split' }, corsHeaders, 400);
+
+  // ── Fetch all existing days in the set ────────────────────────────────────
+  const { results: existingDays } = await env.DB.prepare(
+    'SELECT jobId, dayNumber, state FROM Job WHERE jobId=? OR parentJobId=? ORDER BY dayNumber'
+  ).bind(rootId, rootId).all();
 
   try {
-    // ── Update parent → Day 1 ──────────────────────────────────────────────
+    // ── Case: days.length === 1 → un-split ──────────────────────────────────
+    if (days.length === 1) {
+      const day1 = days[0];
+      await env.DB.prepare(
+        `UPDATE Job SET isMultiDayParent=0, dayNumber=NULL, totalDays=NULL, dayPhase=NULL,
+         amount=?, scheduledDate=?, rigId=?, modifiedAt=? WHERE jobId=?`
+      ).bind(
+        day1.amount,
+        day1.scheduledDate || parent.scheduledDate,
+        day1.rigId != null ? day1.rigId : parent.rigId,
+        now, rootId
+      ).run();
+
+      const childIds = existingDays.filter(d => d.jobId !== rootId).map(d => d.jobId);
+      for (const childId of childIds) {
+        await env.DB.prepare(
+          `UPDATE Job SET state='cancelled', cancelledAt=?, modifiedAt=? WHERE jobId=?`
+        ).bind(now, now, childId).run();
+      }
+
+      await _patchJobKvSync(
+        { ...parent,
+          amount:        day1.amount,
+          scheduledDate: day1.scheduledDate || parent.scheduledDate,
+          rigId:         day1.rigId != null ? day1.rigId : parent.rigId },
+        { amount: true, scheduledDate: true, rigId: true },
+        env, now
+      ).catch(e => console.error('handleSplitJob:kvSync:unsplit', e.message));
+
+      await _logD1Failure(env, 'handleSplitJob',
+        `unsplit ${rootId} — cancelled children: [${childIds.join(', ')}]`);
+      return jsonResponse({ success: true, parentJobId: rootId, action: 'unsplit', childIds }, corsHeaders);
+    }
+
+    // ── Case: days.length >= 2 → reconcile ──────────────────────────────────
+    const totalDays = days.length;
+
+    // Update parent → Day 1
     const day1 = days[0];
     await env.DB.prepare(
       `UPDATE Job SET isMultiDayParent=1, dayNumber=1, totalDays=?,
@@ -3704,20 +3784,19 @@ async function handleSplitJob(request, env, corsHeaders) {
        WHERE jobId=?`
     ).bind(
       totalDays,
-      day1.dayPhase         || null,
+      day1.dayPhase      || null,
       day1.amount,
-      day1.scheduledDate    || parent.scheduledDate,
-      day1.rigId            != null ? day1.rigId : parent.rigId,
-      now,
-      parentJobId
+      day1.scheduledDate || parent.scheduledDate,
+      day1.rigId != null ? day1.rigId : parent.rigId,
+      now, rootId
     ).run();
 
-    // ── Insert child rows for days 2..N ───────────────────────────────────
+    // INSERT OR REPLACE child rows for days 2..N
     const childIds = [];
     for (let i = 1; i < days.length; i++) {
       const d       = days[i];
       const dayNum  = i + 1;
-      const childId = `${parentJobId}_d${dayNum}`;
+      const childId = `${rootId}_d${dayNum}`;
       childIds.push(childId);
 
       await env.DB.prepare(
@@ -3739,31 +3818,40 @@ async function handleSplitJob(request, env, corsHeaders) {
         d.amount,
         'pending',
         parent.servicesRequested,
-        parent.servicesRaw             || parent.servicesRequested,
-        d.dayPhase                     || parent.jobNotes || parent.servicesRequested,
-        d.rigId != null ? d.rigId      : parent.rigId,
-        parent.workSiteAddress         || null,
-        parent.workSiteCity            || null,
-        parent.workSiteZip             || null,
-        parent.workSitePlaceId         || null,
-        parent.workSiteGoogleVerified  || 0,
-        parent.endCustomerName         || null,
-        parent.endCustomerPhone        || null,
-        parent.roofStories             || null,
-        parent.crewCount               || null,
+        parent.servicesRaw            || parent.servicesRequested,
+        d.dayPhase                    || parent.jobNotes || parent.servicesRequested,
+        d.rigId != null ? d.rigId     : parent.rigId,
+        parent.workSiteAddress        || null,
+        parent.workSiteCity           || null,
+        parent.workSiteZip            || null,
+        parent.workSitePlaceId        || null,
+        parent.workSiteGoogleVerified || 0,
+        parent.endCustomerName        || null,
+        parent.endCustomerPhone       || null,
+        parent.roofStories            || null,
+        parent.crewCount              || null,
         'split_job',
         now, now,
-        parentJobId,      // parentJobId — children point at parent
-        dayNum,           // dayNumber
-        totalDays,        // totalDays
-        d.dayPhase        || null,
-        0                 // isMultiDayParent — children are never parents
+        rootId,    // parentJobId — children point at root
+        dayNum,
+        totalDays,
+        d.dayPhase || null,
+        0          // isMultiDayParent — children are never parents
       ).run();
     }
 
-    // ── KV sync: update parent's scheduledStatus.amount to Day 1 slice ────
-    // Child rows appear on their own scheduledDate via calendarJobs[]; only the
-    // parent has a KV scheduledStatus slot (one per customer). Reflect Day 1 amount.
+    // Cancel any existing children with dayNumber > N (removed days)
+    const cancelledIds = [];
+    for (const ex of existingDays) {
+      if (ex.jobId !== rootId && (ex.dayNumber || 0) > totalDays) {
+        await env.DB.prepare(
+          `UPDATE Job SET state='cancelled', cancelledAt=?, modifiedAt=? WHERE jobId=?`
+        ).bind(now, now, ex.jobId).run();
+        cancelledIds.push(ex.jobId);
+      }
+    }
+
+    // KV sync: reflect Day 1 slice on parent's scheduledStatus
     await _patchJobKvSync(
       { ...parent,
         amount:        day1.amount,
@@ -3774,11 +3862,12 @@ async function handleSplitJob(request, env, corsHeaders) {
     ).catch(e => console.error('handleSplitJob:kvSync', e.message));
 
     await _logD1Failure(env, 'handleSplitJob',
-      `split ${parentJobId} into ${totalDays} days: [${childIds.join(', ')}]`);
+      `reconciled ${rootId} → ${totalDays} days: [${childIds.join(', ')}]${cancelledIds.length ? ` cancelled: [${cancelledIds.join(', ')}]` : ''}`);
 
-    return jsonResponse({ success: true, parentJobId, childIds, totalDays }, corsHeaders);
+    return jsonResponse({ success: true, parentJobId: rootId, childIds, totalDays, cancelledIds }, corsHeaders);
+
   } catch(e) {
-    await _logD1Failure(env, `handleSplitJob:error:${parentJobId}`, e.message);
+    await _logD1Failure(env, `handleSplitJob:error:${rootId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
 }
@@ -3793,6 +3882,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'crewCount',
   'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
   'roofType',      // DL-01: roof material type, written at completion and pencil edit
+  'dayPhase',      // Phase 2C: multi-day phase label editable via PATCH
 ]);
 
 const _JOB_VALID_STATES = new Set([
@@ -4619,7 +4709,7 @@ function checkMorningStopsForRig(trips, pois, tripFirstCoord, tripLastCoord) {
       }
     }
     const durationMin = departureTrip
-      ? Math.round((new Date(departureTrip.startTime) - new Date(arrivalTrip.endTime)) / 60000)
+      ? Math.round((+new Date(departureTrip.startTime) - +new Date(arrivalTrip.endTime)) / 60000)
       : null;
     results[poi.key] = {
       found:       true,
@@ -4724,9 +4814,9 @@ async function handleDayRouteAverages(request, env, corsHeaders, url) {
     // Between-job drive times for this customer's jobs (same rig/date, consecutive)
     for (const jobs of Object.values(rigDayJobs)) {
       const sorted = jobs.filter(j => j.actualArrival && j.actualDeparture)
-        .sort((a, b) => new Date(a.actualArrival) - new Date(b.actualArrival));
+        .sort((a, b) => +new Date(a.actualArrival) - +new Date(b.actualArrival));
       for (let i = 0; i < sorted.length - 1; i++) {
-        const driveMin = Math.round((new Date(sorted[i + 1].actualArrival) - new Date(sorted[i].actualDeparture)) / 60000);
+        const driveMin = Math.round((+new Date(sorted[i + 1].actualArrival) - +new Date(sorted[i].actualDeparture)) / 60000);
         if (driveMin > 0 && driveMin < 120) betweenJobDriveMins.push(driveMin); // sanity cap 2h
       }
     }
@@ -4825,7 +4915,7 @@ function buildDayRoute(date, rig, sortedTrips, rigJobs) {
     const nextTrip = sortedTrips[i + 1];
 
     // Drive segment — the trip itself
-    const driveMin  = Math.round((new Date(trip.endTime) - new Date(trip.startTime)) / 60000);
+    const driveMin  = Math.round((+new Date(trip.endTime) - +new Date(trip.startTime)) / 60000);
     const distMi    = trip.distance != null ? Math.round(trip.distance * 0.621371 * 10) / 10 : null;
     segments.push({ type: 'drive', distanceMiles: distMi, durationMin: Math.max(driveMin, 0), startTime: trip.startTime, endTime: trip.endTime });
 
@@ -4834,7 +4924,7 @@ function buildDayRoute(date, rig, sortedTrips, rigJobs) {
     // Dwell window between this trip's end and next trip's start
     const dwellStart = trip.endTime;
     const dwellEnd   = nextTrip.startTime;
-    const dwellMin   = Math.round((new Date(dwellEnd) - new Date(dwellStart)) / 60000);
+    const dwellMin   = Math.round((+new Date(dwellEnd) - +new Date(dwellStart)) / 60000);
     if (dwellMin < 1) continue; // sub-minute gap = GPS jitter, skip
 
     const endCoord = lastCoordOf(trip);
@@ -4850,7 +4940,7 @@ function buildDayRoute(date, rig, sortedTrips, rigJobs) {
 
     // Job match by time — prefer jobs where actualArrival matches this dwell start (cron has run)
     const timeJob = rigJobs.find(j =>
-      j.actualArrival && Math.abs(new Date(j.actualArrival) - new Date(dwellStart)) < 120000
+      j.actualArrival && Math.abs(+new Date(j.actualArrival) - +new Date(dwellStart)) < 120000
     );
     if (timeJob) {
       segments.push({ type: 'job', customer: timeJob.customerName, phone: timeJob.phone, address: timeJob.address, city: timeJob.city, service: timeJob.services || timeJob.jobNotes || '', arriveAt: dwellStart, departAt: dwellEnd, durationMin: dwellMin, confidence: timeJob.durationConfidence || 'matched_high', amount: timeJob.amount || null });
@@ -5148,7 +5238,7 @@ async function bouncieJobDurationMatcher(date, env) {
     }
 
     if (arrivalTrip && departureTrip) {
-      const durationMin = Math.round((new Date(departureTrip.startTime) - new Date(arrivalTrip.endTime)) / 60000);
+      const durationMin = Math.round((+new Date(departureTrip.startTime) - +new Date(arrivalTrip.endTime)) / 60000);
       return { arrivalTs: arrivalTrip.endTime, departureTs: departureTrip.startTime, durationMin, closestDistKm, arrivalTrip, departureTrip };
     }
     return { durationMin: 0, closestDistKm };
@@ -5267,8 +5357,11 @@ async function bouncieJobDurationMatcher(date, env) {
 
     // Rig attribution — ONLY for high-confidence matches
     if (isHigh) {
+      // @ts-ignore — timingData shape is widened at runtime; rig fields added conditionally for high-confidence matches only
       timingData.actualRig   = bestRig;
+      // @ts-ignore — see above
       timingData.intentRig   = intentRig !== bestRig ? intentRig : undefined;
+      // @ts-ignore — see above
       timingData.rigsPresent = rigsWithinThreshold.length > 1 ? rigsWithinThreshold : undefined;
     }
 
@@ -5475,7 +5568,7 @@ async function persistTruckEventsForDate(date, rigId, rigEntry, source, env) {
       matchConf   = seg.confidence || null;
       // Resolve D1 jobId: time match first, address match fallback
       const matched =
-        rigJobs.find(j => j.actualArrival && Math.abs(new Date(j.actualArrival) - new Date(seg.arriveAt)) < 120000) ||
+        rigJobs.find(j => j.actualArrival && Math.abs(+new Date(j.actualArrival) - +new Date(seg.arriveAt)) < 120000) ||
         rigJobs.find(j => (j.address || '') === (seg.address || '') && (j.city || '') === (seg.city || ''));
       jobId = matched?.jobId || null;
 
@@ -5581,6 +5674,7 @@ async function handleTruckEventBackfill(request, env, corsHeaders) {
   }
 
   const totalInserted = allResults.reduce((s, r) => s + (r.inserted || 0), 0);
+  // @ts-ignore — allResults union: events field present on success branch, absent on error branch; || 0 guards safely
   const totalEvents   = allResults.reduce((s, r) => s + (r.events   || 0), 0);
   return jsonResponse({
     fromDate, toDate,
