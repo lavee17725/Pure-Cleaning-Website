@@ -2581,6 +2581,22 @@ async function handleMigrateReviewStates(env, corsHeaders) {
 // ── Phase 4: D1 → legacy KV shape compatibility layer ────────────────────────
 // Converts D1 rows to the KV customer object shape the UI expects.
 
+// ── Net margin helpers (Migration 0015) ──────────────────────────────────────
+// null = cost data not yet captured; NEVER coerce to $0.
+// Margin stays null until at least one cost field is known.
+function computeNetMargin(j) {
+  const costs = [j.gasCost, j.chemicalCost, j.laborCost, j.equipmentCost, j.otherCost];
+  const known = costs.filter(v => v != null);
+  if (known.length === 0) return null;
+  const totalCost = known.reduce((s, v) => s + v, 0);
+  return Math.round(((j.amount || 0) - totalCost) * 100) / 100;
+}
+function computeMarginPct(j) {
+  const m = computeNetMargin(j);
+  const rev = j.amount || 0;
+  return (m != null && rev > 0) ? Math.round((m / rev) * 100) : null;
+}
+
 function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
   const jobProp = (propById || {})[j.propertyId];
   const city    = jobProp?.city          || primaryCity;
@@ -2607,6 +2623,21 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     workSiteAddress:    j.workSiteAddress    || null,
     workSiteCity:       j.workSiteCity       || null,
     crewCount:          j.crewCount          || 2,
+    // Migration 0015: outcome + cost fields
+    tipped:             !!j.tipped,
+    tipAmount:          j.tipAmount          ?? null,
+    complained:         !!j.complained,
+    complaintNotes:     j.complaintNotes     || null,
+    gasCost:            j.gasCost            ?? null,
+    chemicalCost:       j.chemicalCost       ?? null,
+    laborCost:          j.laborCost          ?? null,
+    equipmentCost:      j.equipmentCost      ?? null,
+    otherCost:          j.otherCost          ?? null,
+    milesFromPreviousJob:     j.milesFromPreviousJob     ?? null,
+    drivetimeFromPreviousJob: j.drivetimeFromPreviousJob ?? null,
+    // Computed at read time — null if no cost data available (never $0)
+    netMargin:    computeNetMargin(j),
+    marginPct:    computeMarginPct(j),
   };
 }
 
@@ -2666,6 +2697,19 @@ function _d1PersonToKv(p, props, pjobs, propById) {
   const lastService    = completedJobs[0]?.scheduledDate || null; // DESC sorted
   const jobHistory     = completedJobs.filter(j => j.jobId).map(j => _d1JobToJhEntry(j, city, addr, propById));
 
+  // Migration 0015: outcome rollups — computed from D1, never stored directly
+  const tippedJobs     = completedJobs.filter(j => j.tipped);
+  const isTipper       = tippedJobs.length > 0;
+  const avgTipAmount   = isTipper
+    ? Math.round(tippedJobs.reduce((s, j) => s + (j.tipAmount || 0), 0) / tippedJobs.length * 100) / 100
+    : null;
+  const complainedJobs = completedJobs.filter(j => j.complained);
+  const complaintCount = complainedJobs.length;
+  const complaintList  = complainedJobs.map(j => ({
+    date:  j.scheduledDate,
+    notes: j.complaintNotes || null,
+  }));
+
   return {
     phone:                  ph,
     firstName:              p.firstName     || '',
@@ -2710,6 +2754,12 @@ function _d1PersonToKv(p, props, pjobs, propById) {
     quoteStatus:            null,
     neverAskReview:         false,
     createdAt:              p.createdAt || null,
+    // Migration 0015: outcome rollups (computed from D1 job rows, never stored directly)
+    isTipper,
+    avgTipAmount,
+    complaintCount,
+    complaintList,
+    hasComplaints: complaintCount > 0,
   };
 }
 
@@ -2726,7 +2776,10 @@ async function d1AllCustomersToKvShape(env) {
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
-      'workSiteAddress,workSiteCity,crewCount ' +
+      'workSiteAddress,workSiteCity,crewCount,' +
+      'tipped,tipAmount,complained,complaintNotes,' +
+      'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
+      'drivetimeFromPreviousJob,milesFromPreviousJob ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
     env.DATA.get('review_states', 'json').then(d => d || {}),
@@ -2807,7 +2860,10 @@ async function d1CustomerToKvShape(phone, env) {
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
-      'workSiteAddress,workSiteCity,crewCount ' +
+      'workSiteAddress,workSiteCity,crewCount,' +
+      'tipped,tipAmount,complained,complaintNotes,' +
+      'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
+      'drivetimeFromPreviousJob,milesFromPreviousJob ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
     // TruckEvent drive times scoped to this person's jobs
@@ -3917,6 +3973,12 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
   'roofType',      // DL-01: roof material type, written at completion and pencil edit
   'dayPhase',      // Phase 2C: multi-day phase label editable via PATCH
+  // Migration 0015: per-job outcome fields (post-job tip + complaint recording)
+  'tipped', 'tipAmount', 'complained', 'complaintNotes',
+  // Migration 0015: cost-ready fields (structure now; populate as expense tracking matures)
+  'gasCost', 'chemicalCost', 'laborCost', 'equipmentCost', 'otherCost',
+  // Existing columns that existed in schema but were never whitelisted — fixed in 0015 release
+  'drivetimeFromPreviousJob', 'milesFromPreviousJob',
 ]);
 
 const _JOB_VALID_STATES = new Set([
