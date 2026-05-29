@@ -6579,3 +6579,4 @@ async function handleBackfillStats(env, corsHeaders) {
   if (updated > 0) await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
   return jsonResponse({ updated, unchanged, total: customers.length, sample }, corsHeaders);
 }
+
