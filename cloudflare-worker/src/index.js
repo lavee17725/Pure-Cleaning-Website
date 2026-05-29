@@ -1184,6 +1184,10 @@ export default {
         return await handlePatchPersonProperty(request, env, corsHeaders);
       }
 
+      if (path === 'admin/retype-customer' && request.method === 'POST') {
+        return await handleRetypeCustomer(request, env, corsHeaders);
+      }
+
       // ── Google Places API proxy (protected) ──────────────────────────────────
       // Law T1.14: API key stays server-side. KV caches details (30d TTL).
       if (path === 'admin/places/autocomplete' && request.method === 'GET') {
@@ -4168,7 +4172,18 @@ async function _d1SyncPersonUpdate(newC, prevC, env, now) {
   diff('firstName',    newC.firstName,    prevC.firstName);
   diff('lastName',     newC.lastName,     prevC.lastName);
   diff('email',        newC.email,        prevC.email);
-  diff('customerType',  newC.customerType, prevC.customerType);
+  // customerType: allow all upgrades and lateral changes (residential→partner, partner↔commercial, etc).
+  // Block residential downgrade when prevC (KV) is a protected type — that is always a
+  // stale-cache PUT, never a legitimate manual change (confirmed 2026-05-29).
+  const _incomingType = newC.customerType || 'residential';
+  const _prevType     = prevC.customerType || 'residential';
+  if (['partner_referral', 'commercial'].includes(_prevType) && _incomingType === 'residential') {
+    console.warn(`[_d1SyncPersonUpdate] blocked customerType downgrade: ${personId} ${_prevType}→residential`);
+    await _logD1Failure(env, `blocked_customerType_downgrade:${personId}`,
+      `${_prevType}→residential (stale KV cache in PUT body)`).catch(()=>{});
+  } else {
+    diff('customerType', _incomingType, _prevType);
+  }
   diff('partnerNotes',  newC.partnerNotes, prevC.partnerNotes);
   diff('internalNotes', newC.notes,        prevC.notes);
   const newDnc = newC.optOut ? 1 : 0, prevDnc = prevC.optOut ? 1 : 0;
@@ -5808,6 +5823,52 @@ async function handleCreateProperty(request, env, corsHeaders) {
     await _logD1Failure(env, `handleCreateProperty:${personId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
+}
+
+// ── POST /admin/retype-customer ──────────────────────────────────────────────
+// Sets customerType on multiple customers atomically in both D1 and KV.
+// Body: { phones: ['9546660001', ...], customerType: 'partner_referral' }
+// Bypasses PUT /customers sync path; safe to call after correcting mislabeled records.
+async function handleRetypeCustomer(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const { phones, customerType } = body;
+  if (!Array.isArray(phones) || !phones.length)
+    return jsonResponse({ error: 'phones array required' }, corsHeaders, 400);
+  const ALLOWED_TYPES = ['partner_referral', 'commercial', 'residential'];
+  if (!ALLOWED_TYPES.includes(customerType))
+    return jsonResponse({ error: `customerType must be one of: ${ALLOWED_TYPES.join(', ')}` }, corsHeaders, 400);
+
+  const updated = [], failed = [];
+  const now = new Date().toISOString();
+  const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+
+  for (const rawPhone of phones) {
+    const ph = (rawPhone||'').replace(/\D/g,'').slice(-10);
+    if (!ph || ph.length !== 10) { failed.push({ phone: rawPhone, error: 'invalid phone' }); continue; }
+    const personId = _d1PersonId(ph);
+    try {
+      await env.DB.prepare(
+        'UPDATE Person SET customerType=?, modifiedAt=? WHERE personId=?'
+      ).bind(customerType, now, personId).run();
+
+      const updatedCustomer = await d1CustomerToKvShape(ph, env);
+      if (updatedCustomer) {
+        const idx = (kvDb.customers||[]).findIndex(c =>
+          (c.phone||'').replace(/\D/g,'').slice(-10) === ph
+        );
+        if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+        else kvDb.customers.push(updatedCustomer);
+      }
+      updated.push({ phone: ph, personId, customerType });
+    } catch(e) {
+      await _logD1Failure(env, `handleRetypeCustomer:${personId}`, e.message);
+      failed.push({ phone: ph, personId, error: e.message });
+    }
+  }
+
+  if (updated.length) await env.DATA.put('customer_db', JSON.stringify(kvDb));
+  return jsonResponse({ success: true, updated, failed }, corsHeaders);
 }
 
 // ── PATCH /admin/person-property ─────────────────────────────────────────────

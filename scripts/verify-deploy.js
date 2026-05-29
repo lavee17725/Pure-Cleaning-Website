@@ -65,7 +65,6 @@ const HTML_FILES = [
       'tomorrow in the',                                  // Regression: night-prior confirmation SMS uses "tomorrow in the {window}"
       "'morning'",                                        // Regression: slot key 'morning' (not '~9-10am')
       'tapSchedStorySel',                                 // Regression: story selector in tap-schedule modal
-      'checkUnschRoof',                                   // Regression: story selector in add-unscheduled modal
       'fullEditModal',                                    // Regression: full edit modal present
       'saveFullEdit',                                     // Regression: full edit save function
       'fePhone',                                          // Regression: phone field in full edit modal

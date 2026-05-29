@@ -777,12 +777,9 @@ body{background:#f0f2f5;}
     <div class="sidebar-content" id="sidebarContent">
       <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
       <div class="needs-list" id="mqList"></div>
-      <div class="sidebar-hdr">📋 Needs Scheduling (<span id="needsCount">0</span>)</div>
-      <div style="padding:.5rem .75rem .25rem;display:flex;flex-direction:column;gap:6px;">
+      <div style="padding:.5rem .75rem .25rem;">
         <a href="/pure_cleaning_new_customer.html" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Quote</a>
-        <button onclick="openAddUnscheduledModal()" style="width:100%;padding:8px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:background .15s;" onmouseover="this.style.background='#1e6bb8'" onmouseout="this.style.background='var(--sky)'">📋 Add to Queue (date TBD)</button>
       </div>
-      <div class="needs-list" id="needsList"></div>
     </div>
     <div class="sidebar-tab" id="sidebarTab" onclick="toggleSidebar()">📋 Queue</div>
   </div>
@@ -1042,7 +1039,6 @@ body{background:#f0f2f5;}
       <label>Reason</label>
       <select id="cmReason" class="modal-input">
         <option value="customer_canceled">Customer canceled</option>
-        <option value="reschedule_later">Customer rescheduled to later date</option>
         <option value="weather">Weather delay</option>
         <option value="tyler_canceled">Tyler canceled</option>
         <option value="no_show">Customer no-show</option>
@@ -1267,54 +1263,6 @@ body{background:#f0f2f5;}
   </div>
 </div>
 
-<!-- QUEUE EDIT MODAL -->
-<div class="overlay hidden" id="queueEditModal" onclick="if(event.target===this)closeQueueEditModal()">
-  <div class="modal" style="max-width:420px;">
-    <div class="modal-title">✏️ Edit Job — <span id="queueEditName" style="color:var(--sky);"></span></div>
-    <div class="modal-field">
-      <label>Services</label>
-      <textarea id="queueEditServices" class="modal-input" rows="2" placeholder="Roof Softwash, Driveway, Walls..." style="resize:vertical;"></textarea>
-    </div>
-    <div class="modal-field">
-      <label>Total Price</label>
-      <div style="position:relative;">
-        <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
-        <input type="number" id="queueEditPrice" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="Enter amount">
-      </div>
-    </div>
-    <div class="modal-field">
-      <label>Target Date <span style="color:var(--muted);font-size:11px;font-weight:500;text-transform:none;letter-spacing:0;">(optional — only if customer agreed verbally)</span></label>
-      <input type="date" id="queueEditDate" class="modal-input">
-    </div>
-    <div class="modal-field">
-      <label>Time Window</label>
-      <div id="queueEditWinRow" style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button type="button" class="qe-win-btn" data-win="morning" onclick="selectQueueEditWin('morning',this)">🌅 Morning</button>
-        <button type="button" class="qe-win-btn" data-win="early_afternoon" onclick="selectQueueEditWin('early_afternoon',this)">☀️ Early Afternoon</button>
-        <button type="button" class="qe-win-btn" data-win="late_afternoon" onclick="selectQueueEditWin('late_afternoon',this)">🌇 Late Afternoon</button>
-        <button type="button" class="qe-win-btn" data-win="" onclick="selectQueueEditWin('',this)">— Unscheduled</button>
-      </div>
-    </div>
-    <div class="modal-field">
-      <label>Rig</label>
-      <select id="queueEditRig" class="modal-input">
-        <option value="">— Unassigned</option>
-        <option value="rig_1">Old Tacoma</option>
-        <option value="rig_2">New Tacoma</option>
-        <option value="rig_3">Chevy</option>
-      </select>
-    </div>
-    <div class="modal-field">
-      <label>Notes</label>
-      <textarea id="queueEditNotes" class="modal-input" rows="2" placeholder="Internal notes..." style="resize:vertical;"></textarea>
-    </div>
-    <div class="modal-footer">
-      <button class="mbtn-cancel" onclick="closeQueueEditModal()">Cancel</button>
-      <button class="mbtn-save" onclick="saveQueueEdit()">💾 Save</button>
-    </div>
-  </div>
-</div>
-
 <!-- OPTIMIZE ROUTE MODAL -->
 <div class="overlay hidden" id="optimizeModal" onclick="if(event.target===this)cancelOptimize()">
   <div class="modal" style="max-width:360px;">
@@ -1363,42 +1311,6 @@ body{background:#f0f2f5;}
     <div class="modal-footer" style="justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="mbtn-cancel" onclick="closeSplitModal()">Cancel</button>
       <button id="splitSubmitBtn" class="mbtn-save" onclick="submitSplitJob()">✂️ Split</button>
-    </div>
-  </div>
-</div>
-
-<!-- ADD UNSCHEDULED JOB MODAL -->
-<div class="overlay hidden" id="addUnscheduledModal" onclick="if(event.target===this)closeAddUnscheduledModal()">
-  <div class="modal" style="max-width:400px;">
-    <div class="modal-title">📋 Add to Queue</div>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:1rem;line-height:1.5;">Job will appear in Needs Scheduling. Drag to a calendar slot when ready.</p>
-    <div style="display:flex;flex-direction:column;gap:.75rem;">
-      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Customer Phone (lookup)</label>
-        <input id="unschPhone" type="tel" placeholder="10-digit phone" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;" oninput="unschPhoneLookup(this.value)">
-        <div id="unschPhoneHint" style="font-size:12px;color:var(--muted);margin-top:4px;"></div>
-      </div>
-      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Services</label>
-        <input id="unschServices" type="text" placeholder="e.g. Roof + Driveway" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;" oninput="checkUnschRoof()">
-        <div id="unschStorySel" style="display:none;">
-          <div class="story-sel"><span class="story-sel-lbl">Stories:</span>
-            <label><input type="radio" name="unschStories" value="1"> 1-Story</label>
-            <label><input type="radio" name="unschStories" value="2"> 2-Story</label>
-            <label><input type="radio" name="unschStories" value="" checked> Unknown</label>
-          </div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Total ($)</label>
-          <input id="unschAmount" type="number" placeholder="Enter amount" step="25" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
-        </div>
-        <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;">Proposed Date</label>
-          <input id="unschDate" type="date" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;">
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer" style="margin-top:1.25rem;">
-      <button class="mbtn-cancel" onclick="closeAddUnscheduledModal()">Cancel</button>
-      <button class="mbtn-save" onclick="saveAddUnscheduled()">Add to Queue</button>
     </div>
   </div>
 </div>
@@ -1786,7 +1698,6 @@ function saveCalState() {
 // ── INIT ──────────────────────────────────────────────────────────────────────
 function renderShell() {
   // Paint the calendar frame immediately (before DB loads) so it feels instant
-  document.getElementById('needsList').innerHTML = '<div style="padding:1rem;text-align:center;color:var(--muted);font-size:13px;">Loading jobs…</div>';
   renderCalGrid(getWeekDates()); // renders with empty rig lanes (no jobs yet)
 }
 
@@ -2180,10 +2091,15 @@ function getWeekDates() {
   const start = new Date(today); start.setDate(today.getDate() + dayOffset);
   return Array.from({length:7}, (_,i) => {
     const d = new Date(start); d.setDate(start.getDate() + i);
-    return d.toISOString().split('T')[0];
+    return localISODate(d);
   });
 }
-function isoToday() { return new Date().toISOString().split('T')[0]; }
+// Returns local calendar date as YYYY-MM-DD, safe after 8 PM ET (unlike .toISOString which is UTC).
+const localISODate = (d = new Date()) => {
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d - off).toISOString().split('T')[0];
+};
+function isoToday() { return localISODate(); }
 
 function _calPanelErr(containerId, sourceName, e) {
   const el = document.getElementById(containerId);
@@ -2224,19 +2140,10 @@ function renderSidebar() {
     mqEl.innerHTML = '';
   }
 
-  // Needs Scheduling queue
-  const jobs = getUnscheduled();
-  document.getElementById('needsCount').textContent = jobs.length;
-  const el = document.getElementById('needsList');
-  if (!jobs.length) {
-    el.innerHTML = `<div class="empty-sidebar"><div>🎉</div><p style="font-size:14px;font-weight:600;color:var(--navy);">All caught up!</p><p style="font-size:13px;margin-top:4px;">No jobs waiting to be scheduled.</p></div>`;
-  } else {
-    el.innerHTML = buildQueueHtml(jobs);
-  }
   initSortables();
 
-  // Auto-collapse when both pools empty; auto-expand when items added
-  const totalItems = mqJobs.length + jobs.length;
+  // Auto-collapse when mini-quote pool empty; auto-expand when items added
+  const totalItems = mqJobs.length;
   if (totalItems === 0 && !_sidebarManualCollapsed) {
     _applySidebarCollapsed(true, false);
   } else if (totalItems > 0 && _sidebarAutoCollapsed && !_sidebarManualCollapsed) {
@@ -2785,79 +2692,6 @@ async function startGeocodingBackfill() {
     if (btn) { btn.disabled = false; btn.textContent = '🗺 Backfill Geocoding'; }
     if (bar) bar.style.display = 'none';
   }, 3500);
-}
-
-function jobCardSidebar(c) {
-  const name   = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
-  const ss     = c.scheduledStatus || {};
-  const dur    = ss.estimatedDuration || 2;
-  const notes  = esc(ss.jobNotes || '');
-  const alerts = alertIcons(c.alerts||[]);
-  const phone  = fmtPh(c.phone);
-  const city   = formatCity(c.city || '');
-  const { html: amtHtml } = jobAmount(c);
-
-  // Collect badges
-  const badges = [
-    c.isTest                                                           ? '<span class="test-badge">🧪 TEST</span>' : '',
-    c.source === 'phone_quoted'                                        ? '<span class="phone-badge">📞 Phone quoted</span>' : '',
-    c.sealingInterest                                                  ? '<span class="seal-badge">💎 Seal int</span>' : '',
-    (_justUpdated.has(c.phone) && _justUpdated.get(c.phone) > Date.now()) ? '<span class="updated-badge">💫 Just updated</span>' : '',
-  ].filter(Boolean);
-
-  const badgesHtml = badges.length ? `<div class="jcard-badges">${badges.join('')}</div>` : '';
-
-  const testExpiry = c.isTest && c.testExpiresAt
-    ? `<div class="test-expiry">Auto-removes ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>`
-    : '';
-
-  let wantsLine = '';
-  if (ss.scheduledDate) {
-    const d = new Date(ss.scheduledDate + 'T12:00:00');
-    const fmtD = esc(d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'}));
-    if (ss.state === 'scheduled' && !ss.rig) {
-      wantsLine = `<div class="jd" style="color:var(--green);font-weight:700;">📅 ${fmtD} — assign rig</div>`;
-    } else {
-      wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Proposed: ${fmtD}</div>`;
-    }
-  } else if (ss.customerSelectedDate) {
-    const d = new Date(ss.customerSelectedDate + 'T12:00:00');
-    wantsLine = `<div class="jd" style="color:var(--sky);font-weight:600;">📅 Customer wants: ${esc(d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))}</div>`;
-  }
-
-  const addOnsLine = (c.addOns && c.addOns.length)
-    ? `<div class="jd" style="color:var(--green);">${c.addOns.map(a => `+ ${esc(a.name)}`).join(', ')}</div>`
-    : '';
-
-  const _hasTargetDate = !!ss.scheduledDate;
-  const _targetDateFmt = _hasTargetDate
-    ? esc(new Date(ss.scheduledDate+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}))
-    : null;
-  const schedBtnHtml = _hasTargetDate
-    ? `<button class="sched-primary-btn" style="background:var(--green);" onclick="event.stopPropagation();quickScheduleFromQueue('${c.phone}')">📅 Schedule for ${_targetDateFmt}</button>
-       <span class="card-sms-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')" style="text-align:center;padding-top:3px;">Change date</span>`
-    : `<button class="sched-primary-btn" onclick="event.stopPropagation();openTapScheduleModal('${c.phone}')">📅 Schedule for a Day</button>`;
-
-  return `<div class="job-unscheduled${c.isTest ? ' job-test' : ''}" data-phone="${c.phone}" title="${name}">
-    <div class="jcard-top">
-      <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${name}</a>${alerts}</div>
-      <div style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
-        <button class="card-edit-btn" onclick="event.stopPropagation();openQueueEditModal('${c.phone}')" title="Edit job details">✏️</button>
-        <button class="card-del-btn" onclick="event.stopPropagation();promptDeleteFromQueue('${c.phone}')" title="Remove from queue">✕</button>
-      </div>
-    </div>
-    ${badgesHtml}
-    <div class="jcard-price">${amtHtml}</div>
-    ${testExpiry}
-    ${wantsLine}
-    <div class="jd">${city ? esc(city)+' · ' : ''}${dur} hrs${notes ? '<br>'+notes : ''}</div>
-    ${addOnsLine}
-    ${c.phone ? `<div class="jd">📞 ${phone}</div>` : ''}
-    ${schedBtnHtml}
-    <div class="drag-hint-subtle">or drag to calendar week view</div>
-    ${ss.source === 'csv_import' ? `<div class="jd" style="font-size:10px;color:var(--muted);">📥 from CSV import</div>` : ss.source === 'verbal_agreement' ? `<div class="jd" style="font-size:10px;color:var(--muted);">🖊 verbal agreement</div>` : ''}
-    ${c.linkCode ? `<span class="card-sms-btn" onclick="event.stopPropagation();openCardSms('${c.phone}')">📱 Send quote link</span>` : ''}
-  </div>`;
 }
 
 // ── CALENDAR GRID ─────────────────────────────────────────────────────────────
@@ -3511,52 +3345,6 @@ function calcPayroll(dates) {
 }
 
 // ── DATA QUERIES ──────────────────────────────────────────────────────────────
-function getUnscheduled() {
-  const seen = new Set();
-  return (dbRecord.customers||[]).filter(x => {
-    if (!x.phone || seen.has(x.phone)) return false;
-    const ss = x.scheduledStatus;
-    const matches =
-      (ss && ss.state === 'needs_scheduling') ||
-      (ss && ss.state === 'scheduled' && !ss.rig) || // auto-scheduled but rig not yet assigned
-      (x.quoteStatus && x.quoteStatus.state === 'approved' && (!ss || !ss.state));
-    if (matches) seen.add(x.phone);
-    return matches;
-  });
-}
-
-function sortUnscheduledQueue(jobs) {
-  const cname = c => ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim().toLowerCase();
-  return [...jobs].sort((a, b) => {
-    const da = a.scheduledStatus?.scheduledDate || '';
-    const db = b.scheduledStatus?.scheduledDate || '';
-    if (da && db) return da < db ? -1 : da > db ? 1 : cname(a) < cname(b) ? -1 : 1;
-    if (da)  return -1;  // has date → soonest first
-    if (db)  return  1;  // no date → after dated
-    return cname(a) < cname(b) ? -1 : 1; // both undated → alpha
-  });
-}
-
-function buildQueueHtml(jobs) {
-  const sorted = sortUnscheduledQueue(jobs);
-  const parts  = [];
-  let lastKey  = null;
-  for (const c of sorted) {
-    const d = c.scheduledStatus?.scheduledDate || null;
-    const key = d || '__nodate';
-    if (key !== lastKey) {
-      lastKey = key;
-      if (d) {
-        const label = new Date(d + 'T12:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
-        parts.push(`<div class="queue-date-sep">${esc(label)}</div>`);
-      } else {
-        parts.push(`<div class="queue-date-sep queue-date-nodate">No date set</div>`);
-      }
-    }
-    parts.push(jobCardSidebar(c));
-  }
-  return parts.join('');
-}
 
 // Phase 2B-1: payerCounts computed once per render cycle from calendarJobs to detect multi-property.
 function _calPayerCounts() {
@@ -3702,20 +3490,6 @@ function initSortables() {
   // destroyed instance (onAdd fires before onEnd in SortableJS v1.15 dispatch order).
   wasDragging = false;
 
-  const sidebarEl = document.getElementById('needsList');
-  if (sidebarEl) {
-    sortables.push(Sortable.create(sidebarEl, {
-      group:{ name:'jobs', pull:true, put:true },
-      animation:150,
-      ghostClass:'sortable-ghost',
-      chosenClass:'sortable-chosen',
-      filter: '.card-del-btn,.card-sms-btn,.card-edit-btn',
-      onStart:()=>{ wasDragging=true; },
-      onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
-      onAdd: evt => handleDropToSidebar(evt.item.dataset.jobId||'', evt.item.dataset.phone, evt)
-    }));
-  }
-
   document.querySelectorAll('.rig-jobs').forEach(lane => {
     sortables.push(Sortable.create(lane, {
       group:{ name:'jobs', pull:true, put:() => true },
@@ -3799,42 +3573,6 @@ async function handleDropToWindow(jobId, phone, date, rig, win) {
     showToast(`⚠️ Could not move job — ${e.message}`);
     renderDayRigGrid(date);
   }
-}
-
-async function handleDropToSidebar(jobId, phone, evt) {
-  const c = findCustomer(phone);
-  if (!c) return;
-
-  // D1-native: PATCH state='rescheduled' first so card disappears from calendarJobs[]
-  if (jobId) {
-    try {
-      await patchJob(jobId, { state: 'rescheduled' });
-    } catch(e) {
-      showToast(`⚠️ Could not unschedule — ${e.message}`);
-      render();
-      return; // abort KV write to avoid split-brain
-    }
-  }
-
-  // KV: mark needs_scheduling so customer appears in sidebar queue
-  if (c.scheduledStatus) {
-    c.scheduledStatus.state = 'needs_scheduling';
-    // Keep scheduledDate as proposed date — sidebar card displays it as "Proposed: …"
-    c.scheduledStatus.rig = null;
-  } else {
-    c.scheduledStatus = { state: 'needs_scheduling', rig: null };
-  }
-  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-  saveDb().catch(()=>{});
-  refreshCalendarJobs().then(() => {
-    renderCalGrid(getWeekDates());
-    renderCrewPanel(getWeekDates());
-    renderSidebar();
-  }).catch(() => {
-    renderCalGrid(getWeekDates());
-    renderSidebar();
-  });
-  showToast(`↩ ${esc(name)} moved back to Needs Scheduling`);
 }
 
 // ── RIG PICK MODAL ────────────────────────────────────────────────────────────
@@ -4124,7 +3862,6 @@ function openJobModal(phone, jobId) {
 
   const isCompleted = ss.state === 'completed';
   document.getElementById('jmFooter').innerHTML = `
-    ${!isCompleted ? `<button class="mbtn-cancel" onclick="unscheduleJob()">↺ Reschedule</button>` : ''}
     ${!isCompleted ? `<button class="mbtn-green" onclick="markComplete()">✓ Complete</button>` : ''}
     ${isCompleted  ? `<button style="padding:10px 14px;border-radius:10px;background:#ede9fe;color:#7c3aed;border:1.5px solid #c4b5fd;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="closeJobModal();promptRevertJob('${phone}','${jmJobId||''}')">↩ Revert to Scheduled</button>` : ''}
     <button style="flex:1;padding:10px;border-radius:10px;background:#fee2e2;color:#dc2626;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;" onclick="promptCancelJob('${phone}','${jmJobId||''}')">✕ Cancel Job</button>
@@ -4706,53 +4443,6 @@ function closeConfirmModal() {
   if (btn) btn.style.background = '';
 }
 
-function promptDeleteFromQueue(phone) {
-  const c = findCustomer(phone);
-  if (!c) return;
-  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-  const amt = (c.scheduledStatus||{}).approvedAmount;
-  const amtStr = amt ? ` · $${Number(amt).toLocaleString()}` : '';
-  document.getElementById('cmTitle').textContent = 'Remove from Queue';
-  document.getElementById('cmBody').innerHTML = `Remove <strong>${esc(name)}</strong> from the scheduling queue?${amtStr}<br><span style="color:#dc2626;font-size:12px;">This clears the job. The customer record is preserved.</span>`;
-  document.getElementById('cmReasonWrap').style.display = 'none';
-  document.getElementById('cmConfirmBtn').textContent = 'Remove';
-  _confirmCallback = () => executeDeleteFromQueue(phone);
-  document.getElementById('cmConfirmBtn').onclick = () => { const cb = _confirmCallback; closeConfirmModal(); cb && cb(); };
-  document.getElementById('confirmModal').classList.remove('hidden');
-}
-
-async function executeDeleteFromQueue(phone) {
-  // Target the queue-eligible record specifically — not just the first phone match.
-  // Prevents wiping a completed job when two records share the same phone (duplicate entry).
-  const c = (dbRecord.customers||[]).find(x =>
-    x.phone === phone && (
-      x.scheduledStatus?.state === 'needs_scheduling' ||
-      (x.scheduledStatus?.state === 'scheduled' && !x.scheduledStatus?.rig)
-    )
-  ) || findCustomer(phone);
-  if (!c) return;
-  _deletedSnapshot = { phone, quoteStatus: JSON.parse(JSON.stringify(c.quoteStatus||{})), scheduledStatus: JSON.parse(JSON.stringify(c.scheduledStatus||{})) };
-  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-  // Clear job state but preserve customer record
-  if (c.lifetimeSpend > 0) {
-    c.quoteStatus = null;
-    c.scheduledStatus = null;
-  } else {
-    // Test/no-history record — clear entirely
-    c.quoteStatus = null;
-    c.scheduledStatus = null;
-  }
-  logEvent('job_deleted', phone, {name, reason:'removed_from_queue'});
-  // Fix B (T1.21): cancel active D1 Job row so deletion persists post-reload.
-  // Without this, D1 (canonical) rebuilds scheduledStatus on next refresh.
-  const ph10 = (phone || '').replace(/\D/g,'').slice(-10);
-  const activeJob = calendarJobs.find(j => j.payerId === 'person_1' + ph10 && j.state === 'scheduled');
-  if (activeJob) await patchJob(activeJob.jobId, { state: 'cancelled' }).catch(e => console.error('queue-delete D1 cancel failed', e));
-  saveDb().catch(()=>{});
-  render();
-  showToast(`🗑 ${esc(name)} removed`, 'Undo', () => undoDelete(phone));
-}
-
 function promptCancelJob(phone, jobId) {
   const calJob = jobId ? calendarJobs.find(j => j.jobId === jobId) : null;
   const c = findCustomer(phone);
@@ -4786,22 +4476,6 @@ function executeCancelJob(phone, jobId, reason) {
     quoteHistory:   JSON.parse(JSON.stringify(c.quoteHistory   || [])),
   };
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-
-  if (reason === 'reschedule_later') {
-    // Return to queue — PATCH D1 fire-and-forget (KV update below is synchronous)
-    if (jobId) {
-      patchJob(jobId, { state: 'rescheduled' })
-        .then(() => refreshCalendarJobs().then(() => render()))
-        .catch(e => { console.error('[executeCancelJob reschedule] D1 PATCH FAILED:', e.message); showToast('⚠️ Reschedule D1 sync failed — check reconcile. ' + e.message); });
-    }
-    c.scheduledStatus.state = 'needs_scheduling';
-    c.scheduledStatus.rig = null;
-    logEvent('job_rescheduled', phone, {name, reason});
-    saveDb().catch(()=>{});
-    render();
-    showToast(`↺ ${esc(name)} returned to queue for rescheduling`, 'Undo', () => undoDelete(phone));
-    return;
-  }
 
   // PATCH D1 to cancelled — primary write. Render only after calendarJobs refreshed.
   // Bug fix: previous code called render() synchronously before patchJob completed,
@@ -4895,31 +4569,6 @@ function logEvent(type, phone, meta) {
 // ── Historical job toggle (kept for API compat; completed jobs now always visible) ──
 let _showHistorical = true;
 function toggleHistoricalJobs() { /* no-op — completed jobs always stay on calendar */ }
-
-async function unscheduleJob() {
-  const c = findCustomer(jmPhone);
-  if (!c) return;
-
-  // D1: PATCH state=rescheduled to remove from calendarJobs[]
-  if (jmJobId) {
-    try {
-      await patchJob(jmJobId, { state: 'rescheduled' });
-    } catch(e) {
-      showToast(`⚠️ Could not unschedule — ${e.message}`);
-      closeJobModal();
-      return;
-    }
-  }
-
-  // KV: needs_scheduling so customer appears in sidebar queue
-  if (c.scheduledStatus) {
-    c.scheduledStatus.state = 'needs_scheduling';
-    c.scheduledStatus.rig = null;
-  }
-  saveDb().catch(()=>{});
-  closeJobModal();
-  refreshCalendarJobs().then(() => render()).catch(() => render());
-}
 
 // ── PAYROLL MODAL ─────────────────────────────────────────────────────────────
 function openPayrollModal() {
@@ -6230,7 +5879,7 @@ function _getSplitDefaultDate(idx) {
   if (!job || !job.scheduledDate) return '';
   const d = new Date(job.scheduledDate + 'T12:00:00');
   d.setDate(d.getDate() + (idx - 1));
-  return d.toISOString().split('T')[0];
+  return localISODate(d);
 }
 
 function _splitPhaseSelect(idx) {
@@ -6882,95 +6531,11 @@ async function saveEditServices(notifyCustomer) {
 
 document.addEventListener('DOMContentLoaded', init);
 
-// ── ADD UNSCHEDULED JOB MODAL ─────────────────────────────────────────────────
-
-function openAddUnscheduledModal() {
-  document.getElementById('unschPhone').value    = '';
-  document.getElementById('unschServices').value = '';
-  document.getElementById('unschAmount').value   = '';
-  document.getElementById('unschDate').value     = '';
-  document.getElementById('unschPhoneHint').textContent = '';
-  document.getElementById('addUnscheduledModal').classList.remove('hidden');
-}
-
-function closeAddUnscheduledModal() {
-  document.getElementById('addUnscheduledModal').classList.add('hidden');
-}
-
-function unschPhoneLookup(val) {
-  const ph = val.replace(/\D/g,'').slice(-10);
-  const hint = document.getElementById('unschPhoneHint');
-  if (ph.length < 10) { hint.textContent = ''; return; }
-  const c = findCustomer(ph);
-  if (c) {
-    const name = ((c.firstName||'') + ' ' + (c.lastName||'')).trim();
-    hint.textContent = `✓ Found: ${name}`;
-    hint.style.color = 'var(--green)';
-    if (!document.getElementById('unschServices').value && c.scheduledStatus?.jobNotes)
-      document.getElementById('unschServices').value = c.scheduledStatus.jobNotes;
-  } else {
-    hint.textContent = 'New customer — will be created';
-    hint.style.color = 'var(--muted)';
-  }
-}
-
-function checkUnschRoof() {
-  const svc = (document.getElementById('unschServices')?.value || '').toLowerCase();
-  const el  = document.getElementById('unschStorySel');
-  if (el) el.style.display = /roof|soft\s*wash|softwash/.test(svc) ? '' : 'none';
-}
-
-async function saveAddUnscheduled() {
-  const ph  = (document.getElementById('unschPhone').value || '').replace(/\D/g,'').slice(-10);
-  const svc = (document.getElementById('unschServices').value || '').trim();
-  const amt = parseFloat(document.getElementById('unschAmount').value) || 0;
-  const dt  = document.getElementById('unschDate').value || null;
-  if (!ph || ph.length < 10) { showToast('Enter a valid phone number'); return; }
-  const isUnschRoof = /roof|soft\s*wash|softwash/i.test(svc);
-  const _unschStoryVal = isUnschRoof ? (document.querySelector('input[name=unschStories]:checked')?.value) : null;
-  const unschStories = _unschStoryVal ? parseInt(_unschStoryVal) : null;
-  if (isUnschRoof && unschStories) {
-    const _unschExisting = findCustomer(ph);
-    const _unschLastKnown = getLastKnownRoofStories(_unschExisting);
-    if (_unschLastKnown && _unschLastKnown !== unschStories) {
-      const ok = confirm(`${_unschExisting?.firstName || 'Customer'}'s most recent roof job had ${_unschLastKnown}-story.\nYou're saving ${unschStories}-story.\n\nIf this property is genuinely ${unschStories}-story, click OK.\nTo keep the historical value (${_unschLastKnown}-story), click Cancel.`);
-      if (!ok) return;
-    }
-  }
-
-  const existing = findCustomer(ph);
-  if (existing) {
-    existing.scheduledStatus = {
-      state: 'needs_scheduling', scheduledDate: dt, approvedAmount: amt,
-      jobNotes: svc, source: 'manual', scheduledAt: new Date().toISOString(),
-      ...(unschStories ? { roofStories: unschStories } : {}),
-    };
-  } else {
-    const newCust = {
-      phone: ph, firstName: 'Customer', lastName: '', address: '', city: '',
-      totalJobs: 0, lifetimeSpend: 0, lastService: null,
-      quoteStatus: null, scheduledStatus: {
-        state: 'needs_scheduling', scheduledDate: dt, approvedAmount: amt,
-        jobNotes: svc, source: 'manual', scheduledAt: new Date().toISOString(),
-        ...(unschStories ? { roofStories: unschStories } : {}),
-      },
-      alerts: [], source: 'manual_queue',
-    };
-    dbRecord.customers = [...(dbRecord.customers || []), newCust];
-  }
-  await saveDb();
-  closeAddUnscheduledModal();
-  render();
-  showToast('✓ Job added to scheduling queue');
-}
-
 // ── TAP-TO-SCHEDULE MODAL ─────────────────────────────────────────────────────
 
 let _tapSchedPhone        = null;
 let _tapSchedSelectedDate = null;
 let _tapSchedWindow       = 'morning';
-let _queueEditPhone       = null;
-let _queueEditWin         = 'morning';
 
 function selectTapSchedWindow(win, el) {
   _tapSchedWindow = win;
@@ -6982,7 +6547,7 @@ function _buildMiniCal(selectedDate) {
   const days  = [];
   for (let i = 0; i < 21; i++) {  // 3 weeks (21 days)
     const d = new Date(); d.setDate(d.getDate() + i);
-    const iso = d.toISOString().split('T')[0];
+    const iso = localISODate(d);
     const dayName = ['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()];
     const dayNum  = d.getDate();
     days.push({ iso, dayName, dayNum, isToday: iso === today, isSelected: iso === selectedDate });
@@ -7139,116 +6704,6 @@ function dismissMiniQuote(phone) {
   showToast('✓ Removed from Mini Quote queue');
 }
 
-// ── QUEUE EDIT MODAL ──────────────────────────────────────────────────────────
-
-function openQueueEditModal(phone) {
-  const c = findCustomer(phone);
-  if (!c) return;
-  _queueEditPhone = phone;
-  const ss = c.scheduledStatus || {};
-  const qs = c.quoteStatus    || {};
-  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-
-  document.getElementById('queueEditName').textContent = name;
-  document.getElementById('queueEditServices').value = qs.mainServices || ss.jobNotes || qs.notes || '';
-  document.getElementById('queueEditPrice').value    = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || '';
-  document.getElementById('queueEditDate').value     = ss.scheduledDate || ss.customerSelectedDate || '';
-  document.getElementById('queueEditRig').value      = ss.rig || '';
-  document.getElementById('queueEditNotes').value    = ss.scheduleNote || '';
-
-  _queueEditWin = ss.window || 'morning';
-  document.querySelectorAll('#queueEditWinRow .qe-win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === _queueEditWin));
-
-  document.getElementById('queueEditModal').classList.remove('hidden');
-}
-
-function selectQueueEditWin(win, el) {
-  _queueEditWin = win;
-  document.querySelectorAll('#queueEditWinRow .qe-win-btn').forEach(b => b.classList.toggle('active', b.dataset.win === win));
-}
-
-function closeQueueEditModal() {
-  document.getElementById('queueEditModal').classList.add('hidden');
-  _queueEditPhone = null;
-}
-
-async function saveQueueEdit() {
-  if (!_queueEditPhone) return;
-  const c = findCustomer(_queueEditPhone);
-  if (!c) return;
-
-  const services = (document.getElementById('queueEditServices').value || '').trim();
-  const price    = parseFloat(document.getElementById('queueEditPrice').value) || 0;
-  const date     = document.getElementById('queueEditDate').value || null;
-  const rig      = document.getElementById('queueEditRig').value || null;
-  const notes    = (document.getElementById('queueEditNotes').value || '').trim();
-
-  if (!c.scheduledStatus) c.scheduledStatus = {};
-  if (!c.quoteStatus)     c.quoteStatus     = {};
-
-  if (services) {
-    c.quoteStatus.mainServices     = services;
-    c.scheduledStatus.jobNotes     = services;
-  }
-  if (price)  c.scheduledStatus.approvedAmount = price;
-  if (date)   c.scheduledStatus.scheduledDate  = date;
-  else        delete c.scheduledStatus.scheduledDate;
-  c.scheduledStatus.window      = _queueEditWin || null;
-  c.scheduledStatus.rig         = rig;
-  if (notes) c.scheduledStatus.scheduleNote = notes;
-
-  const phone = _queueEditPhone;
-
-  // Clear phone_quoted_pending_mini_quote on any same-phone duplicate record
-  (dbRecord.customers||[]).forEach(x => {
-    if ((x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
-        x.quoteStatus?.state === 'phone_quoted_pending_mini_quote') {
-      x.quoteStatus.state = 'phone_quoted';
-    }
-  });
-
-  closeQueueEditModal();
-  await saveDb();
-  render();
-  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-  showToast(`✓ ${esc(name)} updated`);
-}
-
-async function quickScheduleFromQueue(phone) {
-  const c = findCustomer(phone);
-  if (!c) return;
-  const ss   = c.scheduledStatus || {};
-  const date = ss.scheduledDate;
-  if (!date) { openTapScheduleModal(phone); return; }
-  const prev = JSON.parse(JSON.stringify(ss));
-
-  // D1 write FIRST (Law T1.20) — before modifying KV state.
-  // On failure: do NOT advance KV state; show error.
-  const d1Result = await scheduleJobWithDualWrite({
-    phone,
-    scheduledDate: date,
-    amount:        ss.approvedAmount || 0,
-    rigId:         ss.rig || null,
-    services:      ss.jobNotes || c.quoteStatus?.mainServices || '',
-    roofStories:   ss.roofStories || null,
-    source:        'quick_schedule',
-  });
-  if (!d1Result.success) {
-    showToast('⚠️ Schedule failed — ' + d1Result.message);
-    return;
-  }
-
-  // KV write after D1 confirmed
-  c.scheduledStatus.state  = 'scheduled';
-  if (!c.scheduledStatus.window) c.scheduledStatus.window = 'morning';
-  await saveDb();
-  render();
-  const name     = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-  const dayLabel = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-  const rigLabel = ss.rig ? ` · ${RIG_LABELS[ss.rig]}` : ' · Day Pool';
-  showToast(`✓ ${esc(name)} → ${dayLabel}${rigLabel}`, 'Undo', () => { undoAction(phone, prev); });
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // ── VIEW SWITCHING ────────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
@@ -7354,7 +6809,7 @@ function renderPriorityStrip(date) {
 
   if (date === today) {
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
-    const yIso = yesterday.toISOString().split('T')[0];
+    const yIso = localISODate(yesterday);
     const missed = RIGS.flatMap(rig => getScheduledForRig(yIso, rig))
       .filter(c => (c.scheduledStatus||{}).state === 'scheduled');
     if (missed.length) issues.push({ color:'#ef4444', bg:'rgba(239,68,68,.12)', icon:'🔴', text:`${missed.length} from yesterday not completed` });
@@ -7633,7 +7088,7 @@ function removeExpenseItem(date, rig, idx) {
 
 function copyYesterdayExpenses(date, rig) {
   const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() - 1);
-  const yDate = d.toISOString().split('T')[0];
+  const yDate = localISODate(d);
   const prev = loadDayExpenses(yDate, rig);
   const today = loadDayExpenses(date, rig);
   today.gas       = prev.gas;
@@ -7663,7 +7118,7 @@ function getExpenseAvgs(rig, days = 30) {
   const gas = [], chl = [], tot = [];
   for (let i = 1; i <= days; i++) {
     const d = new Date(); d.setDate(d.getDate() - i);
-    const date = d.toISOString().split('T')[0];
+    const date = localISODate(d);
     const data = loadDayExpenses(date, rig);
     const t = getExpenseTotal(data);
     if (t === 0 && data.gas == null && data.chlorine == null) continue;
@@ -7709,7 +7164,7 @@ function renderExpensePanel(date, rig) {
 
   // Yesterday copy button
   const d2 = new Date(date + 'T12:00:00'); d2.setDate(d2.getDate() - 1);
-  const yDate = d2.toISOString().split('T')[0];
+  const yDate = localISODate(d2);
   const prevTotal = getExpenseTotal(loadDayExpenses(yDate, rig));
   const copyBtn = prevTotal > 0
     ? `<button class="exp-copy-btn" onclick="event.stopPropagation();copyYesterdayExpenses('${date}','${rig}')">📋 Yesterday</button>`
@@ -7995,7 +7450,7 @@ function renderDayRollup(date) {
 function dayNav(delta) {
   const d = new Date((dayViewDate||isoToday())+'T12:00:00');
   d.setDate(d.getDate() + delta);
-  renderDayView(d.toISOString().split('T')[0]);
+  renderDayView(localISODate(d));
 }
 
 // Swipe left/right in day view
@@ -8190,7 +7645,7 @@ function renderMonthView() {
   const startWd = firstDay.getDay();
   for (let i = 0; i < startWd; i++) {
     const d = new Date(year, month, -(startWd - i - 1));
-    html += _monthCell(d.toISOString().split('T')[0], today, true);
+    html += _monthCell(localISODate(d), today, true);
   }
   for (let dn = 1; dn <= lastDay.getDate(); dn++) {
     const iso = `${year}-${String(month+1).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;
@@ -8200,7 +7655,7 @@ function renderMonthView() {
   const trail = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
   for (let i = 1; i <= trail; i++) {
     const d = new Date(year, month+1, i);
-    html += _monthCell(d.toISOString().split('T')[0], today, true);
+    html += _monthCell(localISODate(d), today, true);
   }
   el.innerHTML = html + '</div>';
 }
