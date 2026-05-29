@@ -5760,8 +5760,14 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feRoofType').value = roofType;
   document.getElementById('feGateCode').value = c.gateCode || '';
 
-  // Property label — only visible for multi-property customers
-  const _showPropLabel = !!(_feCalJobId && _calJob?.isMultiProperty);
+  // Property label — only visible for multi-property customers.
+  // _calJob is a raw calendarJobs[] row and never has isMultiProperty on it —
+  // compute fresh from _calPayerCounts() exactly as the cards do.
+  // Known limitation: _calPayerCounts is week-scoped (jobs in the loaded window only).
+  // For Joe/Xiang both jobs are same week so this works; a future improvement would
+  // gate on customer.properties[].length > 1 to handle cross-week multi-property cases.
+  const _isMultiProp   = !!(_calJob && (_calPayerCounts()[_calJob.payerId] || 0) > 1);
+  const _showPropLabel = !!(_feCalJobId && _isMultiProp);
   document.getElementById('fePropLabelRow').style.display = _showPropLabel ? '' : 'none';
   if (_showPropLabel) {
     const _knownLabels   = ['Main Residence', "Friend's Property", 'Rental', 'Office'];
@@ -6250,8 +6256,10 @@ async function saveFullEdit() {
     const errEl2 = document.getElementById('feError');
     try {
       await patchJob(_feCalJobId, patchBody);
-      // Property label — save if multi-property and value changed
-      if (_saveCalJob?.isMultiProperty && _saveCalJob.propertyId && _saveCalJob.payerId) {
+      // Property label — save if multi-property and value changed.
+      // _saveCalJob is a raw calendarJobs[] row — isMultiProperty must be computed live.
+      const _isMultiPropSave = !!(_saveCalJob && (_calPayerCounts()[_saveCalJob.payerId] || 0) > 1);
+      if (_isMultiPropSave && _saveCalJob.propertyId && _saveCalJob.payerId) {
         const _labelSel = document.getElementById('fePropLabel');
         const _newLabel = _labelSel?.value === 'Other'
           ? (document.getElementById('fePropLabelOther')?.value.trim() || 'Other')
