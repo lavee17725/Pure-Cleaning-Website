@@ -4131,7 +4131,14 @@ async function _doCompleteJob(log) {
   const c = findCustomer(jmPhone);
   if (!c || !c.scheduledStatus) return;
   const ss = c.scheduledStatus;
-  const completedDate = ss.scheduledDate || isoToday(); // actual job date — supports late completions
+  // Fix (2026-05-29): derive completion date from the SPECIFIC D1 job being completed,
+  // not from KV's single scheduledStatus slot. For multi-property customers (e.g. Wheeler),
+  // KV ss points to whichever active job T1.15 picked (e.g. Pinecrest/Wed), not the job
+  // actually open in the modal (Davie/Tue). D1 calendarJobs[] has the correct date.
+  const completingJob = jmJobId ? calendarJobs.find(j => j.jobId === jmJobId) : null;
+  const completedDate = completingJob?.scheduledDate   // D1 job's own date  ← primary
+                     || ss.scheduledDate               // KV slot fallback (single-property safe)
+                     || isoToday();                    // last resort
   ss.state = 'completed';
   ss.completedAt = new Date().toISOString();
   ss.completedDate = completedDate;
@@ -4157,7 +4164,7 @@ async function _doCompleteJob(log) {
   logEvent('job_completed', jmPhone, {
     customerName:    name,
     city:            c.city || '',
-    scheduledDate:   ss.scheduledDate || null,
+    scheduledDate:   completingJob?.scheduledDate || ss.scheduledDate || null,
     completedDate,
     services:        ss.jobNotes || '',
     total:           amt,
