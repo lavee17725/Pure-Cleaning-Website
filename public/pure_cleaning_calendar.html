@@ -1169,6 +1169,23 @@ body{background:#f0f2f5;}
       <input id="feGateCode" class="modal-input" type="text" placeholder="Gate code if needed">
     </div>
 
+    <div id="fePropLabelRow" style="display:none;">
+      <div class="modal-field">
+        <label class="modal-label">Property Label</label>
+        <select id="fePropLabel" class="modal-input" onchange="document.getElementById('fePropLabelOtherRow').style.display=this.value==='Other'?'':'none'">
+          <option value="Main Residence">Main Residence</option>
+          <option value="Friend's Property">Friend's Property</option>
+          <option value="Rental">Rental</option>
+          <option value="Office">Office</option>
+          <option value="Other">Other…</option>
+        </select>
+      </div>
+      <div id="fePropLabelOtherRow" style="display:none;" class="modal-field">
+        <label class="modal-label">Custom label</label>
+        <input id="fePropLabelOther" class="modal-input" type="text" placeholder="e.g. Grandma's house">
+      </div>
+    </div>
+
     <div class="modal-section-hdr">Service Details</div>
     <div class="modal-field"><label>Services *</label><input id="feServices" class="modal-input" placeholder="e.g. Roof Softwash, Driveway…" oninput="checkFeRoof()"></div>
     <div id="feRoofFields" style="display:none;">
@@ -1236,7 +1253,7 @@ body{background:#f0f2f5;}
     <div class="modal-field"><textarea id="feNotes" class="modal-input" rows="2" placeholder="Any notes…" style="resize:vertical;"></textarea></div>
 
     <div id="feSplitRow" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-      <button class="mbtn-cancel" style="width:100%;" onclick="openSplitModal()">✂️ Split into multiple days</button>
+      <button id="feSplitBtn" class="mbtn-cancel" style="width:100%;" onclick="openSplitModal()">✂️ Split into multiple days</button>
     </div>
 
     <div id="feError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
@@ -1334,7 +1351,7 @@ body{background:#f0f2f5;}
 <!-- SPLIT JOB MODAL -->
 <div class="overlay hidden" id="splitJobModal" onclick="if(event.target===this)closeSplitModal()">
   <div class="modal" style="max-width:520px;">
-    <div class="modal-title">✂️ Split into Multiple Days</div>
+    <div class="modal-title" id="splitModalTitle">✂️ Split into Multiple Days</div>
     <div id="splitOrigAmtLine" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;margin-bottom:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
       <span>Date</span><span>Phase</span><span>Amount</span><span></span>
@@ -1345,7 +1362,7 @@ body{background:#f0f2f5;}
     <div id="splitError" style="color:var(--red);font-size:12px;margin-top:6px;display:none;"></div>
     <div class="modal-footer" style="justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="mbtn-cancel" onclick="closeSplitModal()">Cancel</button>
-      <button class="mbtn-save" onclick="submitSplitJob()">✂️ Split</button>
+      <button id="splitSubmitBtn" class="mbtn-save" onclick="submitSplitJob()">✂️ Split</button>
     </div>
   </div>
 </div>
@@ -2099,6 +2116,8 @@ function _jobRowToShape(job, isMultiProperty) {
   return {
     jobId:          job.jobId,
     phone,
+    propertyId:     job.propertyId || null,
+    payerId:        job.payerId    || null,
     firstName:      job.firstName   || '',
     lastName:       job.lastName    || '',
     address:        job.streetAddress || '',
@@ -2111,6 +2130,8 @@ function _jobRowToShape(job, isMultiProperty) {
     customerType:   job.customerType   || 'residential',
     propertyLabel:  job.propertyLabel || null,
     propertyType:   job.propertyType  || null,
+    sqFt:           job.sqft          || null,   // Property.sqft for this job's linked property
+    roofType:       job.propRoofType  || null,   // Property.roofType for this job's linked property
     isMultiProperty,
     isMultiDayParent: job.isMultiDayParent || 0,
     parentJobId:      job.parentJobId || null,
@@ -3097,7 +3118,7 @@ function jobCardScheduled(c) {
       }
     }
   } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
-    printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}')">🖨 Print job sheet</button>`;
+    printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}','${c.jobId||''}')">🖨 Print job sheet</button>`;
     if (ss.scheduledDate && ss.scheduledDate <= isoToday()) {
       const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
       const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
@@ -5418,7 +5439,7 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const addOns   = c.addOns || [];
   const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
   const rigLabel = RIG_LABELS[rig] || rig;
-  const sqft     = ss.sqFt || c.sqFt || (c.jobHistory||[]).find(j=>j.sqFt)?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null;
+  const sqft     = c.sqFt || ss.sqFt || (c.jobHistory||[]).find(j=>j.sqFt)?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null;
   const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || c.roofType || null;  // T1.15: ss first
   const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
   const roofLabel   = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
@@ -5634,7 +5655,7 @@ table{width:auto;border-collapse:collapse;}
 </div>`;
 }
 
-function printJobSheet(phone, date, rig) {
+function printJobSheet(phone, date, rig, jobId) {
   const c = findCustomer(phone);
   if (!c) return;
   // Fix: when rig is empty/falsy (unassigned job, rigId=null in D1),
@@ -5647,7 +5668,10 @@ function printJobSheet(phone, date, rig) {
         .filter(j => j.scheduledDate === date && (j.state === 'scheduled' || j.state === 'in_progress'))
         .map(j => _jobRowToShape(j, (_calPayerCounts()[j.payerId] || 0) > 1))
         .filter(j => !j.isTest);
-  const idx      = jobs.findIndex(j => j.phone === phone);
+  // Prefer exact jobId match (multi-property: same payer, same day, different property).
+  // Fall back to phone match for KV-only cards that have no jobId.
+  let idx = jobId ? jobs.findIndex(j => j.jobId === jobId) : -1;
+  if (idx < 0) idx = jobs.findIndex(j => j.phone === phone);
   const jobShape = idx >= 0 ? jobs[idx] : null;
   // For multi-property customers, override address/city/gateCode/ss with
   // job-specific data. KV customer retains notes, sqFt, addOns,
@@ -5665,6 +5689,8 @@ function printJobSheet(phone, date, rig) {
     workSiteCity:     jobShape.workSiteCity    || c.workSiteCity    || null,
     endCustomerName:  jobShape.endCustomerName  || c.endCustomerName  || null,
     endCustomerPhone: jobShape.endCustomerPhone || c.endCustomerPhone || null,
+    sqFt:             jobShape.sqFt     ?? c.sqFt,
+    roofType:         jobShape.roofType ?? c.roofType,
     scheduledStatus:  { ...(c.scheduledStatus || {}), ...jobShape.scheduledStatus },
   } : c;
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
@@ -6084,6 +6110,25 @@ function openEditModal(phone, jhJobId, calJobId) {
   const roofType = _jh ? '' : (svcAgreed.roofType || '');
   document.getElementById('feRoofType').value = roofType;
   document.getElementById('feGateCode').value = c.gateCode || '';
+
+  // Property label — only visible for multi-property customers
+  const _showPropLabel = !!(_feCalJobId && _calJob?.isMultiProperty);
+  document.getElementById('fePropLabelRow').style.display = _showPropLabel ? '' : 'none';
+  if (_showPropLabel) {
+    const _knownLabels   = ['Main Residence', "Friend's Property", 'Rental', 'Office'];
+    const _curLabel      = _calJob.propertyLabel || 'Main Residence';
+    const _labelSel      = document.getElementById('fePropLabel');
+    const _labelOther    = document.getElementById('fePropLabelOther');
+    const _labelOtherRow = document.getElementById('fePropLabelOtherRow');
+    if (_knownLabels.includes(_curLabel)) {
+      _labelSel.value = _curLabel;
+      _labelOtherRow.style.display = 'none';
+    } else {
+      _labelSel.value = 'Other';
+      _labelOther.value = _curLabel;
+      _labelOtherRow.style.display = '';
+    }
+  }
   const stories = _jh ? _jh.roofStories : (ss.roofStories || getLastKnownRoofStories(c) || null);
   const stEl = stories ? document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2))
                        : document.getElementById('feStoriesUnk');
@@ -6113,8 +6158,19 @@ function openEditModal(phone, jhJobId, calJobId) {
   const saveBtn = document.getElementById('feSaveBtn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
 
-  const _showSplit = !!(_feCalJobId && _calJob?.state === 'scheduled' && !_calJob?.isMultiDayParent);
+  const _jobIsSplit = !!(_calJob?.isMultiDayParent || _calJob?.parentJobId);
+  const _showSplit  = !!(_feCalJobId && _calJob?.state === 'scheduled');
   document.getElementById('feSplitRow').style.display = _showSplit ? '' : 'none';
+  const _splitBtn = document.getElementById('feSplitBtn');
+  if (_splitBtn) {
+    if (_jobIsSplit) {
+      _splitBtn.textContent = '📅 Manage days';
+      _splitBtn.onclick     = openManageDaysModal;
+    } else {
+      _splitBtn.textContent = '✂️ Split into multiple days';
+      _splitBtn.onclick     = openSplitModal;
+    }
+  }
 
   document.getElementById('fullEditModal').classList.remove('hidden');
 }
@@ -6159,11 +6215,12 @@ function closeFullEditModal() {
   _feCalJobId = null;
 }
 
-// === SPLIT JOB MODAL (Phase 2B) ===
+// === SPLIT JOB MODAL (Phase 2B / 2C) ===
 let _splitParentJobId = null;
 let _splitOrigAmount  = 0;
 let _splitRigId       = null;
 let _splitDayCount    = 0;
+let _splitManageMode  = false; // true when editing an already-split job
 
 const _SPLIT_PHASES = ['Pressure Clean', 'Sand', 'Seal', 'Rinse', 'Other'];
 
@@ -6182,13 +6239,33 @@ function _splitPhaseSelect(idx) {
   if (sel && otherRow) otherRow.style.display = sel.value === 'Other' ? '' : 'none';
 }
 
-function _splitAddDay() {
+// Redistribute _splitOrigAmount evenly across all active day rows.
+// Called when day count changes (add/remove). Tyler can override per-day after.
+function _splitRedistribute() {
+  let active = 0;
+  for (let i = 1; i <= _splitDayCount; i++) {
+    const el = document.getElementById('splitAmt_' + i);
+    if (el && el.closest('#splitDayRows')) active++;
+  }
+  if (!active || !_splitOrigAmount) { _splitUpdateTotal(); return; }
+  const perDay = (_splitOrigAmount / active).toFixed(2);
+  for (let i = 1; i <= _splitDayCount; i++) {
+    const el = document.getElementById('splitAmt_' + i);
+    if (el && el.closest('#splitDayRows')) el.value = perDay;
+  }
+  _splitUpdateTotal();
+}
+
+// skipRedistribute=true during initial populate so existing amounts aren't overwritten.
+function _splitAddDay(skipRedistribute = false) {
   _splitDayCount++;
   const idx       = _splitDayCount;
   const container = document.getElementById('splitDayRows');
   const div       = document.createElement('div');
   div.id          = 'splitRow_' + idx;
   div.style.cssText = 'margin-bottom:10px;';
+  // Manage mode: allow removing down to 1 day (worker handles un-split); fresh split keeps 2 minimum
+  const _canRemove = _splitManageMode ? idx > 1 : idx > 2;
   div.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center;">
       <input type="date" id="splitDate_${idx}" value="${_getSplitDefaultDate(idx)}" class="modal-input" style="font-size:13px;">
@@ -6196,20 +6273,21 @@ function _splitAddDay() {
         ${_SPLIT_PHASES.map(p => `<option value="${p}">${p}</option>`).join('')}
       </select>
       <input type="number" id="splitAmt_${idx}" class="modal-input" style="font-size:13px;" min="0" placeholder="Amount" oninput="_splitUpdateTotal()">
-      ${idx > 2 ? `<button class="mbtn-cancel" style="padding:4px 8px;font-size:11px;" onclick="_splitRemoveDay(${idx})">✕</button>` : '<span></span>'}
+      ${_canRemove ? `<button class="mbtn-cancel" style="padding:4px 8px;font-size:11px;" onclick="_splitRemoveDay(${idx})">✕</button>` : '<span></span>'}
     </div>
     <div id="splitPhaseOther_${idx}" style="display:none;margin-top:4px;">
       <input type="text" id="splitPhaseOtherVal_${idx}" class="modal-input" style="font-size:13px;" placeholder="Describe phase…">
     </div>
   `;
   container.appendChild(div);
-  _splitUpdateTotal();
+  if (!skipRedistribute) _splitRedistribute();
+  else _splitUpdateTotal();
 }
 
 function _splitRemoveDay(idx) {
   const el = document.getElementById('splitRow_' + idx);
   if (el) el.remove();
-  _splitUpdateTotal();
+  _splitRedistribute();
 }
 
 function _splitUpdateTotal() {
@@ -6234,8 +6312,12 @@ function openSplitModal() {
   _splitOrigAmount  = parseFloat(job.amount) || 0;
   _splitRigId       = job.rigId || null;
   _splitDayCount    = 0;
+  _splitManageMode  = false;
   document.getElementById('splitDayRows').innerHTML = '';
   document.getElementById('splitOrigAmtLine').textContent = `Original job: $${_splitOrigAmount.toFixed(2)}`;
+  document.getElementById('splitModalTitle').textContent  = '✂️ Split into Multiple Days';
+  const submitBtn = document.getElementById('splitSubmitBtn');
+  if (submitBtn) submitBtn.textContent = '✂️ Split';
 
   // Smart pre-fill by service type
   const svcText = (document.getElementById('feServices')?.value || '').toLowerCase();
@@ -6248,7 +6330,7 @@ function openSplitModal() {
     prePhases = ['', ''];
   }
 
-  for (let i = 0; i < prePhases.length; i++) _splitAddDay();
+  for (let i = 0; i < prePhases.length; i++) _splitAddDay(true); // suppress redistribute during populate
 
   // Apply phase pre-fills
   for (let i = 0; i < prePhases.length; i++) {
@@ -6266,9 +6348,69 @@ function openSplitModal() {
   document.getElementById('splitJobModal').classList.remove('hidden');
 }
 
+async function openManageDaysModal() {
+  if (!_feCalJobId) return;
+  const job = calendarJobs.find(j => j.jobId === _feCalJobId);
+  if (!job) return;
+
+  // Fetch full day set from worker — handles cross-week days reliably
+  let resolvedParentId, allDays;
+  try {
+    const resp = await fetch(`${PCPC_API}/admin/job/${encodeURIComponent(_feCalJobId)}/days`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    ({ parentJobId: resolvedParentId, days: allDays } = await resp.json());
+  } catch (e) {
+    showToast('⚠️ Could not load day set — ' + e.message);
+    return;
+  }
+
+  const origTotal = allDays.reduce((s, d) => s + (parseFloat(d.amount) || 0), 0);
+
+  _splitParentJobId = resolvedParentId;
+  _splitOrigAmount  = origTotal;
+  _splitRigId       = job.rigId || null;
+  _splitDayCount    = 0;
+  _splitManageMode  = true;
+  document.getElementById('splitDayRows').innerHTML = '';
+  document.getElementById('splitOrigAmtLine').textContent = `Original total: $${origTotal.toFixed(2)}`;
+
+  const custName = ((job.firstName || '') + ' ' + (job.lastName || '')).trim();
+  document.getElementById('splitModalTitle').textContent = `📅 Manage Days${custName ? ' — ' + custName : ''}`;
+  const submitBtn = document.getElementById('splitSubmitBtn');
+  if (submitBtn) submitBtn.textContent = '💾 Save days';
+
+  // Pre-populate rows from returned days
+  for (const d of allDays) {
+    _splitAddDay(true); // suppress redistribute during populate
+    const i       = _splitDayCount;
+    const dateEl  = document.getElementById('splitDate_' + i);
+    const phaseEl = document.getElementById('splitPhase_' + i);
+    const amtEl   = document.getElementById('splitAmt_' + i);
+    if (dateEl) dateEl.value = d.scheduledDate || '';
+    if (amtEl)  amtEl.value  = parseFloat(d.amount || 0).toFixed(2);
+    if (phaseEl && d.dayPhase) {
+      if (_SPLIT_PHASES.includes(d.dayPhase)) {
+        phaseEl.value = d.dayPhase;
+      } else {
+        phaseEl.value = 'Other';
+        _splitPhaseSelect(i);
+        const otherEl = document.getElementById('splitPhaseOtherVal_' + i);
+        if (otherEl) otherEl.value = d.dayPhase;
+      }
+    }
+  }
+
+  _splitUpdateTotal();
+  document.getElementById('splitJobModal').classList.remove('hidden');
+}
+
 function closeSplitModal() {
   document.getElementById('splitJobModal').classList.add('hidden');
+  _splitManageMode  = false;
   _splitParentJobId = null;
+  document.getElementById('splitModalTitle').textContent = '✂️ Split into Multiple Days';
+  const submitBtn = document.getElementById('splitSubmitBtn');
+  if (submitBtn) submitBtn.textContent = '✂️ Split';
 }
 
 async function submitSplitJob() {
@@ -6286,7 +6428,8 @@ async function submitSplitJob() {
     const amount   = parseFloat(amtEl ? amtEl.value : 0) || 0;
     days.push({ scheduledDate, amount, dayPhase: dayPhase || null, rigId: _splitRigId });
   }
-  if (days.length < 2) { alert('Split requires at least 2 days.'); return; }
+  if (days.length < 1) { alert('At least 1 day required.'); return; }
+  if (!_splitManageMode && days.length < 2) { alert('Split requires at least 2 days.'); return; }
 
   document.getElementById('splitError').style.display = 'none';
 
@@ -6307,7 +6450,7 @@ async function submitSplitJob() {
 
   closeSplitModal();
   closeFullEditModal();
-  showToast('✅ Job split into ' + days.length + ' days');
+  showToast(_splitManageMode ? '✅ Days updated' : '✅ Job split into ' + days.length + ' days');
   await refreshCalendarJobs();
   render();
 }
@@ -6411,6 +6554,7 @@ async function saveFullEdit() {
   if (_feCalJobId) {
     // Job fields → PATCH D1. Customer fields → saveDb() (no scheduledStatus update to avoid dual-write).
     const patchBody = {};
+    const _saveCalJob = calendarJobs.find(j => j.jobId === _feCalJobId) || null;
     if (svc)   patchBody.servicesRaw   = svc || null;
     if (price) patchBody.amount        = price;
     if (date)  patchBody.scheduledDate = date;
@@ -6457,6 +6601,24 @@ async function saveFullEdit() {
     const errEl2 = document.getElementById('feError');
     try {
       await patchJob(_feCalJobId, patchBody);
+      // Property label — save if multi-property and value changed
+      if (_saveCalJob?.isMultiProperty && _saveCalJob.propertyId && _saveCalJob.payerId) {
+        const _labelSel = document.getElementById('fePropLabel');
+        const _newLabel = _labelSel?.value === 'Other'
+          ? (document.getElementById('fePropLabelOther')?.value.trim() || 'Other')
+          : (_labelSel?.value || 'Main Residence');
+        if (_newLabel !== (_saveCalJob.propertyLabel || 'Main Residence')) {
+          await fetch(`${PCPC_API}/admin/person-property`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              personId:      _saveCalJob.payerId,
+              propertyId:    _saveCalJob.propertyId,
+              propertyLabel: _newLabel,
+            }),
+          }).catch(e => console.error('propLabel save failed', e.message));
+        }
+      }
       await saveDb();       // customer metadata (scheduledStatus NOT modified → no dual-write trigger)
       await refreshCalendarJobs();
       closeFullEditModal();

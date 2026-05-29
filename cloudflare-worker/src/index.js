@@ -1180,6 +1180,10 @@ export default {
         return await handleCreateProperty(request, env, corsHeaders);
       }
 
+      if (path === 'admin/person-property' && request.method === 'PATCH') {
+        return await handlePatchPersonProperty(request, env, corsHeaders);
+      }
+
       // ── Google Places API proxy (protected) ──────────────────────────────────
       // Law T1.14: API key stays server-side. KV caches details (30d TTL).
       if (path === 'admin/places/autocomplete' && request.method === 'GET') {
@@ -3494,6 +3498,8 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         prop.longitude,
         prop.gateCode,
         prop.accessNotes,
+        prop.sqft,
+        prop.roofType AS propRoofType,
         pp.propertyLabel,
         pp.propertyType,
         pp.primaryContact,
@@ -3621,15 +3627,39 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
   if (amount == null)     return jsonResponse({ error: 'amount required' }, corsHeaders, 400);
   if (!servicesRequested) return jsonResponse({ error: 'servicesRequested required' }, corsHeaders, 400);
 
-  // Deterministic jobId: payerId + date (matches backfill + revert patterns)
-  const jobId = `job_${payerId}_${scheduledDate}_scheduled`;
-  const now   = new Date().toISOString();
-  const src   = source || 'new_customer_form';
+  // Deterministic jobId: payerId + date. For same-payer same-day DIFFERENT-property jobs
+  // (multi-property customers), suffix _p2, _p3 etc. to avoid INSERT OR REPLACE collision.
+  // Same property = legitimate re-submit → base jobId + INSERT OR REPLACE (existing behaviour).
+  const baseJobId = `job_${payerId}_${scheduledDate}_scheduled`;
+  const now       = new Date().toISOString();
+  const src       = source || 'new_customer_form';
+
+  let jobId = baseJobId;
+  try {
+    const existing = await env.DB.prepare(
+      'SELECT propertyId FROM Job WHERE jobId=?'
+    ).bind(baseJobId).first();
+    if (existing && existing.propertyId !== propertyId) {
+      // Different property on same payer+date — find next free suffix
+      let suffix = 2;
+      while (true) {
+        const candidate = `${baseJobId}_p${suffix}`;
+        const taken = await env.DB.prepare(
+          'SELECT jobId FROM Job WHERE jobId=?'
+        ).bind(candidate).first();
+        if (!taken) { jobId = candidate; break; }
+        suffix++;
+      }
+    }
+    // existing && existing.propertyId === propertyId → keep baseJobId (re-submit, INSERT OR REPLACE)
+    // !existing → keep baseJobId (first job, INSERT OR REPLACE)
+  } catch(e) {
+    // Non-fatal: if suffix check fails, fall through with baseJobId (safe, original behaviour)
+    console.error('handleCreateScheduledJob:suffixCheck', e.message);
+  }
 
   try {
-    // INSERT OR REPLACE — re-submitting same date+payer overwrites cancelled/stale row.
-    // INSERT OR IGNORE silently dropped re-submissions when a cancelled row existed for
-    // the same jobId (payer+date deterministic), leaving the job invisible on the calendar.
+    // INSERT OR REPLACE — re-submitting same payer+date+property overwrites cancelled/stale row.
     await env.DB.prepare(
       `INSERT OR REPLACE INTO Job
          (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
@@ -4050,7 +4080,8 @@ async function _d1SyncNewCustomer(c, env, now) {
         `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,zip,latitude,longitude,geocodeSource,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(propId, c.address, c.city||'', 'FL', c.zip||null, lat, lng, geoSrc, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
 
-      // PersonProperty INSERT OR IGNORE
+      // Demote any existing primary before linking new address as primary (no-op for new customers)
+      await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
       await env.DB.prepare(
         `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
       ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
@@ -4191,7 +4222,9 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
         ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
         await env.DB.prepare(
           `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
-        ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
+        ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 0, 'Main Residence').run();
+        // primaryContact=0: autocomplete address-diff must never silently promote a new property.
+        // Genuine address changes go through an explicit flow (handleCreateProperty with primaryContact=true).
         await _d1SyncPropertyUpdate(propId, {
           sqft:     c.sqFt || null,
           roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
@@ -5741,6 +5774,10 @@ async function handleCreateProperty(request, env, corsHeaders) {
       ).run();
     }
 
+    // Demote any existing primary if the new property is being set as primary
+    if (primaryContact) {
+      await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
+    }
     // INSERT PersonProperty link (IGNORE if already linked)
     await env.DB.prepare(
       `INSERT OR IGNORE INTO PersonProperty
@@ -5769,6 +5806,59 @@ async function handleCreateProperty(request, env, corsHeaders) {
     }, corsHeaders);
   } catch(e) {
     await _logD1Failure(env, `handleCreateProperty:${personId}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── PATCH /admin/person-property ─────────────────────────────────────────────
+// Updates the label for a specific person+property link in PersonProperty.
+// Body: { personId, propertyId, propertyLabel }
+// Refreshes KV after D1 write so the label surfaces immediately on the calendar.
+async function handlePatchPersonProperty(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { personId, propertyId, propertyLabel } = body;
+  if (!personId)   return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  if (propertyLabel === undefined || propertyLabel === null)
+    return jsonResponse({ error: 'propertyLabel required' }, corsHeaders, 400);
+
+  try {
+    // Confirm the PersonProperty link exists
+    const link = await env.DB.prepare(
+      'SELECT personId FROM PersonProperty WHERE personId=? AND propertyId=?'
+    ).bind(personId, propertyId).first();
+    if (!link) return jsonResponse({ error: 'PersonProperty link not found' }, corsHeaders, 404);
+
+    // PersonProperty has no modifiedAt column — update label only
+    await env.DB.prepare(
+      `UPDATE PersonProperty SET propertyLabel=? WHERE personId=? AND propertyId=?`
+    ).bind(propertyLabel.trim(), personId, propertyId).run();
+
+    // KV refresh — mirror handleCreateProperty pattern (Law T1.13)
+    const person = await env.DB.prepare(
+      'SELECT primaryPhone FROM Person WHERE personId=?'
+    ).bind(personId).first();
+    if (person) {
+      const ph = (person.primaryPhone||'').replace(/\D/g,'').slice(-10);
+      if (ph.length === 10) {
+        const updatedCustomer = await d1CustomerToKvShape(ph, env);
+        if (updatedCustomer) {
+          const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+          const idx  = (kvDb.customers||[]).findIndex(c =>
+            (c.phone||'').replace(/\D/g,'').slice(-10) === ph
+          );
+          if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+          else kvDb.customers.push(updatedCustomer);
+          await env.DATA.put('customer_db', JSON.stringify(kvDb));
+        }
+      }
+    }
+
+    return jsonResponse({ success: true, personId, propertyId, propertyLabel: propertyLabel.trim() }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `handlePatchPersonProperty:${personId}:${propertyId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
 }
