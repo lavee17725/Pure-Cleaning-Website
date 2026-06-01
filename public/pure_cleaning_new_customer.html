@@ -270,10 +270,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         <span class="ctype-label">Partner</span>
         <span class="ctype-sub">Referred job</span>
       </div>
-      <div class="ctype-opt disabled">
+      <div id="ctypeCommercial" class="ctype-opt" onclick="setCustomerType('commercial')">
         <span class="ctype-icon">🏢</span>
         <span class="ctype-label">Commercial</span>
-        <span class="ctype-sub">Phase 2</span>
+        <span class="ctype-sub">Proposal</span>
       </div>
     </div>
 
@@ -991,13 +991,17 @@ function setRoofMethod(method) {
 
 function selectRoofType(type, optEl) {
   _roofType = type;
-  document.querySelectorAll('.roof-type-opt').forEach(el => {
+  // Scope to #roofTypeOpts only — prevents cross-contaminating driveway material radios.
+  // No manual .checked=false in the loop — browser owns radio-group exclusivity (name="roofType").
+  document.querySelectorAll('#roofTypeOpts .roof-type-opt').forEach(el => {
     el.classList.remove('selected');
-    el.querySelector('input[type=radio]').checked = false;
   });
   if (optEl) {
     optEl.classList.add('selected');
-    optEl.querySelector('input[type=radio]').checked = true;
+    // Guard: only write checked=true when not already checked to avoid the iOS triple-toggle
+    // repaint bug (native-check → JS-uncheck → JS-recheck = radio circle doesn't fill visually).
+    const r = optEl.querySelector('input[type=radio]');
+    if (r && !r.checked) r.checked = true;
   }
   const otherInput = document.getElementById('nRoofTypeOther');
   if (otherInput) otherInput.style.display = type === 'other' ? 'block' : 'none';
@@ -1086,7 +1090,9 @@ function toggleService(id) {
   // Reset roof type state when roof is deselected
   if (!_svcSel.has('roof_cleaning') && _roofType) {
     _roofType = null;
-    document.querySelectorAll('.roof-type-opt').forEach(el => {
+    // Scope to #roofTypeOpts — don't touch driveway material radios.
+    // .checked=false is safe here: roofExtraFields is already display:none at this point.
+    document.querySelectorAll('#roofTypeOpts .roof-type-opt').forEach(el => {
       el.classList.remove('selected');
       el.querySelector('input[type=radio]').checked = false;
     });
@@ -1119,12 +1125,14 @@ function _updateExtraServiceFields() {
 
 function selectDrivewayMaterial(val, clickedEl) {
   _drivewayMaterial = val;
+  // No manual .checked=false — browser owns radio-group exclusivity (name="drivewayMaterial").
   document.querySelectorAll('#drivewayMaterialOpts .roof-type-opt').forEach(el => {
     el.classList.remove('selected');
-    el.querySelector('input[type=radio]').checked = false;
   });
   clickedEl.classList.add('selected');
-  clickedEl.querySelector('input[type=radio]').checked = true;
+  // Guard: only write checked=true when not already checked (iOS triple-toggle repaint fix).
+  const r = clickedEl.querySelector('input[type=radio]');
+  if (r && !r.checked) r.checked = true;
   const otherInput = document.getElementById('nDrivewayMaterialOther');
   if (otherInput) {
     otherInput.style.display = val === 'other' ? 'block' : 'none';
@@ -1542,6 +1550,15 @@ function setCustomerType(type) {
   currentCustomerType = type;
   document.getElementById('ctypeResidential').classList.toggle('active', type === 'residential');
   document.getElementById('ctypePartner').classList.toggle('active', type === 'partner_referral');
+  document.getElementById('ctypeCommercial')?.classList.toggle('active', type === 'commercial');
+
+  if (type === 'commercial') {
+    // Commercial routes to the proposal builder — pass phone context if already typed
+    const ph = (document.getElementById('nPhone')?.value || '').replace(/\D/g, '').slice(-10);
+    location.href = '/pure_cleaning_proposal_builder.html' + (ph.length === 10 ? '?phone=' + ph : '');
+    return;
+  }
+
   const partnerSec = document.getElementById('partnerSection');
   if (partnerSec) {
     partnerSec.classList.toggle('visible', type === 'partner_referral');
@@ -2400,7 +2417,9 @@ async function submitPhonePath() {
       const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
       customer = (dbRecord.customers||[]).find(c=>_nph(c.phone)===_nph(currentCustomer.phone));
       if (customer) {
-        customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
+        customer.firstName=fn; customer.lastName=ln;
+        if (addr !== (customer.address||'') || city !== (customer.city||'')) customer._addressEdited = true;
+        customer.address=addr; customer.city=city;
         if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
         if (!customer.leadSource) customer.leadSource = buildLeadSource();
@@ -2425,7 +2444,9 @@ async function submitPhonePath() {
       const existingInDb = (dbRecord.customers||[]).find(c => _nph(c.phone) === _nph(ph));
       if (existingInDb) {
         customer = existingInDb;
-        customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city;
+        customer.firstName=fn; customer.lastName=ln;
+        if (addr !== (customer.address||'') || city !== (customer.city||'')) customer._addressEdited = true;
+        customer.address=addr; customer.city=city;
         if (email) customer.email=email; if (zip) customer.zip=zip; customer.notes=notes;
         customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
@@ -2535,7 +2556,12 @@ async function submitDigitalPath() {
     let customer;
     if (!isNew && currentCustomer) {
       customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
-      if (customer) { customer.firstName=fn; customer.lastName=ln; customer.address=addr; customer.city=city; if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts]; }
+      if (customer) {
+        customer.firstName=fn; customer.lastName=ln;
+        if (addr !== (customer.address||'') || city !== (customer.city||'')) customer._addressEdited = true;
+        customer.address=addr; customer.city=city;
+        if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
+      }
       const _altC = buildAltContacts();
       if (customer && _altC.length) customer.alternateContacts = _altC;
     } else {

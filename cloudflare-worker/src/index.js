@@ -1188,6 +1188,25 @@ export default {
         return await handleRetypeCustomer(request, env, corsHeaders);
       }
 
+      // ── PATCH /admin/person/{personId} — update contact fields + refresh KV ──
+      if (path.startsWith('admin/person/') && request.method === 'PATCH') {
+        const patchPersonId = path.slice('admin/person/'.length);
+        return await handlePatchPerson(request, patchPersonId, env, corsHeaders);
+      }
+
+      // ── Proposal endpoints (Commercial Pillar) ───────────────────────────────
+      if (path === 'admin/proposal' && request.method === 'POST') {
+        return await handleCreateProposal(request, env, corsHeaders);
+      }
+      if (path.startsWith('admin/proposal/') && request.method === 'GET') {
+        const proposalId = path.slice('admin/proposal/'.length);
+        return await handleGetProposal(proposalId, env, corsHeaders);
+      }
+      if (path.startsWith('admin/proposal/') && request.method === 'PATCH') {
+        const proposalId = path.slice('admin/proposal/'.length);
+        return await handlePatchProposal(request, proposalId, env, corsHeaders);
+      }
+
       // ── Google Places API proxy (protected) ──────────────────────────────────
       // Law T1.14: API key stays server-side. KV caches details (30d TTL).
       if (path === 'admin/places/autocomplete' && request.method === 'GET') {
@@ -1222,6 +1241,10 @@ export default {
       }
       if (path === 'admin/drive-time/stats' && request.method === 'GET') {
         return await handleDriveTimeStats(env, corsHeaders);
+      }
+
+      if (path === 'admin/rig-day-summary' && request.method === 'GET') {
+        return await handleRigDaySummary(request, env, corsHeaders, url);
       }
 
       // ── Insights: D1 revenue/job aggregates (protected) ──────────────────────
@@ -1780,11 +1803,24 @@ async function handleCustomersPut(request, env, corsHeaders) {
     }
   }
 
+  // Bug 2 fix: extract deliberate-edit signals before stripping from KV payload.
+  // _addressEdited is set only by explicit user saves (saveFullEdit, submitPhonePath,
+  // submitDigitalPath) — never by bulk sync, autocomplete diffs, or migration.
+  // Stripping before KV write keeps the flag ephemeral (not persisted to KV).
+  const _addrEditedPhones = new Set();
+  for (const c of customers) {
+    if (c._addressEdited) {
+      const _aph = (c.phone||'').replace(/\D/g,'').slice(-10);
+      if (_aph) _addrEditedPhones.add(_aph);
+      delete c._addressEdited;
+    }
+  }
+
   await env.DATA.put(KV_KEYS.customers, JSON.stringify(body));
 
   // ── Day 2 dual-write: mirror changes to D1 (fire-and-forget, KV is canonical) ──
   try {
-    await _d1SyncCustomersPut(customers, currentDb.customers || [], env);
+    await _d1SyncCustomersPut(customers, currentDb.customers || [], env, _addrEditedPhones);
   } catch (e) {
     await _logD1Failure(env, 'handleCustomersPut', e.message);
   }
@@ -4132,9 +4168,10 @@ async function _d1SyncNewCustomer(c, env, now) {
 
   try {
     // Person INSERT (ignore if already exists)
+    // customerType included so commercial/partner customers land correctly (was missing, bug fix).
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO Person (personId,firstName,lastName,primaryPhone,isHomeowner,doNotContact,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-    ).bind(personId, c.firstName||'', c.lastName||'', e164, c.isCommercialAccount?0:1, c.optOut?1:0, now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+      `INSERT OR IGNORE INTO Person (personId,firstName,lastName,primaryPhone,email,isHomeowner,doNotContact,customerType,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(personId, c.firstName||'', c.lastName||'', e164, c.email||null, c.isCommercialAccount?0:1, c.optOut?1:0, c.customerType||'residential', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
 
     // Property INSERT OR IGNORE
     if (c.address) {
@@ -4255,7 +4292,7 @@ async function _d1SyncPersonUpdate(newC, prevC, env, now) {
   await env.DB.prepare(`UPDATE Person SET ${sets.join(',')} WHERE personId=?`).bind(...vals).run();
 }
 
-async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
+async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEditedPhones = new Set()) {
   if (!env.DB) return; // D1 not bound — skip silently
   const now = new Date().toISOString();
   const prevByPhone = new Map();
@@ -4293,15 +4330,31 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env) {
     // submissions — _d1SyncScheduledJob references propertyId which must exist.
     if (c.address && (c.address !== prev?.address || (c.city||'') !== (prev?.city||''))) {
       const propId = _d1PropId(c.address, c.city||'');
+      const _isDeliberate = addrEditedPhones.has(ph);
       try {
+        // Always ensure the Property row exists.
         await env.DB.prepare(
           `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
         ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
-        await env.DB.prepare(
-          `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
-        ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 0, 'Main Residence').run();
-        // primaryContact=0: autocomplete address-diff must never silently promote a new property.
-        // Genuine address changes go through an explicit flow (handleCreateProperty with primaryContact=true).
+        if (_isDeliberate) {
+          // Deliberate user edit (calendar ✏️ Edit, new-customer form submit) →
+          // demote all existing PersonProperty for this person, then promote new address.
+          // Two-step upsert: INSERT OR IGNORE creates the row if new; the UPDATE
+          // ensures primaryContact=1 even when the row pre-existed with primaryContact=0.
+          await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
+          await env.DB.prepare(
+            `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
+          ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
+          await env.DB.prepare(
+            'UPDATE PersonProperty SET primaryContact=1 WHERE personId=? AND propertyId=?'
+          ).bind(personId, propId).run();
+        } else {
+          // Incidental diff (autocomplete, bulk sync, migration): never silently promote.
+          // primaryContact=0: see original comment — guard preserved for non-deliberate diffs.
+          await env.DB.prepare(
+            `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
+          ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 0, 'Main Residence').run();
+        }
         await _d1SyncPropertyUpdate(propId, {
           sqft:     c.sqFt || null,
           roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
@@ -5639,6 +5692,7 @@ async function persistTruckEventsForDate(date, rigId, rigEntry, source, env) {
 
   const now   = new Date().toISOString();
   const stmts = [];
+  const jobIdByArriveAt = new Map(); // arriveAt → jobId; used for post-INSERT drive-leg writes
 
   for (const seg of route.segments) {
     let id, eventType, startedAt, endedAt, durationSec,
@@ -5681,6 +5735,7 @@ async function persistTruckEventsForDate(date, rigId, rigEntry, source, env) {
         rigJobs.find(j => j.actualArrival && Math.abs(+new Date(j.actualArrival) - +new Date(seg.arriveAt)) < 120000) ||
         rigJobs.find(j => (j.address || '') === (seg.address || '') && (j.city || '') === (seg.city || ''));
       jobId = matched?.jobId || null;
+      if (jobId) jobIdByArriveAt.set(seg.arriveAt, jobId);
 
     } else if (seg.type === 'stop') {
       startedAt   = seg.arriveAt;
@@ -5729,7 +5784,33 @@ async function persistTruckEventsForDate(date, rigId, rigEntry, source, env) {
 
   const batchResults = await env.DB.batch(stmts);
   const inserted = batchResults.reduce((s, r) => s + (r.meta?.changes || 0), 0);
-  return { rig: rigId, date, events: stmts.length, inserted, skipped: stmts.length - inserted };
+
+  // Write arriving drive leg to each Job row — drive segment immediately before job in route.
+  // IS NULL guard: idempotent on re-run; never clobbers a manually-entered value.
+  const driveUpdateStmts = [];
+  for (let i = 1; i < route.segments.length; i++) {
+    const seg  = route.segments[i];
+    const prev = route.segments[i - 1];
+    if (seg.type !== 'job' || prev?.type !== 'drive') continue;
+    const jid = jobIdByArriveAt.get(seg.arriveAt);
+    if (!jid) continue;
+    driveUpdateStmts.push(
+      env.DB.prepare(
+        `UPDATE Job SET drivetimeFromPreviousJob=?, milesFromPreviousJob=?, modifiedAt=?
+         WHERE jobId=? AND drivetimeFromPreviousJob IS NULL`
+      ).bind(
+        prev.durationMin != null ? Math.round(prev.durationMin) : null,
+        prev.distanceMiles ?? null,
+        now,
+        jid
+      )
+    );
+  }
+  const driveLegsWritten = driveUpdateStmts.length
+    ? (await env.DB.batch(driveUpdateStmts)).reduce((s, r) => s + (r.meta?.changes || 0), 0)
+    : 0;
+
+  return { rig: rigId, date, events: stmts.length, inserted, skipped: stmts.length - inserted, driveLegsWritten };
 }
 
 async function persistTruckEventsNightly(date, env) {
@@ -5885,6 +5966,293 @@ async function handleCreateProperty(request, env, corsHeaders) {
     await _logD1Failure(env, `handleCreateProperty:${personId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
+}
+
+// ── PATCH /admin/person/{personId} ───────────────────────────────────────────
+// Updates whitelisted Person fields in D1 and refreshes the KV customer record.
+// Whitelisted: email, firstName, lastName, businessName, primaryPhone.
+// Stamps modifiedAt. Returns the updated Person row.
+async function handlePatchPerson(request, personId, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!personId) return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const ALLOWED = ['email', 'firstName', 'lastName', 'businessName'];
+  const fields = {};
+  for (const k of ALLOWED) {
+    if (k in body) fields[k] = body[k] ?? null;
+  }
+  if (!Object.keys(fields).length)
+    return jsonResponse({ error: `no writable fields provided; allowed: ${ALLOWED.join(', ')}` }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  fields.modifiedAt = now;
+
+  const setClauses = Object.keys(fields).map(f => `${f}=?`).join(', ');
+  const setValues  = Object.values(fields);
+
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE Person SET ${setClauses} WHERE personId=?`
+    ).bind(...setValues, personId).run();
+
+    if (!result.meta?.changes) return jsonResponse({ error: 'person not found' }, corsHeaders, 404);
+
+    // Refresh KV — reverse personId to 10-digit phone for d1CustomerToKvShape
+    if (personId.startsWith('person_1') && personId.length >= 18) {
+      const ph = personId.slice('person_1'.length);
+      if (ph.length === 10) {
+        const updatedCustomer = await d1CustomerToKvShape(ph, env).catch(() => null);
+        if (updatedCustomer && env.DATA) {
+          const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+          const idx  = (kvDb.customers || []).findIndex(c =>
+            (c.phone || '').replace(/\D/g, '').slice(-10) === ph
+          );
+          if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+          else kvDb.customers.push(updatedCustomer);
+          await env.DATA.put('customer_db', JSON.stringify(kvDb));
+        }
+      }
+    }
+
+    const updated = await env.DB.prepare('SELECT * FROM Person WHERE personId=?').bind(personId).first();
+    return jsonResponse({ success: true, person: updated }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, `handlePatchPerson:${personId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── Commercial Pillar: Proposal endpoints ────────────────────────────────────
+
+// POST /admin/proposal
+// Creates a draft Proposal + its LineItems in a single transactional batch.
+// Increments DocumentCounter atomically (INSERT...ON CONFLICT DO UPDATE RETURNING).
+// proposalId = PROP-{C|R}-{YYYY}-{MMDD}-{NNN} and is the human-readable PK.
+async function handleCreateProposal(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { personId, sector = 'commercial', lineItems, discountAmt,
+          proposalDate, validUntil, subject, introText, closingText,
+          paymentTerms, notes, internalNotes } = body;
+
+  if (!personId)   return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+  if (!lineItems?.length) return jsonResponse({ error: 'lineItems[] required (min 1)' }, corsHeaders, 400);
+  if (!['commercial','residential'].includes(sector))
+    return jsonResponse({ error: "sector must be 'commercial' or 'residential'" }, corsHeaders, 400);
+
+  // 1. Validate person + email
+  const person = await env.DB.prepare(
+    'SELECT personId, firstName, lastName, email FROM Person WHERE personId=?'
+  ).bind(personId).first();
+  if (!person) return jsonResponse({ error: 'person not found' }, corsHeaders, 404);
+  if (!person.email)
+    return jsonResponse({
+      error: 'email required for proposals',
+      hint: `PATCH /admin/person/${personId} to set email before creating a proposal`,
+    }, corsHeaders, 422);
+
+  // 2. Atomic counter increment
+  const now     = new Date();
+  const year    = now.getUTCFullYear();
+  const mm      = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const dd      = String(now.getUTCDate()).padStart(2, '0');
+  const sCode   = sector === 'commercial' ? 'C' : 'R';
+  const typeKey = 'proposal';
+  const ctrId   = `${sector}-${typeKey}-${year}`;
+
+  const ctrRow = await env.DB.prepare(`
+    INSERT INTO DocumentCounter (counterId, sector, docType, year, lastSeq)
+    VALUES (?, ?, ?, ?, 1)
+    ON CONFLICT(sector, docType, year) DO UPDATE SET lastSeq = lastSeq + 1
+    RETURNING lastSeq
+  `).bind(ctrId, sector, typeKey, year).first();
+
+  if (!ctrRow?.lastSeq)
+    return jsonResponse({ error: 'counter increment failed' }, corsHeaders, 500);
+
+  const seq        = String(ctrRow.lastSeq).padStart(3, '0');
+  const proposalId = `PROP-${sCode}-${year}-${mm}${dd}-${seq}`;
+  const pDate      = proposalDate || now.toISOString().slice(0, 10);
+  const createdAt  = now.toISOString();
+
+  // 3. Compute totals
+  const subtotal = lineItems.reduce((s, li) => s + (Number(li.lineTotal) || 0), 0);
+  const total    = Math.max(0, subtotal - (Number(discountAmt) || 0));
+
+  // 4. Batch: Proposal row + all LineItem rows (transactional)
+  const stmts = [
+    env.DB.prepare(`
+      INSERT INTO Proposal
+        (proposalId, personId, sector, status, proposalDate, validUntil,
+         subject, introText, closingText, subtotal, discountAmt, total,
+         paymentTerms, notes, internalNotes, createdAt, modifiedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(
+      proposalId, personId, sector, 'draft', pDate,
+      validUntil ?? null, subject ?? null, introText ?? null, closingText ?? null,
+      subtotal, discountAmt ?? null, total, paymentTerms ?? null,
+      notes ?? null, internalNotes ?? null, createdAt, createdAt
+    ),
+    ...lineItems.map((li, i) =>
+      env.DB.prepare(`
+        INSERT INTO LineItem
+          (lineItemId, documentType, documentId, sortOrder,
+           description, quantity, unit, unitPrice, lineTotal, notes, createdAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).bind(
+        `${proposalId}-li-${i}`, 'proposal', proposalId,
+        li.sortOrder ?? i,
+        li.description ?? '', Number(li.quantity) || 1,
+        li.unit ?? null, Number(li.unitPrice) || 0,
+        Number(li.lineTotal) || 0, li.notes ?? null, createdAt
+      )
+    ),
+  ];
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handleCreateProposal:${proposalId}`, e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    proposalId,
+    total,
+    subtotal,
+    lineItemCount: lineItems.length,
+  }, corsHeaders, 201);
+}
+
+// GET /admin/proposal/{proposalId}
+// Returns Proposal row + LineItems (ordered by sortOrder) + person name/email.
+async function handleGetProposal(proposalId, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!proposalId) return jsonResponse({ error: 'proposalId required' }, corsHeaders, 400);
+
+  const [proposal, lineItemsResult] = await Promise.all([
+    env.DB.prepare(`
+      SELECT p.*, pe.firstName, pe.lastName, pe.email, pe.primaryPhone,
+             pe.businessName, pe.customerType
+      FROM Proposal p
+      JOIN Person pe ON pe.personId = p.personId
+      WHERE p.proposalId = ?
+    `).bind(proposalId).first(),
+    env.DB.prepare(`
+      SELECT * FROM LineItem
+      WHERE documentType = 'proposal' AND documentId = ?
+      ORDER BY sortOrder ASC
+    `).bind(proposalId).all(),
+  ]);
+
+  if (!proposal) return jsonResponse({ error: 'proposal not found' }, corsHeaders, 404);
+
+  return jsonResponse({
+    proposal,
+    lineItems: lineItemsResult.results || [],
+  }, corsHeaders);
+}
+
+// PATCH /admin/proposal/{proposalId}
+// Edits a DRAFT proposal. Replaces all LineItems and recomputes totals.
+// 409 if status !== 'draft' (can't silently edit a sent/accepted proposal).
+// proposalId (the document number) is immutable — only content changes.
+async function handlePatchProposal(request, proposalId, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!proposalId) return jsonResponse({ error: 'proposalId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  // 1. Fetch current proposal — must exist and be draft
+  const existing = await env.DB.prepare(
+    'SELECT proposalId, status, personId FROM Proposal WHERE proposalId = ?'
+  ).bind(proposalId).first();
+
+  if (!existing) return jsonResponse({ error: 'proposal not found' }, corsHeaders, 404);
+  if (existing.status !== 'draft')
+    return jsonResponse({
+      error: 'cannot edit a proposal that has already been sent or accepted',
+      status: existing.status,
+    }, corsHeaders, 409);
+
+  const now = new Date().toISOString();
+  const { lineItems, discountAmt, subject, introText, closingText,
+          paymentTerms, proposalDate, validUntil, notes, internalNotes } = body;
+
+  // 2. Compute new totals if lineItems provided
+  let subtotal = null;
+  let total    = null;
+  if (lineItems?.length) {
+    subtotal = lineItems.reduce((s, li) => s + (Number(li.lineTotal) || 0), 0);
+    total    = Math.max(0, subtotal - (Number(discountAmt ?? body.discountAmt) || 0));
+  }
+
+  // 3. Build Proposal UPDATE fields (only set fields that were provided)
+  const fields = {};
+  if (subject      !== undefined) fields.subject      = subject;
+  if (introText    !== undefined) fields.introText    = introText;
+  if (closingText  !== undefined) fields.closingText  = closingText;
+  if (paymentTerms !== undefined) fields.paymentTerms = paymentTerms;
+  if (proposalDate !== undefined) fields.proposalDate = proposalDate;
+  if (validUntil   !== undefined) fields.validUntil   = validUntil;
+  if (notes        !== undefined) fields.notes        = notes;
+  if (internalNotes!== undefined) fields.internalNotes= internalNotes;
+  if (discountAmt  !== undefined) fields.discountAmt  = discountAmt ?? null;
+  if (subtotal     !== null)      fields.subtotal     = subtotal;
+  if (total        !== null)      fields.total        = total;
+  fields.modifiedAt = now;
+
+  const setClauses = Object.keys(fields).map(k => `${k}=?`).join(', ');
+  const setValues  = Object.values(fields);
+
+  // 4. Batch: UPDATE Proposal + DELETE existing LineItems + INSERT new LineItems
+  const stmts = [
+    env.DB.prepare(`UPDATE Proposal SET ${setClauses} WHERE proposalId=?`)
+      .bind(...setValues, proposalId),
+  ];
+
+  if (lineItems?.length) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM LineItem WHERE documentType='proposal' AND documentId=?`
+      ).bind(proposalId)
+    );
+    lineItems.forEach((li, i) => {
+      stmts.push(
+        env.DB.prepare(`
+          INSERT INTO LineItem
+            (lineItemId, documentType, documentId, sortOrder,
+             description, quantity, unit, unitPrice, lineTotal, notes, createdAt)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        `).bind(
+          `${proposalId}-li-${now.replace(/\D/g,'').slice(0,14)}-${i}`,
+          'proposal', proposalId, li.sortOrder ?? i,
+          li.description ?? '', Number(li.quantity) || 1,
+          li.unit ?? null, Number(li.unitPrice) || 0,
+          Number(li.lineTotal) || 0, li.notes ?? null, now
+        )
+      );
+    });
+  }
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handlePatchProposal:${proposalId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // 5. Return updated proposal
+  return await handleGetProposal(proposalId, env, corsHeaders);
 }
 
 // ── POST /admin/retype-customer ──────────────────────────────────────────────
@@ -6535,6 +6903,59 @@ async function handleDriveTimeStats(env, corsHeaders) {
     since:         stats.since || null,
     note:          'Top routes not yet tracked; add request logging to enable.',
   }, corsHeaders);
+}
+
+// ── Real Bouncie day summary per rig+date ─────────────────────────────────────
+// Replaces haversine estimates in the ops/margin panel for completed days.
+// Returns source:'truckevent' with real sums when TruckEvent rows exist,
+// or source:'none' when no Bouncie data has been processed for that day.
+async function handleRigDaySummary(request, env, corsHeaders, url) {
+  const date = url.searchParams.get('date');
+  const rig  = url.searchParams.get('rig');
+  if (!date || !rig)
+    return jsonResponse({ error: 'date and rig required' }, corsHeaders, 400);
+
+  try {
+    const [driveRow, spanRow] = await Promise.all([
+      env.DB.prepare(
+        `SELECT ROUND(SUM(distanceMiles), 1)              AS totalDriveMiles,
+                CAST(SUM(durationSeconds) / 60 AS INTEGER) AS totalDriveMin
+         FROM TruckEvent
+         WHERE rigId=? AND DATE(startedAt)=? AND eventType='drive'`
+      ).bind(rig, date).first(),
+      env.DB.prepare(
+        `SELECT
+           MIN(CASE WHEN eventType='depart_home' THEN startedAt END) AS departAt,
+           MAX(CASE WHEN eventType='arrive_home'  THEN startedAt END) AS returnAt
+         FROM TruckEvent
+         WHERE rigId=? AND DATE(startedAt)=?`
+      ).bind(rig, date).first(),
+    ]);
+
+    // No TruckEvent rows → return sentinel so calendar keeps its haversine estimate
+    if (!driveRow || driveRow.totalDriveMin == null) {
+      return jsonResponse({ date, rig, source: 'none' }, corsHeaders);
+    }
+
+    const departAt   = spanRow?.departAt  || null;
+    const returnAt   = spanRow?.returnAt  || null;
+    const fullDayMin = (departAt && returnAt)
+      ? Math.round((+new Date(returnAt) - +new Date(departAt)) / 60000)
+      : null;
+
+    return jsonResponse({
+      date, rig,
+      source:          'truckevent',
+      totalDriveMiles: driveRow.totalDriveMiles,
+      totalDriveMin:   driveRow.totalDriveMin,
+      departAt,
+      returnAt,
+      fullDayMin,
+    }, corsHeaders);
+  } catch (e) {
+    // Non-critical — calendar falls back to haversine; never throw
+    return jsonResponse({ date, rig, source: 'none', error: e.message }, corsHeaders);
+  }
 }
 
 // haversine × 1.3 (route winding) × 35 mph — used when Google API is unavailable

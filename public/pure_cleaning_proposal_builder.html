@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname+location.search));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>New Commercial Proposal — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0a1628;--sky:#2d7dd2;--gold:#f4a620;--gold-d:#c47f00;
+  --green:#1d9e75;--red:#e53e3e;--orange:#d97706;
+  --white:#fff;--bg:#fdf8f2;--card:#fff;
+  --text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.header{background:var(--navy);padding:.875rem 1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.logo{font-size:16px;font-weight:700;color:#fff;letter-spacing:.5px;}
+.logo span{color:var(--gold);}
+.back-link{font-size:13px;color:rgba(255,255,255,.6);text-decoration:none;font-weight:600;}
+.back-link:hover{color:var(--gold);}
+.wrap{max-width:640px;margin:0 auto;padding:1.5rem 1.25rem 6rem;}
+
+/* Section cards */
+.section{background:var(--card);border:1.5px solid var(--border);border-radius:14px;padding:1.25rem;margin-bottom:1.25rem;}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;}
+.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);}
+.section-toggle{font-size:13px;color:var(--sky);background:none;border:none;cursor:pointer;font-family:inherit;font-weight:600;padding:0;}
+
+/* Fields */
+.field{margin-bottom:1rem;}
+.field:last-child{margin-bottom:0;}
+.field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px;}
+.req{color:var(--red);margin-left:2px;}
+.fi{width:100%;padding:11px 14px;background:var(--white);border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;transition:border-color .2s;}
+.fi:focus{border-color:var(--sky);}
+.fi.err{border-color:var(--red);}
+.fi::placeholder{color:#c4b9a8;}
+select.fi{cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;appearance:none;padding-right:32px;}
+textarea.fi{resize:vertical;min-height:60px;line-height:1.5;}
+
+/* Two-col row */
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;}
+@media(max-width:480px){.row2{grid-template-columns:1fr;}}
+
+/* Customer search */
+.search-wrap{position:relative;}
+.search-results{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--card);border:1.5px solid var(--border);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.1);z-index:100;max-height:240px;overflow-y:auto;}
+.search-item{padding:10px 14px;cursor:pointer;display:flex;flex-direction:column;gap:2px;transition:background .12s;}
+.search-item:hover{background:#f0f4ff;}
+.search-item + .search-item{border-top:1px solid var(--border);}
+.si-name{font-size:14px;font-weight:600;color:var(--text);}
+.si-meta{font-size:12px;color:var(--muted);}
+.selected-client{background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:12px;padding:12px 14px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.sc-info{flex:1;min-width:0;}
+.sc-name{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:2px;}
+.sc-meta{font-size:12px;color:var(--muted);}
+.sc-change{font-size:12px;color:var(--sky);background:none;border:none;cursor:pointer;font-family:inherit;font-weight:600;white-space:nowrap;padding:0;}
+.email-warn{display:flex;align-items:flex-start;gap:8px;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 12px;margin-top:.75rem;}
+.ew-icon{font-size:16px;flex-shrink:0;}
+.ew-body{flex:1;font-size:13px;color:#92400e;}
+.ew-label{font-weight:600;display:block;margin-bottom:4px;}
+.ew-row{display:flex;gap:8px;margin-top:6px;}
+.ew-input{flex:1;padding:8px 10px;border:1.5px solid #fcd34d;border-radius:8px;font-family:inherit;font-size:14px;outline:none;background:#fff;}
+.ew-input:focus{border-color:var(--orange);}
+.ew-save{padding:8px 14px;background:var(--orange);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.ew-save:hover{background:#b45309;}
+.email-ok{font-size:13px;color:var(--green);font-weight:600;margin-top:6px;}
+
+/* Line items */
+.line-item{background:#f8faff;border:1.5px solid var(--border);border-radius:10px;padding:12px;margin-bottom:.75rem;position:relative;}
+.li-desc-row{margin-bottom:.5rem;}
+.li-numbers-row{display:grid;grid-template-columns:60px 80px 1fr auto;gap:.5rem;align-items:center;}
+@media(max-width:480px){.li-numbers-row{grid-template-columns:1fr 1fr;}}
+.li-total-lbl{font-size:13px;font-weight:700;color:var(--navy);text-align:right;white-space:nowrap;}
+.li-remove{position:absolute;top:8px;right:8px;background:none;border:none;font-size:18px;color:var(--muted);cursor:pointer;line-height:1;padding:2px;}
+.li-remove:hover{color:var(--red);}
+.add-line-btn{display:flex;align-items:center;gap:6px;padding:9px 14px;background:none;border:1.5px dashed var(--border);border-radius:10px;width:100%;font-family:inherit;font-size:14px;font-weight:600;color:var(--sky);cursor:pointer;justify-content:center;transition:border-color .2s;}
+.add-line-btn:hover{border-color:var(--sky);background:#eff6ff;}
+.totals-block{margin-top:1rem;border-top:1.5px solid var(--border);padding-top:.75rem;}
+.totals-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px;}
+.totals-row.total-final{font-size:17px;font-weight:700;color:var(--navy);border-top:1.5px solid var(--border);margin-top:4px;padding-top:8px;}
+.discount-row{display:flex;align-items:center;gap:.75rem;}
+.discount-row label{font-size:13px;color:var(--muted);white-space:nowrap;}
+.discount-input{width:100px;padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;text-align:right;}
+
+/* Buttons */
+.btn{min-height:48px;padding:12px 20px;border:none;border-radius:12px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
+.btn-gold{background:var(--gold);color:var(--navy);width:100%;}
+.btn-gold:hover:not(:disabled){background:var(--gold-d);}
+.btn-gold:disabled{background:#e8e2d8;color:#b0a99a;cursor:not-allowed;}
+.btn-outline{background:none;border:2px solid var(--border);color:var(--muted);}
+.btn-outline:hover{border-color:var(--sky);color:var(--sky);}
+.btn-sky{background:var(--sky);color:#fff;}
+.btn-sky:hover{background:#1a6bb8;}
+
+/* Success state */
+.success-card{background:var(--card);border:1.5px solid #bbf7d0;border-radius:14px;padding:1.5rem;text-align:center;}
+.success-num{font-size:22px;font-weight:700;color:var(--navy);margin:.5rem 0 .25rem;}
+.success-total{font-size:16px;color:var(--muted);margin-bottom:1.25rem;}
+.success-actions{display:flex;gap:.75rem;flex-wrap:wrap;justify-content:center;}
+
+/* Status badge */
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;}
+.sb-draft{background:#f1f5f9;color:#475569;}
+.sb-sent{background:#eff6ff;color:#1d4ed8;}
+.sb-accepted{background:#dcfce7;color:#166534;}
+.readonly-notice{background:#fffbeb;border:1.5px solid #fcd34d;border-radius:10px;padding:10px 14px;font-size:13px;color:#92400e;margin-bottom:1rem;}
+
+/* Loading */
+.loading{text-align:center;padding:3rem 1rem;color:var(--muted);font-size:15px;}
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .7s linear infinite;margin-bottom:.75rem;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.state{display:none;}.state.active{display:block;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">🌴 Pure <span>Cleaning</span></div>
+  <a href="/pure_cleaning_admin.html" class="back-link">← Admin Hub</a>
+</div>
+
+<div class="wrap">
+
+  <!-- Loading -->
+  <div id="stLoading" class="state active">
+    <div class="loading">
+      <div class="spinner"></div><br>Loading commercial accounts…
+    </div>
+  </div>
+
+  <!-- Two-door choice -->
+  <div id="stDoors" class="state">
+    <div style="margin-bottom:1.5rem;">
+      <h1 style="font-size:22px;font-weight:700;color:var(--navy);">🏢 Commercial Job</h1>
+      <p style="font-size:14px;color:var(--muted);margin-top:4px;">How do you want to log this?</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+      <div class="section" style="cursor:pointer;text-align:center;padding:1.5rem 1rem;" onclick="chooseDoor('build')">
+        <div style="font-size:32px;margin-bottom:.5rem;">📋</div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;">Build Proposal</div>
+        <div style="font-size:12px;color:var(--muted);">Formal proposal with line items, number, acceptance</div>
+      </div>
+      <div class="section" style="cursor:pointer;text-align:center;padding:1.5rem 1rem;" onclick="chooseDoor('quick')">
+        <div style="font-size:32px;margin-bottom:.5rem;">⚡</div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;">Quick Add</div>
+        <div style="font-size:12px;color:var(--muted);">Just log the job — no proposal needed</div>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);text-align:center;margin-top:1rem;">Quick Add works for past jobs, informal agreements, and client-text jobs</p>
+  </div>
+
+  <!-- Main builder form -->
+  <div id="stBuilder" class="state">
+
+    <div style="margin-bottom:1.25rem;">
+      <h1 id="pageTitle" style="font-size:22px;font-weight:700;color:var(--navy);">New Commercial Proposal</h1>
+      <p id="pageSubtitle" style="font-size:14px;color:var(--muted);margin-top:4px;">Draft a proposal — generate when ready to send</p>
+    </div>
+
+    <div id="readonlyNotice" class="readonly-notice" style="display:none;">
+      This proposal has already been <strong id="readonlyStatus"></strong>. Viewing read-only.
+    </div>
+
+    <!-- Section 1: Client -->
+    <div class="section">
+      <div class="section-hdr"><span class="section-title">1 · Client</span></div>
+
+      <!-- Search (shown when no client selected) -->
+      <div id="clientSearchArea">
+        <div class="field">
+          <label>Search commercial accounts</label>
+          <div class="search-wrap">
+            <input id="clientSearch" class="fi" type="text" placeholder="Name, company, or phone…" oninput="onClientSearch(this.value)" autocomplete="off">
+            <div id="searchResults" class="search-results" style="display:none;"></div>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--muted);margin-top:-.25rem;">Showing commercial accounts only.</p>
+      </div>
+
+      <!-- Selected client (shown after selection) -->
+      <div id="clientSelected" style="display:none;">
+        <div class="selected-client">
+          <div class="sc-info">
+            <div class="sc-name" id="scName">—</div>
+            <div class="sc-meta" id="scMeta">—</div>
+          </div>
+          <button class="sc-change" onclick="clearClient()" id="changeClientBtn">Change</button>
+        </div>
+
+        <!-- Email block -->
+        <div id="emailWarn" class="email-warn" style="display:none;">
+          <div class="ew-icon">⚠️</div>
+          <div class="ew-body">
+            <span class="ew-label">Email required</span>
+            Enter the contact email to enable proposal generation.
+            <div class="ew-row">
+              <input id="emailInput" class="ew-input" type="email" placeholder="contact@company.com">
+              <button class="ew-save" onclick="saveEmail()">Save</button>
+            </div>
+          </div>
+        </div>
+        <div id="emailOk" class="email-ok" style="display:none;">✓ Email on file: <span id="emailDisplay"></span></div>
+      </div>
+    </div>
+
+    <!-- Section 2: Document Details -->
+    <div class="section">
+      <div class="section-hdr"><span class="section-title">2 · Document Details</span></div>
+      <div class="field">
+        <label>Subject</label>
+        <input id="subject" class="fi" type="text" placeholder="e.g. Commercial Cleaning Proposal — OLA Condo Assoc">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Proposal date <span class="req">*</span></label>
+          <input id="proposalDate" class="fi" type="date">
+        </div>
+        <div class="field">
+          <label>Valid until</label>
+          <input id="validUntil" class="fi" type="date">
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>Payment terms</label>
+        <select id="paymentTerms" class="fi">
+          <option value="Due on Completion">Due on Completion</option>
+          <option value="Net 15">Net 15</option>
+          <option value="Net 30">Net 30</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Section 3: Scope -->
+    <div class="section">
+      <div class="section-hdr"><span class="section-title">3 · Scope of Work</span></div>
+      <div id="lineItemsContainer"></div>
+      <button class="add-line-btn" onclick="addLine()">+ Add Line Item</button>
+
+      <div class="totals-block">
+        <div class="totals-row">
+          <span style="color:var(--muted);">Subtotal</span>
+          <span id="subtotalDisplay">$0.00</span>
+        </div>
+        <div class="totals-row">
+          <div class="discount-row">
+            <label for="discountAmt">Discount</label>
+            <input id="discountAmt" class="discount-input fi" type="number" min="0" step="0.01" placeholder="0.00" oninput="updateTotals()">
+          </div>
+          <span id="discountDisplay" style="color:var(--red);display:none;">−$0.00</span>
+        </div>
+        <div class="totals-row total-final">
+          <span>TOTAL</span>
+          <span id="totalDisplay">$0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: Intro / Closing (collapsible) -->
+    <div class="section">
+      <div class="section-hdr">
+        <span class="section-title">4 · Intro &amp; Closing Text</span>
+        <button class="section-toggle" onclick="toggleSection4(this)">▼ Show</button>
+      </div>
+      <div id="section4Body" style="display:none;">
+        <div class="field">
+          <label>Intro paragraph</label>
+          <textarea id="introText" class="fi" rows="3" placeholder="Opening paragraph…"></textarea>
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label>Closing / terms paragraph</label>
+          <textarea id="closingText" class="fi" rows="3" placeholder="Payment terms, closing language…"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generate / Save button -->
+    <button id="generateBtn" class="btn btn-gold" onclick="generate()" disabled>
+      Generate Proposal
+    </button>
+    <p id="generateHint" style="text-align:center;font-size:12px;color:var(--muted);margin-top:.5rem;">
+      Select a client with email + add at least one line item
+    </p>
+
+  </div><!-- /stBuilder -->
+
+  <!-- Success state -->
+  <div id="stSuccess" class="state">
+    <div class="success-card">
+      <div style="font-size:36px;margin-bottom:.5rem;">✅</div>
+      <div class="success-num" id="successId">PROP-C-2026-0530-001</div>
+      <div class="success-total" id="successTotal"></div>
+      <div class="success-actions">
+        <button class="btn btn-sky" onclick="goView()">👁 View / Edit</button>
+        <button class="btn btn-outline" onclick="resetBuilder()">+ New Proposal</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+const DEFAULT_INTRO   = 'Thank you for the opportunity to provide this proposal. Pure Cleaning Pressure Cleaning, LLC is fully licensed and insured for all residential and commercial pressure washing services in South Florida.';
+const DEFAULT_CLOSING = 'Payment is due as specified above. We accept Zelle, check, cash, and Venmo. This proposal is valid until the date shown above. Pure Cleaning Pressure Cleaning, LLC · 954-389-2642 · purecleaningpressurecleaning.com';
+
+let allCommercial = [];  // all commercial customers loaded at init
+let selectedClient = null;  // the chosen customer object
+let lineCount = 0;
+let proposalMode = 'create';    // 'create' | 'edit'
+let editProposalId = null;
+let editProposalStatus = null;
+let isReadOnly = false;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  setDateDefaults();
+  document.getElementById('introText').value   = DEFAULT_INTRO;
+  document.getElementById('closingText').value = DEFAULT_CLOSING;
+  addLine(); // start with one blank line
+
+  try {
+    const r = await fetch(`${PCPC_API}/customers`);
+    const d = await r.json();
+    allCommercial = (d.customers || []).filter(c =>
+      c.customerType === 'commercial' &&
+      !c.isReferralOnly &&
+      !(c.phone || '').startsWith('REFERRAL_')
+    );
+  } catch (e) {
+    allCommercial = [];
+  }
+
+  const params = new URLSearchParams(location.search);
+
+  // ?proposalId= → edit mode (skip doors)
+  if (params.get('proposalId')) {
+    await loadProposalForEdit(params.get('proposalId'));
+    showState('stBuilder');
+    return;
+  }
+
+  // ?mode=build → user already chose "Build Proposal" from the doors
+  const pid   = params.get('personId');
+  const ph    = params.get('phone');
+  if (params.get('mode') === 'build') {
+    if (pid || ph) {
+      const norm = s => (s || '').replace(/\D/g, '').slice(-10);
+      const match = allCommercial.find(c =>
+        (pid && c.personId === pid) ||
+        (ph  && norm(c.phone) === norm(ph))
+      );
+      if (match) selectClient(match);
+    }
+    showState('stBuilder');
+    return;
+  }
+
+  // Default: show two-door choice
+  showState('stDoors');
+});
+
+function setDateDefaults() {
+  const today = localISODate();
+  const plus30 = new Date(); plus30.setDate(plus30.getDate() + 30);
+  document.getElementById('proposalDate').value = today;
+  document.getElementById('validUntil').value   = localISODate(plus30);
+}
+
+const localISODate = (d = new Date()) => {
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d - off).toISOString().split('T')[0];
+};
+
+function showState(id) {
+  document.querySelectorAll('.state').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ── Client Search ─────────────────────────────────────────────────────────────
+let _searchTimer = null;
+function onClientSearch(val) {
+  clearTimeout(_searchTimer);
+  const q = val.trim().toLowerCase();
+  const box = document.getElementById('searchResults');
+  if (!q) { box.style.display = 'none'; return; }
+  _searchTimer = setTimeout(() => {
+    const norm = s => (s || '').replace(/\D/g, '').slice(-10);
+    const matches = allCommercial.filter(c => {
+      const name = ((c.firstName || '') + ' ' + (c.lastName || '')).toLowerCase();
+      const phone = norm(c.phone);
+      return name.includes(q) || phone.includes(q.replace(/\D/g, ''));
+    }).slice(0, 8);
+    if (!matches.length) {
+      box.innerHTML = '<div class="search-item"><div class="si-name" style="color:var(--muted);">No commercial accounts found</div></div>';
+    } else {
+      box.innerHTML = matches.map(c => {
+        const name  = [c.firstName, c.lastName].filter(Boolean).join(' ');
+        const phone = (c.phone || '').replace(/\D/g,'').slice(-10)
+          .replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
+        return `<div class="search-item" onclick="selectClient(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+          <div class="si-name">${esc(name)}</div>
+          <div class="si-meta">${phone}${c.email ? ' · ' + esc(c.email) : ''}</div>
+        </div>`;
+      }).join('');
+    }
+    box.style.display = 'block';
+  }, 200);
+}
+
+function selectClient(c) {
+  selectedClient = c;
+  document.getElementById('searchResults').style.display = 'none';
+  document.getElementById('clientSearch').value = '';
+  document.getElementById('clientSearchArea').style.display = 'none';
+  document.getElementById('clientSelected').style.display = 'block';
+
+  const name = [c.firstName, c.lastName].filter(Boolean).join(' ');
+  const phone = (c.phone || '').replace(/\D/g,'').slice(-10)
+    .replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
+  document.getElementById('scName').textContent = name;
+  document.getElementById('scMeta').textContent = phone + (c.customerType ? ' · ' + c.customerType : '');
+
+  // Auto-fill subject if blank
+  const subj = document.getElementById('subject');
+  if (!subj.value.trim()) {
+    subj.value = `Commercial Cleaning Proposal — ${[c.firstName, c.lastName].filter(Boolean).join(' ')}`;
+  }
+
+  showEmailBlock(c.email);
+  checkGenerateReady();
+}
+
+function clearClient() {
+  selectedClient = null;
+  document.getElementById('clientSearchArea').style.display = 'block';
+  document.getElementById('clientSelected').style.display = 'none';
+  document.getElementById('emailWarn').style.display = 'none';
+  document.getElementById('emailOk').style.display = 'none';
+  checkGenerateReady();
+}
+
+function showEmailBlock(email) {
+  const warn = document.getElementById('emailWarn');
+  const ok   = document.getElementById('emailOk');
+  if (email) {
+    warn.style.display = 'none';
+    ok.style.display   = 'block';
+    document.getElementById('emailDisplay').textContent = email;
+    if (selectedClient) selectedClient.email = email;
+  } else {
+    ok.style.display   = 'none';
+    warn.style.display = 'block';
+  }
+}
+
+async function saveEmail() {
+  const emailVal = document.getElementById('emailInput').value.trim();
+  if (!emailVal || !emailVal.includes('@')) { alert('Enter a valid email address.'); return; }
+  if (!selectedClient?.personId) return;
+
+  const btn = document.querySelector('.ew-save');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+
+  try {
+    const r = await fetch(`${PCPC_API}/admin/person/${selectedClient.personId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: emailVal }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Save failed');
+    selectedClient.email = emailVal;
+    showEmailBlock(emailVal);
+    checkGenerateReady();
+  } catch (e) {
+    alert('Could not save email: ' + e.message);
+  } finally {
+    btn.textContent = 'Save'; btn.disabled = false;
+  }
+}
+
+// ── Line Items ─────────────────────────────────────────────────────────────────
+function addLine(desc = '', qty = 1, unit = '', price = '', lineTotal = 0) {
+  const idx = lineCount++;
+  const container = document.getElementById('lineItemsContainer');
+  const div = document.createElement('div');
+  div.className = 'line-item';
+  div.id = `li-${idx}`;
+  div.innerHTML = `
+    <button class="li-remove" onclick="removeLine('li-${idx}')" title="Remove">×</button>
+    <div class="li-desc-row">
+      <textarea class="fi" rows="2" placeholder="Describe the scope… e.g. Pressure wash all 4 building exteriors including balconies and walkways (approx. 12,000 sq ft)" oninput="updateTotals()">${esc(desc)}</textarea>
+    </div>
+    <div class="li-numbers-row">
+      <input class="fi" type="number" min="0.01" step="any" placeholder="Qty" value="${qty !== 1 ? qty : ''}" oninput="recalcLine('li-${idx}');" title="Quantity">
+      <input class="fi" type="text" placeholder="Unit" value="${esc(unit)}" title="Unit (optional)">
+      <input class="fi" type="number" min="0" step="0.01" placeholder="Unit price $" value="${price !== '' ? price : ''}" oninput="recalcLine('li-${idx}');" title="Unit price">
+      <div class="li-total-lbl" id="lt-${idx}">$${fmtMoney(lineTotal)}</div>
+    </div>`;
+  container.appendChild(div);
+  updateTotals();
+  checkGenerateReady();
+}
+
+function removeLine(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Don't remove last line
+  if (document.querySelectorAll('.line-item').length <= 1) {
+    alert('A proposal needs at least one line item.');
+    return;
+  }
+  el.remove();
+  updateTotals();
+  checkGenerateReady();
+}
+
+function recalcLine(liId) {
+  const li = document.getElementById(liId);
+  if (!li) return;
+  const idx = liId.split('-')[1];
+  const inputs = li.querySelectorAll('input[type=number]');
+  const qty   = parseFloat(inputs[0].value) || 1;
+  const price = parseFloat(inputs[1].value) || 0;
+  const total = qty * price;
+  document.getElementById(`lt-${idx}`).textContent = '$' + fmtMoney(total);
+  updateTotals();
+  checkGenerateReady();
+}
+
+function getLineItems() {
+  const items = [];
+  let i = 0;
+  document.querySelectorAll('.line-item').forEach(li => {
+    const ta     = li.querySelector('textarea');
+    const inputs = li.querySelectorAll('input[type=number]');
+    const unitIn = li.querySelectorAll('input[type=text]')[0];
+    const qty    = parseFloat(inputs[0].value) || 1;
+    const price  = parseFloat(inputs[1].value) || 0;
+    items.push({
+      description: (ta?.value || '').trim(),
+      quantity:    qty,
+      unit:        (unitIn?.value || '').trim() || null,
+      unitPrice:   price,
+      lineTotal:   Math.round(qty * price * 100) / 100,
+      sortOrder:   i++,
+    });
+  });
+  return items;
+}
+
+function updateTotals() {
+  const items    = getLineItems();
+  const subtotal = items.reduce((s, li) => s + li.lineTotal, 0);
+  const discount = parseFloat(document.getElementById('discountAmt').value) || 0;
+  const total    = Math.max(0, subtotal - discount);
+
+  document.getElementById('subtotalDisplay').textContent = '$' + fmtMoney(subtotal);
+  const dd = document.getElementById('discountDisplay');
+  if (discount > 0) { dd.style.display = 'inline'; dd.textContent = '−$' + fmtMoney(discount); }
+  else               { dd.style.display = 'none'; }
+  document.getElementById('totalDisplay').textContent = '$' + fmtMoney(total);
+}
+
+function fmtMoney(n) {
+  return Number(n || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// ── Section 4 toggle ──────────────────────────────────────────────────────────
+function toggleSection4(btn) {
+  const body = document.getElementById('section4Body');
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '▼ Show' : '▲ Hide';
+}
+
+// ── Generate ready check ──────────────────────────────────────────────────────
+function checkGenerateReady() {
+  if (isReadOnly) return;
+  const hasClient = !!selectedClient;
+  const hasEmail  = !!(selectedClient?.email);
+  const hasLines  = document.querySelectorAll('.line-item').length > 0 &&
+    [...document.querySelectorAll('.line-item input[type=number]')].some(
+      (el, i) => i % 2 === 1 && parseFloat(el.value) > 0 // unit price > 0 on at least one line
+    );
+
+  const btn  = document.getElementById('generateBtn');
+  const hint = document.getElementById('generateHint');
+
+  btn.disabled = !(hasClient && hasEmail && hasLines);
+  if (!hasClient)       hint.textContent = 'Select a client first';
+  else if (!hasEmail)   hint.textContent = 'Add the client\'s email to continue';
+  else if (!hasLines)   hint.textContent = 'Add at least one line item with a price';
+  else                  hint.textContent = '';
+}
+
+// ── Generate / Save ───────────────────────────────────────────────────────────
+async function generate() {
+  const btn = document.getElementById('generateBtn');
+  btn.textContent = proposalMode === 'edit' ? 'Saving…' : 'Generating…';
+  btn.disabled = true;
+
+  const lineItems  = getLineItems();
+  const subtotal   = lineItems.reduce((s, li) => s + li.lineTotal, 0);
+  const discountAmt = parseFloat(document.getElementById('discountAmt').value) || null;
+  const total       = Math.max(0, subtotal - (discountAmt || 0));
+
+  const payload = {
+    personId:     selectedClient.personId,
+    sector:       'commercial',
+    proposalDate: document.getElementById('proposalDate').value,
+    validUntil:   document.getElementById('validUntil').value || null,
+    subject:      document.getElementById('subject').value.trim() || null,
+    paymentTerms: document.getElementById('paymentTerms').value,
+    introText:    document.getElementById('introText').value.trim() || null,
+    closingText:  document.getElementById('closingText').value.trim() || null,
+    discountAmt:  discountAmt,
+    lineItems,
+  };
+
+  try {
+    let r, d;
+    if (proposalMode === 'edit') {
+      r = await fetch(`${PCPC_API}/admin/proposal/${editProposalId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Save failed');
+      showSuccess(editProposalId, total);
+    } else {
+      r = await fetch(`${PCPC_API}/admin/proposal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Create failed');
+      showSuccess(d.proposalId, d.total);
+    }
+  } catch (e) {
+    alert('Error: ' + e.message);
+    btn.textContent = proposalMode === 'edit' ? 'Save Changes' : 'Generate Proposal';
+    btn.disabled = false;
+  }
+}
+
+function showSuccess(proposalId, total) {
+  document.getElementById('successId').textContent = proposalId;
+  document.getElementById('successTotal').textContent =
+    `$${fmtMoney(total)} draft created`;
+  editProposalId = proposalId;
+  showState('stSuccess');
+}
+
+function goView() {
+  location.href = `pure_cleaning_proposal_builder.html?proposalId=${encodeURIComponent(editProposalId)}`;
+}
+
+function resetBuilder() {
+  location.href = 'pure_cleaning_proposal_builder.html';
+}
+
+// ── Load for edit ─────────────────────────────────────────────────────────────
+async function loadProposalForEdit(pid) {
+  try {
+    const r = await fetch(`${PCPC_API}/admin/proposal/${pid}`);
+    const d = await r.json();
+    if (!r.ok) { alert('Proposal not found: ' + pid); return; }
+
+    const { proposal: p, lineItems } = d;
+    editProposalId     = p.proposalId;
+    editProposalStatus = p.status;
+
+    // Read-only if already sent/accepted/etc.
+    isReadOnly = p.status !== 'draft';
+
+    document.getElementById('pageTitle').textContent =
+      isReadOnly ? `Proposal ${p.proposalId}` : `Edit Proposal ${p.proposalId}`;
+    document.getElementById('pageSubtitle').textContent =
+      `${p.sector} · ` + formatStatus(p.status);
+
+    if (isReadOnly) {
+      document.getElementById('readonlyNotice').style.display = 'block';
+      document.getElementById('readonlyStatus').textContent   = p.status;
+      document.getElementById('generateBtn').style.display    = 'none';
+      document.getElementById('generateHint').style.display   = 'none';
+      document.getElementById('changeClientBtn').style.display = 'none';
+    } else {
+      proposalMode = 'edit';
+      document.getElementById('generateBtn').textContent = 'Save Changes';
+    }
+
+    // Pre-select client from loaded proposal
+    const clientObj = {
+      personId:    p.personId,
+      firstName:   p.firstName || '',
+      lastName:    p.lastName  || '',
+      email:       p.email     || null,
+      phone:       (p.primaryPhone || '').replace(/\D/g,'').slice(-10),
+      customerType: p.customerType,
+    };
+    selectClient(clientObj);
+
+    // Populate fields
+    document.getElementById('subject').value      = p.subject      || '';
+    document.getElementById('proposalDate').value = p.proposalDate || localISODate();
+    document.getElementById('validUntil').value   = p.validUntil   || '';
+    document.getElementById('paymentTerms').value = p.paymentTerms || 'Due on Completion';
+    document.getElementById('introText').value    = p.introText    || DEFAULT_INTRO;
+    document.getElementById('closingText').value  = p.closingText  || DEFAULT_CLOSING;
+    if (p.discountAmt) document.getElementById('discountAmt').value = p.discountAmt;
+
+    // Load line items
+    document.getElementById('lineItemsContainer').innerHTML = '';
+    lineCount = 0;
+    if (lineItems.length) {
+      lineItems.forEach(li => addLine(li.description, li.quantity, li.unit || '', li.unitPrice, li.lineTotal));
+    } else {
+      addLine();
+    }
+
+    if (isReadOnly) {
+      // Disable all inputs
+      document.querySelectorAll('#stBuilder input, #stBuilder textarea, #stBuilder select').forEach(el => el.disabled = true);
+    }
+
+    checkGenerateReady();
+    updateTotals();
+
+  } catch (e) {
+    alert('Failed to load proposal: ' + e.message);
+  }
+}
+
+function formatStatus(s) {
+  return { draft:'Draft', sent:'Sent', awaiting_acceptance:'Awaiting Acceptance',
+           accepted:'Accepted', declined:'Declined', expired:'Expired' }[s] || s;
+}
+
+function esc(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function chooseDoor(door) {
+  const params = new URLSearchParams(location.search);
+  const phone    = params.get('phone')    || '';
+  const personId = params.get('personId') || '';
+  const ctx = [phone && `phone=${phone}`, personId && `personId=${personId}`].filter(Boolean).join('&');
+  if (door === 'build') {
+    const qs = ['mode=build', ctx].filter(Boolean).join('&');
+    location.href = '/pure_cleaning_proposal_builder.html?' + qs;
+  } else {
+    location.href = '/pure_cleaning_commercial_quick_add.html' + (ctx ? '?' + ctx : '');
+  }
+}
+</script>
+</body>
+</html>

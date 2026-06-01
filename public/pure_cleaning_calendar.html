@@ -606,6 +606,7 @@ body{background:#f0f2f5;}
 .day-col:last-child{border-right:none;}
 .past-col{opacity:.72;}
 .today-col{background:#fffdf5;}
+.weekend-col{background:#f3f5f9;} /* Sat/Sun cool-grey tint — worked less */
 
 /* ── Day header (week view) ── */
 .day-hdr{
@@ -627,6 +628,8 @@ body{background:#f0f2f5;}
 .dh-name{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.8px;color:rgba(255,255,255,.38);margin-bottom:3px;}
 .dh-date{font-size:19px;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums;}
 .dh-date.dh-today{color:var(--gold);}
+.dh-holiday{font-size:10px;margin-top:3px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dh-holiday-name{font-family:Arial,sans-serif;font-size:8px;font-weight:700;letter-spacing:.4px;color:rgba(255,255,255,.52);text-transform:uppercase;}
 
 .dh-wx{font-size:11px;font-weight:600;color:rgba(255,255,255,.55);display:flex;align-items:center;gap:3px;white-space:nowrap;margin-top:2px;}
 .dh-wx span{font-size:10px;color:rgba(255,255,255,.4);}
@@ -1628,6 +1631,7 @@ function windowLabel(ss) {
 let dbRecord      = {};
 let calendarJobs  = []; // flat D1 job rows for current view window — Phase 2B-1
 let calendarJobsWeekStart = null; // tracks which weekStart calendarJobs[] was loaded for
+const _bouncieRigDaySummaryCache = {}; // date → { rig_1: {...} } | null (null = fetched, no data)
 let _lastLoadedWeekStart  = null; // tracks in-flight or completed week load; prevents fetch storms during drag preload
 let _loadRequestId        = 0;    // monotonic counter — only the latest loadCalendarJobs() writes calendarJobs[]
 let dayOffset     = 0; // days from today; drives day-by-day sliding window
@@ -2700,14 +2704,59 @@ const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 
 const RIG_CAP_COLORS = { rig_1:'#3b82f6', rig_2:'#10b981', rig_3:'#f97316' };
 
+// ── Holiday + weekend calendar cosmetics ─────────────────────────────────────
+const FIXED_HOLIDAYS = {
+  '0101':{ emoji:'🎆', label:"New Year's Day",    tint:'rgba(99,102,241,.07)' },
+  '0214':{ emoji:'💕', label:"Valentine's Day",   tint:'rgba(236,72,153,.07)' },
+  '0317':{ emoji:'🍀', label:"St. Patrick's Day", tint:'rgba(22,163,74,.08)'  },
+  '0505':{ emoji:'🌴', label:'Cinco de Mayo',     tint:'rgba(234,179,8,.07)'  },
+  '0704':{ emoji:'🎇', label:'Independence Day',  tint:'rgba(220,38,38,.07)'  },
+  '1031':{ emoji:'🎃', label:'Halloween',         tint:'rgba(194,65,12,.10)'  },
+  '1111':{ emoji:'🇺🇸',label:'Veterans Day',      tint:'rgba(30,58,138,.07)'  },
+  '1224':{ emoji:'🎄', label:'Christmas Eve',     tint:'rgba(22,163,74,.07)'  },
+  '1225':{ emoji:'🎄', label:'Christmas Day',     tint:'rgba(22,163,74,.09)'  },
+  '1231':{ emoji:'🥂', label:"New Year's Eve",    tint:'rgba(99,102,241,.07)' },
+};
+function _computeEaster(yr) {
+  const a=yr%19,b=Math.floor(yr/100),c=yr%100,d=Math.floor(b/4),e=b%4;
+  const f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3);
+  const h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4;
+  const l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+  const mo=Math.floor((h+l-7*m+114)/31)-1,day=((h+l-7*m+114)%31)+1;
+  return new Date(yr,mo,day);
+}
+// n>0: nth weekday of month; n=-1: last weekday of month
+function _nthWeekday(yr,mo,weekday,n) {
+  if(n>0){const d=new Date(yr,mo,1);let ct=0;while(d.getMonth()===mo){if(d.getDay()===weekday&&++ct===n)return new Date(d);d.setDate(d.getDate()+1);}}
+  else{const d=new Date(yr,mo+1,0);while(d.getDay()!==weekday)d.setDate(d.getDate()-1);return new Date(d);}
+}
+const _holYearCache = {};
+function _getHolidayForDate(dateStr) {
+  const d  = new Date(dateStr+'T12:00:00'), yr = d.getFullYear();
+  const key = String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+  if (!_holYearCache[yr]) {
+    const v   = { ...FIXED_HOLIDAYS };
+    const _hk = d2 => String(d2.getMonth()+1).padStart(2,'0') + String(d2.getDate()).padStart(2,'0');
+    v[_hk(_computeEaster(yr))]      = { emoji:'🐣', label:'Easter',        tint:'rgba(168,85,247,.07)' };
+    v[_hk(_nthWeekday(yr,4,0,2))]   = { emoji:'💐', label:"Mother's Day",  tint:'rgba(236,72,153,.06)' }; // 2nd Sun May (South FL)
+    v[_hk(_nthWeekday(yr,4,1,-1))]  = { emoji:'🇺🇸',label:'Memorial Day',  tint:'rgba(30,58,138,.07)'  }; // last Mon May
+    v[_hk(_nthWeekday(yr,8,1,1))]   = { emoji:'👷', label:'Labor Day',     tint:'rgba(30,64,175,.07)'  }; // 1st Mon Sep
+    v[_hk(_nthWeekday(yr,10,4,4))]  = { emoji:'🦃', label:'Thanksgiving',  tint:'rgba(194,97,40,.08)'  }; // 4th Thu Nov
+    _holYearCache[yr] = v;
+  }
+  return _holYearCache[yr][key] || null;
+}
+
 function renderCalGrid(dates) {
   const today = isoToday();
   const html = dates.map(date => {
     const d = new Date(date+'T12:00:00');
     const dayName = DAY_NAMES[d.getDay()];
     const dayLabel = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
-    const isToday = date === today;
-    const isPast  = date < today;
+    const isToday   = date === today;
+    const isPast    = date < today;
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    const holiday   = _getHolidayForDate(date);
     const dayTotal = calculateDayTotal(date);
     const dayCollected = calculateDayCollected(date);
     // Exclude canceled/no_show from the header count (includes unassigned)
@@ -2789,12 +2838,15 @@ function renderCalGrid(dates) {
     const optAllHtml = hasMultiJobRigs
       ? `<button class="day-opt-all-btn" onclick="event.stopPropagation();promptOptimizeAll('${date}')">🧭 Optimize</button>` : '';
 
-    return `<div class="day-col${isToday?' today-col':''}${isPast?' past-col':''}">
+    const _colCls   = ['day-col',isToday&&'today-col',isPast&&'past-col',isWeekend&&'weekend-col',holiday&&'holiday-col'].filter(Boolean).join(' ');
+    const _colStyle = holiday&&!isToday ? ` style="background:${holiday.tint};"` : '';
+    return `<div class="${_colCls}"${_colStyle}>
       <div class="day-hdr" onclick="switchView('day');renderDayView('${date}')" title="Open day view">
         <div class="dh-top">
           <div class="dh-left">
             <div class="dh-name">${dayName}</div>
             <div class="dh-date${isToday?' dh-today':''}">${dayLabel}</div>
+            ${holiday ? `<div class="dh-holiday">${holiday.emoji} <span class="dh-holiday-name">${holiday.label}</span></div>` : ''}
           </div>
           <div class="dh-right">${wxHtml}</div>
         </div>
@@ -5120,9 +5172,12 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const storyStr  = stories ? `${stories}-story` : null;
   const gateCode  = c.gateCode || null;
   // Issue 4 — end customer (partner jobs only)
-  const endCustName  = c.endCustomerName  || qs.partnerWorkSite?.endCustName  || null;
-  const endCustPhone = c.endCustomerPhone || qs.partnerWorkSite?.endCustPhone || null;
-  const endCustLine  = [endCustName, endCustPhone ? fmtPh(endCustPhone) : null].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  // Guard against literal placeholder strings from old partner quote flow (e.g. stored "worksite").
+  const _rawEndCust   = c.endCustomerName || qs.partnerWorkSite?.endCustName || null;
+  const _ENDCUST_JUNK = /^(worksite|work\s*site|end\s*customer|placeholder|n\/a|tbd)$/i;
+  const endCustName   = (_rawEndCust && !_ENDCUST_JUNK.test(_rawEndCust.trim())) ? _rawEndCust : null;
+  const endCustPhone  = c.endCustomerPhone || qs.partnerWorkSite?.endCustPhone || null;
+  const endCustLine   = [endCustName, endCustPhone ? fmtPh(endCustPhone) : null].filter(Boolean).join(' &nbsp;·&nbsp; ');
   const gateStr   = gateCode ? `Gate: ${gateCode}` : null;
   const _dirs = new Set(['n','s','e','w','nw','ne','sw','se','nne','nnw','sse','ssw']);
   const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
@@ -5130,6 +5185,9 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   // partner's own billing address. workSiteAddress is copied into printC from
   // the D1 Job row by printJobSheet. Fall back to c.address if no work site set.
   const isPartner   = c.customerType === 'partner_referral';
+  // Partner: prefer businessName (e.g. "Carlos Pro Built") over firstName+lastName.
+  // Regular customer: use name as-is.
+  const displayName = (isPartner && c.businessName) ? c.businessName : name;
   const displayAddr = isPartner ? (c.workSiteAddress || c.address) : c.address;
   const displayCity = isPartner ? (c.workSiteCity    || c.city)    : c.city;
   const addrLine  = _titleAddr(displayAddr||'');
@@ -5213,6 +5271,9 @@ table{width:auto;border-collapse:collapse;}
 .js-propdetails-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;white-space:nowrap;}
 .js-propdetails-val{font-family:Arial,sans-serif;font-size:11pt;font-weight:600;color:#0a1628;}
 .js-propdetails-item{display:flex;flex-direction:column;gap:2px;}
+.js-circle-row{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:4px;}
+.js-circle-lbl{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#555;margin-right:3px;}
+.js-circle-opt{font-family:Arial,sans-serif;font-size:8pt;font-weight:600;color:#111;border:1.5pt solid #777;border-radius:20pt;padding:1.5pt 7pt;white-space:nowrap;line-height:1.6;}
 @media print{.svc-item{cursor:default;}.js-sheet{min-height:0;}}
 </style>
 
@@ -5223,6 +5284,18 @@ table{width:auto;border-collapse:collapse;}
     <div class="js-company">
       <div class="js-company-name">PURE CLEANING PRESSURE CLEANING<br>COMMERCIAL AND RESIDENTIAL</div>
       <div class="js-company-sub">16621 SW 62ND STREET &nbsp;·&nbsp; SOUTHWEST RANCHES, FLORIDA 33331<br>PHONE: 954-389-2642 &nbsp;·&nbsp; EMAIL: pure_cleaning@live.com</div>
+      <div class="js-circle-row">
+        <span class="js-circle-lbl">JOB:</span>
+        <span class="js-circle-opt">1</span>
+        <span class="js-circle-opt">2</span>
+        <span class="js-circle-opt">3</span>
+      </div>
+      <div class="js-circle-row">
+        <span class="js-circle-lbl">TRUCK:</span>
+        <span class="js-circle-opt">New Tacoma</span>
+        <span class="js-circle-opt">Old Tacoma</span>
+        <span class="js-circle-opt">Chevy</span>
+      </div>
     </div>
   </div>
 
@@ -5241,7 +5314,7 @@ table{width:auto;border-collapse:collapse;}
     <div class="js-cust">
       <div class="js-cust-label">Customer</div>
       <div>
-        <div class="js-cust-name">${esc(name)}</div>
+        <div class="js-cust-name">${esc(displayName)}</div>
       </div>
       <div>
         <div class="js-cust-address">${addrHtml}</div>
@@ -5251,7 +5324,7 @@ table{width:auto;border-collapse:collapse;}
 
     ${isPartner && endCustLine ? `
     <div class="js-endcust">
-      <div class="js-endcust-label">End Customer (Work Site)</div>
+      <div class="js-endcust-label">Customer name</div>
       <div class="js-endcust-val">${endCustLine}</div>
     </div>` : ''}
 
@@ -6246,6 +6319,14 @@ async function saveFullEdit() {
     }
     const _gc = document.getElementById('feGateCode').value.trim() || null;
     c.gateCode = _gc;
+    // Bug 1 fix: write address edit to KV blob so saveDb() (line 6359) propagates it.
+    // Mirror the fallback-KV branch which already has `if (addr) c.address = addr`.
+    // _addressEdited flag tells _d1SyncCustomersPut to promote (not just insert) the new property.
+    if (addr) {
+      if (addr !== (c.address||'') || city !== (c.city||'')) c._addressEdited = true;
+      c.address = addr;
+      c.city    = city;
+    }
     if (phoneChanged) { c.phone = newPhone; logEvent('phone_changed', newPhone, { oldPhone: _fePhone, newPhone, changedBy:'admin' }); }
     // Mirror rig change to local dbRecord so render() places card in correct lane immediately
     // and saveDb() writes the correct rig to KV (prevents stale-null overwriting _patchJobKvSync).
@@ -6899,7 +6980,7 @@ function renderDayRigGrid(date) {
       const { departMin, returnMin, totalMin, totalMi, hasCoords, warnings } = daySummary;
       const dh = Math.floor(totalMin/60), dm = totalMin%60;
       const durStr = `${dh}h ${String(dm).padStart(2,'0')}m`;
-      const miStr  = totalMi ? ` · <b>🚗 ~${totalMi.toFixed(1)} mi</b>` : '';
+      const miStr  = totalMi ? ` · <b>🚗 ~${totalMi.toFixed(1)} mi</b> <span style="font-size:9px;opacity:.45;font-weight:400;">(est.)</span>` : '';
       const timeLine = hasCoords
         ? `<b>${minsToTime(departMin)}</b> depart → <b>${minsToTime(returnMin)}</b> return · <b>${durStr}</b>${miStr}`
         : `<b>${minsToTime(daySummary.departMin || activeJobs[0]?.scheduledStatus?.window ? (WIN_START_MINS[activeJobs[0].scheduledStatus.window] || 9*60+30) : 9*60+30)}</b> first job · <b>${durStr}</b> est.`;
@@ -7357,6 +7438,9 @@ function renderDayRollup(date) {
   const fmtPct = p => p != null ? `${Math.round(p)}%` : null;
   const mCls   = p => p == null ? '' : p >= 75 ? 'margin-good' : p >= 60 ? '' : p >= 50 ? 'margin-warn' : 'margin-bad';
 
+  const isFutureDay = date > isoToday();
+  const estBadge    = ' <span style="font-size:9px;opacity:.45;font-weight:400;">(est.)</span>';
+
   const rigData = RIGS.map(rig => {
     const allJobs = getScheduledForRig(date, rig);
     const active  = allJobs.filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
@@ -7372,13 +7456,24 @@ function renderDayRollup(date) {
     }, 0);
 
     // Door-to-door summary (reads _estTimeMap populated by buildWindowLanes)
-    const summary = computeRigDaySummary(active);
-    const totalWorkMin = summary?.totalMin || 0;
-    const driveMin     = Math.max(0, totalWorkMin - onSiteMin);
-    const totalMi      = summary?.totalMi ?? null;
+    const summary    = computeRigDaySummary(active);
+    const bouncieDay = (_bouncieRigDaySummaryCache[date] || {})[rig] || null;
+    const isMiReal   = bouncieDay?.totalDriveMiles != null;
 
-    // Costs
-    const fuelCost   = totalMi != null ? totalMi * cfg.fuelPerMi : null;
+    // Drive miles + time: real Bouncie when available, haversine estimate otherwise
+    const totalMi    = isMiReal ? bouncieDay.totalDriveMiles : (summary?.totalMi ?? null);
+    const driveMin   = isMiReal ? (bouncieDay.totalDriveMin  ?? 0)
+                                : Math.max(0, (summary?.totalMin || 0) - onSiteMin);
+    const totalWorkMin = isMiReal
+      ? (bouncieDay.fullDayMin ?? (driveMin + onSiteMin))
+      : (summary?.totalMin || 0);
+
+    // fuelCost: REAL miles only — null for past/today with no Bouncie data; est for future
+    const fuelCost = isMiReal         ? totalMi * cfg.fuelPerMi
+                   : isFutureDay      ? (totalMi != null ? totalMi * cfg.fuelPerMi : null)
+                   : /* past, no GPS */ null;
+    const fuelIsEst = !isMiReal && isFutureDay && fuelCost != null;
+
     const laborCost  = totalWorkMin > 0 ? (totalWorkMin / 60) * cfg.laborPerHr : null;
     const expData    = loadDayExpenses(date, rig);
     const expTotal   = getExpenseTotal(expData);
@@ -7392,7 +7487,7 @@ function renderDayRollup(date) {
     if (marginPct !== null && marginPct < 60) warns.push(`⚠️ Low margin — ${fmtPct(marginPct)}`);
     if (totalMi && totalMi > 50) warns.push(`⚠️ Long drive day`);
 
-    return { rig, revenue, jobCount, onSiteMin, driveMin, totalWorkMin, totalMi, fuelCost, laborCost, expData, expTotal, totalCost, margin, marginPct, warns, summary };
+    return { rig, revenue, jobCount, onSiteMin, driveMin, totalWorkMin, totalMi, isMiReal, fuelCost, fuelIsEst, laborCost, expData, expTotal, totalCost, margin, marginPct, warns, summary, bouncieDay };
   }).filter(Boolean);
 
   if (!rigData.length) { el.innerHTML = ''; return; }
@@ -7413,12 +7508,30 @@ function renderDayRollup(date) {
       <div class="ops-grid">
         <span class="ops-metric">Revenue</span>
         <span class="ops-val">$${r.revenue.toLocaleString('en-US',{maximumFractionDigits:0})} · ${r.jobCount} job${r.jobCount!==1?'s':''}</span>
-        ${r.totalWorkMin > 0 ? `<span class="ops-metric">Working hrs</span><span class="ops-val">${fmtMin(r.totalWorkMin)}${r.summary?.departMin != null ? ` <span style="font-weight:400;color:var(--muted)">(${minsToTime(r.summary.departMin)} – ${minsToTime(r.summary.returnMin)})</span>` : ''}</span>` : ''}
+        ${r.totalWorkMin > 0 ? (() => {
+            const _fmtSpan = iso => iso ? new Date(iso).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}) : '?';
+            const spanStr  = r.bouncieDay?.departAt
+              ? ` <span style="font-weight:400;color:var(--muted)">(${_fmtSpan(r.bouncieDay.departAt)} – ${_fmtSpan(r.bouncieDay.returnAt)})</span>`
+              : r.summary?.departMin != null
+              ? ` <span style="font-weight:400;color:var(--muted)">(${minsToTime(r.summary.departMin)} – ${minsToTime(r.summary.returnMin)}${estBadge})</span>`
+              : '';
+            return `<span class="ops-metric">Working hrs</span><span class="ops-val">${fmtMin(r.totalWorkMin)}${spanStr}</span>`;
+          })() : ''}
         ${r.onSiteMin > 0 ? `<span class="ops-metric">On-site</span><span class="ops-val">${fmtMin(r.onSiteMin)}</span>` : ''}
-        ${r.driveMin > 0 ? `<span class="ops-metric">In transit</span><span class="ops-val">${fmtMin(r.driveMin)}${r.totalMi ? ` · ${fmtMi(r.totalMi)}` : ''}</span>` : (r.totalMi ? `<span class="ops-metric">Drive distance</span><span class="ops-val">${fmtMi(r.totalMi)}</span>` : '')}
+        ${r.driveMin > 0 || r.totalMi ? (() => {
+            const miTxt = r.totalMi != null
+              ? (r.isMiReal ? ` · ${Number(r.totalMi).toFixed(1)} mi` : ` · ~${Number(r.totalMi).toFixed(1)} mi${estBadge}`)
+              : '';
+            const minTxt = r.driveMin > 0
+              ? (r.isMiReal ? fmtMin(r.driveMin) : `~${fmtMin(r.driveMin)}${estBadge}`)
+              : '';
+            const label = r.driveMin > 0 ? 'In transit' : 'Drive distance';
+            const val   = r.driveMin > 0 ? `${minTxt}${miTxt}` : miTxt.trim();
+            return `<span class="ops-metric">${label}</span><span class="ops-val">${val}</span>`;
+          })() : ''}
       </div>
       <div style="border-top:1px solid var(--border);padding-top:6px;margin-top:2px;">
-        ${r.fuelCost != null ? `<div class="ops-cost-line">⛽ Fuel est. <span>${fmtMi(r.totalMi)} × $${cfg.fuelPerMi.toFixed(2)}/mi = ${fmtDol(r.fuelCost)}</span></div>` : ''}
+        ${r.fuelCost != null ? `<div class="ops-cost-line">${r.fuelIsEst ? '⛽ Fuel est.' : '⛽ Fuel'} <span>${r.isMiReal ? Number(r.totalMi).toFixed(1) : '~'+Number(r.totalMi).toFixed(1)} mi × $${cfg.fuelPerMi.toFixed(2)}/mi = ${fmtDol(r.fuelCost)}</span>${r.fuelIsEst ? estBadge : ''}</div>` : ''}
         ${r.laborCost != null ? `<div class="ops-cost-line">👷 Labor <span>${(r.totalWorkMin/60).toFixed(1)} hr × $${cfg.laborPerHr}/hr = ${fmtDol(r.laborCost)}</span></div>` : ''}
         ${r.expTotal > 0 ? `<div class="ops-cost-line">📒 Logged expenses <span>${fmtDol(r.expTotal)}</span></div>` : ''}
         ${r.totalCost > 0 ? `<div class="ops-cost-line total"><span>Net / margin</span><span class="${mCls(r.marginPct)}">${fmtDol(r.margin)} · ${fmtPct(r.marginPct)}</span></div>` : ''}
@@ -7458,6 +7571,36 @@ function renderDayRollup(date) {
       </div>
     </div>
   </div>`;
+
+  // Async Bouncie enrichment: fetch real TruckEvent sums for past/current days
+  // and re-render once if real data is found. No-op for future days.
+  if (!isFutureDay) _enrichDayRollupWithBouncie(date);
+}
+
+// Fetch real Bouncie day summaries (TruckEvent drive sums + day span) per rig for a
+// given date. Caches result keyed by date: a non-null object means real data was found
+// and renderDayRollup was re-called; null means fetched but nothing available.
+// Idempotent: skips if date already in cache (including null — "fetched, found nothing").
+async function _enrichDayRollupWithBouncie(date) {
+  if (date in _bouncieRigDaySummaryCache) return; // already fetched for this date
+
+  const results = await Promise.all(
+    RIGS.map(rig =>
+      fetch(`${PCPC_API}/admin/rig-day-summary?date=${date}&rig=${rig}`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    )
+  );
+
+  const byRig = {};
+  for (let i = 0; i < RIGS.length; i++) {
+    const d = results[i];
+    if (d?.source === 'truckevent') byRig[RIGS[i]] = d;
+  }
+
+  const hasData = Object.keys(byRig).length > 0;
+  _bouncieRigDaySummaryCache[date] = hasData ? byRig : null;
+  if (hasData) renderDayRollup(date); // re-render with real data in place of estimates
 }
 
 // ── DAY NAVIGATION ────────────────────────────────────────────────────────────
