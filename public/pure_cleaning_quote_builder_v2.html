@@ -316,9 +316,9 @@ select option{background:var(--white);}
   <div id="v2StorySel" style="display:none;padding:0 0 4px 0;">
     <div style="display:inline-flex;align-items:center;gap:14px;padding:7px 12px;background:rgba(194,65,12,.07);border:1px solid rgba(194,65,12,.22);border-radius:8px;">
       <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#6b7280;">Stories:</span>
-      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2Stories1" value="1" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
-      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" value="2" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 2-Story</label>
-      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2StoriesUnk" value="" checked style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> Unknown</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2Stories1" value="1" onchange="_userSetStories=true;saveDraft();" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 1-Story</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" value="2" onchange="_userSetStories=true;saveDraft();" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> 2-Story</label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;"><input type="radio" name="v2RoofStories" id="v2StoriesUnk" value="" checked onchange="_userSetStories=true;saveDraft();" style="accent-color:#c2410c;width:15px;height:15px;cursor:pointer;"> Unknown</label>
     </div>
   </div>
 
@@ -476,6 +476,10 @@ const FLOOR_ADDONS = [{id:'walls',label:'Rinse Walls',icon:'🧱',desc:'Add full
 
 let services = [];
 let quotes = JSON.parse(localStorage.getItem('pureCleaningQuotesV2') || '[]');
+// Fix 1: tracks whether Tyler has MANUALLY selected a story on this session.
+// When true, checkCustomerAlerts must NEVER overwrite with history — sticky by design.
+// Set synchronously on click so the guard catches any async that resolves afterward.
+let _userSetStories = false;
 
 function getLastKnownRoofStories(cust) {
   if (!cust || !Array.isArray(cust.jobHistory)) return null;
@@ -551,9 +555,13 @@ function checkCustomerAlerts(phone) {
   getCachedCustomerDB().then(data => {
     const c = ((data||{}).customers||[]).find(x => x.phone === phone);
     if (!c) return;
-    // Pre-populate stories from history when selector is visible
+    // Pre-populate stories from history — but ONLY if Tyler hasn't already made
+    // a manual selection (_userSetStories). The flag is set synchronously on click,
+    // so it will already be true if Tyler clicked before this async resolved.
+    // This preserves the helpful "default from history" UX without ever overwriting
+    // a deliberate selection (the original async-overwrite root cause).
     const lastKnown = getLastKnownRoofStories(c);
-    if (lastKnown) {
+    if (lastKnown && !_userSetStories) {
       const r = document.querySelector(`input[name=v2RoofStories][value="${lastKnown}"]`);
       if (r) r.checked = true;
     }
@@ -807,7 +815,8 @@ async function generateQuote() {
   const miniData = {
     addOns: enabledAddons.map(a => ({
       id: a.id || a.label, name: a.label, icon: a.icon || '✨',
-      bundle: a.price, standalone: a.price, savings: 0, note: a.desc || '', enabled: true
+      bundle: a.price, standalone: a.price, savings: 0, note: a.desc || '', enabled: true,
+      regularPrice: a.regularPrice || 0,  // Fix 2: thread the "Reg $" field through to customer quote
     })),
     customAddOns: [],
     sealingOffered: true,
@@ -1090,6 +1099,7 @@ function saveDraft() {
   clearTimeout(_draftTimer);
   _draftTimer = setTimeout(() => {
     try {
+      const _draftStoryVal = document.querySelector('input[name=v2RoofStories]:checked')?.value ?? null;
       const draft = {
         fn: document.getElementById('custFirst')?.value || '',
         ln: document.getElementById('custLast')?.value || '',
@@ -1099,6 +1109,8 @@ function saveDraft() {
         roofSqFt: document.getElementById('roofSqFt')?.value || '',
         price: document.getElementById('quotePricePressure')?.value || '',
         services: [...services],
+        roofStories: _userSetStories ? _draftStoryVal : null, // only persist if user explicitly set it
+        userSetStories: _userSetStories,
         primaryDate: document.getElementById('primaryDate')?.value || '',
         altDate1: document.getElementById('altDate1')?.value || '',
         altDate2: document.getElementById('altDate2')?.value || '',
@@ -1130,6 +1142,13 @@ function restoreDraft() {
     if (d.roofSqFt) document.getElementById('roofSqFt').value = d.roofSqFt;
     if (d.price) document.getElementById('quotePricePressure').value = d.price;
     if (d.services && d.services.length) { services = d.services; renderChips(); renderAddons(); }
+    // Restore story selection if user had explicitly set it.
+    // Also restore _userSetStories so checkCustomerAlerts won't overwrite a restored deliberate pick.
+    if (d.userSetStories && d.roofStories !== null && d.roofStories !== undefined) {
+      const _restoreVal = String(d.roofStories); // '' for Unknown, '1', or '2'
+      const _restoreR = document.querySelector(`input[name=v2RoofStories][value="${_restoreVal}"]`);
+      if (_restoreR) { _restoreR.checked = true; _userSetStories = true; }
+    }
     if (d.primaryDate) document.getElementById('primaryDate').value = d.primaryDate;
     if (d.altDate1) document.getElementById('altDate1').value = d.altDate1;
     if (d.altDate2) document.getElementById('altDate2').value = d.altDate2;
