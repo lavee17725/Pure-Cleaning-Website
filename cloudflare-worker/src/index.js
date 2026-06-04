@@ -994,6 +994,11 @@ export default {
       if (path === 'admin/multi-property-audit' && request.method === 'GET')
         return await handleMultiPropertyAudit(env, corsHeaders);
 
+      // Part C: JOB_PROPERTY_AMBIGUOUS — jobs where workSiteAddress ≠ bound Property.streetAddress
+      // Scoped to residential customers; partner_referral mismatch is intentional by design.
+      if (path === 'admin/diagnostics/property-audit' && request.method === 'GET')
+        return await handlePropertyAudit(env, corsHeaders);
+
       if (path === 'admin/migrate-review-states' && request.method === 'POST')
         return await handleMigrateReviewStates(env, corsHeaders);
 
@@ -3820,6 +3825,52 @@ async function handleMultiPropertyAudit(env, corsHeaders) {
       totalMultiPropertyCount: result.length,
     }, corsHeaders);
   } catch (e) {
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── Part C: JOB_PROPERTY_AMBIGUOUS diagnostic ────────────────────────────────
+// GET /admin/diagnostics/property-audit
+// Returns open residential jobs where workSiteAddress is set but differs from the
+// bound Property.streetAddress — the Oscar-signature mismatch.
+// partner_referral is explicitly excluded: their billing/workSite split is by design.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function handlePropertyAudit(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT
+        j.jobId,
+        j.payerId,
+        j.scheduledDate,
+        j.state,
+        j.workSiteAddress,
+        j.workSiteCity,
+        p.streetAddress  AS boundAddr,
+        p.city           AS boundCity,
+        per.firstName,
+        per.lastName,
+        per.primaryPhone,
+        per.customerType
+      FROM Job j
+      JOIN Property p   ON j.propertyId  = p.propertyId
+      JOIN Person per   ON j.payerId     = per.personId
+      WHERE j.state         IN ('scheduled','in_progress')
+        AND per.customerType != 'partner_referral'
+        AND j.workSiteAddress IS NOT NULL
+        AND j.workSiteAddress != ''
+        AND LOWER(TRIM(j.workSiteAddress)) != LOWER(TRIM(p.streetAddress))
+      ORDER BY j.scheduledDate
+    `).all();
+
+    return jsonResponse({
+      auditedAt: new Date().toISOString(),
+      mismatches: results || [],
+      mismatchCount: (results || []).length,
+      note: 'Jobs where workSiteAddress differs from bound Property.streetAddress. Excludes partner_referral (mismatch is by design). Fix via PATCH /admin/job/:id {propertyId}.',
+    }, corsHeaders);
+  } catch(e) {
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }

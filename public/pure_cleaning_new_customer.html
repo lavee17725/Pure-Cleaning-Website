@@ -1428,6 +1428,18 @@ async function scheduleJobWithDualWrite({
       if (fullR && fullR.ok) {
         const fullD = await fullR.json().catch(() => null);
         const props = (fullD?.customer?.properties) || [];
+        // Law T1.11: multi-property customer — NEVER silently guess the service address.
+        // Single-property (the normal case): safe to auto-resolve, only one option exists.
+        // Multi-property + no explicit propertyId passed: fail loud so the caller is forced
+        // to resolve which property this job is for. A silent wrong-address booking is worse
+        // than a visible error — the latter gets fixed immediately.
+        if (props.length > 1) {
+          return {
+            success: false,
+            error: 'multi_property_ambiguous',
+            message: `Cannot schedule — ${fullD?.customer?.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
+          };
+        }
         propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
       }
     } catch(_) {}

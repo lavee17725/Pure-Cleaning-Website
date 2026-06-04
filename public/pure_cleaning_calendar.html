@@ -1998,6 +1998,18 @@ async function scheduleJobWithDualWrite({
       if (fullR && fullR.ok) {
         const fullD = await fullR.json().catch(() => null);
         const props = (fullD?.customer?.properties) || [];
+        // Law T1.11: multi-property customer — NEVER silently guess the service address.
+        // Single-property (the normal case): safe to auto-resolve, only one option exists.
+        // Multi-property + no explicit propertyId passed: fail loud so the caller is forced
+        // to resolve which property this job is for. A silent wrong-address booking is worse
+        // than a visible error — the latter gets fixed immediately.
+        if (props.length > 1) {
+          return {
+            success: false,
+            error: 'multi_property_ambiguous',
+            message: `Cannot schedule — ${fullD?.customer?.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
+          };
+        }
         propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
       }
     } catch(_) {}
@@ -2119,7 +2131,19 @@ function _jobRowToShape(job, isMultiProperty) {
                       ? { lat: +job.latitude, lng: +job.longitude } : null,
     geocoded:       (job.latitude && job.longitude)
                       ? { lat: +job.latitude, lng: +job.longitude } : null,
-    alerts:         cust.alerts    || [],
+    // Part C Layer 3 — JOB_PROPERTY_AMBIGUOUS: detect at card render time.
+    // workSiteAddress set but differs from bound Property.streetAddress (Oscar-signature mismatch).
+    // partner_referral excluded: billing address ≠ workSite is correct-by-design for partners.
+    alerts: (() => {
+      const _base = cust.alerts || [];
+      const _mismatch = (
+        job.workSiteAddress && job.streetAddress &&
+        (job.customerType || 'residential') !== 'partner_referral' &&
+        job.workSiteAddress.trim().toLowerCase() !== job.streetAddress.trim().toLowerCase()
+      );
+      if (!_mismatch) return _base;
+      return [..._base, { icon: '⚠️', label: `Property mismatch: job bound to "${job.streetAddress}" but workSite is "${job.workSiteAddress}" — re-point via pencil edit` }];
+    })(),
     isTest:         cust.isTest    || false,
     paymentInfo:    cust.paymentInfo  || null,
     receiptInfo:    cust.receiptInfo  || null,
@@ -7485,14 +7509,35 @@ function renderDayPool(date) {
       filter: '.dist-marker,.route-summary',
       onStart: () => { wasDragging = true; },
       onEnd:   () => { setTimeout(() => wasDragging = false, 100); },
-      onAdd: evt => handleDropToPool(evt.item.dataset.phone, date),
+      onAdd: evt => handleDropToPool(evt.item.dataset.phone, date, evt.item.dataset.jobId || null),
     }));
   }
 }
 
-async function handleDropToPool(phone, date) {
+async function handleDropToPool(phone, date, jobId) {
   const c = findCustomer(phone);
-  if (!c) return;
+  if (!c) { render(); return; }
+
+  // ── Path A: scheduled D1 card un-assigned from rig ──────────────────────────
+  // A card with data-job-id is a live D1 job — patchJob to clear rig assignment.
+  // Do NOT call scheduleJobWithDualWrite here: that would INSERT a duplicate job row.
+  if (jobId) {
+    try {
+      await patchJob(jobId, { rigId: null, scheduledDate: date, state: 'scheduled' });
+      await refreshCalendarJobs();
+      render();
+      renderDayPool(date);
+      const calJob = calendarJobs.find(j => j.jobId === jobId);
+      const name = calJob ? `${calJob.firstName||''} ${calJob.lastName||''}`.trim() : phone;
+      showToast(`📅 ${esc(name)} → Day Pool (rig cleared)`);
+    } catch(e) {
+      showToast(`⚠️ Could not move job — ${e.message}`);
+      render(); // reset DOM — card must not appear pool-placed when write failed
+    }
+    return;
+  }
+
+  // ── Path B: quote card (no jobId) scheduled for the first time ───────────────
   const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
 
   // D1 write FIRST (Law T1.20) — before modifying KV state or re-rendering.
@@ -7507,6 +7552,7 @@ async function handleDropToPool(phone, date) {
   });
   if (!d1Result.success) {
     showToast('⚠️ Schedule failed — ' + d1Result.message);
+    render(); // reset visual drop — card must not appear scheduled when write failed
     return;
   }
 
