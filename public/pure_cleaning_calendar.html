@@ -253,6 +253,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .complaint-badge{display:inline-block;background:#fee2e2;color:#dc2626;border-radius:3px;font-size:9px;font-weight:700;padding:1px 4px;vertical-align:middle;margin-left:3px;letter-spacing:.3px;}
 .js-complaint-link{font-size:10px;color:#d1d5db;cursor:pointer;background:none;border:none;padding:1px 0;display:block;margin-top:2px;text-align:right;font-family:'DM Sans',sans-serif;transition:color .1s;line-height:1;}
 .js-complaint-link:hover{color:#dc2626;}
+.js-tip-link{font-size:10px;color:#d1d5db;cursor:pointer;background:none;border:none;padding:1px 0;display:block;margin-top:2px;text-align:right;font-family:'DM Sans',sans-serif;transition:color .1s;line-height:1;}
+.js-tip-link:hover{color:#16a34a;}
+.js-tip-link.tipped{color:#16a34a;font-weight:600;}
 
 /* ── REVIEW ALERT BAR ── */
 .review-alert-bar{background:#0a2040;border-bottom:1px solid #1e3a5f;padding:5px 1.25rem;display:flex;align-items:center;gap:8px;font-size:12px;color:#e2e8f0;}
@@ -1021,6 +1024,26 @@ body{background:#f0f2f5;}
   </div>
 </div>
 
+<div class="overlay hidden" id="tipModal" onclick="if(event.target===this)closeTipModal()">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-title" id="tipModalTitle">💚 Log Tip</div>
+    <div class="modal-field">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:14px;">
+        <input type="checkbox" id="tipToggle" style="width:18px;height:18px;cursor:pointer;" onchange="document.getElementById('tipAmountWrap').style.display=this.checked?'block':'none'">
+        <span>They tipped 💚</span>
+      </label>
+    </div>
+    <div class="modal-field" id="tipAmountWrap" style="display:none;">
+      <label>Amount (optional)</label>
+      <input type="number" id="tipAmountInput" class="modal-input" placeholder="e.g. 25" min="1" max="9999" step="1" style="max-width:160px;">
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn-cancel" onclick="closeTipModal()">Cancel</button>
+      <button class="mbtn-save" onclick="saveTip()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── REVIEW ALERT PANEL ── -->
 <div class="overlay hidden" id="reviewAlertPanel" onclick="if(event.target===this)closeReviewAlertPanel()">
   <div class="modal" style="max-width:460px;">
@@ -1129,7 +1152,13 @@ body{background:#f0f2f5;}
 <!-- FULL EDIT MODAL (pencil on scheduled job card) -->
 <div class="overlay hidden" id="fullEditModal" onclick="if(event.target===this)closeFullEditModal()">
   <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto;">
-    <div class="modal-title">✏️ Edit — <span id="feModalName" style="color:var(--sky);"></span></div>
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <span>✏️ Edit — <span id="feModalName" style="color:var(--sky);"></span></span>
+      <a id="feProfileLink" href="#" target="_blank"
+         style="font-size:12px;color:var(--sky);text-decoration:none;font-weight:600;white-space:nowrap;flex-shrink:0;">
+        🏠 Properties →
+      </a>
+    </div>
 
     <div class="modal-section-hdr" style="border-top:none;padding-top:0;">Customer Info</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -1173,9 +1202,11 @@ body{background:#f0f2f5;}
         <label class="modal-label">Property Label</label>
         <select id="fePropLabel" class="modal-input" onchange="document.getElementById('fePropLabelOtherRow').style.display=this.value==='Other'?'':'none'">
           <option value="Main Residence">Main Residence</option>
+          <option value="Rental Property">Rental Property</option>
           <option value="Friend's Property">Friend's Property</option>
-          <option value="Rental">Rental</option>
-          <option value="Office">Office</option>
+          <option value="Parent's / Relative's">Parent's / Relative's</option>
+          <option value="Vacation Home">Vacation Home</option>
+          <option value="Office / Commercial">Office / Commercial</option>
           <option value="Other">Other…</option>
         </select>
       </div>
@@ -1187,7 +1218,7 @@ body{background:#f0f2f5;}
 
     <div class="modal-section-hdr">Service Details</div>
     <div class="modal-field"><label>Services *</label><input id="feServices" class="modal-input" placeholder="e.g. Roof Softwash, Driveway…" oninput="checkFeRoof()"></div>
-    <div id="feRoofFields" style="display:none;">
+    <div id="feRoofFields">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div class="modal-field">
           <label>Roof Type</label>
@@ -1252,7 +1283,8 @@ body{background:#f0f2f5;}
     <div class="modal-field"><textarea id="feNotes" class="modal-input" rows="2" placeholder="Any notes…" style="resize:vertical;"></textarea></div>
 
     <div id="feSplitRow" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-      <button id="feSplitBtn" class="mbtn-cancel" style="width:100%;" onclick="openSplitModal()">✂️ Split into multiple days</button>
+      <button id="feSplitBtn" class="mbtn-cancel" style="width:100%;margin-bottom:6px;" onclick="openSplitModal()">✂️ Split into multiple days</button>
+      <button id="feRigSplitBtn" class="mbtn-cancel" style="width:100%;" onclick="openRigSplitModal()">🔧 Split to multiple rigs</button>
     </div>
 
     <div id="feError" style="color:var(--red);font-size:12px;margin-bottom:8px;display:none;"></div>
@@ -1314,6 +1346,27 @@ body{background:#f0f2f5;}
     <div class="modal-footer" style="justify-content:flex-end;gap:8px;margin-top:12px;">
       <button class="mbtn-cancel" onclick="closeSplitModal()">Cancel</button>
       <button id="splitSubmitBtn" class="mbtn-save" onclick="submitSplitJob()">✂️ Split</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── RIG SPLIT MODAL (Layer 3: multi-rig same-day) ── -->
+<div class="overlay hidden" id="splitRigModal" onclick="if(event.target===this)closeRigSplitModal()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title">🔧 Split to Multiple Rigs</div>
+    <div id="splitRigInfo" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 80px auto;gap:6px;margin-bottom:6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">
+      <span>Rig</span><span>Crew</span><span></span>
+    </div>
+    <div id="splitRigRows"></div>
+    <a href="#" style="font-size:13px;color:var(--sky);font-weight:600;" onclick="event.preventDefault();_rigSplitAddRow()">+ Add rig</a>
+    <div id="splitRigError" style="color:var(--red);font-size:12px;margin-top:6px;display:none;"></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px;padding:6px 10px;background:rgba(255,165,0,.08);border-radius:6px;border:1px solid rgba(255,165,0,.25);">
+      ⚠️ Bouncie GPS time-attribution for rig-segments is Layer 4 (not yet built). Each rig's hours will need manual review until the matcher is updated.
+    </div>
+    <div class="modal-footer" style="justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="mbtn-cancel" onclick="closeRigSplitModal()">Cancel</button>
+      <button id="splitRigSubmitBtn" class="mbtn-save" onclick="submitRigSplitJob()">🔧 Split to Rigs</button>
     </div>
   </div>
 </div>
@@ -1796,7 +1849,7 @@ async function pollCustomerUpdates() {
 // ── TOAST ALERT SYSTEM ─────────────────────────────────────────────────────────
 const _ALERT_SINCE_KEY = 'pcpc_alert_since';
 const _ALERT_SEEN_KEY  = 'pcpc_alert_seen';
-const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
+const _ALERT_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed', 'bouncie_cron_alert'];
 
 async function checkAlerts() {
   const since = sessionStorage.getItem(_ALERT_SINCE_KEY)
@@ -1815,6 +1868,16 @@ async function checkAlerts() {
 }
 
 function showAlertToast(evt) {
+  const id = 'at-' + (evt.id || Date.now());
+  const el = document.createElement('div');
+  el.id = id; el.className = 'alert-toast';
+  if (evt.eventType === 'bouncie_cron_alert') {
+    el.innerHTML = `<div class="alert-toast-type">⚠️ BOUNCIE ALERT</div>`
+      + `<div class="alert-toast-body"><strong>${_ea(evt.status?.toUpperCase() || 'ANOMALY')}</strong><br>${_ea(evt.message || 'Check /admin/cron-heartbeat')}</div>`
+      + `<div class="alert-toast-actions"><button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
+    document.getElementById('alertContainer').appendChild(el);
+    return;
+  }
   const isAddon = evt.eventType === 'addon_confirmed';
   const cust = evt.customer || {};
   const name = `${cust.fn||''} ${cust.ln||''}`.trim() || 'Customer';
@@ -1826,9 +1889,6 @@ function showAlertToast(evt) {
   } else {
     body = `<strong>${_ea(name)}</strong><br>Bring sealing samples to job.<br>Quote in person.`;
   }
-  const id = 'at-' + (evt.id || Date.now());
-  const el = document.createElement('div');
-  el.id = id; el.className = 'alert-toast';
   el.innerHTML = `<div class="alert-toast-type">${title}</div><div class="alert-toast-body">${body}</div><div class="alert-toast-actions">${ph?`<button class="alert-view-btn" onclick="_alertView('${ph}','${id}')">View Card</button>`:''}<button class="alert-dismiss-btn" onclick="document.getElementById('${id}')?.remove()">Dismiss</button></div>`;
   document.getElementById('alertContainer').appendChild(el);
 }
@@ -2035,8 +2095,8 @@ function _jobRowToShape(job, isMultiProperty) {
     payerId:        job.payerId    || null,
     firstName:      job.firstName   || '',
     lastName:       job.lastName    || '',
-    address:        job.streetAddress || '',
-    city:           job.city         || '',
+    address:        job.streetAddress || cust.address || '',  // Option C: live KV fallback when Property.streetAddress is empty
+    city:           job.city         || cust.city    || '',
     gateCode:       job.gateCode     || null,
     workSiteAddress: job.workSiteAddress || null,
     workSiteCity:   job.workSiteCity   || null,
@@ -2047,7 +2107,9 @@ function _jobRowToShape(job, isMultiProperty) {
     propertyType:   job.propertyType  || null,
     sqFt:           job.sqft          || null,   // Property.sqft for this job's linked property
     roofType:       job.propRoofType  || null,   // Property.roofType for this job's linked property
-    isMultiProperty,
+    // Rig-segment children are one address, not multi-property — guard the chip
+    isMultiProperty:  isMultiProperty && !job.isRigSegment,
+    isRigSegment:     !!job.isRigSegment,
     isMultiDayParent: job.isMultiDayParent || 0,
     parentJobId:      job.parentJobId || null,
     dayNumber:        job.dayNumber   || null,
@@ -2070,8 +2132,12 @@ function _jobRowToShape(job, isMultiProperty) {
       state:             job.state,
       scheduledDate:     job.scheduledDate,
       rig:               job.rigId,
-      approvedAmount:    job.amount,
-      jobNotes:          job.jobNotes || job.servicesRaw || '',
+      // Rig-segment children are $0 tracking units — billing amount lives on the parent.
+      // Cards show '—' (same as any $0 job). Print sheets get the correct amount via
+      // the printJobSheet override below (uses c.scheduledStatus from KV, which
+      // _d1BuildScheduledStatus correctly sets from the parent row via !isRigSegment guard).
+      approvedAmount:    job.amount || 0,
+      jobNotes:          job.servicesRaw || job.jobNotes || '',
       window:            job.scheduledTimeWindow || null,
       actualArrival:     job.actualArrival    || null,
       actualDeparture:   job.actualDeparture  || null,
@@ -2224,7 +2290,18 @@ function calculateRigTotal(date, rig) {
 }
 
 function calculateDayTotal(date) {
-  return RIGS.reduce((s, rig) => s + calculateRigTotal(date, rig), 0);
+  const rigTotal = RIGS.reduce((s, rig) => s + calculateRigTotal(date, rig), 0);
+  // Rig-group parents (rigId=null, isMultiDayParent=1, dayNumber=null) hold the billing amount.
+  // Their children are $0 tracking units in rig columns and don't contribute to rigTotal.
+  // Add parent amounts here so the day total is correct ($X once, not $0 or $3X).
+  // dayNumber==null is the rig-group parent marker — excludes day-split parents (dayNumber=1)
+  // and all jobs with a real rigId (those are already in rigTotal).
+  const rigGroupTotal = calendarJobs
+    .filter(j => j.scheduledDate === date && j.isMultiDayParent && !j.parentJobId
+                 && !j.rigId && j.dayNumber == null
+                 && (j.state === 'scheduled' || j.state === 'in_progress'))
+    .reduce((s, j) => s + (j.amount || 0), 0);
+  return rigTotal + rigGroupTotal;
 }
 
 function calculateDayCollected(date) {
@@ -3021,6 +3098,16 @@ function jobCardScheduled(c) {
   const editBtnHtml = (!c.isTest && phone)
     ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}',null,'${_editJobId}')" title="Edit all customer &amp; job details">✏️ Edit</button>`
     : '';
+  // tipLink declared HERE (after _editJobId) — avoids const TDZ crash that broke renderCalGrid
+  const tipLink = (!c.isTest && phone && state === 'completed')
+    ? (() => {
+        const _tipJh = _editJobId ? (c.jobHistory||[]).find(j => j.jobId === _editJobId) : null;
+        const _tipped  = !!(_tipJh?.tipped);
+        const _tipAmt  = _tipJh?.tipAmount ?? null;
+        const _lbl = _tipped ? `✓ tipped${_tipAmt ? ' $' + Number(_tipAmt).toFixed(0) : ''}` : '💚 tip';
+        return `<button class="js-tip-link${_tipped?' tipped':''}" onclick="event.stopPropagation();openTipModal('${phone}','${_editJobId}',${_tipped},${_tipAmt})">${_lbl}</button>`;
+      })()
+    : '';
 
   const delBtnHtml = (state !== 'completed' && phone)
     ? `<button class="card-del-btn" onclick="event.stopPropagation();promptCancelJob('${phone}','${c.jobId||''}')" title="Remove job from calendar" style="margin-left:auto;">🗑️</button>`
@@ -3153,6 +3240,7 @@ function jobCardScheduled(c) {
     ${etaBtnHtml}
     ${rigPickBtnHtml}
     ${complaintLink}
+    ${tipLink}
     ${zelleReqBtnHtml}
     ${paymentBtnHtml}
     ${receiptBtnHtml}
@@ -3180,6 +3268,14 @@ function jobCardHistoryExtra(c, jhEntry) {
   const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
   const complaintLink = (!c.isTest && phone)
     ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
+    : '';
+  const tipLink = (!c.isTest && phone && jobId)
+    ? (() => {
+        const _tipped = !!jhEntry.tipped;
+        const _tipAmt = jhEntry.tipAmount ?? null;
+        const _lbl = _tipped ? `✓ tipped${_tipAmt ? ' $' + Number(_tipAmt).toFixed(0) : ''}` : '💚 tip';
+        return `<button class="js-tip-link${_tipped?' tipped':''}" onclick="event.stopPropagation();openTipModal('${phone}','${jobId}',${_tipped},${_tipAmt})">${_lbl}</button>`;
+      })()
     : '';
 
   let gpsHtml = '';
@@ -3244,6 +3340,7 @@ function jobCardHistoryExtra(c, jhEntry) {
     ${gpsHtml}
     ${printBtnHtml}
     ${complaintLink}
+    ${tipLink}
     ${zelleReqBtnHtml}
     ${paymentBtnHtml}
     ${receiptBtnHtml}
@@ -3434,7 +3531,11 @@ function getScheduledForRig(date, rig) {
 function getUnassignedJobs(date) {
   const payerCounts = _calPayerCounts();
   const fromD1 = calendarJobs
-    .filter(j => (j.state==='scheduled'||j.state==='in_progress') && j.scheduledDate===date && !j.rigId)
+    .filter(j => (j.state==='scheduled'||j.state==='in_progress') && j.scheduledDate===date && !j.rigId
+                 // Rig-group parents (isMultiDayParent=1, dayNumber=NULL, rigId=null) are D1 anchor
+                 // rows — they have no work card, only their rig-segment children do.
+                 // dayNumber==null is the rig-group parent marker (day-split parents have dayNumber=1).
+                 && !(j.isMultiDayParent && j.dayNumber == null))
     .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
   // Also include completed null-rig customers from KV — no rig assigned means no rig lane matches.
   // Unassigned is the correct home; Tyler can retroactively assign rigs via the edit button.
@@ -4191,6 +4292,25 @@ async function _doCompleteJob(log) {
   const completedDate = completingJob?.scheduledDate   // D1 job's own date  ← primary
                      || ss.scheduledDate               // KV slot fallback (single-property safe)
                      || isoToday();                    // last resort
+
+  // ── Group detection: multi-day/multi-rig sets complete as one logical unit ─────
+  // Completing ANY member (parent or child) completes ALL non-cancelled members.
+  // Group total = sum of all member amounts; ONE jobHistory entry at that total.
+  const _isGroupJob = !!(completingJob?.parentJobId || completingJob?.isMultiDayParent);
+  let _groupTotalAmt = ss.approvedAmount || 0;
+  let _groupSiblings = []; // all non-cancelled members including clicked job
+  if (_isGroupJob && jmJobId) {
+    try {
+      const _daysRes = await fetch(`${PCPC_API}/admin/job/${encodeURIComponent(jmJobId)}/days`);
+      if (_daysRes.ok) {
+        const _daysData = await _daysRes.json();
+        _groupSiblings = _daysData.days || [];
+        if (_groupSiblings.length > 1)
+          _groupTotalAmt = _groupSiblings.reduce((s, d) => s + (d.amount || 0), 0);
+      }
+    } catch(_) { /* network failure — fall through with single-job amount */ }
+  }
+  // ── End group detection ────────────────────────────────────────────────────────
   ss.state = 'completed';
   ss.completedAt = new Date().toISOString();
   ss.completedDate = completedDate;
@@ -4205,8 +4325,8 @@ async function _doCompleteJob(log) {
     ss.paidAt        = log.paidAt || new Date().toISOString();
   }
 
-  // Update customer history
-  const amt = ss.approvedAmount || 0;
+  // Update customer history — for groups, use the total of all members (not one slice)
+  const amt = _groupTotalAmt;
   if (amt > 0) c.lifetimeSpend = (c.lifetimeSpend || 0) + amt;
   c.totalJobs = (c.totalJobs || 0) + 1;
   c.lastService = completedDate;
@@ -4320,7 +4440,7 @@ async function _doCompleteJob(log) {
     jobId:          _jhJobId,
     date:           completedDate,
     services:       ss.jobNotes || '',
-    amount:         ss.approvedAmount || 0,
+    amount:         _groupTotalAmt,
     rig:            ss.rig || null,
     city:           c.city || null,
     address:        c.address || null,
@@ -4359,7 +4479,7 @@ async function _doCompleteJob(log) {
   const _isDuplicate = c.jobHistory.some(j =>
     j.date === completedDate &&
     j.status === 'completed' &&
-    Math.abs((j.amount || 0) - (ss.approvedAmount || 0)) <= 5
+    Math.abs((j.amount || 0) - _groupTotalAmt) <= 5
   );
   if (!_isDuplicate) {
     c.jobHistory.push(_jhEntry);
@@ -4374,7 +4494,8 @@ async function _doCompleteJob(log) {
     if (_existingEntry?.jobId) ss._lastJobId = _existingEntry.jobId;
   }
 
-  // PATCH D1 first — awaited so Fix D guard in _d1SyncJobHistory sees completed row and skips INSERT
+  // PATCH D1 — group jobs use /complete-group to cascade parent+all children atomically;
+  // standalone jobs use normal PATCH. Both paths are awaited (Law T1.11).
   if (jmJobId) {
     const patchBody = {
       state:            'completed',
@@ -4392,7 +4513,21 @@ async function _doCompleteJob(log) {
       patchBody.paidAt        = log.paidAt || ss.completedAt;
     }
     try {
-      await patchJob(jmJobId, patchBody);
+      if (_isGroupJob && _groupSiblings.length > 1) {
+        // Group cascade: POST /admin/job/:id/complete-group stamps state=completed +
+        // completedAt on every non-cancelled member in one transaction.
+        const _grpRes = await fetch(
+          `${PCPC_API}/admin/job/${encodeURIComponent(jmJobId)}/complete-group`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patchBody) }
+        );
+        if (!_grpRes.ok) {
+          const _grpErr = await _grpRes.json().catch(() => ({}));
+          throw new Error(_grpErr.error || 'HTTP ' + _grpRes.status);
+        }
+      } else {
+        // Standalone (or group-detect fetch failed) — normal single PATCH
+        await patchJob(jmJobId, patchBody);
+      }
       await refreshCalendarJobs();
     } catch(e) {
       console.error('[_doCompleteJob] D1 PATCH FAILED:', e.message);
@@ -4888,6 +5023,70 @@ async function saveComplaint() {
   showToast('⚠ Complaint logged — review request blocked');
 }
 
+// ── TIP CAPTURE ───────────────────────────────────────────────────────────────
+let _tipPhone = null;
+let _tipJobId = null;
+
+function openTipModal(phone, jobId, alreadyTipped, currentAmount) {
+  _tipPhone = phone;
+  _tipJobId = jobId || null;
+  const c    = findCustomer(phone);
+  const name = c ? ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim() : phone;
+  document.getElementById('tipModalTitle').textContent = `💚 Log Tip · ${name}`;
+  const toggle = document.getElementById('tipToggle');
+  toggle.checked = !!alreadyTipped;
+  const amtInput = document.getElementById('tipAmountInput');
+  amtInput.value = (alreadyTipped && currentAmount != null && currentAmount !== 'null') ? Number(currentAmount).toFixed(0) : '';
+  document.getElementById('tipAmountWrap').style.display = alreadyTipped ? 'block' : 'none';
+  document.getElementById('tipModal').classList.remove('hidden');
+}
+
+function closeTipModal() {
+  document.getElementById('tipModal').classList.add('hidden');
+  _tipPhone = null;
+  _tipJobId = null;
+}
+
+async function saveTip() {
+  const phone = _tipPhone;
+  const jobId = _tipJobId;
+  if (!phone || !jobId) { closeTipModal(); return; }
+
+  const tipped   = document.getElementById('tipToggle').checked;
+  const amtRaw   = document.getElementById('tipAmountInput').value.trim();
+  const tipAmount = (tipped && amtRaw !== '') ? parseFloat(amtRaw) : null;
+
+  closeTipModal();
+
+  try {
+    // D1 write — Station 3 in handlePatchJob triggers full KV rebuild (isTipper + avgTipAmount)
+    await patchJob(jobId, { tipped: tipped ? 1 : 0, tipAmount });
+
+    // Mirror locally in dbRecord so render() reflects the change without a page reload
+    const ph10 = (phone||'').replace(/\D/g,'').slice(-10);
+    const cust = (dbRecord.customers||[]).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph10);
+    if (cust) {
+      // Update the specific jobHistory entry
+      const jhEntry = (cust.jobHistory||[]).find(j => j.jobId === jobId);
+      if (jhEntry) {
+        jhEntry.tipped    = tipped;
+        jhEntry.tipAmount = tipAmount;
+      }
+      // Recompute rollups (mirrors _d1PersonToKv server-side logic)
+      const tippedJobs    = (cust.jobHistory||[]).filter(j => j.tipped);
+      cust.isTipper       = tippedJobs.length > 0;
+      cust.avgTipAmount   = cust.isTipper
+        ? Math.round(tippedJobs.reduce((s, j) => s + (j.tipAmount || 0), 0) / tippedJobs.length * 100) / 100
+        : null;
+    }
+
+    render();
+    showToast(tipped ? `💚 Tip logged${tipAmount ? ' — $' + Number(tipAmount).toFixed(0) : ''}` : 'Tip cleared');
+  } catch(e) {
+    alert('Tip save failed: ' + e.message);
+  }
+}
+
 // ── REVIEW ALERT BANNER & PANEL ───────────────────────────────────────────────
 function getOptimalReviewCandidates() {
   return (dbRecord?.customers||[]).filter(c => {
@@ -5201,25 +5400,44 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const _addRoof = s => (roofLabel && /roof/i.test(s)) ? `${s} — ${roofLabel}` : s;
   const allItems = [...items.map(s=>_addRoof(s.toUpperCase())), ...addOns.map(a=>{const nm=_addRoof((a.name||'').toUpperCase());return nm+(a.bundle?` (+$${a.bundle})`:'');})];
 
-  // Adaptive font size: shrink service text when many services to prevent page overflow
+  // Services layout: ≤4 items = single column left; >4 = two columns fill-left-first.
+  // column-fill:auto fills column 1 completely before starting column 2 — needs a
+  // constrained container height to know when to break. height:10in on .js-sheet (print)
+  // propagates through the flex chain, giving .js-svc-section the bound it needs.
+  // Adaptive font size kicks in at 7+ services (unchanged from before).
   const _svcCount = allItems.length;
-  const _svcStyle = _svcCount <= 6  ? '' :
+  // Adaptive font size step-down — unchanged
+  const _svcFont  = _svcCount <= 6  ? '' :
                     _svcCount <= 10 ? '--svc-fs:13pt;--svc-pad:3px 8px;--svc-chk:18px;' :
                     _svcCount <= 15 ? '--svc-fs:11pt;--svc-pad:2px 6px;--svc-chk:16px;' :
                                       '--svc-fs:10pt;--svc-pad:1px 6px;--svc-chk:14px;';
 
-  const svcChecks = allItems.map(s=>`
+  // Two-column layout: explicit JS array split → two flex divs.
+  // CSS multi-column (columns:2/column-fill:auto) is unreliable in print renderers —
+  // the right column vanishes on Cmd+P even when it shows correctly on screen.
+  // flexbox divs render identically on screen and on paper.
+  const _svcItemHtml = s => `
     <div class="svc-item" onclick="this.classList.toggle('unchecked')">
       <div class="svc-check"></div>
       <div class="svc-name">${esc(s)}</div>
-    </div>`).join('');
+    </div>`;
+
+  let svcChecks;
+  if (_svcCount > 4) {
+    const _mid   = Math.ceil(_svcCount / 2);
+    const _left  = allItems.slice(0, _mid).map(_svcItemHtml).join('');
+    const _right = allItems.slice(_mid).map(_svcItemHtml).join('');
+    svcChecks = `<div class="js-svc-cols"${_svcFont ? ` style="${_svcFont}"` : ''}><div class="js-svc-col">${_left}</div><div class="js-svc-col">${_right}</div></div>`;
+  } else {
+    svcChecks = `<div${_svcFont ? ` style="${_svcFont}"` : ''}>${allItems.map(_svcItemHtml).join('')}</div>`;
+  }
 
   return `
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:Georgia,serif;color:#111;}
 table{width:auto;border-collapse:collapse;}
-.js-sheet{display:flex;flex-direction:column;}
+.js-sheet{position:relative;width:7.5in;height:10in;overflow:hidden;box-sizing:border-box;}
 .js-header{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:16px;padding:10px 28px 8px;border-bottom:3px solid #0a1628;}
 .js-logo img{height:128px;width:auto;display:block;}
 .js-company{text-align:right;}
@@ -5229,7 +5447,7 @@ table{width:auto;border-collapse:collapse;}
 .js-titlebar-left{font-family:Arial,sans-serif;font-size:12pt;font-weight:800;letter-spacing:2pt;color:#fff;text-transform:uppercase;}
 .js-titlebar-right{font-family:Arial,sans-serif;font-size:10pt;color:#fff;}
 .js-titlebar-right strong{color:#f4a620;}
-.js-body{padding:10px 28px 20px;flex:1;display:flex;flex-direction:column;}
+.js-body{position:absolute;top:1.9in;bottom:1.7in;left:0;right:0;overflow:hidden;padding:10px 28px 0;display:flex;flex-direction:column;}
 .js-date{background:#f7f8fa;border-left:5px solid #0a1628;padding:6px 14px;margin-bottom:8px;display:flex;align-items:baseline;gap:10px;}
 .js-date-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#444;white-space:nowrap;}
 .js-date-val{font-family:Georgia,serif;font-size:18pt;font-weight:700;color:#0a1628;line-height:1;}
@@ -5238,9 +5456,11 @@ table{width:auto;border-collapse:collapse;}
 .js-cust-name{font-size:20pt;font-weight:700;color:#0a1628;line-height:1.05;}
 .js-cust-phone{font-family:Arial,sans-serif;font-size:12pt;font-weight:700;color:#111;margin-top:5px;}
 .js-cust-address{font-family:Georgia,serif;font-size:12pt;color:#1a1a1a;line-height:1.45;}
-.js-svc-section{flex:1;margin-bottom:7px;min-height:0;}
+.js-svc-section{margin-bottom:7px;overflow:hidden;flex-shrink:0;}
 .js-svc-header{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:2pt solid #0a1628;padding-bottom:3px;margin-bottom:2px;}
-.svc-item{display:flex;align-items:center;gap:10px;padding:var(--svc-pad,4px 8px);border-bottom:1pt solid #ebebeb;cursor:pointer;user-select:none;}
+.js-svc-cols{display:flex;gap:16px;}
+.js-svc-col{flex:1;min-width:0;}
+.svc-item{display:flex;align-items:center;gap:10px;padding:var(--svc-pad,4px 8px);border-bottom:1pt solid #ebebeb;cursor:pointer;user-select:none;break-inside:avoid;}
 .svc-item:last-child{border-bottom:none;}
 .svc-check{width:var(--svc-chk,20px);height:var(--svc-chk,20px);border:2pt solid #15803d;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:#15803d;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
 .svc-check::after{content:'✓';color:#fff;font-size:13px;font-weight:700;line-height:1;}
@@ -5248,13 +5468,13 @@ table{width:auto;border-collapse:collapse;}
 .svc-item.unchecked .svc-check::after{display:none;}
 .svc-item.unchecked .svc-name{color:#bbb;}
 .svc-name{font-family:Arial,sans-serif;font-size:var(--svc-fs,16pt);font-weight:600;color:#0a1628;line-height:1.2;}
-.js-notes-row{margin-bottom:7px;}
-.js-notes-block{border:2pt solid #194963;background:#f8fbfd;padding:8px 12px;}
+.js-notes-row{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0;}
+.js-notes-block{border:2pt solid #194963;background:#f8fbfd;padding:8px 12px;flex:1;}
 .js-notes-label{font-family:Arial,sans-serif;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:2pt;color:#194963;margin-bottom:4px;}
 .js-notes-text{font-family:Arial,sans-serif;font-size:13pt;color:#111;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
 .js-notes-writelines{margin-top:8px;}
-.js-write-line{border-bottom:1pt solid #aaa;margin-bottom:10px;height:18px;}
-.js-bottom{display:flex;align-items:stretch;justify-content:space-between;padding-top:8px;border-top:2pt solid #0a1628;margin-top:auto;}
+.js-write-line{border-bottom:1pt solid #aaa;margin-bottom:6px;height:14px;}
+.js-bottom{position:absolute;bottom:0.35in;left:28px;right:28px;display:flex;align-items:stretch;justify-content:space-between;padding-top:8px;border-top:2pt solid #0a1628;}
 .js-stamp{width:2.2in;min-height:1.1in;border:2pt dashed #aaa;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;flex-shrink:0;}
 .js-stamp-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#555;text-align:center;}
 .js-stamp-inner{width:1.75in;height:.68in;border:1.5pt dashed #aaa;border-radius:3px;}
@@ -5262,7 +5482,7 @@ table{width:auto;border-collapse:collapse;}
 .js-total-label{font-family:Arial,sans-serif;font-size:8pt;text-transform:uppercase;letter-spacing:1.5pt;color:#333;}
 .js-total-amount{font-family:Georgia,serif;font-size:22pt;font-weight:700;color:#0a1628;line-height:1;}
 .js-total-methods{font-family:Arial,sans-serif;font-size:7.5pt;color:#333;}
-.js-footer{border-top:1pt solid #ddd;padding:5px 28px;display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+.js-footer{position:absolute;bottom:0;left:0;right:0;border-top:1pt solid #ddd;padding:5px 28px;display:flex;justify-content:space-between;align-items:center;}
 .js-footer-text{font-family:Arial,sans-serif;font-size:6.5pt;color:#555;}
 .js-endcust{background:#fef9ec;border:1.5pt solid #f4a620;padding:5px 14px 6px;margin-bottom:8px;}
 .js-endcust-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#92400e;margin-bottom:3px;}
@@ -5273,8 +5493,8 @@ table{width:auto;border-collapse:collapse;}
 .js-propdetails-item{display:flex;flex-direction:column;gap:2px;}
 .js-circle-row{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:4px;}
 .js-circle-lbl{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#555;margin-right:3px;}
-.js-circle-opt{font-family:Arial,sans-serif;font-size:8pt;font-weight:600;color:#111;border:1.5pt solid #777;border-radius:20pt;padding:1.5pt 7pt;white-space:nowrap;line-height:1.6;}
-@media print{.svc-item{cursor:default;}.js-sheet{min-height:0;}}
+.js-circle-opt{font-family:Arial,sans-serif;font-size:8pt;font-weight:600;color:#111;padding:1.5pt 10pt;white-space:nowrap;line-height:1.6;}
+@media print{.svc-item{cursor:default;}}
 </style>
 
 <div class="js-sheet">
@@ -5301,7 +5521,7 @@ table{width:auto;border-collapse:collapse;}
 
   <div class="js-titlebar">
     <div class="js-titlebar-left">Job Sheet</div>
-    <div class="js-titlebar-right">${esc(rigLabel)} &nbsp;·&nbsp; <strong>Job ${jobOrder} of ${totalJobs}</strong></div>
+    <div class="js-titlebar-right">${esc(rigLabel)}</div>
   </div>
 
   <div class="js-body">
@@ -5312,7 +5532,7 @@ table{width:auto;border-collapse:collapse;}
     </div>
 
     <div class="js-cust">
-      <div class="js-cust-label">Customer</div>
+      <div class="js-cust-label">${isPartner ? 'Partner / Contractor' : 'Customer'}</div>
       <div>
         <div class="js-cust-name">${esc(displayName)}</div>
       </div>
@@ -5344,36 +5564,34 @@ table{width:auto;border-collapse:collapse;}
       </div>
     </div>
 
-    <div class="js-svc-section"${_svcStyle ? ` style="${_svcStyle}"` : ''}>
+    <div class="js-svc-section">
       <div class="js-svc-header">Services</div>
       ${svcChecks}
     </div>
 
-    ${operatorNotes ? `
     <div class="js-notes-row">
       <div class="js-notes-block">
         <div class="js-notes-label">⚑ Notes — Read Before Starting</div>
-        <div class="js-notes-text">${esc(operatorNotes)}</div>
+        ${operatorNotes ? `<div class="js-notes-text">${esc(operatorNotes)}</div>` : ''}
         <div class="js-notes-writelines">
-          <div class="js-write-line"></div>
           <div class="js-write-line"></div>
           <div class="js-write-line"></div>
         </div>
       </div>
-    </div>` : ''}
-
-    <div class="js-bottom">
-      <div class="js-stamp">
-        <div class="js-stamp-label">Payment<br>Confirmation<br>Stamp</div>
-        <div class="js-stamp-inner"></div>
-      </div>
-      <div class="js-total">
-        <div class="js-total-label">Job Total</div>
-        <div class="js-total-amount">$${Number(amount).toFixed(0)}</div>
-        <div class="js-total-methods">Zelle &nbsp;·&nbsp; Cash &nbsp;·&nbsp; Check &nbsp;·&nbsp; Venmo</div>
-      </div>
     </div>
 
+  </div>
+
+  <div class="js-bottom">
+    <div class="js-stamp">
+      <div class="js-stamp-label">Payment<br>Confirmation<br>Stamp</div>
+      <div class="js-stamp-inner"></div>
+    </div>
+    <div class="js-total">
+      <div class="js-total-label">Job Total</div>
+      <div class="js-total-amount">$${Number(amount).toFixed(0)}</div>
+      <div class="js-total-methods">Zelle &nbsp;·&nbsp; Cash &nbsp;·&nbsp; Check &nbsp;·&nbsp; Venmo</div>
+    </div>
   </div>
 
   <div class="js-footer">
@@ -5420,7 +5638,14 @@ function printJobSheet(phone, date, rig, jobId) {
     endCustomerPhone: jobShape.endCustomerPhone || c.endCustomerPhone || null,
     sqFt:             jobShape.sqFt     ?? c.sqFt,
     roofType:         jobShape.roofType ?? c.roofType,
-    scheduledStatus:  { ...(c.scheduledStatus || {}), ...jobShape.scheduledStatus },
+    scheduledStatus:  {
+      ...(c.scheduledStatus || {}),
+      ...jobShape.scheduledStatus,
+      // Rig-segments: jobShape.scheduledStatus.approvedAmount = $0 (child is a tracking unit).
+      // Use c.scheduledStatus.approvedAmount instead — KV _d1BuildScheduledStatus picks the
+      // parent row (!isRigSegment guard), so this correctly reflects the full job total.
+      ...(jobShape.isRigSegment ? { approvedAmount: c.scheduledStatus?.approvedAmount || 0 } : {}),
+    },
   } : c;
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
     `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
@@ -5816,6 +6041,8 @@ function openEditModal(phone, jhJobId, calJobId) {
   const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
 
   document.getElementById('feModalName').textContent = name;
+  const _feProfileLink = document.getElementById('feProfileLink');
+  if (_feProfileLink) _feProfileLink.href = '/pure_cleaning_customer_profile.html?phone=' + encodeURIComponent(phone);
   document.getElementById('feFn').value    = (c.firstName||c.fn||'').trim();
   document.getElementById('feLn').value    = (c.lastName ||c.ln||'').trim();
   document.getElementById('fePhone').value = _fmtPhDisplay(_fePhone);
@@ -5850,7 +6077,7 @@ function openEditModal(phone, jhJobId, calJobId) {
   const _showPropLabel = !!(_feCalJobId && _isMultiProp);
   document.getElementById('fePropLabelRow').style.display = _showPropLabel ? '' : 'none';
   if (_showPropLabel) {
-    const _knownLabels   = ['Main Residence', "Friend's Property", 'Rental', 'Office'];
+    const _knownLabels   = ['Main Residence', 'Rental Property', "Friend's Property", "Parent's / Relative's", 'Vacation Home', 'Office / Commercial'];
     const _curLabel      = _calJob.propertyLabel || 'Main Residence';
     const _labelSel      = document.getElementById('fePropLabel');
     const _labelOther    = document.getElementById('fePropLabelOther');
@@ -5893,18 +6120,29 @@ function openEditModal(phone, jhJobId, calJobId) {
   const saveBtn = document.getElementById('feSaveBtn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
 
-  const _jobIsSplit = !!(_calJob?.isMultiDayParent || _calJob?.parentJobId);
-  const _showSplit  = !!(_feCalJobId && _calJob?.state === 'scheduled');
+  const _jobIsDaySplit = !!(_calJob?.isMultiDayParent || (_calJob?.parentJobId && !_calJob?.isRigSegment));
+  const _jobIsRigGroup = !!(_calJob?.isMultiDayParent && !_calJob?.parentJobId && !_jobIsDaySplit);
+  const _jobIsRigChild = !!_calJob?.isRigSegment;
+  const _showSplit     = !!(_feCalJobId && _calJob?.state === 'scheduled');
   document.getElementById('feSplitRow').style.display = _showSplit ? '' : 'none';
-  const _splitBtn = document.getElementById('feSplitBtn');
+  const _splitBtn    = document.getElementById('feSplitBtn');
+  const _rigSplitBtn = document.getElementById('feRigSplitBtn');
   if (_splitBtn) {
-    if (_jobIsSplit) {
+    if (_jobIsDaySplit) {
       _splitBtn.textContent = '📅 Manage days';
       _splitBtn.onclick     = openManageDaysModal;
     } else {
       _splitBtn.textContent = '✂️ Split into multiple days';
       _splitBtn.onclick     = openSplitModal;
     }
+    // Hide day-split button on rig-group parents and rig-segment children
+    _splitBtn.style.display = (_jobIsRigGroup || _jobIsRigChild) ? 'none' : '';
+  }
+  if (_rigSplitBtn) {
+    // Show "Split to rigs" only on standalone or rig-group parent (for future "Manage rigs")
+    // Hide on day-split jobs and rig-segment children
+    _rigSplitBtn.style.display = (_jobIsDaySplit || _jobIsRigChild) ? 'none' : '';
+    _rigSplitBtn.textContent   = _jobIsRigGroup ? '🔧 Manage rigs (Layer 4)' : '🔧 Split to multiple rigs';
   }
 
   document.getElementById('fullEditModal').classList.remove('hidden');
@@ -5931,10 +6169,7 @@ function checkFePhoneNote() {
 }
 
 function checkFeRoof() {
-  const svc = (document.getElementById('feServices')?.value || '').toLowerCase();
-  const isRoof = /roof|soft\s*wash|softwash/.test(svc);
-  const rf = document.getElementById('feRoofFields');
-  if (rf) rf.style.display = isRoof ? '' : 'none';
+  // Roof fields are always visible — no longer gated on service type.
 }
 
 function openFeMoreOptions() {
@@ -6190,6 +6425,116 @@ async function submitSplitJob() {
   render();
 }
 
+// ── RIG SPLIT (Layer 3) ──────────────────────────────────────────────────────
+// Creates same-date rig-segment children from a standalone scheduled job.
+// Each child: isRigSegment=1, its own rigId + crewCount, amount=0 (tracking unit).
+// Parent: keeps full amount (billing unit), rigId=null (no single rig for the group).
+// Group completion (Layer 2) already handles rig-segments — completing any member
+// completes all siblings atomically, per-child crewCount preserved.
+let _rigSplitParentJobId = null;
+let _rigSplitDate        = null;
+let _rigSplitAmount      = 0;
+let _rigSplitRowCount    = 0;
+
+const RIGS_FOR_SPLIT = [
+  { id: 'rig_1', label: 'Rig 1 — New Tacoma' },
+  { id: 'rig_2', label: 'Rig 2 — Old Tacoma' },
+  { id: 'rig_3', label: 'Rig 3 — Chevy' },
+];
+
+function _rigSplitAddRow(rigIdDefault) {
+  _rigSplitRowCount++;
+  const idx  = _rigSplitRowCount;
+  const div  = document.createElement('div');
+  div.id     = 'splitRigRow_' + idx;
+  div.style.cssText = 'margin-bottom:8px;';
+  const canRemove = idx > 2;
+  div.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 80px auto;gap:6px;align-items:center;">
+      <select id="splitRigSel_${idx}" class="modal-input" style="font-size:13px;">
+        ${RIGS_FOR_SPLIT.map(r => `<option value="${r.id}"${rigIdDefault===r.id?' selected':''}>${r.label}</option>`).join('')}
+      </select>
+      <input type="number" id="splitRigCrew_${idx}" class="modal-input" style="font-size:13px;" min="1" max="6" placeholder="Crew" value="2">
+      ${canRemove ? `<button class="mbtn-cancel" style="padding:4px 8px;font-size:11px;" onclick="_rigSplitRemoveRow(${idx})">✕</button>` : '<span></span>'}
+    </div>`;
+  document.getElementById('splitRigRows').appendChild(div);
+}
+
+function _rigSplitRemoveRow(idx) {
+  const el = document.getElementById('splitRigRow_' + idx);
+  if (el) el.remove();
+}
+
+function openRigSplitModal() {
+  if (!_feCalJobId) return;
+  const job = calendarJobs.find(j => j.jobId === _feCalJobId);
+  if (!job) return;
+  // Only allow rig-split on standalone scheduled jobs (not already split)
+  if (job.parentJobId || job.isMultiDayParent) {
+    showToast('⚠️ Cannot rig-split a job that is already part of a group. Use "Manage days" or cancel the split first.');
+    return;
+  }
+  _rigSplitParentJobId = _feCalJobId;
+  _rigSplitDate        = job.scheduledDate;
+  _rigSplitAmount      = parseFloat(job.amount) || 0;
+  _rigSplitRowCount    = 0;
+  document.getElementById('splitRigRows').innerHTML = '';
+  document.getElementById('splitRigError').style.display = 'none';
+  const custName = ((job.firstName || '') + ' ' + (job.lastName || '')).trim();
+  document.getElementById('splitRigInfo').textContent =
+    `${custName ? custName + ' · ' : ''}${_rigSplitDate} · $${_rigSplitAmount.toFixed(0)} (parent holds full amount)`;
+  // Pre-populate 3 rigs (Nelson default)
+  _rigSplitAddRow('rig_1');
+  _rigSplitAddRow('rig_2');
+  _rigSplitAddRow('rig_3');
+  document.getElementById('splitRigModal').classList.remove('hidden');
+}
+
+function closeRigSplitModal() {
+  document.getElementById('splitRigModal').classList.add('hidden');
+  _rigSplitParentJobId = null;
+}
+
+async function submitRigSplitJob() {
+  const rigs = [];
+  const errEl = document.getElementById('splitRigError');
+  errEl.style.display = 'none';
+  for (let i = 1; i <= _rigSplitRowCount; i++) {
+    const selEl  = document.getElementById('splitRigSel_' + i);
+    const crewEl = document.getElementById('splitRigCrew_' + i);
+    if (!selEl || !selEl.closest('#splitRigRows')) continue;
+    rigs.push({ rigId: selEl.value, crewCount: parseInt(crewEl?.value) || null });
+  }
+  if (rigs.length < 2) { errEl.textContent = 'At least 2 rigs required.'; errEl.style.display = ''; return; }
+  // Check for duplicate rigIds
+  const rigIds = rigs.map(r => r.rigId);
+  if (new Set(rigIds).size !== rigIds.length) { errEl.textContent = 'Each rig can only appear once.'; errEl.style.display = ''; return; }
+
+  const submitBtn = document.getElementById('splitRigSubmitBtn');
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Splitting…'; }
+
+  const resp = await fetch(`${PCPC_API}/admin/job/split`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ parentJobId: _rigSplitParentJobId, segmentType: 'rig', rigs }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
+    errEl.textContent = err.error || 'Rig split failed.';
+    errEl.style.display = '';
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '🔧 Split to Rigs'; }
+    return;
+  }
+
+  closeRigSplitModal();
+  closeFullEditModal();
+  showToast('✅ Job split to ' + rigs.length + ' rigs — Bouncie attribution is Layer 4 (pending)');
+  await refreshCalendarJobs();
+  render();
+}
+// ── End rig split ────────────────────────────────────────────────────────────
+
 function updateFeCopyBtn() {
   const btn = document.getElementById('feCopyAddrBtn');
   if (!btn) return;
@@ -6247,7 +6592,17 @@ async function saveFullEdit() {
     const _jh = _findJhByJobId(c, _feJhJobId);
     if (_jh) {
       c.firstName = fn; c.lastName = ln;
-      if (email) c.email = email;
+      if (email) {
+        const _prevEmail1 = c.email || '';
+        c.email = email;
+        if (email !== _prevEmail1) {
+          // Direct D1 write via purpose-built endpoint (belt-and-suspenders alongside PUT /customers)
+          fetch(`${PCPC_API}/admin/person/${encodeURIComponent('person_1'+_fePhone)}`, {
+            method:'PATCH', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ email }),
+          }).catch(e => console.warn('[saveFullEdit jhEntry] email PATCH failed:', e.message));
+        }
+      }
       c.notes = notes;
       // addr/city go to the job entry (not billing address)
       if (addr) _jh.address = addr;
@@ -6290,22 +6645,32 @@ async function saveFullEdit() {
     // Job fields → PATCH D1. Customer fields → saveDb() (no scheduledStatus update to avoid dual-write).
     const patchBody = {};
     const _saveCalJob = calendarJobs.find(j => j.jobId === _feCalJobId) || null;
-    if (svc)   patchBody.servicesRaw   = svc || null;
+    if (svc) { patchBody.servicesRaw = svc; patchBody.jobNotes = svc; }
     if (price) patchBody.amount        = price;
     if (date)  patchBody.scheduledDate = date;
     patchBody.rigId = rig || null;
 
     // Customer metadata only (deliberately exclude scheduledStatus mutation)
     c.firstName = fn; c.lastName = ln;
-    if (email) c.email = email;
+    if (email) {
+      const _prevEmail2 = c.email || '';
+      c.email = email;
+      if (email !== _prevEmail2) {
+        // Direct D1 write via purpose-built endpoint (belt-and-suspenders alongside PUT /customers)
+        fetch(`${PCPC_API}/admin/person/${encodeURIComponent('person_1'+_fePhone)}`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ email }),
+        }).catch(e => console.warn('[saveFullEdit calJob] email PATCH failed:', e.message));
+      }
+    }
     c.notes = notes;
     if (sqFt) c.sqFt = sqFt;
     if (leadSrc) c.leadSource = { ...(c.leadSource||{}), primary: leadSrc, label: _LS[leadSrc] || leadSrc };
     // quoteStatus text fields only (not the scheduling fields on scheduledStatus)
     if (svc)   { qs.mainServices = svc; ss.jobNotes = svc; }
     if (price) { qs.mainAmount = price; qs.approvedAmount = price; }
-    const isRoofCal = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
-    if (isRoofCal) {
+    // Roof fields always saved when set — not gated on service type.
+    {
       const _rt = document.getElementById('feRoofType').value;
       const _sv = document.querySelector('input[name=feRoofStories]:checked')?.value;
       const _st = _sv ? parseInt(_sv) : null;
@@ -6319,11 +6684,19 @@ async function saveFullEdit() {
     }
     const _gc = document.getElementById('feGateCode').value.trim() || null;
     c.gateCode = _gc;
-    // Bug 1 fix: write address edit to KV blob so saveDb() (line 6359) propagates it.
-    // Mirror the fallback-KV branch which already has `if (addr) c.address = addr`.
-    // _addressEdited flag tells _d1SyncCustomersPut to promote (not just insert) the new property.
+    // Address gate: intercept before write if address differs.
+    // Gate handles D1 (correction or move). We set c.address/c.city for KV — no _addressEdited.
     if (addr) {
-      if (addr !== (c.address||'') || city !== (c.city||'')) c._addressEdited = true;
+      if (addr !== (c.address||'') || city !== (c.city||'')) {
+        const _calAgPid = _saveCalJob?.payerId || ('person_1' + newPhone);
+        const _calAgResult = await _calShowAddressGate(c.address||'', c.city||'', addr, city, _calAgPid);
+        if (!_calAgResult) {
+          const _feBtn = document.getElementById('feSaveBtn');
+          if (_feBtn) { _feBtn.disabled = false; _feBtn.textContent = '💾 Save'; }
+          return;
+        }
+        // Gate handled D1. Just update KV text — do not set c._addressEdited.
+      }
       c.address = addr;
       c.city    = city;
     }
@@ -6378,9 +6751,27 @@ async function saveFullEdit() {
   // ────────────────────────────────────────────────────────────────────────────
 
   c.firstName = fn; c.lastName = ln;
-  if (email) c.email = email;
-  if (addr)  c.address = addr;
-  if (city)  c.city = city;
+  if (email) {
+    const _prevEmail3 = c.email || '';
+    c.email = email;
+    if (email !== _prevEmail3) {
+      // Direct D1 write via purpose-built endpoint (belt-and-suspenders alongside PUT /customers)
+      fetch(`${PCPC_API}/admin/person/${encodeURIComponent('person_1'+_fePhone)}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email }),
+      }).catch(e => console.warn('[saveFullEdit fallback] email PATCH failed:', e.message));
+    }
+  }
+  // Address gate: intercept if address differs in the non-D1 fallback branch.
+  if (addr && (addr !== (c.address||'') || city !== (c.city||''))) {
+    const _calAgFbPid = 'person_1' + _fePhone;
+    const _calAgFbResult = await _calShowAddressGate(c.address||'', c.city||'', addr, city, _calAgFbPid);
+    if (!_calAgFbResult) return; // cancelled — save button not yet disabled at this point
+    c.address = addr; c.city = city;
+  } else {
+    if (addr) c.address = addr;
+    if (city) c.city = city;
+  }
   if (sqFt)  c.sqFt = sqFt;
   c.notes = notes;
   if (leadSrc) {
@@ -6434,8 +6825,8 @@ async function saveFullEdit() {
     }
   }
 
-  const isRoof = /roof|soft\s*wash|softwash/i.test(svc.toLowerCase());
-  if (isRoof) {
+  // Roof fields always saved when set — not gated on service type.
+  {
     const roofType = document.getElementById('feRoofType').value;
     const _feStoryVal = document.querySelector('input[name=feRoofStories]:checked')?.value;
     const stories  = _feStoryVal ? parseInt(_feStoryVal) : null;
@@ -6938,8 +7329,16 @@ function renderDayRevBanner(date) {
     }
   }
   const driveHtml = _hasAnyCoords ? `<span style="color:rgba(255,255,255,.55);font-size:12px;">🚗 ~${_totalDrive.toFixed(1)} mi</span>` : '';
+  // Mirror week-view totalJobCount logic: all rigs + unassigned, exclude canceled/no_show
+  const totalJobCount = RIGS.reduce((s,rig) => s + getScheduledForRig(date,rig)
+    .filter(c => { const st = c.scheduledStatus?.state; return st !== 'canceled' && st !== 'no_show'; }).length, 0)
+    + getUnassignedJobs(date).length;
+  const jobCountHtml = totalJobCount > 0
+    ? `<span style="font-size:11px;font-weight:500;color:rgba(255,255,255,.42);">${totalJobCount} job${totalJobCount!==1?'s':''}</span>`
+    : '';
   el.innerHTML = `<span class="rev-date">${dateLabel}</span>
     <span>$${booked.toLocaleString('en-US',{maximumFractionDigits:0})} booked</span>
+    ${jobCountHtml}
     <span style="color:rgba(255,255,255,.3);">/</span>
     <span class="rev-collected">$${collected.toLocaleString('en-US',{maximumFractionDigits:0})} collected</span>
     ${driveHtml}
@@ -7908,6 +8307,164 @@ document.addEventListener('click', e => {
     res.style.display = 'none';
   }
 });
+</script>
+
+<!-- ADDRESS GATE MODAL (calendar) -->
+<div class="overlay hidden" id="calAddrGateModal" onclick="if(event.target===this)_calAgCancel()">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title" id="calAgTitle"></div>
+    <!-- CORRECTION VIEW -->
+    <div id="calAgCorrView">
+      <p style="font-size:13px;color:var(--muted);margin:0 0 .75rem;">Looks like a spelling correction:</p>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 14px;margin-bottom:1.25rem;">
+        <div style="font-size:13px;color:#dc2626;text-decoration:line-through;margin-bottom:4px;" id="calAgOldAddr"></div>
+        <div style="font-size:13px;color:#16a34a;font-weight:600;" id="calAgNewAddrCorr"></div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="mbtn-cancel" onclick="_calAgCancel()">Cancel</button>
+        <button class="mbtn-save" id="calAgCorrBtn" onclick="_calAgConfirmCorrection()">Update Address</button>
+      </div>
+    </div>
+    <!-- MOVE VIEW -->
+    <div id="calAgMoveView" style="display:none;">
+      <div style="font-size:13px;margin-bottom:14px;line-height:1.7;color:var(--muted);">
+        Previously: <span id="calAgOldAddrMove" style="color:#64748b;"></span><br>
+        New address: <strong id="calAgNewAddrMove" style="color:var(--navy);"></strong>
+      </div>
+      <div class="modal-field" style="margin-bottom:12px;">
+        <label class="modal-label">What is this property? *</label>
+        <select id="calAgLabel" class="modal-input" onchange="_calAgLabelChange()">
+          <option value="">— Select label —</option>
+          <option>Main Residence</option>
+          <option>Rental Property</option>
+          <option>Friend's Property</option>
+          <option>Parent's / Relative's</option>
+          <option>Vacation Home</option>
+          <option>Office / Commercial</option>
+          <option>Other</option>
+        </select>
+        <input id="calAgLabelOther" class="modal-input" type="text" placeholder="Describe this property…"
+               style="display:none;margin-top:6px;" oninput="_calAgCheckMoveReady()">
+      </div>
+      <div style="margin-bottom:1.25rem;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#374151;margin-bottom:8px;">Make it the primary address? *</div>
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:6px;">
+          <input type="radio" name="calAgPrimary" value="true" style="margin-top:3px;flex-shrink:0;" onchange="_calAgCheckMoveReady()">
+          <div><div style="font-size:13px;font-weight:600;margin-bottom:2px;">Make this the main (primary) address</div><div style="font-size:12px;color:var(--muted);">Old address becomes secondary. Calendar jobs re-pointed.</div></div>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;">
+          <input type="radio" name="calAgPrimary" value="false" style="margin-top:3px;flex-shrink:0;" onchange="_calAgCheckMoveReady()">
+          <div><div style="font-size:13px;font-weight:600;margin-bottom:2px;">Keep as a secondary address</div><div style="font-size:12px;color:var(--muted);">Current primary stays primary. Added as a second location.</div></div>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="mbtn-cancel" onclick="_calAgCancel()">Cancel</button>
+        <button class="mbtn-save" id="calAgMoveBtn" disabled onclick="_calAgConfirmMove()">Save Property</button>
+      </div>
+    </div>
+    <div id="calAgError" style="display:none;font-size:13px;color:var(--red);margin-top:10px;padding-top:8px;border-top:1px solid #fecaca;"></div>
+  </div>
+</div>
+<script>
+// ── Address Gate — calendar page ─────────────────────────────────────────────
+var _calAgResolve = null, _calAgPersonId = null, _calAgNewAddr = null, _calAgNewCity = null;
+
+function _calShowAddressGate(oldAddr, oldCity, newAddr, newCity, personId) {
+  return new Promise(function(resolve) {
+    _calAgResolve = resolve; _calAgPersonId = personId;
+    _calAgNewAddr = newAddr; _calAgNewCity  = newCity;
+    var oH = (oldAddr.match(/^(\d+)/) || [])[1];
+    var nH = (newAddr.match(/^(\d+)/) || [])[1];
+    var isCorr = !!(oH && nH && oH === nH &&
+      oldCity.toLowerCase().trim() === newCity.toLowerCase().trim());
+    document.getElementById('calAgError').style.display = 'none';
+    document.getElementById('calAgLabel').value = '';
+    document.getElementById('calAgLabelOther').style.display = 'none';
+    document.getElementById('calAgLabelOther').value = '';
+    document.querySelectorAll('input[name="calAgPrimary"]').forEach(function(r){ r.checked = false; });
+    document.getElementById('calAgMoveBtn').disabled = true;
+    if (isCorr) {
+      document.getElementById('calAgTitle').textContent = '✏️ Address Correction?';
+      document.getElementById('calAgOldAddr').textContent = [oldAddr, oldCity].filter(Boolean).join(', ');
+      document.getElementById('calAgNewAddrCorr').textContent = [newAddr, newCity].filter(Boolean).join(', ');
+      document.getElementById('calAgCorrView').style.display = '';
+      document.getElementById('calAgMoveView').style.display = 'none';
+      var cb = document.getElementById('calAgCorrBtn');
+      cb.disabled = false; cb.textContent = 'Update Address';
+    } else {
+      document.getElementById('calAgTitle').textContent = '🏠 Different Address Detected';
+      document.getElementById('calAgOldAddrMove').textContent = [oldAddr, oldCity].filter(Boolean).join(', ');
+      document.getElementById('calAgNewAddrMove').textContent = [newAddr, newCity].filter(Boolean).join(', ');
+      document.getElementById('calAgCorrView').style.display = 'none';
+      document.getElementById('calAgMoveView').style.display = '';
+    }
+    document.getElementById('calAddrGateModal').classList.remove('hidden');
+  });
+}
+
+function _calAgCancel() {
+  document.getElementById('calAddrGateModal').classList.add('hidden');
+  if (_calAgResolve) { _calAgResolve(null); _calAgResolve = null; }
+}
+
+function _calAgLabelChange() {
+  var v = document.getElementById('calAgLabel').value;
+  document.getElementById('calAgLabelOther').style.display = v === 'Other' ? '' : 'none';
+  if (v !== 'Other') document.getElementById('calAgLabelOther').value = '';
+  _calAgCheckMoveReady();
+}
+
+function _calAgCheckMoveReady() {
+  var label   = document.getElementById('calAgLabel').value;
+  var other   = document.getElementById('calAgLabelOther').value.trim();
+  var primary = document.querySelector('input[name="calAgPrimary"]:checked');
+  document.getElementById('calAgMoveBtn').disabled = !(label && (label !== 'Other' || other) && primary);
+}
+
+async function _calAgConfirmCorrection() {
+  var btn = document.getElementById('calAgCorrBtn');
+  btn.disabled = true; btn.textContent = 'Updating…';
+  var errEl = document.getElementById('calAgError');
+  try {
+    var res = await fetch(PCPC_API + '/admin/address-gate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ personId: _calAgPersonId, action: 'correction',
+                             streetAddress: _calAgNewAddr, city: _calAgNewCity }),
+    });
+    var d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    document.getElementById('calAddrGateModal').classList.add('hidden');
+    if (_calAgResolve) { _calAgResolve({ action: 'correction' }); _calAgResolve = null; }
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Update Address';
+  }
+}
+
+async function _calAgConfirmMove() {
+  var labelSel   = document.getElementById('calAgLabel').value;
+  var labelOther = document.getElementById('calAgLabelOther').value.trim();
+  var propertyLabel  = labelSel === 'Other' ? (labelOther || 'Other') : labelSel;
+  var primaryContact = document.querySelector('input[name="calAgPrimary"]:checked')?.value === 'true';
+  var btn   = document.getElementById('calAgMoveBtn');
+  var errEl = document.getElementById('calAgError');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var res = await fetch(PCPC_API + '/admin/address-gate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ personId: _calAgPersonId, action: 'move',
+                             streetAddress: _calAgNewAddr, city: _calAgNewCity,
+                             primaryContact: primaryContact, propertyLabel: propertyLabel }),
+    });
+    var d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    document.getElementById('calAddrGateModal').classList.add('hidden');
+    if (_calAgResolve) { _calAgResolve({ action: 'move' }); _calAgResolve = null; }
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Save Property';
+  }
+}
 </script>
 </body>
 </html>

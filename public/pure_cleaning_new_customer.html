@@ -2418,8 +2418,15 @@ async function submitPhonePath() {
       customer = (dbRecord.customers||[]).find(c=>_nph(c.phone)===_nph(currentCustomer.phone));
       if (customer) {
         customer.firstName=fn; customer.lastName=ln;
-        if (addr !== (customer.address||'') || city !== (customer.city||'')) customer._addressEdited = true;
-        customer.address=addr; customer.city=city;
+        if (addr && (addr !== (customer.address||'') || city !== (customer.city||''))) {
+          const _agPh = _nph(currentCustomer.phone);
+          const _agResult = await _ncShowAddressGate(customer.address||'', customer.city||'', addr, city, 'person_1'+_agPh);
+          if (!_agResult) { btn.disabled=false; btn.textContent='✅ Save Quote'; _saving=false; return; }
+          // Gate handled D1 address write. Set KV text only — do not set _addressEdited.
+          customer.address=addr; customer.city=city;
+        } else {
+          customer.address=addr; customer.city=city;
+        }
         if(email) customer.email=email; if(zip) customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
         if (!customer.leadSource) customer.leadSource = buildLeadSource();
@@ -2445,8 +2452,14 @@ async function submitPhonePath() {
       if (existingInDb) {
         customer = existingInDb;
         customer.firstName=fn; customer.lastName=ln;
-        if (addr !== (customer.address||'') || city !== (customer.city||'')) customer._addressEdited = true;
-        customer.address=addr; customer.city=city;
+        if (addr && (addr !== (customer.address||'') || city !== (customer.city||''))) {
+          const _agPh2 = ph.replace(/\D/g,'').slice(-10);
+          const _agResult2 = await _ncShowAddressGate(customer.address||'', customer.city||'', addr, city, 'person_1'+_agPh2);
+          if (!_agResult2) { btn.disabled=false; btn.textContent='✅ Save Quote'; _saving=false; return; }
+          customer.address=addr; customer.city=city;
+        } else {
+          customer.address=addr; customer.city=city;
+        }
         if (email) customer.email=email; if (zip) customer.zip=zip; customer.notes=notes;
         customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
@@ -2558,8 +2571,14 @@ async function submitDigitalPath() {
       customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
       if (customer) {
         customer.firstName=fn; customer.lastName=ln;
-        if (addr !== (customer.address||'') || city !== (customer.city||'')) customer._addressEdited = true;
-        customer.address=addr; customer.city=city;
+        if (addr && (addr !== (customer.address||'') || city !== (customer.city||''))) {
+          const _agPh3 = ph.replace(/\D/g,'').slice(-10);
+          const _agResult3 = await _ncShowAddressGate(customer.address||'', customer.city||'', addr, city, 'person_1'+_agPh3);
+          if (!_agResult3) { btn.disabled=false; btn.textContent='✨ Send Them a Quote Link'; return; }
+          customer.address=addr; customer.city=city;
+        } else {
+          customer.address=addr; customer.city=city;
+        }
         if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
       }
       const _altC = buildAltContacts();
@@ -2900,6 +2919,163 @@ function friendly(iso) {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+</script>
+
+<!-- ADDRESS GATE MODAL -->
+<div class="moverlay hidden" id="ncAddrGateModal">
+  <div class="msheet" style="max-width:460px;">
+    <div class="msheet-title" id="ncAgTitle"></div>
+    <!-- CORRECTION VIEW -->
+    <div id="ncAgCorrView">
+      <p style="font-size:14px;color:var(--muted);margin:0 0 .75rem;">Looks like a spelling correction:</p>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:1.25rem;">
+        <div style="font-size:13px;color:#dc2626;text-decoration:line-through;margin-bottom:4px;" id="ncAgOldAddr"></div>
+        <div style="font-size:13px;color:#16a34a;font-weight:600;" id="ncAgNewAddrCorr"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="mbtn-c" onclick="_ncAgCancel()">Cancel</button>
+        <button class="btn btn-gold" id="ncAgCorrBtn" style="width:auto;padding:12px 20px;" onclick="_ncAgConfirmCorrection()">Update Address</button>
+      </div>
+    </div>
+    <!-- MOVE VIEW -->
+    <div id="ncAgMoveView" style="display:none;">
+      <div style="font-size:13px;margin-bottom:14px;line-height:1.7;">
+        <span style="color:var(--muted);">Previously on file: </span><span id="ncAgOldAddrMove" style="color:#64748b;"></span><br>
+        <span style="color:var(--muted);">New address: </span><strong id="ncAgNewAddrMove"></strong>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#374151;display:block;margin-bottom:6px;">What is this property? *</label>
+        <select id="ncAgLabel" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;" onchange="_ncAgLabelChange()">
+          <option value="">— Select label —</option>
+          <option>Main Residence</option>
+          <option>Rental Property</option>
+          <option>Friend's Property</option>
+          <option>Parent's / Relative's</option>
+          <option>Vacation Home</option>
+          <option>Office / Commercial</option>
+          <option>Other</option>
+        </select>
+        <input id="ncAgLabelOther" style="display:none;width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;font-family:inherit;margin-top:6px;box-sizing:border-box;" type="text" placeholder="Describe this property…" oninput="_ncAgCheckMoveReady()">
+      </div>
+      <div style="margin-bottom:1.25rem;">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#374151;margin-bottom:8px;">Make it the primary address? *</div>
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;margin-bottom:6px;">
+          <input type="radio" name="ncAgPrimary" value="true" style="margin-top:3px;flex-shrink:0;" onchange="_ncAgCheckMoveReady()">
+          <div><div style="font-size:14px;font-weight:600;margin-bottom:2px;">Make this the main (primary) address</div><div style="font-size:12px;color:var(--muted);">Old address becomes secondary. Calendar jobs re-pointed.</div></div>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:8px;cursor:pointer;">
+          <input type="radio" name="ncAgPrimary" value="false" style="margin-top:3px;flex-shrink:0;" onchange="_ncAgCheckMoveReady()">
+          <div><div style="font-size:14px;font-weight:600;margin-bottom:2px;">Keep as a secondary address</div><div style="font-size:12px;color:var(--muted);">Current primary stays primary. Added as a second location.</div></div>
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="mbtn-c" onclick="_ncAgCancel()">Cancel</button>
+        <button class="btn btn-gold" id="ncAgMoveBtn" style="width:auto;padding:12px 20px;" disabled onclick="_ncAgConfirmMove()">Save Property</button>
+      </div>
+    </div>
+    <div id="ncAgError" style="display:none;font-size:13px;color:#dc2626;margin-top:10px;padding-top:8px;border-top:1px solid #fecaca;"></div>
+  </div>
+</div>
+<script>
+// ── Address Gate — new-customer page ─────────────────────────────────────────
+var _ncAgResolve = null, _ncAgPersonId = null, _ncAgNewAddr = null, _ncAgNewCity = null;
+
+function _ncShowAddressGate(oldAddr, oldCity, newAddr, newCity, personId) {
+  return new Promise(function(resolve) {
+    _ncAgResolve = resolve; _ncAgPersonId = personId;
+    _ncAgNewAddr = newAddr; _ncAgNewCity  = newCity;
+    var oH = (oldAddr.match(/^(\d+)/) || [])[1];
+    var nH = (newAddr.match(/^(\d+)/) || [])[1];
+    var isCorr = !!(oH && nH && oH === nH &&
+      oldCity.toLowerCase().trim() === newCity.toLowerCase().trim());
+    document.getElementById('ncAgError').style.display = 'none';
+    document.getElementById('ncAgLabel').value = '';
+    document.getElementById('ncAgLabelOther').style.display = 'none';
+    document.getElementById('ncAgLabelOther').value = '';
+    document.querySelectorAll('input[name="ncAgPrimary"]').forEach(function(r){ r.checked = false; });
+    document.getElementById('ncAgMoveBtn').disabled = true;
+    if (isCorr) {
+      document.getElementById('ncAgTitle').textContent = '✏️ Address Correction?';
+      document.getElementById('ncAgOldAddr').textContent = [oldAddr, oldCity].filter(Boolean).join(', ');
+      document.getElementById('ncAgNewAddrCorr').textContent = [newAddr, newCity].filter(Boolean).join(', ');
+      document.getElementById('ncAgCorrView').style.display = '';
+      document.getElementById('ncAgMoveView').style.display = 'none';
+      var cb = document.getElementById('ncAgCorrBtn');
+      cb.disabled = false; cb.textContent = 'Update Address';
+    } else {
+      document.getElementById('ncAgTitle').textContent = '🏠 Different Address Detected';
+      document.getElementById('ncAgOldAddrMove').textContent = [oldAddr, oldCity].filter(Boolean).join(', ');
+      document.getElementById('ncAgNewAddrMove').textContent = [newAddr, newCity].filter(Boolean).join(', ');
+      document.getElementById('ncAgCorrView').style.display = 'none';
+      document.getElementById('ncAgMoveView').style.display = '';
+    }
+    document.getElementById('ncAddrGateModal').classList.remove('hidden');
+  });
+}
+
+function _ncAgCancel() {
+  document.getElementById('ncAddrGateModal').classList.add('hidden');
+  if (_ncAgResolve) { _ncAgResolve(null); _ncAgResolve = null; }
+}
+
+function _ncAgLabelChange() {
+  var v = document.getElementById('ncAgLabel').value;
+  document.getElementById('ncAgLabelOther').style.display = v === 'Other' ? '' : 'none';
+  if (v !== 'Other') document.getElementById('ncAgLabelOther').value = '';
+  _ncAgCheckMoveReady();
+}
+
+function _ncAgCheckMoveReady() {
+  var label   = document.getElementById('ncAgLabel').value;
+  var other   = document.getElementById('ncAgLabelOther').value.trim();
+  var primary = document.querySelector('input[name="ncAgPrimary"]:checked');
+  document.getElementById('ncAgMoveBtn').disabled = !(label && (label !== 'Other' || other) && primary);
+}
+
+async function _ncAgConfirmCorrection() {
+  var btn = document.getElementById('ncAgCorrBtn');
+  btn.disabled = true; btn.textContent = 'Updating…';
+  var errEl = document.getElementById('ncAgError');
+  try {
+    var res = await fetch(PCPC_API + '/admin/address-gate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ personId: _ncAgPersonId, action: 'correction',
+                             streetAddress: _ncAgNewAddr, city: _ncAgNewCity }),
+    });
+    var d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    document.getElementById('ncAddrGateModal').classList.add('hidden');
+    if (_ncAgResolve) { _ncAgResolve({ action: 'correction' }); _ncAgResolve = null; }
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Update Address';
+  }
+}
+
+async function _ncAgConfirmMove() {
+  var labelSel   = document.getElementById('ncAgLabel').value;
+  var labelOther = document.getElementById('ncAgLabelOther').value.trim();
+  var propertyLabel  = labelSel === 'Other' ? (labelOther || 'Other') : labelSel;
+  var primaryContact = document.querySelector('input[name="ncAgPrimary"]:checked')?.value === 'true';
+  var btn   = document.getElementById('ncAgMoveBtn');
+  var errEl = document.getElementById('ncAgError');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var res = await fetch(PCPC_API + '/admin/address-gate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ personId: _ncAgPersonId, action: 'move',
+                             streetAddress: _ncAgNewAddr, city: _ncAgNewCity,
+                             primaryContact: primaryContact, propertyLabel: propertyLabel }),
+    });
+    var d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    document.getElementById('ncAddrGateModal').classList.add('hidden');
+    if (_ncAgResolve) { _ncAgResolve({ action: 'move' }); _ncAgResolve = null; }
+  } catch(e) {
+    errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Save Property';
+  }
+}
 </script>
 </body>
 </html>

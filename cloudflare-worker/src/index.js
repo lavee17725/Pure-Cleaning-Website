@@ -209,6 +209,89 @@ async function runAutoSnapshot(env) {
   return entry;
 }
 
+// ── Twilio SMS ────────────────────────────────────────────────────────────────
+// sendSms: never throws, returns {ok, error}. Logs failures via appendErrorLog
+// (Law T1.11 — no silent-catch on the alert path). Lead/confirm save is always
+// done before this runs — an SMS failure must never 500 the response.
+async function sendSms(env, to, body) {
+  const sid   = env.TWILIO_ACCOUNT_SID;
+  const token = env.TWILIO_AUTH_TOKEN;
+  const from  = env.TWILIO_FROM;
+  if (!sid || !token || !from || !to) {
+    await appendErrorLog(env, {
+      id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+      source: 'worker', page: 'sendSms',
+      errorType: 'SMS_CONFIG_MISSING',
+      message: `sendSms called but config incomplete. sid=${!!sid} token=${!!token} from=${!!from} to=${!!to}`,
+    }).catch(() => {});
+    return { ok: false, error: 'config_missing' };
+  }
+  try {
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': 'Basic ' + btoa(`${sid}:${token}`),
+        },
+        body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+      }
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '(unreadable)');
+      await appendErrorLog(env, {
+        id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+        source: 'worker', page: 'sendSms',
+        errorType: 'SMS_SEND_FAILED',
+        message: `Twilio ${res.status}: ${errText.slice(0, 300)}`,
+      }).catch(() => {});
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    await appendErrorLog(env, {
+      id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+      source: 'worker', page: 'sendSms',
+      errorType: 'SMS_FETCH_ERROR',
+      message: (e.message || String(e)).slice(0, 300),
+    }).catch(() => {});
+    return { ok: false, error: e.message };
+  }
+}
+
+// Text 1 body — new web lead
+function _smsLeadBody(firstName, lastName, city, cd) {
+  const svcs = Array.isArray(cd.services) ? cd.services.join(', ') : (cd.services || '');
+  const ph10 = (cd.phone || '').replace(/\D/g, '').slice(-10);
+  const phFmt = ph10.length === 10
+    ? `(${ph10.slice(0,3)}) ${ph10.slice(3,6)}-${ph10.slice(6)}`
+    : ph10;
+  return [
+    `🏠 New lead: ${firstName} ${lastName} — ${city}`,
+    svcs               ? `Services: ${svcs}` : null,
+    cd.timeframe       ? `Timeframe: ${cd.timeframe}` : null,
+    cd.notes           ? `Note: ${cd.notes.slice(0, 120)}` : null,
+    phFmt              ? `Call: ${phFmt}` : null,
+    `View: purecleaningpressurecleaning.com/pure_cleaning_incoming.html`,
+  ].filter(Boolean).join('\n');
+}
+
+// Text 2 body — quote confirmed by customer
+function _smsConfirmedBody(name, city, amount, dateDisplay, services, phone) {
+  const ph10 = (phone || '').replace(/\D/g, '').slice(-10);
+  const phFmt = ph10.length === 10
+    ? `(${ph10.slice(0,3)}) ${ph10.slice(3,6)}-${ph10.slice(6)}`
+    : ph10;
+  return [
+    `✅ Quote confirmed: ${name}${city ? ' — ' + city : ''}`,
+    amount      ? `Amount: $${Number(amount).toLocaleString()}` : null,
+    dateDisplay ? `Date: ${dateDisplay}` : null,
+    services    ? `Services: ${String(services).slice(0, 100)}` : null,
+    phFmt       ? `Phone: ${phFmt}` : null,
+  ].filter(Boolean).join('\n');
+}
+
 // ── Error log helper ─────────────────────────────────────────────────────
 async function appendErrorLog(env, entry) {
   const date = entry.timestamp?.split('T')[0] || new Date().toISOString().split('T')[0];
@@ -266,7 +349,7 @@ export default {
         }
       })());
     } else if (event.cron === '0 4 * * *') {
-      // Nightly backup — 4 AM UTC (runs after Bouncie matcher)
+      // Nightly backup — 4 AM UTC (keepalive runs same minute; Bouncie matcher at 4:30 AM)
       ctx.waitUntil(runNightlyBackup(env));
     } else if (event.cron === '0 */4 * * *') {
       // Bouncie auth keepalive — every 4 hours, keeps refresh token exercised
@@ -283,8 +366,8 @@ export default {
         // @ts-ignore — union: success branch lacks errorCode/errorMessage; r.success guard above makes this safe
         if (!r.success) console.error('[Google OAuth cron] Renewal failed:', r.errorCode, r.errorMessage);
       }).catch(e => console.error('[Google OAuth cron] Unexpected error:', e.message)));
-    } else {
-      // Bouncie job duration matcher — 3 AM UTC (11 PM ET)
+    } else if (event.cron === '30 4 * * *') {
+      // Bouncie job duration matcher — 4:30 AM UTC (30 min after 4 AM keepalive so token is fresh)
       // Use previous calendar day (UTC-24h) so ET-scheduled jobs (2 PM-9 PM UTC = same UTC day)
       // are queried with the correct date. Without the offset the cron would use tomorrow's UTC
       // date and Bouncie would return no matching trips.
@@ -300,17 +383,56 @@ export default {
           heartbeat.jobsTotal   = total;
           heartbeat.matchRate   = total > 0 ? Math.round((matched / total) * 100) / 100 : null;
 
-          // Honest status — T1.20: don't log success when no work was done.
-          // Pure Cleaning doesn't work Sundays — zero jobs on Sunday is expected.
-          const dow = new Date(today + 'T12:00:00Z').getUTCDay(); // 0=Sun
-          if (total === 0 && dow !== 0) {
-            heartbeat.status      = 'anomaly_zero_jobs';
-            heartbeat.anomalyReason = `Zero completed jobs found in D1 for ${today} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]}). Check if jobs were completed without rigId, or if D1 query failed silently.`;
-          } else if (total > 0 && matched / total < 0.5) {
-            heartbeat.status      = 'partial_match_failure';
-            heartbeat.anomalyReason = `Match rate ${Math.round(matched/total*100)}% below 50% threshold on ${today}. Bouncie token or GPS coverage issue likely.`;
+          // Detect Bouncie auth/connection failure returned as { error: ... } (not thrown).
+          // Previously this silently fell through to anomaly_zero_jobs — now flagged explicitly.
+          if (result?.error) {
+            heartbeat.status      = 'error';
+            heartbeat.anomalyReason = `Bouncie auth/connection failure on ${today}: ${result.error} — ${result.message || ''}`;
+            heartbeat.errors.push(result.error);
           } else {
-            heartbeat.status = 'success';
+            // Honest status — T1.20: don't log success when no work was done.
+            // Pure Cleaning doesn't work Sundays — zero jobs on Sunday is expected.
+            const dow = new Date(today + 'T12:00:00Z').getUTCDay(); // 0=Sun
+            if (total === 0 && dow !== 0) {
+              heartbeat.status      = 'anomaly_zero_jobs';
+              heartbeat.anomalyReason = `Zero completed jobs found in D1 for ${today} (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dow]}). Check if jobs were completed without rigId, or if D1 query failed silently.`;
+            } else if (total > 0 && matched / total < 0.5) {
+              heartbeat.status      = 'partial_match_failure';
+              heartbeat.anomalyReason = `Match rate ${Math.round(matched/total*100)}% below 50% threshold on ${today}. Bouncie token or GPS coverage issue likely.`;
+            } else {
+              heartbeat.status = 'success';
+            }
+          }
+
+          // ── 7-day retry: pick up late-completed jobs missed by prior cron runs ─────
+          // Finds all scheduledDates in the last 7 days that have completed jobs with
+          // rigId set but no actualDuration. Runs the full matcher for each date.
+          // Idempotent: actualDuration IS NULL filter prevents overwriting good matches.
+          // Skipped on auth failure (heartbeat.status === 'error') — would also fail.
+          if (env.DB && heartbeat.status !== 'error') {
+            try {
+              const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+              const retryRows = await env.DB.prepare(
+                `SELECT DISTINCT scheduledDate FROM Job
+                 WHERE state = 'completed'
+                   AND scheduledDate >= ? AND scheduledDate < ?
+                   AND actualDuration IS NULL AND rigId IS NOT NULL
+                 ORDER BY scheduledDate DESC`
+              ).bind(sevenDaysAgo, today).all();
+              const retryDates = (retryRows.results || []).map(r => r.scheduledDate);
+              if (retryDates.length) {
+                console.log(`[Bouncie retry] ${retryDates.length} historical date(s) with unmatched jobs: ${retryDates.join(', ')}`);
+                heartbeat.retryDates   = retryDates;
+                heartbeat.retryMatched = 0;
+                for (const retryDate of retryDates) {
+                  try {
+                    const r2 = await bouncieJobDurationMatcher(retryDate, env);
+                    heartbeat.retryMatched += r2?.matched ?? 0;
+                    console.log(`[Bouncie retry] ${retryDate}: ${r2?.matched ?? 0}/${r2?.total ?? 0} matched`);
+                  } catch(e2) { console.error(`[Bouncie retry] Failed for ${retryDate}: ${e2.message}`); }
+                }
+              }
+            } catch(e2) { console.error(`[Bouncie retry] D1 query failed: ${e2.message}`); }
           }
         } catch (e) {
           console.error('duration cron error:', e.message);
@@ -318,9 +440,35 @@ export default {
         } finally {
           heartbeat.durationMs = Date.now() - startMs;
           await env.DATA.put('bouncie:last_cron_run', JSON.stringify(heartbeat));
+
+          // ── Loud alert: write bouncie_cron_alert event to KV ──────────────────────
+          // The calendar's checkAlerts() polls GET /events every 60s and shows a toast
+          // for any event type in _ALERT_TYPES. The toast surfaces within 60s of cron fail
+          // IF the calendar is open, or on next calendar open (fresh session defaults
+          // to ?since=24h ago — so events from 4:30 AM are visible when Tyler opens at 8 AM).
+          // Fires for: auth failure, anomaly_zero_jobs, partial_match_failure, thrown error.
+          if (heartbeat.status !== 'success') {
+            try {
+              const eventsData = await env.DATA.get(KV_KEYS.events, 'json') || { events: [] };
+              const alertMsg = heartbeat.anomalyReason
+                || `Bouncie cron ${heartbeat.status} on ${heartbeat.date}: ${(heartbeat.errors || []).join('; ') || 'Unknown error'}`;
+              eventsData.events = eventsData.events || [];
+              eventsData.events.push({
+                id:        `bouncie_alert_${heartbeat.date}_${Date.now()}`,
+                eventType: 'bouncie_cron_alert',
+                status:    heartbeat.status,
+                message:   alertMsg,
+                date:      heartbeat.date,
+                createdAt: new Date().toISOString(),
+              });
+              // Cap at 200 events to prevent unbounded growth
+              if (eventsData.events.length > 200) eventsData.events = eventsData.events.slice(-200);
+              await env.DATA.put(KV_KEYS.events, JSON.stringify(eventsData));
+            } catch(e2) { console.error('bouncie cron alert write failed:', e2.message); }
+          }
         }
       })());
-      // TruckEvent persistence — runs alongside duration matcher at 3 AM UTC
+      // TruckEvent persistence — runs alongside duration matcher at 4:30 AM UTC
       ctx.waitUntil(
         persistTruckEventsNightly(today, env)
           .catch(e => console.error('truckevent cron error:', e.message))
@@ -639,6 +787,13 @@ export default {
           ip: ip.slice(0, 50),
         });
 
+        // Text 2: alert Tyler — customer approved their quote
+        const _appName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || name || '';
+        const _appDate = selectedDate
+          ? new Date(selectedDate + 'T12:00:00Z').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+          : '';
+        await sendSms(env, env.TYLER_CELL, _smsConfirmedBody(_appName, c.city || body.city || '', approvedAmount, _appDate, svcStr, normPhone));
+
         return jsonResponse({ success: true, scheduled: selectedDate || null }, corsHeaders);
       }
 
@@ -789,6 +944,11 @@ export default {
       if (path.startsWith('admin/job/') && path.endsWith('/days') && request.method === 'GET') {
         const jobId = path.slice('admin/job/'.length, -'/days'.length);
         return await handleGetJobDays(request, env, jobId, corsHeaders);
+      }
+
+      if (path.startsWith('admin/job/') && path.endsWith('/complete-group') && request.method === 'POST') {
+        const jobId = path.slice('admin/job/'.length, -'/complete-group'.length);
+        return await handleCompleteJobGroup(request, env, jobId, corsHeaders);
       }
 
       if (path.startsWith('admin/job/') && request.method === 'PATCH') {
@@ -1182,6 +1342,10 @@ export default {
 
       if (path === 'admin/person-property' && request.method === 'PATCH') {
         return await handlePatchPersonProperty(request, env, corsHeaders);
+      }
+
+      if (path === 'admin/address-gate' && request.method === 'POST') {
+        return await handleAddressGate(request, env, corsHeaders);
       }
 
       if (path === 'admin/retype-customer' && request.method === 'POST') {
@@ -1727,6 +1891,10 @@ async function handleIncomingSubmit(request, env, corsHeaders) {
   if (!existing.requests) existing.requests = [];
   existing.requests.push(body);
   await env.DATA.put(KV_KEYS.incoming, JSON.stringify(existing));
+  // Text 1: alert Tyler on every real new quote lead (not reschedule/waitlist noise)
+  if (!skipValidation) {
+    await sendSms(env, env.TYLER_CELL, _smsLeadBody(firstName, lastName, city, cd));
+  }
   return jsonResponse({ success: true, entry: body }, corsHeaders);
 }
 
@@ -1974,6 +2142,10 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
       }));
     }
   }
+
+  // Text 2: alert Tyler — customer confirmed their agreement
+  const _confName = `${cust.firstName || ''} ${cust.lastName || ''}`.trim() || phone;
+  await sendSms(env, env.TYLER_CELL, _smsConfirmedBody(_confName, cust.city || city || '', approvedAmount, display, services, phone));
 
   return jsonResponse({ success: true, confirmedDate: date, confirmedDateDisplay: display }, corsHeaders);
 }
@@ -2659,6 +2831,7 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     workSiteAddress:    j.workSiteAddress    || null,
     workSiteCity:       j.workSiteCity       || null,
     crewCount:          j.crewCount          || 2,
+    roofStories:        j.roofStories        || null,
     // Migration 0015: outcome + cost fields
     tipped:             !!j.tipped,
     tipAmount:          j.tipAmount          ?? null,
@@ -2690,13 +2863,17 @@ function _d1BuildScheduledStatus(personJobs) {
   // they just finished. Old priority (recentCompleted first) caused c.scheduledStatus
   // to carry stale completed data even when a new job was on the books, breaking
   // print sheets and customer-list status for multi-job customers like Jessica Angellotti.
-  const activeScheduled = personJobs.find(j => j.state === 'scheduled');
+  // Skip rig-segment children — parent (isRigSegment=0, isMultiDayParent=1) is the
+  // book of record and holds the correct amount + rigId=null for the whole group.
+  // Without this guard, a rig-segment child (amount=0, rigId=rig_X) could become the
+  // KV scheduledStatus representative, showing $0 and the wrong rig on the profile.
+  const activeScheduled = personJobs.find(j => j.state === 'scheduled'  && !j.isRigSegment);
   const recentCompleted = personJobs.find(j =>
-    j.state === 'completed' && j.completedAt && j.completedAt >= thirtyDaysAgo
+    j.state === 'completed' && j.completedAt && j.completedAt >= thirtyDaysAgo && !j.isRigSegment
   );
   const ss = activeScheduled
            || recentCompleted
-           || personJobs.find(j => j.state !== 'cancelled');
+           || personJobs.find(j => j.state !== 'cancelled' && !j.isRigSegment);
   if (!ss) return null;
   return {
     state:               ss.state,
@@ -2718,6 +2895,8 @@ function _d1BuildScheduledStatus(personJobs) {
     durationConfidence:  ss.bouncieMatchStatus  || null,
     bouncieMatchStatus:  ss.bouncieMatchStatus  || null,
     geocodeSource:       ss.geocodeSource       || null,
+    roofStories:         ss.roofStories         || null,
+    crewCount:           ss.crewCount           || null,
   };
 }
 
@@ -2727,11 +2906,28 @@ function _d1PersonToKv(p, props, pjobs, propById) {
   const addr = primaryProp.streetAddress || '';
   const ph   = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
 
-  const completedJobs  = pjobs.filter(j => j.state === 'completed');
-  const lifetimeSpend  = Math.round(completedJobs.reduce((s, j) => s + (j.amount||0), 0));
+  // Multi-day groups: children (parentJobId IS NOT NULL) are excluded from customer-facing
+  // records. Only the parent row and standalone jobs appear in jobHistory / totals.
+  // The parent's "group amount" = parent.amount + all its completed children's amounts.
+  // lastService: use the most recent completed date across ALL rows (including children)
+  // so it reflects actual last day of work, not just the parent's scheduledDate.
+  const _allCompleted  = pjobs.filter(j => j.state === 'completed');
+  const lastService    = _allCompleted[0]?.scheduledDate || null; // pjobs is DESC sorted
+  const completedJobs  = _allCompleted.filter(j => !j.parentJobId); // parents + standalone only
+  const _groupAmt      = j => {
+    if (!j.isMultiDayParent) return j.amount || 0;
+    const childAmt = pjobs
+      .filter(c => c.parentJobId === j.jobId && c.state === 'completed')
+      .reduce((s, c) => s + (c.amount || 0), 0);
+    return (j.amount || 0) + childAmt;
+  };
+  const lifetimeSpend  = Math.round(completedJobs.reduce((s, j) => s + _groupAmt(j), 0));
   const totalJobs      = completedJobs.length;
-  const lastService    = completedJobs[0]?.scheduledDate || null; // DESC sorted
-  const jobHistory     = completedJobs.filter(j => j.jobId).map(j => _d1JobToJhEntry(j, city, addr, propById));
+  const jobHistory     = completedJobs.filter(j => j.jobId).map(j => {
+    const entry = _d1JobToJhEntry(j, city, addr, propById);
+    if (j.isMultiDayParent) entry.amount = _groupAmt(j); // roll up children into parent entry
+    return entry;
+  });
 
   // Migration 0015: outcome rollups — computed from D1, never stored directly
   const tippedJobs     = completedJobs.filter(j => j.tipped);
@@ -2796,6 +2992,26 @@ function _d1PersonToKv(p, props, pjobs, propById) {
     complaintCount,
     complaintList,
     hasComplaints: complaintCount > 0,
+    // Properties list: all PersonProperty rows for this person, primary first.
+    // d1CustomerToKvShape (single-customer endpoint) overwrites this with a richer
+    // version that includes googlePlaceId/formattedAddress/googleVerified.
+    // Both share the same shape; the bulk version omits the google-verified fields.
+    properties: props
+      .slice()
+      .sort((a, b) => (b.primaryContact || 0) - (a.primaryContact || 0))
+      .map(pp => ({
+        propertyId:    pp.propertyId,
+        streetAddress: pp.streetAddress  || '',
+        city:          pp.city           || '',
+        zip:           pp.zip            || null,
+        propertyLabel: pp.propertyLabel  || null,
+        propertyType:  pp.propertyType   || null,
+        primaryContact: pp.primaryContact === 1 || pp.primaryContact === '1',
+        gateCode:      pp.gateCode       || null,
+        roofType:      pp.roofType       || null,
+        sqFt:          pp.sqft           || null,
+        accessNotes:   pp.accessNotes    || null,
+      })),
   };
 }
 
@@ -2803,7 +3019,8 @@ async function d1AllCustomersToKvShape(env) {
   const [persons, propLinks, jobs, reviewStates, truckDriveTimes] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT pp.personId, pp.propertyId, pp.primaryContact, p.streetAddress, p.city, p.state, p.zip,' +
+      'SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType,' +
+      'p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
       'p.roofType, p.sqft ' +
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
@@ -2813,9 +3030,11 @@ async function d1AllCustomersToKvShape(env) {
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
+      'roofStories,roofType,' +
       'tipped,tipAmount,complained,complaintNotes,' +
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
-      'drivetimeFromPreviousJob,milesFromPreviousJob ' +
+      'drivetimeFromPreviousJob,milesFromPreviousJob,' +
+      'parentJobId,isMultiDayParent,isRigSegment ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
     env.DATA.get('review_states', 'json').then(d => d || {}),
@@ -2897,9 +3116,11 @@ async function d1CustomerToKvShape(phone, env) {
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
+      'roofStories,roofType,' +
       'tipped,tipAmount,complained,complaintNotes,' +
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
-      'drivetimeFromPreviousJob,milesFromPreviousJob ' +
+      'drivetimeFromPreviousJob,milesFromPreviousJob,' +
+      'parentJobId,isMultiDayParent,isRigSegment ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
     // TruckEvent drive times scoped to this person's jobs
@@ -3603,7 +3824,8 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.parentJobId,
         j.dayNumber,
         j.totalDays,
-        j.dayPhase
+        j.dayPhase,
+        j.isRigSegment
       FROM Job j
       JOIN Person p ON p.personId = j.payerId
       LEFT JOIN Property prop ON prop.propertyId = j.propertyId
@@ -3823,6 +4045,88 @@ async function handleGetJobDays(request, env, jobId, corsHeaders) {
   return jsonResponse({ parentJobId: rootId, days: results || [] }, corsHeaders);
 }
 
+// ── POST /admin/job/:id/complete-group ────────────────────────────────────────
+// Atomically completes every non-cancelled member of a multi-day/multi-rig group.
+// :id may be the root parent OR any child — rootId resolved via COALESCE.
+// Body mirrors PATCH /admin/job fields (state/completedAt/roofStories/crewCount/payment).
+// Response: { isGroup:true, rootId, completedJobIds:[...] }
+//       OR: { isGroup:false }  when only one member found (caller falls back to normal PATCH).
+async function handleCompleteJobGroup(request, env, jobId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!jobId)  return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => ({}));
+  const now  = new Date().toISOString();
+
+  // 1. Resolve root (same logic as handleGetJobDays)
+  const rootRow = await env.DB.prepare(
+    'SELECT COALESCE(parentJobId, jobId) AS rootId FROM Job WHERE jobId=?'
+  ).bind(jobId).first();
+  if (!rootRow) return jsonResponse({ error: 'job not found' }, corsHeaders, 404);
+  const rootId = rootRow.rootId;
+
+  // 2. Fetch all non-cancelled group members
+  const { results: members } = await env.DB.prepare(
+    'SELECT jobId, payerId, state FROM Job WHERE (jobId=? OR parentJobId=?) AND state != \'cancelled\' ORDER BY dayNumber'
+  ).bind(rootId, rootId).all();
+  if (!members || members.length === 0)
+    return jsonResponse({ error: 'no active members found' }, corsHeaders, 404);
+
+  // Standalone: let caller use normal PATCH
+  if (members.length === 1)
+    return jsonResponse({ isGroup: false }, corsHeaders);
+
+  // 3. Build cascade fields — ONLY state/time/payment.
+  // FIX 4: roofStories, roofType, crewCount are intentionally excluded — each child
+  // keeps its own per-row labor data captured at creation/edit time. Completing the
+  // group must not overwrite rig-specific crew counts or roof details.
+  const completedAt = body.completedAt || now;
+  const fields = { state: 'completed', completedAt, modifiedAt: now };
+  if (body.paymentStatus === 'paid') {
+    fields.paymentStatus = 'paid';
+    fields.paymentMethod = body.paymentMethod || null;
+    fields.paidAt        = body.paidAt || now;
+  }
+
+  // 4. Atomically complete all members via D1 batch — all rows flip or none do.
+  // FIX 3: env.DB.batch() is atomic; throws on any failure so the client catch(e)
+  // shows the error toast. Never swallows a partial-completion failure.
+  const sets = Object.keys(fields).map(k => `${k}=?`);
+  const vals = Object.values(fields);
+  const sql  = `UPDATE Job SET ${sets.join(', ')} WHERE jobId=? AND state != 'cancelled'`;
+
+  const stmts = members.map(m => env.DB.prepare(sql).bind(...vals, m.jobId));
+  await env.DB.batch(stmts); // throws → propagates → client shows toast; no partial state
+  const completedIds = members.map(m => m.jobId);
+
+  // 5. KV rebuild: the client's saveDb() call will overwrite this with the authoritative
+  //    KV blob (including the single jobHistory entry it created). This rebuild is a
+  //    belt-and-suspenders sync in case saveDb() fails — it will reflect the group as
+  //    completed even if the client write never lands.
+  const payerId = members[0]?.payerId;
+  if (payerId?.startsWith('person_1')) {
+    const ph = payerId.slice('person_1'.length);
+    if (ph.length === 10) {
+      try {
+        const updatedCustomer = await d1CustomerToKvShape(ph, env);
+        if (updatedCustomer) {
+          const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+          const idx  = (kvDb.customers||[]).findIndex(c =>
+            (c.phone||'').replace(/\D/g,'').slice(-10) === ph
+          );
+          if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+          else           kvDb.customers.push(updatedCustomer);
+          await env.DATA.put('customer_db', JSON.stringify(kvDb));
+        }
+      } catch(e) {
+        await _logD1Failure(env, `handleCompleteJobGroup:kvRebuild:${payerId}`, e.message).catch(() => {});
+      }
+    }
+  }
+
+  return jsonResponse({ isGroup: true, rootId, completedJobIds: completedIds }, corsHeaders);
+}
+
 // ── POST /admin/job/split ─────────────────────────────────────────────────────
 // Creates OR reconciles a multi-day job set. UI sends complete desired state;
 // worker makes D1 match exactly.
@@ -3837,9 +4141,106 @@ async function handleSplitJob(request, env, corsHeaders) {
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
-  const { parentJobId, days } = body;
+  const { parentJobId, days, segmentType, rigs } = body;
   if (!parentJobId)
     return jsonResponse({ error: 'parentJobId required' }, corsHeaders, 400);
+
+  // ── Rig-split path ────────────────────────────────────────────────────────
+  // Body: { parentJobId, segmentType:'rig', rigs:[{rigId,crewCount},...] }
+  // Creates same-date children with different rigIds, isRigSegment=1.
+  // Parent keeps full amount (billing unit); children carry $0 (tracking units).
+  // Parent rigId set to null — the group has no single rig.
+  //
+  // LAYER 4 NOTE: Bouncie GPS attribution for rig-segments is NOT yet correct —
+  // the matcher picks the best rig for each job independently. All rig-segments
+  // at the same address on the same day will currently receive the same rig's time.
+  // Layer 4 fix: constrain matcher to job.rigId when isRigSegment=1.
+  if (segmentType === 'rig') {
+    if (!Array.isArray(rigs) || rigs.length < 2)
+      return jsonResponse({ error: 'at least 2 rigs required for rig-split' }, corsHeaders, 400);
+
+    const now2 = new Date().toISOString();
+    const rootRow2 = await env.DB.prepare(
+      'SELECT COALESCE(parentJobId, jobId) AS rootId FROM Job WHERE jobId=?'
+    ).bind(parentJobId).first();
+    if (!rootRow2) return jsonResponse({ error: 'job not found' }, corsHeaders, 404);
+    const rootId2 = rootRow2.rootId;
+
+    const parent2 = await env.DB.prepare('SELECT * FROM Job WHERE jobId=?').bind(rootId2).first();
+    if (!parent2) return jsonResponse({ error: 'parent job not found' }, corsHeaders, 404);
+    if (parent2.state !== 'scheduled')
+      return jsonResponse({ error: 'can only rig-split scheduled jobs' }, corsHeaders, 400);
+
+    try {
+      // Update parent: becomes the group root. rigId=null (no single rig), keeps full amount.
+      await env.DB.prepare(
+        `UPDATE Job SET isMultiDayParent=1, dayNumber=NULL, totalDays=?,
+         rigId=NULL, dayPhase=NULL, modifiedAt=? WHERE jobId=?`
+      ).bind(rigs.length, now2, rootId2).run();
+
+      // Insert rig-segment children — one per rig, same date, isRigSegment=1, amount=0
+      const childIds2 = [];
+      for (let i = 0; i < rigs.length; i++) {
+        const r       = rigs[i];
+        const childId = `${rootId2}_r${i + 1}`; // _r1, _r2, _r3 (vs _d2 for day-splits)
+        childIds2.push(childId);
+        await env.DB.prepare(`
+          INSERT OR REPLACE INTO Job
+            (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
+             servicesRequested, servicesRaw, jobNotes, rigId, crewCount,
+             workSiteAddress, workSiteCity, workSiteZip,
+             workSitePlaceId, workSiteGoogleVerified,
+             endCustomerName, endCustomerPhone, roofStories,
+             source, createdAt, modifiedAt,
+             parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent, isRigSegment)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        ).bind(
+          childId,
+          parent2.payerId,
+          parent2.propertyId,
+          parent2.scheduledDate,          // SAME date as parent
+          'scheduled',
+          0,                              // amount=0 — rig-segments are tracking units
+          'pending',
+          parent2.servicesRequested,
+          parent2.servicesRaw            || parent2.servicesRequested,
+          parent2.jobNotes               || parent2.servicesRequested,
+          r.rigId,                        // each child has its OWN rigId
+          r.crewCount                    || null,
+          parent2.workSiteAddress        || null,
+          parent2.workSiteCity           || null,
+          parent2.workSiteZip            || null,
+          parent2.workSitePlaceId        || null,
+          parent2.workSiteGoogleVerified || 0,
+          parent2.endCustomerName        || null,
+          parent2.endCustomerPhone       || null,
+          parent2.roofStories            || null,
+          'rig_split',
+          now2, now2,
+          rootId2,   // parentJobId
+          i + 1,     // dayNumber = rig segment order (1-indexed)
+          rigs.length,
+          null,      // dayPhase = null for rig-segments
+          0,         // isMultiDayParent = 0 (children are never parents)
+          1          // isRigSegment = 1 — key differentiator from day-segments
+        ).run();
+      }
+
+      // KV sync: parent rigId → null so it doesn't render in any rig column
+      await _patchJobKvSync(
+        { ...parent2, rigId: null },
+        { rigId: true },
+        env, now2
+      ).catch(e => console.error('handleSplitJob:rigKvSync', e.message));
+
+      return jsonResponse({ success: true, parentJobId: rootId2, childIds: childIds2, totalRigs: rigs.length, segmentType: 'rig' }, corsHeaders);
+    } catch(e) {
+      await _logD1Failure(env, `handleSplitJob:rig:${parentJobId}`, e.message);
+      return jsonResponse({ error: e.message }, corsHeaders, 500);
+    }
+  }
+  // ── End rig-split path ────────────────────────────────────────────────────
+
   if (!Array.isArray(days) || days.length < 1)
     return jsonResponse({ error: 'days must be a non-empty array' }, corsHeaders, 400);
 
@@ -4015,6 +4416,8 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'gasCost', 'chemicalCost', 'laborCost', 'equipmentCost', 'otherCost',
   // Existing columns that existed in schema but were never whitelisted — fixed in 0015 release
   'drivetimeFromPreviousJob', 'milesFromPreviousJob',
+  // Migration 0017: multi-rig segment flag
+  'isRigSegment',
 ]);
 
 const _JOB_VALID_STATES = new Set([
@@ -4064,6 +4467,29 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
     // sees a D1-vs-KV date mismatch and inserts spurious scheduled rows.
     await _patchJobKvSync(updated, updates, env, now);
 
+    // Station 3 (tip propagation): tipped/tipAmount changes roll up into isTipper and
+    // avgTipAmount on the customer blob. _patchJobKvSync only touches scheduledStatus
+    // and never rebuilds jobHistory[] or rollup fields, so do a full KV rebuild here.
+    if (('tipped' in updates || 'tipAmount' in updates) && updated?.payerId?.startsWith('person_1')) {
+      try {
+        const ph = updated.payerId.slice('person_1'.length);
+        if (ph.length === 10) {
+          const updatedCustomer = await d1CustomerToKvShape(ph, env);
+          if (updatedCustomer) {
+            const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+            const idx  = (kvDb.customers||[]).findIndex(c =>
+              (c.phone||'').replace(/\D/g,'').slice(-10) === ph
+            );
+            if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+            else kvDb.customers.push(updatedCustomer);
+            await env.DATA.put('customer_db', JSON.stringify(kvDb));
+          }
+        }
+      } catch(e) {
+        await _logD1Failure(env, `handlePatchJob:tipKvRebuild:${jobId}`, e.message).catch(()=>{});
+      }
+    }
+
     return jsonResponse({ success: true, jobId, updatedRow: updated }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, `handlePatchJob:${jobId}`, e.message);
@@ -4102,6 +4528,7 @@ async function _patchJobKvSync(job, patchedFields, env, now) {
     if ('scheduledTimeWindow' in patchedFields) ss.window         = job.scheduledTimeWindow;
     if ('servicesRaw'         in patchedFields) ss.jobNotes       = job.servicesRaw || ss.jobNotes;
     if ('jobNotes'            in patchedFields) ss.jobNotes       = job.jobNotes    || ss.jobNotes;
+    if ('roofStories'         in patchedFields) ss.roofStories    = job.roofStories ?? null;
     if ('state' in patchedFields) {
       ss.state = job.state;
       if (job.state === 'completed') {
@@ -4132,6 +4559,13 @@ function _d1PropId(street, city) {
   const norm = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
   const key  = (norm(street) + '|' + norm(city)).replace(/[^\w]/g,'_').slice(0,40);
   return 'prop_' + key;
+}
+
+// Extract the leading house number from a street address for the correction-vs-move fork.
+// Returns null when absent; callers treat null as "unknown → default to Case 2 (new property)".
+function _extractHouseNum(addr) {
+  const m = (addr||'').trim().match(/^(\d+)/);
+  return m ? m[1] : null;
 }
 
 function _d1ScheduledJobId(personId, scheduledDate) {
@@ -4329,37 +4763,76 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
     // Prevents FK failure when an existing customer's address changes between
     // submissions — _d1SyncScheduledJob references propertyId which must exist.
     if (c.address && (c.address !== prev?.address || (c.city||'') !== (prev?.city||''))) {
-      const propId = _d1PropId(c.address, c.city||'');
       const _isDeliberate = addrEditedPhones.has(ph);
       try {
-        // Always ensure the Property row exists.
-        await env.DB.prepare(
-          `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
-        ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
         if (_isDeliberate) {
-          // Deliberate user edit (calendar ✏️ Edit, new-customer form submit) →
-          // demote all existing PersonProperty for this person, then promote new address.
-          // Two-step upsert: INSERT OR IGNORE creates the row if new; the UPDATE
-          // ensures primaryContact=1 even when the row pre-existed with primaryContact=0.
-          await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
-          await env.DB.prepare(
-            `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
-          ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
-          await env.DB.prepare(
-            'UPDATE PersonProperty SET primaryContact=1 WHERE personId=? AND propertyId=?'
-          ).bind(personId, propId).run();
+          // Deliberate user edit — fork on house number to detect correction vs. genuine move.
+          const _primaryProp = await env.DB.prepare(
+            `SELECT pr.propertyId, pr.streetAddress, pr.city
+             FROM PersonProperty pp JOIN Property pr ON pp.propertyId=pr.propertyId
+             WHERE pp.personId=? AND pp.primaryContact=1 LIMIT 1`
+          ).bind(personId).first();
+
+          const _newHouseNum = _extractHouseNum(c.address);
+          const _oldHouseNum = _extractHouseNum(_primaryProp?.streetAddress);
+          const _newCity     = (c.city||'').toLowerCase().trim();
+          const _oldCity     = (_primaryProp?.city||'').toLowerCase().trim();
+
+          // CORRECTION: same house number + same city → spelling/typo fix.
+          // UPDATE Property text in place — no new row, no FK changes, no job re-pointing.
+          const _isCorrection = !!(_newHouseNum && _oldHouseNum &&
+            _newHouseNum === _oldHouseNum && _newCity === _oldCity &&
+            _primaryProp?.propertyId);
+
+          if (_isCorrection) {
+            await env.DB.prepare(
+              'UPDATE Property SET streetAddress=?, city=?, modifiedAt=? WHERE propertyId=?'
+            ).bind(c.address, c.city||'', now, _primaryProp.propertyId).run();
+            await _d1SyncPropertyUpdate(_primaryProp.propertyId, {
+              sqft:     c.sqFt || null,
+              roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+              gateCode: c.gateCode || null,
+            }, env, now);
+          } else {
+            // MOVE: different house number or city → genuinely new address.
+            // Create new Property row, promote to primary, re-point open jobs.
+            // Completed jobs keep their historical propertyId — never rewrite history.
+            const propId = _d1PropId(c.address, c.city||'');
+            await env.DB.prepare(
+              `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
+            ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
+            await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
+            await env.DB.prepare(
+              `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
+            ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
+            await env.DB.prepare(
+              'UPDATE PersonProperty SET primaryContact=1 WHERE personId=? AND propertyId=?'
+            ).bind(personId, propId).run();
+            await env.DB.prepare(
+              `UPDATE Job SET propertyId=?, modifiedAt=? WHERE payerId=? AND state IN ('scheduled','in_progress')`
+            ).bind(propId, now, personId).run();
+            await _d1SyncPropertyUpdate(propId, {
+              sqft:     c.sqFt || null,
+              roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+              gateCode: c.gateCode || null,
+            }, env, now);
+          }
         } else {
           // Incidental diff (autocomplete, bulk sync, migration): never silently promote.
-          // primaryContact=0: see original comment — guard preserved for non-deliberate diffs.
+          // Ensure Property row exists, then INSERT OR IGNORE with primaryContact=0.
+          const propId = _d1PropId(c.address, c.city||'');
+          await env.DB.prepare(
+            `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
+          ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
           await env.DB.prepare(
             `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
           ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 0, 'Main Residence').run();
+          await _d1SyncPropertyUpdate(propId, {
+            sqft:     c.sqFt || null,
+            roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+            gateCode: c.gateCode || null,
+          }, env, now);
         }
-        await _d1SyncPropertyUpdate(propId, {
-          sqft:     c.sqFt || null,
-          roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
-          gateCode: c.gateCode || null,
-        }, env, now);
       } catch(e) { await _logD1Failure(env, `_d1SyncCustomersPut:property_upsert:${ph}`, e.message); }
     }
 
@@ -5310,6 +5783,7 @@ async function bouncieJobDurationMatcher(date, env) {
   try {
     const r = await env.DB.prepare(`
       SELECT j.jobId, j.payerId, j.propertyId, j.scheduledDate, j.rigId,
+             j.isRigSegment,
              j.servicesRaw, j.jobNotes,
              p.streetAddress, p.city, p.latitude, p.longitude,
              pr.firstName, pr.lastName, pr.primaryPhone
@@ -5455,13 +5929,20 @@ async function bouncieJobDurationMatcher(date, env) {
       continue;
     }
 
-    // Scan ALL rigs — pick longest qualifying dwell within threshold.
+    // Layer 4: rig-segments pin the search to their declared rig's trips only.
+    // Standalone and multi-day jobs scan ALL rigs — exactly as before, zero change.
+    // This single line is the entire Layer 4 isolation mechanism.
+    const _tripsToScan = (row.isRigSegment && row.rigId)
+      ? Object.entries({ [row.rigId]: rigTripsMap[row.rigId] || [] })
+      : Object.entries(rigTripsMap); // ← non-rig-segment: identical to original
+
+    // Scan rigs — pick longest qualifying dwell within threshold.
     // Also track the globally closest approach for reporting on rejection.
     let bestRig = null, bestMatch = { durationMin: 0 };
     let globalClosestDistKm = Infinity, globalClosestRig = null, globalClosestArrival = null;
     const rigsWithinThreshold = [];
 
-    for (const [rig, trips] of Object.entries(rigTripsMap)) {
+    for (const [rig, trips] of _tripsToScan) {
       if (!trips.length) continue; // no GPS data for this rig today
       const m = proximityMatch(trips, jobLat, jobLon);
       // Track globally closest stop regardless of acceptance
@@ -5502,7 +5983,12 @@ async function bouncieJobDurationMatcher(date, env) {
       tripLastCoord(bestMatch.arrivalTrip)?.[1],
       tripLastCoord(bestMatch.arrivalTrip)?.[0]);
     const geocodeDistFt = Math.round(geocodeDistKm * 3280.84);
-    const isHigh   = geocodeDistKm <= HIGH_KM && rigsWithinThreshold.length === 1;
+    // Rig-segments: only one rig was searched, so rigsWithinThreshold.length===1 is trivially
+    // true for any match — don't use it for confidence. Distance alone determines high/medium.
+    // Standalone/multi-day: original logic (distance AND single rig present) — UNCHANGED.
+    const isHigh   = row.isRigSegment
+      ? geocodeDistKm <= HIGH_KM
+      : geocodeDistKm <= HIGH_KM && rigsWithinThreshold.length === 1;
     const isMedium = geocodeDistKm <= MEDIUM_KM;
     const matchStatus = isHigh ? 'matched_high' : 'matched_medium';
     const intentRig   = row.rigId || ss.rig || null;
@@ -6350,6 +6836,164 @@ async function handlePatchPersonProperty(request, env, corsHeaders) {
     return jsonResponse({ success: true, personId, propertyId, propertyLabel: propertyLabel.trim() }, corsHeaders);
   } catch(e) {
     await _logD1Failure(env, `handlePatchPersonProperty:${personId}:${propertyId}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── POST /admin/address-gate ─────────────────────────────────────────────────
+// Human-confirmed address resolution. Three outcomes:
+//   action='correction'              → UPDATE primary Property text in place
+//   action='move' + primaryContact=1 → new Property + promote + re-point open jobs
+//   action='move' + primaryContact=0 → new Property as secondary (no demote, no re-point)
+// All three outcomes refresh KV. Returns full property list for the person.
+// Canonical label list locked June 1, 2026.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _CANONICAL_PROP_LABELS = new Set([
+  'Main Residence', 'Rental Property', "Friend's Property",
+  "Parent's / Relative's", 'Vacation Home', 'Office / Commercial', 'Other',
+]);
+
+async function handleAddressGate(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const {
+    personId, action, streetAddress, city,
+    primaryContact, propertyLabel, propertyType,
+    propertyId: targetPropertyId,   // used by action='set-primary'
+  } = body;
+
+  if (!personId)
+    return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+  if (!action || !['correction','move','set-primary'].includes(action))
+    return jsonResponse({ error: "action must be 'correction', 'move', or 'set-primary'" }, corsHeaders, 400);
+  if (action !== 'set-primary') {
+    if (!streetAddress) return jsonResponse({ error: 'streetAddress required' }, corsHeaders, 400);
+    if (!city)          return jsonResponse({ error: 'city required' }, corsHeaders, 400);
+  }
+  if (action === 'move') {
+    if (primaryContact === undefined || primaryContact === null)
+      return jsonResponse({ error: "primaryContact (true|false) required for action='move'" }, corsHeaders, 400);
+    if (!propertyLabel)
+      return jsonResponse({ error: "propertyLabel required for action='move'" }, corsHeaders, 400);
+    if (!_CANONICAL_PROP_LABELS.has(propertyLabel))
+      return jsonResponse({
+        error: `propertyLabel must be one of: ${[..._CANONICAL_PROP_LABELS].join(', ')}`,
+      }, corsHeaders, 400);
+  }
+  if (action === 'set-primary' && !targetPropertyId)
+    return jsonResponse({ error: 'propertyId required for action=set-primary' }, corsHeaders, 400);
+
+  const person = await env.DB.prepare(
+    'SELECT personId, primaryPhone FROM Person WHERE personId=?'
+  ).bind(personId).first();
+  if (!person) return jsonResponse({ error: `Person not found: ${personId}` }, corsHeaders, 404);
+
+  const ph  = (person.primaryPhone||'').replace(/\D/g,'').slice(-10);
+  const now = new Date().toISOString();
+
+  const primaryProp = await env.DB.prepare(
+    `SELECT pr.propertyId, pr.streetAddress, pr.city
+     FROM PersonProperty pp JOIN Property pr ON pp.propertyId=pr.propertyId
+     WHERE pp.personId=? AND pp.primaryContact=1 LIMIT 1`
+  ).bind(personId).first();
+
+  try {
+    if (action === 'set-primary') {
+      // SET PRIMARY: demote all existing, promote target, re-point open jobs.
+      // Completed jobs keep their historical propertyId — never rewrite history.
+      const _spLink = await env.DB.prepare(
+        'SELECT personId FROM PersonProperty WHERE personId=? AND propertyId=?'
+      ).bind(personId, targetPropertyId).first();
+      if (!_spLink)
+        return jsonResponse({ error: 'PersonProperty link not found' }, corsHeaders, 404);
+      await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
+      await env.DB.prepare(
+        'UPDATE PersonProperty SET primaryContact=1 WHERE personId=? AND propertyId=?'
+      ).bind(personId, targetPropertyId).run();
+      await env.DB.prepare(
+        `UPDATE Job SET propertyId=?, modifiedAt=? WHERE payerId=? AND state IN ('scheduled','in_progress')`
+      ).bind(targetPropertyId, now, personId).run();
+
+    } else if (action === 'correction') {
+      // UPDATE primary Property text in place — no new row, no FK changes
+      if (!primaryProp)
+        return jsonResponse({ error: 'No primary property found for this person' }, corsHeaders, 404);
+      await env.DB.prepare(
+        'UPDATE Property SET streetAddress=?, city=?, modifiedAt=? WHERE propertyId=?'
+      ).bind(streetAddress.trim(), city.trim(), now, primaryProp.propertyId).run();
+
+    } else {
+      // MOVE: create new Property row
+      const propId = _d1PropId(streetAddress, city);
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO Property
+           (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
+      ).bind(propId, streetAddress.trim(), city.trim(), 'FL', now, now,
+             'address_gate', 'v3_gate', now, 'high').run();
+
+      const VALID_TYPES = ['main_residence','rental','vacation','investment','other'];
+      const safeType = (propertyType && VALID_TYPES.includes(propertyType)) ? propertyType : null;
+
+      if (primaryContact) {
+        // MOVE + PRIMARY: demote all existing, insert/promote new, re-point open jobs
+        // Completed jobs keep their historical propertyId — never rewrite history.
+        await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO PersonProperty
+             (personId,propertyId,relationship,primaryContact,propertyLabel,propertyType)
+           VALUES (?,?,?,?,?,?)`
+        ).bind(personId, propId, 'owner', 1, propertyLabel.trim(), safeType).run();
+        await env.DB.prepare(
+          'UPDATE PersonProperty SET primaryContact=1, propertyLabel=?, propertyType=? WHERE personId=? AND propertyId=?'
+        ).bind(propertyLabel.trim(), safeType, personId, propId).run();
+        await env.DB.prepare(
+          `UPDATE Job SET propertyId=?, modifiedAt=? WHERE payerId=? AND state IN ('scheduled','in_progress')`
+        ).bind(propId, now, personId).run();
+      } else {
+        // MOVE + SECONDARY: add labeled secondary — no demote, no job re-point
+        // Existing primary stays primary. This is the Janille-mom case.
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO PersonProperty
+             (personId,propertyId,relationship,primaryContact,propertyLabel,propertyType)
+           VALUES (?,?,?,?,?,?)`
+        ).bind(personId, propId, 'owner', 0, propertyLabel.trim(), safeType).run();
+        // If row pre-existed with different label, update it (INSERT OR IGNORE won't overwrite)
+        await env.DB.prepare(
+          'UPDATE PersonProperty SET propertyLabel=?, propertyType=? WHERE personId=? AND propertyId=? AND primaryContact=0'
+        ).bind(propertyLabel.trim(), safeType, personId, propId).run();
+      }
+    }
+
+    // Refresh KV for this person (Law T1.13 — mirror handleCreateProperty pattern)
+    if (ph.length === 10) {
+      const updatedCustomer = await d1CustomerToKvShape(ph, env);
+      if (updatedCustomer) {
+        const kvDb = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+        const idx  = (kvDb.customers||[]).findIndex(c =>
+          (c.phone||'').replace(/\D/g,'').slice(-10) === ph
+        );
+        if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+        else kvDb.customers.push(updatedCustomer);
+        await env.DATA.put(KV_KEYS.customers, JSON.stringify(kvDb));
+      }
+    }
+
+    // Return final property state for the person
+    const props = await env.DB.prepare(
+      `SELECT pr.propertyId, pr.streetAddress, pr.city, pr.state, pr.zip,
+              pp.primaryContact, pp.propertyLabel, pp.propertyType
+       FROM PersonProperty pp JOIN Property pr ON pp.propertyId=pr.propertyId
+       WHERE pp.personId=?
+       ORDER BY pp.primaryContact DESC, pr.streetAddress`
+    ).bind(personId).all();
+
+    return jsonResponse({ success: true, action, personId, properties: props.results || [] }, corsHeaders);
+
+  } catch(e) {
+    await _logD1Failure(env, `handleAddressGate:${personId}:${action}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
 }

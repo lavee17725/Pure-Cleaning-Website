@@ -837,9 +837,14 @@ function renderHeroBanner(c) {
     }
   }
 
+  const bizHtml = c.businessName
+    ? `<div class="hero-contact-line" style="font-weight:600;color:var(--navy);font-size:13px;margin-top:2px;">🏢 ${esc(c.businessName)}</div>`
+    : '';
+
   document.getElementById('heroBanner').innerHTML = `
     ${badge?`<div class="hero-badge" style="${badge.style}">${badge.emoji} ${badge.label}</div>`:''}
     <div class="hero-name">${esc(fullName)}${tierChip}${reviewStarBadge}</div>
+    ${bizHtml}
     ${addrHtml}${contactHtml}${emailEditHtml}
     <div class="hero-divider"></div>
     ${statsHtml}
@@ -875,6 +880,7 @@ async function saveEmailField() {
     await fetch(`${API}/customers`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({customers}) });
     _customer = customers[idx];
     renderHeroBanner(_customer);
+    renderSidebar(_customer);   // Fix: refresh sidebar "About" so email shows immediately
     closeEmailEdit();
   } catch(e) { alert('Failed to save: ' + e.message); }
 }
@@ -983,6 +989,7 @@ function _buildJobCard(e) {
     chips.push(`<span class="job-meta-chip" style="color:#9ca3af;"><span class="chip-label">GPS</span> ${esc(e.durationConfidence)}</span>`);
   }
   if (e.payment) chips.push(`<span class="job-meta-chip"><span class="chip-label">Paid</span> ${esc(e.payment)}</span>`);
+  if (e.tipped)  chips.push(`<span class="job-meta-chip" style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;">💚 Tip${e.tipAmount ? ' $' + Number(e.tipAmount).toFixed(0) : ''}</span>`);
   if (e.address) chips.push(`<span class="job-meta-chip"><span class="chip-label">Addr</span> ${esc(e.address)}</span>`);
   if (e.notes) chips.push(`<span class="job-meta-chip" style="font-style:italic;"><span class="chip-label">Note</span> ${esc(e.notes.length > 60 ? e.notes.slice(0,57) + '…' : e.notes)}</span>`);
 
@@ -1090,6 +1097,8 @@ function renderServiceHistory(c) {
       durationConfidence: j.durationConfidence || null,
       crew:     (j.crew || []).filter(Boolean),
       roofStories: j.roofStories || null,
+      tipped:    !!j.tipped,
+      tipAmount: j.tipAmount ?? null,
     }));
   });
 
@@ -1203,6 +1212,8 @@ function renderProfile(customer, events){
 
   // ── Callouts ──
   const callouts=[];
+  // SAFETY — must be first, loudest callout on the page
+  if(c.doNotService) callouts.push({cls:'callout-red', text:'⛔ DO NOT SERVICE — this customer is flagged. Do not schedule, quote, or dispatch.'});
   if(c.customerType === 'partner_referral') {
     const partnerJobs = (c.jobHistory||[]).filter(j => j.source !== 'csv_backfill').length;
     const partnerRevenue = (c.jobHistory||[]).filter(j => j.source !== 'csv_backfill').reduce((s,j) => s+(j.amount||0), 0);
@@ -1351,6 +1362,8 @@ function renderSidebar(c){
     {icon:'🏷️',label:'Source',val:`<span class="source-badge">${esc(sourceLabel)}</span>`},
     leadSourceRow,
     c.zip?{icon:'📮',label:'ZIP',val:esc(c.zip)}:null,
+    (() => { const _PPM={zelle:'Zelle',cash:'Cash',check:'Check',venmo:'Venmo',credit_card:'Credit card'}; const _v=c.preferredPaymentMethod; return _v?{icon:'💳',label:'Pays',val:esc(_PPM[_v]||_v)}:null; })(),
+    c.avgTipAmount!=null?{icon:'💚',label:'Avg tip',val:`$${Number(c.avgTipAmount).toFixed(0)}`}:null,
   ].filter(Boolean);
 
   const contactHtml=contactRows.map(r=>
@@ -1372,11 +1385,15 @@ function renderSidebar(c){
     `<a class="qa-btn" href="${b.href}">${b.icon} ${b.label}</a>`
   ).join('');
 
+  const _propPanelHtml   = _buildPropsPanel(c);
+  const _accessPanelHtml = _buildAccessPanel(c);
   document.getElementById('sidebarStack').innerHTML=`
     <div class="panel">
       <div class="panel-header"><div class="panel-title">About ${esc(c.firstName||'Customer')}</div></div>
       <div class="panel-body">${contactHtml}</div>
     </div>
+    ${_propPanelHtml}
+    ${_accessPanelHtml}
     <div class="panel">
       <div class="panel-header"><div class="panel-title">Quick Actions</div></div>
       <div class="panel-body">${qaHtml}</div>
@@ -1879,6 +1896,165 @@ function _profileCompressPhoto(file) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ── Property Management Panel ─────────────────────────────────────────────────
+// Lists all PersonProperty rows for a customer. Lets Tyler relabel (canonical
+// dropdown, saves on change) or set a new primary (radio → confirm → API).
+// ── Access Info panel — gateCode + accessNotes (crew-facing, sidebar) ─────────
+function _buildAccessPanel(c) {
+  if (!c.gateCode && !c.accessNotes) return '';
+  const rows = [];
+  if (c.gateCode) rows.push(
+    `<div class="contact-row">
+      <div class="contact-icon">🔑</div>
+      <div>
+        <div class="contact-label">Gate Code</div>
+        <div class="contact-val" style="font-family:monospace;font-size:17px;font-weight:700;letter-spacing:3px;color:var(--navy);">${esc(c.gateCode)}</div>
+      </div>
+    </div>`
+  );
+  if (c.accessNotes) rows.push(
+    `<div class="contact-row">
+      <div class="contact-icon">📋</div>
+      <div>
+        <div class="contact-label">Access Notes</div>
+        <div class="contact-val">${esc(c.accessNotes)}</div>
+      </div>
+    </div>`
+  );
+  return `<div class="panel">
+    <div class="panel-header"><div class="panel-title">🔑 Access Info</div></div>
+    <div class="panel-body">${rows.join('')}</div>
+  </div>`;
+}
+
+// Entry point: renderSidebar(c) calls _buildPropsPanel(c) for the Properties panel.
+
+const _PROP_CANONICAL = [
+  'Main Residence', 'Rental Property', "Friend's Property",
+  "Parent's / Relative's", 'Vacation Home', 'Office / Commercial', 'Other',
+];
+
+function _buildPropsPanel(c) {
+  const props = c.properties || [];
+  if (!props.length) return '';
+  const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
+
+  const rows = props.map(p => {
+    const isPrimary = !!p.primaryContact;
+    const addr = [p.streetAddress, p.city].filter(Boolean).join(', ');
+    const curLabel = p.propertyLabel || '';
+    // If current label is not in canonical list (except 'Other'), treat it as a custom Other value
+    const isCustom = curLabel && !_PROP_CANONICAL.slice(0, -1).includes(curLabel) && curLabel !== 'Other';
+    const selectVal = isCustom ? 'Other' : curLabel;
+
+    const opts = _PROP_CANONICAL.map(l =>
+      `<option value="${esc(l)}"${l === selectVal ? ' selected' : ''}>${esc(l)}</option>`
+    ).join('');
+    const pid = p.propertyId;
+
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+  <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+    <input type="radio" name="pp_${ph}" value="${esc(pid)}"
+           ${isPrimary ? 'checked' : ''}
+           style="margin-top:4px;flex-shrink:0;cursor:pointer;"
+           onchange="_propSetPrimary('${esc(pid)}','${ph}',this)">
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.35;">${esc(addr)}</div>
+      ${isPrimary
+        ? `<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#16a34a;">★ Primary</span>`
+        : `<span style="font-size:10px;color:var(--muted);">Secondary</span>`}
+    </div>
+  </div>
+  <select data-pid="${esc(pid)}" data-ph="${ph}"
+          style="width:100%;font-size:12px;padding:5px 7px;border:1px solid var(--border);border-radius:6px;"
+          onchange="_propLabelChange(this)">
+    ${opts}
+  </select>
+  <div id="ppOtherRow_${esc(pid)}" style="display:${isCustom || curLabel==='Other' ? 'flex' : 'none'};gap:5px;margin-top:5px;">
+    <input id="ppOther_${esc(pid)}" type="text"
+           value="${esc(isCustom ? curLabel : '')}"
+           placeholder="Custom label…"
+           style="flex:1;font-size:12px;padding:5px 7px;border:1px solid var(--border);border-radius:6px;">
+    <button onclick="_propLabelSaveOther('${esc(pid)}','${ph}')"
+            style="font-size:12px;padding:5px 10px;border:none;background:var(--sky);color:#fff;border-radius:6px;cursor:pointer;white-space:nowrap;">Save</button>
+  </div>
+  <div id="ppMsg_${esc(pid)}" style="font-size:11px;margin-top:3px;display:none;"></div>
+</div>`;
+  }).join('');
+
+  return `<div class="panel">
+  <div class="panel-header"><div class="panel-title">🏠 Properties</div></div>
+  <div class="panel-body" style="padding-top:4px;padding-bottom:2px;">${rows}</div>
+</div>`;
+}
+
+// Label change: canonical dropdown → save immediately; Other → show text input
+function _propLabelChange(sel) {
+  const pid = sel.getAttribute('data-pid');
+  const ph  = sel.getAttribute('data-ph');
+  const val = sel.value;
+  const otherRow = document.getElementById('ppOtherRow_' + pid);
+  if (otherRow) otherRow.style.display = val === 'Other' ? 'flex' : 'none';
+  if (val && val !== 'Other') _propLabelSave(pid, ph, val);
+}
+
+// Save Other free-text label
+function _propLabelSaveOther(pid, ph) {
+  const inp = document.getElementById('ppOther_' + pid);
+  const label = (inp ? inp.value : '').trim();
+  if (!label) return;
+  _propLabelSave(pid, ph, label);
+}
+
+// Core label save → PATCH /admin/person-property
+async function _propLabelSave(pid, ph, label) {
+  const personId = 'person_1' + ph;
+  const msgEl = document.getElementById('ppMsg_' + pid);
+  try {
+    const res = await fetch(API + '/admin/person-property', {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ personId, propertyId: pid, propertyLabel: label }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    if (msgEl) {
+      msgEl.textContent = '✓ Saved'; msgEl.style.color = '#16a34a'; msgEl.style.display = '';
+      setTimeout(() => { if (msgEl) msgEl.style.display = 'none'; }, 2500);
+    }
+    // Update local customer properties so re-render is consistent
+    const p = (_customer.properties||[]).find(x => x.propertyId === pid);
+    if (p) p.propertyLabel = label;
+  } catch(e) {
+    if (msgEl) { msgEl.textContent = 'Error: ' + e.message; msgEl.style.color = '#dc2626'; msgEl.style.display = ''; }
+  }
+}
+
+// Set primary → confirm → POST /admin/address-gate {action:'set-primary'} → re-render
+async function _propSetPrimary(pid, ph, radioEl) {
+  if (!confirm('Set this address as primary?\n\nThe current primary will become secondary. Any scheduled or in-progress jobs will be re-pointed to this address. Completed jobs are untouched.')) {
+    // Cancelled — reset radio to reflect actual D1 state
+    renderSidebar(_customer);
+    return;
+  }
+  const personId = 'person_1' + ph;
+  try {
+    const res = await fetch(API + '/admin/address-gate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ personId, action: 'set-primary', propertyId: pid }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
+    // Reload customer from /customer/:phone (returns D1-fresh properties[])
+    const cr = await fetch(API + '/customer/' + ph);
+    const cd = await cr.json();
+    const updated = cd.customer || cd;
+    if (updated && updated.phone) { _customer = updated; renderSidebar(_customer); }
+  } catch(e) {
+    alert('Error: ' + e.message);
+    renderSidebar(_customer); // reset radio
+  }
 }
 </script>
 </body>

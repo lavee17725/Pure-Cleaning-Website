@@ -70,7 +70,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .dir-fade-r{right:0;background:linear-gradient(to right,transparent,var(--white));}
 .dir-fade-l{left:0;background:linear-gradient(to left,transparent,var(--white));opacity:0;}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-table{width:100%;border-collapse:collapse;min-width:720px;}
+table{width:100%;border-collapse:collapse;min-width:820px;}
 thead th{background:var(--navy);color:rgba(255,255,255,.7);padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;cursor:pointer;user-select:none;text-align:left;}
 thead th:hover{color:#fff;}
 thead th.sorted{color:var(--gold);}
@@ -155,6 +155,7 @@ td.muted{color:var(--muted);}
               <th data-sort="name" onclick="clickSort('name')">Name <span class="sind">▲▼</span></th>
               <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sind">▲▼</span></th>
               <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
+              <th class="no-sort">Email</th>
               <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
               <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
               <th data-sort="avgLaborPerJob" onclick="clickSort('avgLaborPerJob')" class="col-avg-time">Avg Labor/Job <span class="sind">▲▼</span></th>
@@ -287,6 +288,7 @@ async function init(){
       return{
         ...c,
         _name:((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase(),
+        _bigrams:(s=>{const r=s.replace(/\s+/g,'');const b=new Set();for(let i=0;i<r.length-1;i++)b.add(r[i]+r[i+1]);return b;})(((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase()),
         _tier:tier.label,
         _tierColor:tier.color,
         _tierEmoji:tier.emoji||'',
@@ -381,11 +383,48 @@ function togglePill(key){
   applyAll();
 }
 
+// ── Fuzzy name scoring ────────────────────────────────────────────────────────
+// Three-tier scoring for name field only. Phone/email/address/city use exact substring.
+// T1 (100): exact substring match — same as old behavior, always surfaces exact spellings.
+// T2  (90): any word in the full name starts with the query — prefix hit.
+// T3 (30–60): bigram overlap ≥ 50% for query ≥ 4 chars — catches misspellings.
+function _fuzzyNameScore(query, c) {
+  if (c._name.includes(query)) return 100;
+  if (c._name.split(' ').some(p => p.startsWith(query))) return 90;
+  // Tier 2.5 — multi-word query: match token-by-token so a correct last name
+  // surfaces the customer even when the first name is wrong or a variant.
+  // "Thomas Bargello" → "Tom Bargello": "thomas".startsWith("tom") ✓, "bargello"==="bargello" ✓
+  // "Thomas Bargello" → "Tom Bargaglio": "bargello".startsWith("barg") ✓ → still surfaces
+  const _qTok = query.split(/\s+/).filter(t => t.length > 1);
+  const _nTok = c._name.split(/\s+/).filter(t => t.length > 0);
+  if (_qTok.length >= 2 && _nTok.length >= 1) {
+    const hits = _qTok.filter(qt => _nTok.some(nt =>
+      nt === qt ||           // exact token:   "bargello" === "bargello"
+      nt.startsWith(qt) ||   // name extends:  "robert".startsWith("rob")
+      qt.startsWith(nt)      // query extends: "thomas".startsWith("tom")
+    ));
+    if (hits.length > 0)
+      return Math.max(45, Math.round(70 * hits.length / _qTok.length));
+  }
+  if (query.length < 4) return 0;
+  // Build query bigrams on the fly (cheap for short strings)
+  const q = query.replace(/\s+/g, '');
+  const qBi = new Set();
+  for (let i = 0; i < q.length - 1; i++) qBi.add(q[i] + q[i+1]);
+  if (!qBi.size) return 0;
+  let shared = 0;
+  for (const bg of qBi) if (c._bigrams.has(bg)) shared++;
+  const overlap = shared / qBi.size;
+  return overlap >= 0.50 ? Math.round(overlap * 60) : 0;
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
+let _searchDebounceTimer = null;
 function onSearch(val){
   searchVal=val.trim().toLowerCase();
   document.getElementById('searchClear').classList.toggle('vis',!!searchVal);
-  applyAll();
+  clearTimeout(_searchDebounceTimer);
+  _searchDebounceTimer = setTimeout(applyAll, 120);
 }
 function clearSearch(){
   document.getElementById('searchInput').value='';
@@ -396,14 +435,19 @@ function clearSearch(){
 function applyAll(){
   let data=allCustomers;
 
-  // Search
+  // Search — fuzzy name + exact phone/email/address/city, ranked by score
   if(searchVal){
-    data=data.filter(c=>
-      c._name.includes(searchVal)||
-      (c.phone||'').includes(searchVal)||
-      (c.address||'').toLowerCase().includes(searchVal)||
-      (c.city||'').toLowerCase().includes(searchVal)
-    );
+    // Phone/email/address/city: exact substring only (never fuzzy-match digits or addresses)
+    const _exactFields = c =>
+      (c.phone||'').includes(searchVal) ||
+      (c.email||'').toLowerCase().includes(searchVal) ||
+      (c.address||'').toLowerCase().includes(searchVal) ||
+      (c.city||'').toLowerCase().includes(searchVal);
+    data = data
+      .map(c => ({ c, _s: _exactFields(c) ? 100 : _fuzzyNameScore(searchVal, c) }))
+      .filter(x => x._s > 0)
+      .sort((a, b) => b._s - a._s || a.c._name.localeCompare(b.c._name))
+      .map(x => x.c);
   }
 
   // Filter pills
@@ -567,6 +611,7 @@ function buildRow(c){
     <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}</td>
     <td>${_tchip}</td>
     <td class="muted">${fmtPh(c.phone)}</td>
+    <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
     <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}</td>
@@ -587,7 +632,7 @@ function buildCard(c){
     <div class="cust-card-body">
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}</div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
-      <div class="cust-card-meta">${fmtPh(c.phone)}</div>
+      <div class="cust-card-meta">${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
       ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}
     </div>
     <div class="cust-card-right">
@@ -640,9 +685,9 @@ function initDirFades() {
 
 // ── Export CSV ────────────────────────────────────────────────────────────────
 function exportCsv(){
-  const headers=['First Name','Last Name','Phone','City','ZIP','Address','Last Service','Total Jobs','Lifetime Spend','Tier','Status'];
+  const headers=['First Name','Last Name','Phone','Email','City','ZIP','Address','Last Service','Total Jobs','Lifetime Spend','Tier','Status'];
   const rows=filtered.map(c=>[
-    c.firstName||'',c.lastName||'',c.phone||'',c.city||'',c.zip||'',c.address||'',
+    c.firstName||'',c.lastName||'',c.phone||'',c.email||'',c.city||'',c.zip||'',c.address||'',
     c.lastService||'',c.totalJobs||0,c.lifetimeSpend||0,c._tier,
     c.optOut?'Opted Out':c.reactivationExcluded?.excluded?'Excluded':'Active'
   ]);
