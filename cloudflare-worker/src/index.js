@@ -404,21 +404,36 @@ export default {
             }
           }
 
-          // ── 7-day retry: pick up late-completed jobs missed by prior cron runs ─────
-          // Finds all scheduledDates in the last 7 days that have completed jobs with
-          // rigId set but no actualDuration. Runs the full matcher for each date.
+          // ── Late-completion retry: pick up jobs the original cron missed ────────────
+          // Root cause of dead zone: original cron ran for scheduledDate=yesterday.
+          // If a job was still 'scheduled' then (completed days later), the cron missed it.
+          // The scheduledDate-based 7-day window didn't help — the job's scheduledDate
+          // was already outside the window by the time it was marked complete.
+          //
+          // Fix: scan by COMPLETION recency (completedAt), not schedule recency.
+          // Any job completed in the last 14 days with rigId + no actualDuration is retried
+          // against ITS OWN scheduledDate (where its GPS trips live).
+          //
+          // The OR keeps the 7-day scheduledDate condition as a safety net for the rare
+          // case where completedAt is NULL (historical jobs from older completion paths).
+          //
           // Idempotent: actualDuration IS NULL filter prevents overwriting good matches.
           // Skipped on auth failure (heartbeat.status === 'error') — would also fail.
           if (env.DB && heartbeat.status !== 'error') {
             try {
-              const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+              const sevenDaysAgo    = new Date(Date.now() -  7 * 86400000).toISOString().slice(0, 10);
+              const fourteenDaysAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
               const retryRows = await env.DB.prepare(
                 `SELECT DISTINCT scheduledDate FROM Job
                  WHERE state = 'completed'
-                   AND scheduledDate >= ? AND scheduledDate < ?
                    AND actualDuration IS NULL AND rigId IS NOT NULL
+                   AND scheduledDate < ?
+                   AND (
+                     scheduledDate >= ?
+                     OR (completedAt IS NOT NULL AND completedAt >= ?)
+                   )
                  ORDER BY scheduledDate DESC`
-              ).bind(sevenDaysAgo, today).all();
+              ).bind(today, sevenDaysAgo, fourteenDaysAgo).all();
               const retryDates = (retryRows.results || []).map(r => r.scheduledDate);
               if (retryDates.length) {
                 console.log(`[Bouncie retry] ${retryDates.length} historical date(s) with unmatched jobs: ${retryDates.join(', ')}`);
@@ -465,6 +480,51 @@ export default {
               if (eventsData.events.length > 200) eventsData.events = eventsData.events.slice(-200);
               await env.DATA.put(KV_KEYS.events, JSON.stringify(eventsData));
             } catch(e2) { console.error('bouncie cron alert write failed:', e2.message); }
+          }
+
+          // ── Token pre-expiry warning (only when cron is healthy) ──────────────────
+          // Bouncie refresh_tokens have a ~30-day hard expiry. bouncie:authorized_at is
+          // set at OAuth callback time; daysSinceAuth >= 23 gives a 7-day warning window.
+          //
+          // Dedup: bouncie:last_token_warning_at prevents nightly repeat toasts.
+          // Only writes a new warning if none was written in the last 48h.
+          // Clears automatically when Tyler re-auths (authorized_at resets to now,
+          // daysSinceAuth drops to ~0, condition is false; last_token_warning_at is also
+          // deleted by the OAuth callback so the warning stops immediately).
+          if (heartbeat.status === 'success') {
+            try {
+              const _authAt = await env.DATA.get('bouncie:authorized_at');
+              if (_authAt) {
+                const _daysSince = (Date.now() - new Date(_authAt).getTime()) / 86400000;
+                if (_daysSince >= 23) {
+                  const _lastWarn = await env.DATA.get('bouncie:last_token_warning_at');
+                  const _warned48h = _lastWarn && (Date.now() - new Date(_lastWarn).getTime()) < 48 * 3600000;
+                  if (!_warned48h) {
+                    const _daysLeft = Math.round(30 - _daysSince);
+                    const _warnMsg  =
+                      `Bouncie authorization expires in ~${_daysLeft} day${_daysLeft !== 1 ? 's' : ''}. ` +
+                      `Re-authorize now at https://purecleaningpressurecleaning.com/oauth/bouncie/start ` +
+                      `to prevent GPS matching from stopping.`;
+                    const _evtData = await env.DATA.get(KV_KEYS.events, 'json') || { events: [] };
+                    _evtData.events = _evtData.events || [];
+                    _evtData.events.push({
+                      id:        `bouncie_token_warning_${Date.now()}`,
+                      eventType: 'bouncie_cron_alert',
+                      status:    'token_expiry_warning',
+                      message:   _warnMsg,
+                      date:      today,
+                      createdAt: new Date().toISOString(),
+                    });
+                    if (_evtData.events.length > 200) _evtData.events = _evtData.events.slice(-200);
+                    await Promise.all([
+                      env.DATA.put(KV_KEYS.events, JSON.stringify(_evtData)),
+                      env.DATA.put('bouncie:last_token_warning_at', new Date().toISOString()),
+                    ]);
+                    console.log(`[Bouncie token] Pre-expiry warning written: ${_daysLeft} days remaining`);
+                  }
+                }
+              }
+            } catch(e2) { console.error('bouncie token expiry check failed:', e2.message); }
           }
         }
       })());
@@ -900,8 +960,11 @@ export default {
       }
 
       if (path === 'admin/bouncie-keepalive-status' && request.method === 'GET') {
-        const ks = await env.DATA.get('bouncie:keepalive_status', 'json');
-        return jsonResponse(ks || { ts: null, status: 'never_run' }, corsHeaders);
+        const [ks, authorizedAt] = await Promise.all([
+          env.DATA.get('bouncie:keepalive_status', 'json'),
+          env.DATA.get('bouncie:authorized_at'),
+        ]);
+        return jsonResponse({ ...(ks || { ts: null, status: 'never_run' }), authorizedAt: authorizedAt || null }, corsHeaders);
       }
 
       if (path === 'admin/recently-deleted' && request.method === 'GET')
@@ -4304,14 +4367,18 @@ async function handleSplitJob(request, env, corsHeaders) {
     const totalDays = days.length;
 
     // Update parent → Day 1
+    // servicesRaw + jobNotes narrowed to dayPhase so day-1 card shows only its phase,
+    // consistent with days 2-N children. servicesRequested retains the full original list.
     const day1 = days[0];
     await env.DB.prepare(
       `UPDATE Job SET isMultiDayParent=1, dayNumber=1, totalDays=?,
-       dayPhase=?, amount=?, scheduledDate=?, rigId=?, modifiedAt=?
+       dayPhase=?, servicesRaw=?, jobNotes=?, amount=?, scheduledDate=?, rigId=?, modifiedAt=?
        WHERE jobId=?`
     ).bind(
       totalDays,
       day1.dayPhase      || null,
+      day1.dayPhase      || parent.servicesRaw || null,   // narrow to phase; fall back to original if no phase
+      day1.dayPhase      || parent.jobNotes    || null,
       day1.amount,
       day1.scheduledDate || parent.scheduledDate,
       day1.rigId != null ? day1.rigId : parent.rigId,
@@ -4345,8 +4412,8 @@ async function handleSplitJob(request, env, corsHeaders) {
         d.amount,
         'pending',
         parent.servicesRequested,
-        parent.servicesRaw            || parent.servicesRequested,
-        d.dayPhase                    || parent.jobNotes || parent.servicesRequested,
+        d.dayPhase                    || parent.servicesRaw         || parent.servicesRequested, // narrow to phase
+        d.dayPhase                    || parent.jobNotes            || parent.servicesRequested,
         d.rigId != null ? d.rigId     : parent.rigId,
         parent.workSiteAddress        || null,
         parent.workSiteCity           || null,
@@ -4418,6 +4485,9 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'drivetimeFromPreviousJob', 'milesFromPreviousJob',
   // Migration 0017: multi-rig segment flag
   'isRigSegment',
+  // Secondary-property re-bind: when address-gate creates a new secondary property for an
+  // existing job, the UI must re-point propertyId. Validated below (PersonProperty link required).
+  'propertyId',
 ]);
 
 const _JOB_VALID_STATES = new Set([
@@ -4442,8 +4512,20 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
     return jsonResponse({ error: `Invalid state: ${body.state}` }, corsHeaders, 400);
 
   // Confirm job exists
-  const existing = await env.DB.prepare('SELECT jobId, state FROM Job WHERE jobId = ?').bind(jobId).first();
+  const existing = await env.DB.prepare('SELECT jobId, state, payerId FROM Job WHERE jobId = ?').bind(jobId).first();
   if (!existing) return jsonResponse({ error: 'Job not found', jobId }, corsHeaders, 404);
+
+  // propertyId re-bind: must have a PersonProperty link for this job's payer.
+  // Prevents arbitrary FK re-pointing to an unrelated property.
+  if (body.propertyId !== undefined) {
+    const _propLink = await env.DB.prepare(
+      'SELECT 1 FROM PersonProperty WHERE personId=? AND propertyId=?'
+    ).bind(existing.payerId, body.propertyId).first();
+    if (!_propLink)
+      return jsonResponse({
+        error: `propertyId ${body.propertyId} has no PersonProperty link for payer ${existing.payerId}`,
+      }, corsHeaders, 400);
+  }
 
   const now = new Date().toISOString();
 
@@ -5059,13 +5141,18 @@ code{font-size:12px;background:#f1f5f9;padding:2px 6px;border-radius:4px;}
   }
 
   // Store tokens separately in KV
-  const expiresAt = Date.now() + (tokens.expires_in || 3600) * 1000;
+  const expiresAt    = Date.now() + (tokens.expires_in || 3600) * 1000;
+  const authorizedAt = new Date().toISOString();
   await Promise.all([
     env.DATA.put(KV_BOUNCIE_REFRESH, tokens.refresh_token),
     env.DATA.put(KV_BOUNCIE_ACCESS, JSON.stringify({
       access_token: tokens.access_token,
       expires_at:   expiresAt,
     })),
+    // Record auth timestamp so pre-expiry alert can warn ~7 days before 30-day hard expiry.
+    env.DATA.put('bouncie:authorized_at', authorizedAt),
+    // Clear the dedup guard so the warning stops immediately after re-auth.
+    env.DATA.delete('bouncie:last_token_warning_at'),
   ]);
 
   return page('Bouncie Connected!',
@@ -5197,6 +5284,11 @@ async function getBouncieAccessToken(env, { forceRefresh = false } = {}) {
 
   const tokens    = await res.json();
   const expiresAt = Date.now() + (tokens.expires_in || 3600) * 1000;
+
+  // Diagnostic log — tells us whether Bouncie sends a new refresh_token on refresh.
+  // If FALSE every run → hard 30-day expiry model (no rotation); build pre-expiry alert.
+  // If TRUE → Bouncie rotates and the conditional save below should keep the chain alive.
+  console.log('[Bouncie refresh] refresh_token present in response:', !!tokens.refresh_token, 'at', new Date().toISOString());
 
   await Promise.all([
     env.DATA.put(KV_BOUNCIE_ACCESS, JSON.stringify({ access_token: tokens.access_token, expires_at: expiresAt })),
@@ -5785,6 +5877,7 @@ async function bouncieJobDurationMatcher(date, env) {
       SELECT j.jobId, j.payerId, j.propertyId, j.scheduledDate, j.rigId,
              j.isRigSegment,
              j.servicesRaw, j.jobNotes,
+             j.workSiteAddress, j.workSiteCity, j.workSitePlaceId,
              p.streetAddress, p.city, p.latitude, p.longitude,
              pr.firstName, pr.lastName, pr.primaryPhone
       FROM Job j
@@ -5846,7 +5939,7 @@ async function bouncieJobDurationMatcher(date, env) {
   // Find the closest dwell window in a set of trips for a given job location.
   // Always returns closestDistKm so callers can report distance even on rejection.
   // Only returns a usable durationMin when distance <= MEDIUM_KM and duration >= MIN_DUR_MIN.
-  function proximityMatch(trips, jobLat, jobLon) {
+  function proximityMatch(trips, jobLat, jobLon, useFirstDeparture = false) {
     // Find the trip whose last coord is closest to the job (ignoring threshold for now)
     let arrivalTrip = null;
     let closestDistKm = Infinity;
@@ -5870,7 +5963,10 @@ async function bouncieJobDurationMatcher(date, env) {
       const first = tripFirstCoord(trip);
       if (!first) continue;
       if (haversineKm(first[1], first[0], jobLat, jobLon) <= MEDIUM_KM) {
-        if (!departureTrip || trip.startTime > departureTrip.startTime) departureTrip = trip;
+        if (!departureTrip || (useFirstDeparture
+          ? trip.startTime < departureTrip.startTime   // neighbor: use FIRST departure (own dwell window)
+          : trip.startTime > departureTrip.startTime)) // default: use LATEST departure (unchanged — supply-run / micro-event safe)
+          departureTrip = trip;
       }
     }
 
@@ -5897,29 +5993,68 @@ async function bouncieJobDurationMatcher(date, env) {
     const kvCust = customers.find(c => _ph10(c.phone) === rowPh10);
     const ss      = kvCust?.scheduledStatus || {};
 
+    // ── Work-site address resolution (partner/commercial jobs) ─────────────────
+    // Partner jobs have workSiteAddress/workSitePlaceId set — the actual location
+    // where the rig was, NOT the partner's billing Property address.
+    // Residential jobs (workSiteAddress = NULL, ~99% of volume) skip this block
+    // entirely and fall through to the unchanged billing-address path below.
+    // CRITICAL: never cache work-site coords to Property — that would overwrite
+    // the billing address geocode. Geocode at match time only.
+    let jobLat = null, jobLon = null, geocodeSource = null;
+
+    if (row.workSiteAddress && row.workSiteCity) {
+      // Full street address present — geocode it (Google Maps → Census → Nominatim)
+      const wsAddr = [row.workSiteAddress, row.workSiteCity, 'FL'].filter(Boolean).join(', ');
+      const wsGeo = await geocodeAddress(wsAddr, env);
+      if (wsGeo) {
+        jobLat = wsGeo.lat; jobLon = wsGeo.lon || wsGeo.lng;
+        geocodeSource = `worksite_${wsGeo.source}`;
+        console.log(`[Bouncie matcher] Work-site geocode: ${row.jobId} → ${wsAddr} (${geocodeSource})`);
+      }
+    } else if (row.workSitePlaceId && env.GOOGLE_PLACES_API_KEY) {
+      // No street address but a verified Google Place ID — resolve to exact coords
+      try {
+        const placeRes = await fetch(
+          `https://maps.googleapis.com/maps/api/place/details/json?` +
+          `place_id=${encodeURIComponent(row.workSitePlaceId)}&fields=geometry&key=${env.GOOGLE_PLACES_API_KEY}`
+        );
+        const placeData = await placeRes.json();
+        if (placeData.status === 'OK' && placeData.result?.geometry?.location) {
+          const loc = placeData.result.geometry.location;
+          jobLat = loc.lat; jobLon = loc.lng;
+          geocodeSource = 'worksite_places_api';
+          console.log(`[Bouncie matcher] Work-site Place ID resolved: ${row.jobId} → ${loc.lat},${loc.lng}`);
+        }
+      } catch(e2) { /* non-fatal — fall through to billing address */ }
+    }
+
+    // ── Billing address fallback — UNCHANGED for all residential jobs ─────────
+    // workSiteAddress absent (residential) OR work-site geocode failed → this block.
     // Coordinates: Property.latitude/longitude cached in 96% of rows.
     // Fall back to geocoder only for the remaining 4%; cache result back to
     // Property so subsequent runs skip the API call.
     // NOTE: Property has no geocodedAt column — update modifiedAt instead.
     //       Tyler to decide whether to add geocodedAt in a future schema commit.
-    let jobLat = row.latitude  || null;
-    let jobLon = row.longitude || null;
-    let geocodeSource = row.latitude ? 'property_cached' : null;
     if (!jobLat || !jobLon) {
-      const fullAddr = [row.streetAddress, row.city, 'FL'].filter(Boolean).join(', ');
-      const geo = await geocodeAddress(fullAddr, env);
-      if (geo) {
-        jobLat = geo.lat; jobLon = geo.lon || geo.lng; geocodeSource = geo.source;
-        // Cache coords back to Property — best-effort, non-fatal
-        try {
-          await env.DB.prepare(
-            'UPDATE Property SET latitude=?, longitude=?, geocodeSource=?, modifiedAt=? WHERE propertyId=?'
-          ).bind(jobLat, jobLon, geocodeSource, new Date().toISOString(), row.propertyId).run();
-        } catch(_) { /* non-fatal */ }
-        coordsGeocoded++;
+      jobLat = row.latitude  || null;
+      jobLon = row.longitude || null;
+      geocodeSource = row.latitude ? 'property_cached' : null;
+      if (!jobLat || !jobLon) {
+        const fullAddr = [row.streetAddress, row.city, 'FL'].filter(Boolean).join(', ');
+        const geo = await geocodeAddress(fullAddr, env);
+        if (geo) {
+          jobLat = geo.lat; jobLon = geo.lon || geo.lng; geocodeSource = geo.source;
+          // Cache coords back to Property — best-effort, non-fatal
+          try {
+            await env.DB.prepare(
+              'UPDATE Property SET latitude=?, longitude=?, geocodeSource=?, modifiedAt=? WHERE propertyId=?'
+            ).bind(jobLat, jobLon, geocodeSource, new Date().toISOString(), row.propertyId).run();
+          } catch(_) { /* non-fatal */ }
+          coordsGeocoded++;
+        }
+      } else {
+        coordsCached++;
       }
-    } else {
-      coordsCached++;
     }
 
     if (!jobLat || !jobLon) {
@@ -5928,6 +6063,19 @@ async function bouncieJobDurationMatcher(date, env) {
       coordsFailed++;
       continue;
     }
+
+    // Neighbor detection: another same-date same-rig job within MEDIUM_KM (500 ft)?
+    // true  → proximityMatch uses FIRST qualifying departure — each neighbor job gets its own
+    //         dwell window, preventing the full combined dwell from being assigned to job 1.
+    // false → proximityMatch uses LATEST departure, unchanged — preserves existing handling
+    //         for GPS micro-events (0-mi engine pulses) and genuine mid-job supply runs.
+    // d1Jobs is the full unmatched set for this date, so both neighbor rows are always present.
+    const hasNeighborJob = jobLat !== null && jobLon !== null && d1Jobs.some(other =>
+      other.jobId    !== row.jobId  &&
+      other.rigId    === row.rigId  &&
+      other.latitude !== null && other.longitude !== null &&
+      haversineKm(jobLat, jobLon, other.latitude, other.longitude) <= MEDIUM_KM
+    );
 
     // Layer 4: rig-segments pin the search to their declared rig's trips only.
     // Standalone and multi-day jobs scan ALL rigs — exactly as before, zero change.
@@ -5944,7 +6092,7 @@ async function bouncieJobDurationMatcher(date, env) {
 
     for (const [rig, trips] of _tripsToScan) {
       if (!trips.length) continue; // no GPS data for this rig today
-      const m = proximityMatch(trips, jobLat, jobLon);
+      const m = proximityMatch(trips, jobLat, jobLon, hasNeighborJob);
       // Track globally closest stop regardless of acceptance
       if (m.closestDistKm < globalClosestDistKm) {
         globalClosestDistKm = m.closestDistKm;

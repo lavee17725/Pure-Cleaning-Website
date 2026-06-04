@@ -2720,10 +2720,12 @@ async function submitScheduleNow() {
     const svcAgreed = c.quoteStatus?.servicesAgreed || {};
 
     // Steps 1+2: D1 write FIRST via shared helper (Law T1.20).
-    // Helper resolves propertyId via GET /customer/{phone} (has full properties[] shape).
-    // On failure → surface error, keep user on form for retry. Do NOT redirect.
+    // Fix 3: pass _selectedPropertyId when property picker is active (multi-property customer).
+    // When a secondary property is selected, the job must bind to IT, not auto-resolve to primary.
+    // When picker is absent or primary is selected, _selectedPropertyId is null → fallback unchanged.
     const d1Result = await scheduleJobWithDualWrite({
       phone:                  c.phone,
+      propertyId:             _selectedPropertyId || null,
       scheduledDate:          date,
       amount:                 price,
       rigId:                  rig || null,

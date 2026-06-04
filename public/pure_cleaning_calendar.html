@@ -3025,7 +3025,7 @@ function jobCardScheduled(c) {
   const state = ss.state || 'scheduled';
   const alerts= alertIcons(c.alerts||[]);
   const isPartner = (c.customerType === 'partner_referral');
-  const _displayCity = (isPartner && c.workSiteCity) ? c.workSiteCity : c.city;
+  const _displayCity = c.workSiteCity ? c.workSiteCity : c.city;
   const city  = _displayCity ? esc(formatCity(_displayCity)) : '';
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
   const { html: amtHtml } = jobAmount(c);
@@ -3214,10 +3214,10 @@ function jobCardScheduled(c) {
     ${svcLine}
     <div class="jc-detail">
     ${(() => {
-        // Partners: prefer workSiteAddress over billing address
-        const _dispAddr = isPartner && c.workSiteAddress ? c.workSiteAddress
+        // Prefer workSiteAddress for all job types when set (secondary property, partner, etc.)
+        const _dispAddr = c.workSiteAddress ? c.workSiteAddress
           : (state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address;
-        const _dispCity = isPartner && c.workSiteCity ? c.workSiteCity
+        const _dispCity = c.workSiteCity ? c.workSiteCity
           : (state === 'completed' && _jhMatch?.city)    ? _jhMatch.city    : c.city;
         if (!_dispAddr) return '';
         const paUrl = getPropertyAppraiserUrl(_dispCity, _dispAddr);
@@ -5387,8 +5387,8 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   // Partner: prefer businessName (e.g. "Carlos Pro Built") over firstName+lastName.
   // Regular customer: use name as-is.
   const displayName = (isPartner && c.businessName) ? c.businessName : name;
-  const displayAddr = isPartner ? (c.workSiteAddress || c.address) : c.address;
-  const displayCity = isPartner ? (c.workSiteCity    || c.city)    : c.city;
+  const displayAddr = c.workSiteAddress || c.address;  // Fix 2: workSiteAddress for all job types
+  const displayCity = c.workSiteCity    || c.city;
   const addrLine  = _titleAddr(displayAddr||'');
   // sqFt and storyStr moved to js-propdetails row (Issue 4). Keep gateStr here — it's address-relevant.
   const cityLine  = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : '';
@@ -6696,6 +6696,11 @@ async function saveFullEdit() {
           return;
         }
         // Gate handled D1. Just update KV text — do not set c._addressEdited.
+        // Fix 3: for secondary-move, gate does not re-point the job — patch propertyId explicitly.
+        // Primary-move: gate SQL already updated all open jobs; no patchBody change needed.
+        if (_calAgResult.action === 'move' && _calAgResult.propertyId) {
+          patchBody.propertyId = _calAgResult.propertyId;
+        }
       }
       c.address = addr;
       c.city    = city;
@@ -8459,7 +8464,17 @@ async function _calAgConfirmMove() {
     var d = await res.json();
     if (!res.ok) throw new Error(d.error || 'HTTP ' + res.status);
     document.getElementById('calAddrGateModal').classList.add('hidden');
-    if (_calAgResolve) { _calAgResolve({ action: 'move' }); _calAgResolve = null; }
+    // Fix 3: extract the newly created/linked secondary property's ID from the API response.
+    // Primary-move: gate already re-pointed all open jobs via SQL — propertyId not needed by caller.
+    // Secondary-move: gate does NOT re-point jobs — caller (saveFullEdit _feCalJobId) must PATCH it.
+    var _gatePropId = null;
+    if (!primaryContact) {
+      var _newProp = (d.properties || []).find(function(p) {
+        return !p.primaryContact && p.streetAddress === _calAgNewAddr;
+      }) || (d.properties || []).find(function(p) { return p.streetAddress === _calAgNewAddr; }) || null;
+      _gatePropId = _newProp ? _newProp.propertyId : null;
+    }
+    if (_calAgResolve) { _calAgResolve({ action: 'move', propertyId: _gatePropId }); _calAgResolve = null; }
   } catch(e) {
     errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block';
     btn.disabled = false; btn.textContent = 'Save Property';
