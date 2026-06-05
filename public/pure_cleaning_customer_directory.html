@@ -234,20 +234,27 @@ function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10
 function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
 function _computeAvgTPW(c){
-  // Wall-clock lens: avgDurationMinutes = actual on-site time (no crew multiplier).
-  // Field renamed from avgLaborMinutes → avgDurationMinutes in computeBouncieMetrics.
+  // Track 1 (wall-clock) + Track 2 (solo-equiv). Both null-safe.
+  // Solo-equiv only rendered when avgSoloEquivMinutes is non-null (requires crew data).
   const bm=c.bouncieMetrics;
-  if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'' };
+  if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'', _avgSoloEquivLabel:'' };
   const entries=Object.values(bm);
-  let totalWeighted=0,totalCount=0;
+  let totalWeighted=0,totalCount=0,totalSEWeighted=0,totalSECount=0;
   for(const e of entries){
     totalWeighted+=(e.avgDurationMinutes||0)*(e.matchedJobCount||1);
     totalCount+=(e.matchedJobCount||1);
+    if(e.avgSoloEquivMinutes!=null){
+      totalSEWeighted+=e.avgSoloEquivMinutes*(e.matchedJobCount||1);
+      totalSECount+=(e.matchedJobCount||1);
+    }
   }
   const avg=Math.round(totalWeighted/totalCount);
   const label=totalCount>=2?'Avg':'Last';
   const str=`${label}: ${fmtMin(avg)}`;
-  return { avgLaborPerJob:avg, _avgTPWLabel:str, _avgTPWLabelCard:str };
+  // Solo-equiv: only shown when at least one entry has crew data
+  const avgSE = totalSECount>0 ? Math.round(totalSEWeighted/totalSECount) : null;
+  const seStr = avgSE!=null ? `Solo-equiv: ${fmtMin(avgSE)}` : '';
+  return { avgLaborPerJob:avg, _avgTPWLabel:str, _avgTPWLabelCard:str, _avgSoloEquivLabel:seStr };
 }
 
 function normCity(city){
@@ -616,7 +623,7 @@ function buildRow(c){
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
-    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}</td>
+    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}${c._avgSoloEquivLabel?`<br><span style="font-size:10px;color:#9333ea;font-weight:600;">${esc(c._avgSoloEquivLabel)}</span>`:''}</td>
     <td>${c.totalJobs||'—'}</td>
     <td class="money">${c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—'}</td>
     <td>${statusBadge(c)}</td>

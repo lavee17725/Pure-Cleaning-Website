@@ -1917,6 +1917,33 @@ export default {
         );
       }
 
+      // GET /admin/daily-rig-assignment/range — bulk roster for cross-device calendar hydration
+      // Returns ALL DRA rows in a date range, shaped for the merge-into-calState algorithm.
+      // Shape: { from, to, assignments: { [date]: { [rigId]: { dayType, crew:[{shortId,role}] } } } }
+      // Used by calendar on load + week navigation to merge D1 into localStorage (Piece B).
+      if (path === 'admin/daily-rig-assignment/range' && request.method === 'GET') {
+        if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+        const rangeFrom = url.searchParams.get('from');
+        const rangeTo   = url.searchParams.get('to');
+        if (!rangeFrom || !rangeTo)
+          return jsonResponse({ error: 'from and to required' }, corsHeaders, 400);
+        const { results: rangeRows } = await env.DB.prepare(
+          `SELECT dra.date, dra.rigId, dra.role, dra.dayType, cm.shortId, cm.name
+           FROM DailyRigAssignment dra
+           JOIN CrewMember cm ON dra.crewMemberId = cm.crewMemberId
+           WHERE dra.date >= ? AND dra.date <= ?
+           ORDER BY dra.date, dra.rigId, dra.role DESC`
+        ).bind(rangeFrom, rangeTo).all();
+        // Nest by date → rig → {dayType, crew[]}
+        const rangeAsgn = {};
+        for (const r of (rangeRows || [])) {
+          if (!rangeAsgn[r.date])         rangeAsgn[r.date]         = {};
+          if (!rangeAsgn[r.date][r.rigId]) rangeAsgn[r.date][r.rigId] = { dayType: r.dayType, crew: [] };
+          rangeAsgn[r.date][r.rigId].crew.push({ shortId: r.shortId, name: r.name, role: r.role });
+        }
+        return jsonResponse({ from: rangeFrom, to: rangeTo, assignments: rangeAsgn }, corsHeaders);
+      }
+
       // GET /admin/daily-rig-assignment — roster lookup for crew derivation at completion
       // Returns the crew assigned to a (date, rig) slot, including shortIds for calendar use.
       if (path === 'admin/daily-rig-assignment' && request.method === 'GET') {
@@ -8130,14 +8157,33 @@ async function _dtStatsIncrement(env, field) {
   } catch(e) { /* stats are non-critical — never block main response */ }
 }
 
+// ── Track 2: solo-equivalent duration ────────────────────────────────────────
+// throughputMultiplier(crew): how much more work a larger crew completes relative to solo.
+//   1 person = 1.0×, 2 people = 1.85× (not 2.0× — coordination overhead), 3 = 2.6×.
+//   Tunable table: re-tuning re-normalizes ALL historical jobs on next read (no frozen column).
+//   Unknown crew → 1.0 (conservative — never inflates).
+//
+// soloEquiv(actualDuration, crewCount): "1-person-equivalent size" of the job in minutes.
+//   Returns null if EITHER input is missing/zero — never surfaces a silent wrong number.
+//   Surfaces ONLY when both actualDuration AND crewCount are known (Phase 3+4 backfill).
+function throughputMultiplier(crew) {
+  const t = { 1: 1.0, 2: 1.85, 3: 2.6 };
+  return t[crew] ?? 1.0;
+}
+function soloEquiv(actualDuration, crewCount) {
+  if (!actualDuration || actualDuration <= 0) return null;
+  if (!crewCount     || crewCount     <= 0) return null;   // no crew data → no Track 2
+  return Math.round(actualDuration * throughputMultiplier(crewCount));
+}
+
 // ── Per-property avg job-duration metric (wall-clock lens) ───────────────────
 // Lens: WALL-CLOCK — actualDuration as-is (minutes on-site). No crew multiplier/divisor.
 // A 2h40m solo job and a 2h40m 2-crew job both show 2h40m — that's "how long will
 // this property take" which is what scheduling + quoting care about.
-// crewCount is NOT used here; crewCount=null jobs are handled identically to any other.
+// crewCount is NOT used here for wall-clock; solo-equiv is added ALONGSIDE as Track 2.
 //
 // NOTE: d1JobToKvShape still defaults crewCount null→2 (line ~2930) for raw API consumers.
-// That default is harmless now that these metric functions ignore crewCount.
+// That default is harmless: solo-equiv returns null for any job with null crew (guarded above).
 
 function computeBouncieMetrics(customer) {
   const address = (customer.address || '').trim();
@@ -8156,7 +8202,8 @@ function computeBouncieMetrics(customer) {
     if (key) seenIds.add(key);
     // Track BOTH the jobId and the date so scheduledStatus can be deduped by either
     if (j.date) seenIds.add(j.date);
-    matched.push({ date: j.date || '', minutes: j.actualDuration });
+    // crewCount carried for Track 2 solo-equiv (null when not known — soloEquiv() guards)
+    matched.push({ date: j.date || '', minutes: j.actualDuration, crewCount: j.crewCount || null });
   }
 
   const ss = customer.scheduledStatus || {};
@@ -8165,7 +8212,11 @@ function computeBouncieMetrics(customer) {
     // Both are added to seenIds from jobHistory above so either key catches the duplicate.
     const ssKey = ss._lastJobId || ss.scheduledDate || '';
     if (!ssKey || !seenIds.has(ssKey)) {
-      matched.push({ date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10), minutes: ss.actualDuration });
+      matched.push({
+        date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10),
+        minutes: ss.actualDuration,
+        crewCount: ss.crewCount || null,
+      });
     }
   }
 
@@ -8175,23 +8226,32 @@ function computeBouncieMetrics(customer) {
   }
 
   matched.sort((a, b) => a.date < b.date ? -1 : 1);
-  // Wall-clock: no multiplication — just actual on-site duration
+
+  // Track 1 — wall-clock: exact on-site duration, crew-agnostic
   const avg  = Math.round(matched.reduce((a, b) => a + b.minutes, 0) / matched.length);
   const last = matched[matched.length - 1].minutes;
 
+  // Track 2 — solo-equiv: actualDuration × throughputMultiplier(crewCount)
+  // Only computed for entries where crewCount is known; others contribute null (excluded from avg)
+  const seMatched = matched.map(m => soloEquiv(m.minutes, m.crewCount)).filter(v => v !== null);
+  const avgSE  = seMatched.length > 0 ? Math.round(seMatched.reduce((a,b) => a+b, 0) / seMatched.length) : null;
+  const lastSE = seMatched.length > 0 ? seMatched[seMatched.length - 1] : null;
+
   customer.bouncieMetrics = {
     [address]: {
-      avgDurationMinutes:  avg,
-      lastDurationMinutes: last,
-      lastServiceDate:     matched[matched.length - 1].date,
-      matchedJobCount:     matched.length,
+      avgDurationMinutes:   avg,      // Track 1: wall-clock avg (always present when Bouncie matched)
+      lastDurationMinutes:  last,     // Track 1: wall-clock last
+      avgSoloEquivMinutes:  avgSE,    // Track 2: solo-equiv avg (null when no crew data)
+      lastSoloEquivMinutes: lastSE,   // Track 2: solo-equiv last
+      lastServiceDate:      matched[matched.length - 1].date,
+      matchedJobCount:      matched.length,
     },
   };
 }
 
 function computeWorkerHoursStats(customer) {
-  // Wall-clock lens — same as computeBouncieMetrics: actualDuration as-is, no crew math.
-  // Profile "Job Duration" stat and directory "Avg Job Duration" column must agree.
+  // Wall-clock lens (Track 1) + solo-equiv (Track 2) — both computed here for the profile stat.
+  // Profile "Job Duration" stat reads avgPerVisit (wall-clock) + avgSoloEquivPerVisit (Track 2).
   const seenIds = new Set();
   const matched = [];
   for (const j of (customer.jobHistory || [])) {
@@ -8200,17 +8260,27 @@ function computeWorkerHoursStats(customer) {
     const key = j.jobId || j.date || '';
     if (key && seenIds.has(key)) continue;
     if (key) seenIds.add(key);
-    matched.push({ date: j.date || '', durationMin: j.actualDuration });
+    matched.push({ date: j.date || '', durationMin: j.actualDuration, crewCount: j.crewCount || null });
   }
   if (!matched.length) { delete customer.workerHoursStats; return; }
   matched.sort((a, b) => a.date < b.date ? -1 : 1);
-  const avg = matched.reduce((s, j) => s + j.durationMin, 0) / matched.length;
+
+  // Track 1: wall-clock avg/last (unchanged)
+  const avg  = matched.reduce((s, j) => s + j.durationMin, 0) / matched.length;
   const last = matched[matched.length - 1];
+
+  // Track 2: solo-equiv — only entries with known crewCount contribute
+  const seVals = matched.map(j => soloEquiv(j.durationMin, j.crewCount)).filter(v => v !== null);
+  const avgSE  = seVals.length > 0 ? seVals.reduce((a,b) => a+b, 0) / seVals.length : null;
+
   customer.workerHoursStats = {
-    avgPerVisit:        Math.round(avg * 10) / 10 / 60,  // hours, 1 decimal
-    lastVisitMin:       last.durationMin,                 // minutes (client formats)
-    lastVisitDate:      last.date,
-    totalMatchedVisits: matched.length,
+    avgPerVisit:          Math.round(avg * 10) / 10 / 60,   // Track 1: wall-clock hours, 1dp
+    lastVisitMin:         last.durationMin,                  // Track 1: wall-clock minutes
+    lastVisitDate:        last.date,
+    totalMatchedVisits:   matched.length,
+    avgSoloEquivPerVisit: avgSE !== null                     // Track 2: solo-equiv hours (null if no crew data)
+      ? Math.round(avgSE * 10) / 10 / 60
+      : null,
   };
 }
 

@@ -1743,6 +1743,73 @@ let weatherData  = {};     // date (YYYY-MM-DD) → { icon, rain }
 function loadCalState() {
   try { return JSON.parse(localStorage.getItem('pcpc_calendar_state') || '{}'); } catch { return {}; }
 }
+
+// ── Cross-device roster merge (Phase 5 Piece B) ──────────────────────────────
+// Fetches DailyRigAssignment for `dates` from D1, merges into calState with safe precedence:
+//   D1 HAS (date,rig)  → D1 wins   (it's the persisted, cross-device-safe version)
+//   D1 MISSING (date,rig) → local wins (preserves un-synced May/local-only data — NEVER blanked)
+// This function ONLY processes slots D1 has; it never deletes or nulls local entries.
+// Fire-and-forget from init() + changeWeek() — a failure never blocks rendering.
+async function syncRosterFromD1(dates) {
+  if (!dates || dates.length === 0) return;
+  const from = dates[0];
+  const to   = dates[dates.length - 1];
+  try {
+    const res = await fetch(
+      `${PCPC_API}/admin/daily-rig-assignment/range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const asgn = data.assignments || {};   // { [date]: { [rig]: { dayType, crew:[{shortId,role}] } } }
+    if (!Object.keys(asgn).length) return; // D1 empty for this range — nothing to merge
+
+    let changed = false;
+    if (!calState.rigCrew)    calState.rigCrew    = {};
+    if (!calState.rigDayType) calState.rigDayType = {};
+    if (!calState.rigDriver)  calState.rigDriver  = {};
+
+    // Iterate ONLY over dates/rigs D1 has — never touch local slots D1 doesn't mention
+    for (const [date, rigs] of Object.entries(asgn)) {
+      for (const [rig, d1Data] of Object.entries(rigs)) {
+        // ── crew ──
+        const d1Crew    = (d1Data.crew || []).map(m => m.shortId).filter(Boolean);
+        if (!calState.rigCrew[date]) calState.rigCrew[date] = {};
+        const localCrew = calState.rigCrew[date][rig] || [];
+        if ([...d1Crew].sort().join(',') !== [...localCrew].sort().join(',')) {
+          calState.rigCrew[date][rig] = d1Crew;
+          changed = true;
+        }
+        // ── dayType ──
+        if (d1Data.dayType) {
+          if (!calState.rigDayType[date]) calState.rigDayType[date] = {};
+          if (calState.rigDayType[date][rig] !== d1Data.dayType) {
+            calState.rigDayType[date][rig] = d1Data.dayType;
+            changed = true;
+          }
+        }
+        // ── driver: member with role='driver' in DRA → calState.rigDriver ──
+        const d1Driver = (d1Data.crew || []).find(m => m.role === 'driver');
+        if (d1Driver?.shortId) {
+          if (!calState.rigDriver[date]) calState.rigDriver[date] = {};
+          if (calState.rigDriver[date][rig] !== d1Driver.shortId) {
+            calState.rigDriver[date][rig] = d1Driver.shortId;
+            changed = true;
+          }
+        }
+        // LOCAL SLOTS NOT IN D1 ARE UNTOUCHED — loop only processes what D1 returned
+      }
+    }
+
+    if (changed) {
+      saveCalState();
+      render(); // re-render payroll panel + crew labels with merged data
+    }
+  } catch (e) {
+    // Non-fatal — localStorage state is still intact
+    console.warn('[syncRosterFromD1] failed, local roster unchanged:', e.message);
+  }
+}
+
 function saveCalState() {
   if (!calState.rigCrew)    calState.rigCrew    = {};
   if (!calState.rigDayType) calState.rigDayType = {};
@@ -1919,6 +1986,7 @@ async function init() {
     render();
     autoGeocodeJobs(); // background geocode any scheduled jobs missing coordinates
     loadWeather();     // fire-and-forget — populates weatherData then re-renders headers
+    syncRosterFromD1(getWeekDates()); // Phase 5B: merge D1 roster into calState (cross-device, non-blocking)
   } catch(e) {
     dbRecord = {customers:[]};
     render();
@@ -4931,12 +4999,14 @@ async function changeWeek(dir) {
   try { await loadCalendarJobs(getWeekDates()[0]); } catch(e) { console.warn('[changeWeek] reload failed:', e.message); }
   render();
   updateBlockWeekBtn();
+  syncRosterFromD1(getWeekDates()); // Phase 5B: merge D1 roster for the newly-visible week
 }
 async function goToday() {
   dayOffset = 0;
   try { await loadCalendarJobs(getWeekDates()[0]); } catch(e) { console.warn('[goToday] reload failed:', e.message); }
   render();
   updateBlockWeekBtn();
+  syncRosterFromD1(getWeekDates()); // Phase 5B
 }
 function openDayRouteView() {
   // Opens day route view for the first visible date (start of current window)
