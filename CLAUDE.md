@@ -60,6 +60,8 @@ When in doubt, follow this file. The other two are reference.
 
 **21.** (T1.21) **Read paths require verified write paths.** When adding any new field to a read surface (print sheet, calendar card, edit modal, customer profile, API response), audit the write path FIRST. Confirm: (a) writes exist and connect to the UI Mom uses, (b) field is in worker `_JOB_MUTABLE_FIELDS` if PATCH-able, (c) round-trip tested in browser before commit. No false fallback defaults — render "N/A" when data unknown. Trusting a field name is insufficient — verify the actual data contract. *Earned by 4 instances: (1) Issue 5 notes read `ss.jobNotes` which stores services; (2) Issue 4 roofStories write silently dropped on D1-native path; (3) Carlos workflow read D1 scheduled while write was dead code; (4) Property migration — 92 properties read `place_id` before writes existed.*
 
+**22.** (T1.22) **No Orphan Capture (Capture ⟹ Persist ⟹ Connect).** Any UI that captures data MUST in the same build: (1) persist to the canonical server store (D1 first, KV as cache only), never localStorage-only when the data has any downstream consumer; (2) connect it to every surface that reads/displays/computes from it; (3) verify end-to-end (capture→store→read→display→compute) on a real record before 'done'. localStorage/sessionStorage ONLY for ephemeral UI state with zero server-side/cross-device consumers. Before building any capture UI, name its persistence target (D1 table/column) and its read consumers; if either is undefined, close that gap first. Root: three repeats in one week — multi-property (address captured, not bound), quote pipeline (selections captured, not flowing), crew roster (localStorage, never persisted).
+
 ---
 
 ## Data Integrity Laws

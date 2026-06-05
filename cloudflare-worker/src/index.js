@@ -1657,6 +1657,68 @@ export default {
         }
       }
 
+      // ── Daily rig assignment: write roster from crew popup ───────────────────
+      // POST /admin/daily-rig-assignment
+      // Body: { date, rigId, crew: [{shortId, role}], dayType }
+      // Idempotent: DELETE existing (date,rigId) rows then INSERT the new set.
+      // Resolves each shortId → crewMemberId UUID via CrewMember.shortId bridge (Phase 1).
+      // Unknown shortIds are skipped + returned in warnings[] (T1.11 — no silent discard).
+      if (path === 'admin/daily-rig-assignment' && request.method === 'POST') {
+        if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+        const body = await request.json().catch(() => ({}));
+        const { date, rigId, crew, dayType } = body;
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+          return jsonResponse({ error: 'date required (YYYY-MM-DD)' }, corsHeaders, 400);
+        if (!rigId)
+          return jsonResponse({ error: 'rigId required' }, corsHeaders, 400);
+        const crewArr   = Array.isArray(crew) ? crew : [];
+        const safeDay   = (dayType === 'half') ? 'half' : 'full';
+        const now       = new Date().toISOString();
+        const warnings  = [];
+
+        // Resolve shortIds → UUIDs in one batch query
+        const shortIds = [...new Set(crewArr.map(c => c.shortId).filter(Boolean))];
+        let shortIdMap = {};  // shortId → crewMemberId UUID
+        if (shortIds.length > 0) {
+          const placeholders = shortIds.map(() => '?').join(',');
+          const { results: cmRows } = await env.DB.prepare(
+            `SELECT crewMemberId, shortId FROM CrewMember WHERE shortId IN (${placeholders}) AND active = 1`
+          ).bind(...shortIds).all();
+          for (const r of (cmRows || [])) shortIdMap[r.shortId] = r.crewMemberId;
+        }
+
+        // Build insert rows; collect warnings for unresolved shortIds (T1.11)
+        const insertRows = [];
+        for (const entry of crewArr) {
+          const sid = entry.shortId;
+          if (!sid) continue;
+          const uuid = shortIdMap[sid];
+          if (!uuid) { warnings.push(`shortId '${sid}' not found in CrewMember — skipped`); continue; }
+          const role = (entry.role === 'driver') ? 'driver' : 'crew';
+          insertRows.push({ crewMemberId: uuid, role });
+        }
+
+        // Idempotent: wipe existing (date, rigId) assignment then insert the new set
+        await env.DB.prepare(
+          `DELETE FROM DailyRigAssignment WHERE date=? AND rigId=?`
+        ).bind(date, rigId).run();
+
+        if (insertRows.length > 0) {
+          const stmts = insertRows.map(r =>
+            env.DB.prepare(
+              `INSERT INTO DailyRigAssignment (date,rigId,crewMemberId,role,dayType,createdAt,modifiedAt)
+               VALUES (?,?,?,?,?,?,?)`
+            ).bind(date, rigId, r.crewMemberId, r.role, safeDay, now, now)
+          );
+          await env.DB.batch(stmts);
+        }
+
+        return jsonResponse(
+          { success: true, date, rigId, inserted: insertRows.length, warnings },
+          corsHeaders
+        );
+      }
+
       // ── Worker hours: per-customer attribution (protected) ───────────────────
       if (/^admin\/worker-hours\/customer\/[^/]+$/.test(path) && request.method === 'GET') {
         const phone = path.split('/').pop().replace(/\D/g, '').slice(-10);

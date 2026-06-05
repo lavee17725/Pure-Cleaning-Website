@@ -3949,15 +3949,42 @@ function toggleCpCrew(id) {
 }
 
 function saveCrewPop() {
+  // ── Step 1: localStorage write (unchanged — stays the immediate UI cache) ──
   if (!calState.rigCrew)              calState.rigCrew              = {};
   if (!calState.rigCrew[cpDate])      calState.rigCrew[cpDate]      = {};
   if (!calState.rigDayType)           calState.rigDayType           = {};
   if (!calState.rigDayType[cpDate])   calState.rigDayType[cpDate]   = {};
   calState.rigCrew[cpDate][cpRig]    = [...cpSelCrew];
   calState.rigDayType[cpDate][cpRig] = cpDayType;
-  saveCalState();
+  saveCalState();     // localStorage write — MUST happen before D1 fire-and-check
   closeCrewPop();
   render();
+
+  // ── Step 2: D1 dual-write (Phase 2) ───────────────────────────────────────
+  // WRITE-ONLY — does not read back from D1, does not merge into localStorage.
+  // The designated driver's shortId (from rigDriver) gets role='driver'; rest get 'crew'.
+  // On failure: non-blocking visible toast (T1.11 — persistence failure must be visible).
+  const _driverShortId = ((calState.rigDriver||{})[cpDate]||{})[cpRig] || null;
+  const _crew = cpSelCrew.map(sid => ({
+    shortId: sid,
+    role:    sid === _driverShortId ? 'driver' : 'crew',
+  }));
+  fetch(`${PCPC_API}/admin/daily-rig-assignment`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ date: cpDate, rigId: cpRig, crew: _crew, dayType: cpDayType }),
+  }).then(r => r.json()).then(d => {
+    if (!d.success) throw new Error(d.error || 'unknown error');
+    if (d.warnings && d.warnings.length) {
+      // Unresolved shortIds — visible but non-blocking (shouldn't occur post-seed)
+      console.warn('[saveCrewPop] D1 sync warnings:', d.warnings);
+      showToast('⚠️ Crew saved locally — some IDs not synced: ' + d.warnings.join('; '));
+    }
+    // Success: silent — localStorage already updated, UI already rendered
+  }).catch(err => {
+    console.error('[saveCrewPop] D1 sync failed:', err.message);
+    showToast('⚠️ Crew saved locally but didn\'t sync to server — retry by re-saving crew');
+  });
 }
 
 function closeCrewPop() {
