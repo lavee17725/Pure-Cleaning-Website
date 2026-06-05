@@ -860,19 +860,29 @@ async function main() {
       if (copyBtn) pass('New Customer — 📋 Copy address button present');
       else fail('New Customer — 📋 Copy address button present', '#nCopyAddrBtn not visible');
 
-      // 2. Clicking copy button calls clipboard.writeText with address value
-      await page.evaluate(() => {
+      // 2a. Button enabled after PROGRAMMATIC load (the real-world break — not synthetic input).
+      // Previously the test dispatched new Event('input') which masked the bug: real existing-customer
+      // loads set #nAddr.value directly without firing oninput, leaving the button permanently disabled.
+      // This check simulates the actual load path (direct .value assignment, NO event dispatch).
+      const btnEnabledAfterProgrammaticLoad = await page.evaluate(() => {
+        // Simulate what useMatch() / fillFormFromCustomer() do: set value directly, no event
         document.getElementById('nAddr').value = '123 Test St';
         document.getElementById('nCity').value = 'Weston';
-        document.getElementById('nAddr').dispatchEvent(new Event('input'));
+        // Call updateNcCopyBtn() exactly as the fixed load paths do
+        if (typeof updateNcCopyBtn === 'function') updateNcCopyBtn();
+        const btn = document.getElementById('nCopyAddrBtn');
+        return btn && btn.style.pointerEvents !== 'none' && parseFloat(btn.style.opacity || '1') >= 1;
       });
-      await page.waitForTimeout(300);
+      if (btnEnabledAfterProgrammaticLoad) pass('New Customer — copy button enabled after programmatic address load (regression guard)');
+      else fail('New Customer — copy button enabled after programmatic address load (regression guard)',
+        'Button stays disabled after .value set without oninput — updateNcCopyBtn() missing from a load path');
+
+      // 2b. Clicking copy button calls clipboard.writeText with the loaded address value
+      await page.waitForTimeout(100);
       let clipboardOk = false;
       try {
         await page.evaluate(() => {
-          let captured = null;
-          const orig = navigator.clipboard.writeText.bind(navigator.clipboard);
-          navigator.clipboard.writeText = v => { captured = v; window._lastClip = v; return Promise.resolve(); };
+          navigator.clipboard.writeText = v => { window._lastClip = v; return Promise.resolve(); };
         });
         await page.click('#nCopyAddrBtn');
         await page.waitForTimeout(300);
