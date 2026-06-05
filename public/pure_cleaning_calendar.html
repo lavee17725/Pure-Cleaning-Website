@@ -2071,7 +2071,11 @@ async function scheduleJobWithDualWrite({
         // Multi-property + no explicit propertyId passed: fail loud so the caller is forced
         // to resolve which property this job is for. A silent wrong-address booking is worse
         // than a visible error — the latter gets fixed immediately.
-        if (props.length > 1) {
+        //
+        // Partner exemption: partner_referral customers resolve location via workSiteAddress
+        // (the homeowner's address), not property selection. Their propertyId is always the
+        // billing anchor — auto-resolve to primaryContact is correct. Skip the guard.
+        if (props.length > 1 && fullD?.customer?.customerType !== 'partner_referral') {
           return {
             success: false,
             error: 'multi_property_ambiguous',

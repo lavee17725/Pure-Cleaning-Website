@@ -323,7 +323,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         <div id="nWorkSiteNotVerifiedWarn" style="font-size:11px;color:#b45309;font-weight:600;margin-top:5px;display:none;">⚠ Address not Google-verified — consider using autocomplete for accuracy</div>
       </div>
       <div style="margin-top:10px;">
-        <div class="partner-sec-title" style="margin-bottom:8px;">End Customer (optional)</div>
+        <div class="partner-sec-title" style="margin-bottom:8px;">Customer (optional)</div>
         <div class="field-row">
           <div class="field">
             <input id="nEndCustName" class="fi" type="text" placeholder="Homeowner name" style="font-size:14px;">
@@ -1433,7 +1433,11 @@ async function scheduleJobWithDualWrite({
         // Multi-property + no explicit propertyId passed: fail loud so the caller is forced
         // to resolve which property this job is for. A silent wrong-address booking is worse
         // than a visible error — the latter gets fixed immediately.
-        if (props.length > 1) {
+        //
+        // Partner exemption: partner_referral customers resolve location via workSiteAddress
+        // (the homeowner's address), not property selection. Their propertyId is always the
+        // billing anchor — auto-resolve to primaryContact is correct. Skip the guard.
+        if (props.length > 1 && fullD?.customer?.customerType !== 'partner_referral') {
           return {
             success: false,
             error: 'multi_property_ambiguous',

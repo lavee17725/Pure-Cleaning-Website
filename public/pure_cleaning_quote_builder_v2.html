@@ -561,7 +561,10 @@ function checkCustomerAlerts(phone) {
     // This preserves the helpful "default from history" UX without ever overwriting
     // a deliberate selection (the original async-overwrite root cause).
     const lastKnown = getLastKnownRoofStories(c);
-    if (lastKnown && !_userSetStories) {
+    // Partner exemption: every partner job is a different homeowner's house — historical
+    // roofStories from a previous job are meaningless noise. Skip pre-fill for partners.
+    // movedAway/optOut warnings below this block are unaffected (they apply to all types).
+    if (lastKnown && !_userSetStories && c.customerType !== 'partner_referral') {
       const r = document.querySelector(`input[name=v2RoofStories][value="${lastKnown}"]`);
       if (r) r.checked = true;
     }
