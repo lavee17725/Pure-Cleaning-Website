@@ -2150,7 +2150,12 @@ async function handleQuote(request, env, quoteCode, corsHeaders) {
 // ── Agreement confirm ─────────────────────────────────────────────────────────
 async function handleAgreementConfirm(request, env, phone, corsHeaders) {
   const body = await request.json();
-  const { date, display, rig, rigLabel, approvedAmount, services, addOns, quoteCode: qCode, city, address, email } = body;
+  const {
+    date, display, rig, rigLabel, approvedAmount, services, addOns, quoteCode: qCode, city, address, email,
+    // Part 2: rust + sealing interest fields (previously never sent — saveOfferingInterest was a no-op stub)
+    rustChecked, rustSurface, rustNotes,
+    sealingChecked, sealingSurfaces, sealingPaverSand,
+  } = body;
 
   const norm = p => (p||'').replace(/\D/g,'').slice(-10);
   const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
@@ -2164,6 +2169,28 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
   if (address && !cust.address) cust.address = address;
   if (email   && !cust.email)   cust.email   = email;
 
+  // ── Build full service text ────────────────────────────────────────────────
+  // All customer selections (add-ons, rust interest, sealing interest) merged into one
+  // string so they survive into ss.jobNotes → D1 servicesRaw → calendar card service line.
+  // Empty case: if none present, _fullJobNotes === services (unchanged from before).
+  const _addonLabels  = (addOns || []).filter(a => a.name || a.label).map(a => a.name || a.label);
+  const _sealingSrfs  = Array.isArray(sealingSurfaces) ? sealingSurfaces : [];
+  let _fullJobNotes = services || '';
+  if (_addonLabels.length) {
+    _fullJobNotes += `  + ADD-ONS: ${_addonLabels.join(', ')}`;
+  }
+  if (rustChecked) {
+    const _rSurf  = rustSurface || 'TBD';
+    const _rNotes = (rustNotes || '').trim();
+    _fullJobNotes += `  ⚠️ RUST REMOVAL: ${_rSurf}${_rNotes ? ` — "${_rNotes}"` : ''}`;
+  }
+  if (sealingChecked) {
+    const _sSrfs = _sealingSrfs.length ? _sealingSrfs.join(', ') : 'TBD';
+    const _sPaver = sealingPaverSand ? ' + paver sand' : '';
+    _fullJobNotes += `  ✨ SEALING INTEREST: ${_sSrfs}${_sPaver}`;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   cust.quoteStatus = {
     ...(cust.quoteStatus || {}),
     state: 'confirmed',
@@ -2172,6 +2199,8 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
     confirmedAt: now,
     approvedAmount,
     addOns: addOns || [],
+    rustInterest:    rustChecked ? { surface: rustSurface||null, notes: rustNotes||'' } : null,
+    sealingInterest: sealingChecked ? { surfaces: _sealingSrfs, paverSand: sealingPaverSand||false } : null,
   };
 
   cust.scheduledStatus = {
@@ -2180,7 +2209,7 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
     scheduledDate: date,
     rig: rig || cust.scheduledStatus?.rig || null,
     approvedAmount,
-    jobNotes: services || cust.scheduledStatus?.jobNotes || '',
+    jobNotes: _fullJobNotes || cust.scheduledStatus?.jobNotes || '',
     confirmedByCustomer: true,
     confirmedAt: now,
   };
@@ -2211,9 +2240,9 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
     }
   }
 
-  // Text 2: alert Tyler — customer confirmed their agreement
+  // Text 2: alert Tyler — full service text including add-ons + upsell signals
   const _confName = `${cust.firstName || ''} ${cust.lastName || ''}`.trim() || phone;
-  await sendSms(env, env.TYLER_CELL, _smsConfirmedBody(_confName, cust.city || city || '', approvedAmount, display, services, phone));
+  await sendSms(env, env.TYLER_CELL, _smsConfirmedBody(_confName, cust.city || city || '', approvedAmount, display, _fullJobNotes, phone));
 
   return jsonResponse({ success: true, confirmedDate: date, confirmedDateDisplay: display }, corsHeaders);
 }
@@ -4818,7 +4847,7 @@ async function _d1SyncScheduledJob(c, env, now) {
       `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRequested,servicesRaw,rigId,crewCount,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       jobId, personId, propId, ss.scheduledDate, 'scheduled',
-      ss.approvedAmount||0, '[]', ss.jobNotes||null, ss.rig||null,
+      ss.approvedAmount||0, ss.jobNotes||null, ss.jobNotes||null, ss.rig||null,
       ss.crewCount||2,
       ss.actualDuration||null, ss.actualArrival||null, ss.actualDeparture||null,
       ss.durationConfidence||ss.bouncieMatchStatus||null, null, ss.geocodeSource||null,
@@ -7819,27 +7848,40 @@ async function _dtStatsIncrement(env, field) {
   } catch(e) { /* stats are non-critical — never block main response */ }
 }
 
-// ── Per-property avg time/worker metric ──────────────────────────────────────
-// TODO(Forward Queue 3.2): swap DEFAULT_CREW_COUNT per-job when DailyRigAssignment
-// table ships. Crew modal stores per-rig-per-day assignments in browser localStorage
-// (calState.rigCrew[date][rig]) — not accessible from the worker. Default 2 until
-// actual crew data is persisted server-side.
-const DEFAULT_CREW_COUNT = 2;
+// ── Per-property avg job-duration metric (wall-clock lens) ───────────────────
+// Lens: WALL-CLOCK — actualDuration as-is (minutes on-site). No crew multiplier/divisor.
+// A 2h40m solo job and a 2h40m 2-crew job both show 2h40m — that's "how long will
+// this property take" which is what scheduling + quoting care about.
+// crewCount is NOT used here; crewCount=null jobs are handled identically to any other.
+//
+// NOTE: d1JobToKvShape still defaults crewCount null→2 (line ~2930) for raw API consumers.
+// That default is harmless now that these metric functions ignore crewCount.
 
 function computeBouncieMetrics(customer) {
   const address = (customer.address || '').trim();
   if (!address) return;
 
-  // Collect all Bouncie-matched durations from jobHistory + active scheduledStatus
+  // Collect all Bouncie-matched durations from jobHistory + active scheduledStatus.
+  // DEDUPE: track seen jobIds (or date as fallback) so a completed job that appears in
+  // BOTH jobHistory[] AND scheduledStatus (e.g. Anas Hadeh matchedJobCount=2 bug) counts once.
+  const seenIds = new Set();
   const matched = [];
+
   for (const j of (customer.jobHistory || [])) {
-    if (j.actualDuration > 0) {
-      matched.push({ date: j.date || '', minutes: j.actualDuration });
-    }
+    if (!j.actualDuration || j.actualDuration <= 0) continue;
+    const key = j.jobId || j.date || '';
+    if (key && seenIds.has(key)) continue;
+    if (key) seenIds.add(key);
+    matched.push({ date: j.date || '', minutes: j.actualDuration });
   }
+
   const ss = customer.scheduledStatus || {};
   if (ss.actualDuration > 0) {
-    matched.push({ date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10), minutes: ss.actualDuration });
+    // Only add scheduledStatus if its jobId (or date) wasn't already captured from jobHistory
+    const ssKey = ss._lastJobId || ss.scheduledDate || '';
+    if (!ssKey || !seenIds.has(ssKey)) {
+      matched.push({ date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10), minutes: ss.actualDuration });
+    }
   }
 
   if (!matched.length) {
@@ -7848,40 +7890,41 @@ function computeBouncieMetrics(customer) {
   }
 
   matched.sort((a, b) => a.date < b.date ? -1 : 1);
-  // Labor hours = duration × crew count (a 2h job with 2 workers = 4 worker-hours billed/paid)
-  const laborMin = matched.map(j => Math.round(j.minutes * DEFAULT_CREW_COUNT));
-  const avg  = Math.round(laborMin.reduce((a, b) => a + b, 0) / laborMin.length);
-  const last = laborMin[laborMin.length - 1];
+  // Wall-clock: no multiplication — just actual on-site duration
+  const avg  = Math.round(matched.reduce((a, b) => a + b.minutes, 0) / matched.length);
+  const last = matched[matched.length - 1].minutes;
 
   customer.bouncieMetrics = {
     [address]: {
-      avgLaborMinutes:  avg,
-      lastLaborMinutes: last,
-      lastServiceDate:  matched[matched.length - 1].date,
-      matchedJobCount:  matched.length,
+      avgDurationMinutes:  avg,
+      lastDurationMinutes: last,
+      lastServiceDate:     matched[matched.length - 1].date,
+      matchedJobCount:     matched.length,
     },
   };
 }
 
 function computeWorkerHoursStats(customer) {
+  // Wall-clock lens — same as computeBouncieMetrics: actualDuration as-is, no crew math.
+  // Profile "Job Duration" stat and directory "Avg Job Duration" column must agree.
+  const seenIds = new Set();
   const matched = [];
   for (const j of (customer.jobHistory || [])) {
     if (!j.actualDuration || j.actualDuration <= 0) continue;
     if (j.source === 'csv_backfill') continue;
-    const crew = (j.crewCount && j.crewCount >= 1) ? j.crewCount : DEFAULT_CREW_COUNT;
-    matched.push({
-      date: j.date || '',
-      workerMin: Math.round(j.actualDuration / crew),
-    });
+    const key = j.jobId || j.date || '';
+    if (key && seenIds.has(key)) continue;
+    if (key) seenIds.add(key);
+    matched.push({ date: j.date || '', durationMin: j.actualDuration });
   }
   if (!matched.length) { delete customer.workerHoursStats; return; }
   matched.sort((a, b) => a.date < b.date ? -1 : 1);
-  const avg = matched.reduce((s, j) => s + j.workerMin, 0) / matched.length;
+  const avg = matched.reduce((s, j) => s + j.durationMin, 0) / matched.length;
   const last = matched[matched.length - 1];
   customer.workerHoursStats = {
-    avgPerVisit: Math.round(avg * 10) / 10 / 60,   // hours, 1 decimal
-    lastVisitMin: last.workerMin,                   // minutes (client formats)
-    lastVisitDate: last.date,
+    avgPerVisit:        Math.round(avg * 10) / 10 / 60,  // hours, 1 decimal
+    lastVisitMin:       last.durationMin,                 // minutes (client formats)
+    lastVisitDate:      last.date,
     totalMatchedVisits: matched.length,
   };
 }

@@ -158,7 +158,7 @@ td.muted{color:var(--muted);}
               <th class="no-sort">Email</th>
               <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
               <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
-              <th data-sort="avgLaborPerJob" onclick="clickSort('avgLaborPerJob')" class="col-avg-time">Avg Labor/Job <span class="sind">▲▼</span></th>
+              <th data-sort="avgLaborPerJob" onclick="clickSort('avgLaborPerJob')" class="col-avg-time">Avg Job Duration <span class="sind">▲▼</span></th>
               <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
               <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
               <th class="no-sort">Status</th>
@@ -234,12 +234,14 @@ function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10
 function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
 function _computeAvgTPW(c){
+  // Wall-clock lens: avgDurationMinutes = actual on-site time (no crew multiplier).
+  // Field renamed from avgLaborMinutes → avgDurationMinutes in computeBouncieMetrics.
   const bm=c.bouncieMetrics;
   if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'' };
   const entries=Object.values(bm);
   let totalWeighted=0,totalCount=0;
   for(const e of entries){
-    totalWeighted+=(e.avgLaborMinutes||0)*(e.matchedJobCount||1);
+    totalWeighted+=(e.avgDurationMinutes||0)*(e.matchedJobCount||1);
     totalCount+=(e.matchedJobCount||1);
   }
   const avg=Math.round(totalWeighted/totalCount);

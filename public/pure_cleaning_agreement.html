@@ -771,9 +771,10 @@ function toggleSealingCard() {
   sealingChecked = !sealingChecked;
   if (!sealingChecked) { sealingSurfaces.clear(); sealingPaverSand = false; }
   renderSealingSection();
-  _lastInteraction = sealingChecked ? 'sealing_interest_expressed' : 'sealing_interest_removed';
+  _lastInteraction = sealingChecked ? 'sealing_interest_confirmed' : 'sealing_interest_removed';
   if (sealingChecked) {
-    logEvent('sealing_interest_expressed', {
+    // Part 3 fix: was 'sealing_interest_expressed' — calendar _ALERT_TYPES listens for 'sealing_interest_confirmed'
+    logEvent('sealing_interest_confirmed', {
       quoteId:       quoteCode || '',
       surfaces:      [...sealingSurfaces],
       paverJointSand: sealingPaverSand,
@@ -1080,11 +1081,18 @@ async function submitConfirm() {
         rigLabel:       selectedDate.rigLabel || null,
         approvedAmount: total,
         services,
-        addOns:   addedAddons,
+        addOns:         addedAddons,
         quoteCode,
-        city:     quoteData.city    || customer?.city    || '',
-        address:  quoteData.address || customer?.address || '',
-        email:    quoteData.em      || quoteData.email   || customer?.email || '',
+        city:           quoteData.city    || customer?.city    || '',
+        address:        quoteData.address || customer?.address || '',
+        email:          quoteData.em      || quoteData.email   || customer?.email || '',
+        // Part 2: rust + sealing interest — previously lost in a no-op stub, now sent in main body
+        rustChecked:      rustChecked,
+        rustSurface:      rustChecked ? (rustSurface || null) : null,
+        rustNotes:        rustChecked ? (document.getElementById('rustNotesTa')?.value?.trim() || '') : '',
+        sealingChecked:   sealingChecked,
+        sealingSurfaces:  sealingChecked ? [...sealingSurfaces] : [],
+        sealingPaverSand: sealingChecked ? sealingPaverSand : false,
       })
     });
 
@@ -1131,12 +1139,10 @@ async function submitConfirm() {
 }
 
 async function saveOfferingInterest() {
-  const phone = quoteData.ph || customer?.phone || '';
-  if (!phone) return;
-  const now   = new Date().toISOString();
-  const notes = document.getElementById('rustNotesTa')?.value?.trim() || '';
-  // Note: sealing/rust interest tracking requires admin auth — silently skip for now.
-  // TODO: implement POST /customer/{phone}/interest scoped endpoint.
+  // Rust + sealing interest are now sent in the main submitConfirm() body
+  // (rustChecked, rustSurface, rustNotes, sealingChecked, sealingSurfaces, sealingPaverSand).
+  // The worker merges them into jobNotes → D1 servicesRaw → calendar card.
+  // This stub is kept for backward-compat call-site; photo upload deferred to future task.
 }
 
 

@@ -1193,6 +1193,8 @@ function renderProfile(customer, events){
     return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
   };
   const _fmtWhAvg = hrs => hrs < 10 ? hrs.toFixed(1) + 'h' : Math.round(hrs) + 'h';
+  // Wall-clock lens: wh.avgPerVisit = avg actual on-site hours; wh.lastVisitMin = minutes.
+  // Matches directory "Avg Job Duration" — same source (workerHoursStats), same math.
   const whVal = wh
     ? `<span style="font-size:13px;line-height:1.35;">Avg ${_fmtWhAvg(wh.avgPerVisit)}<br><span style="font-size:11px;color:var(--muted);">Last ${_fmtWh(wh.lastVisitMin)} · ${fmtDate(wh.lastVisitDate)}</span></span>`
     : null;
@@ -1201,7 +1203,7 @@ function renderProfile(customer, events){
     {label:'Avg Ticket',    val:avgTicket?'$'+avgTicket.toLocaleString():'—',                               color:'#1d9e75'},
     {label:'Last Service',  val:mo!==null?moAgoLabel(mo):(effLastSvc?fmtDate(effLastSvc):'—'),              color:'#d97706'},
     {label:'Tier',          val:`<span class="tier-chip" style="--tier-color:${tier.color};">${tier.emoji} ${tier.label}${tier.vip?' ★':''}</span>`, color:tier.color},
-    ...(whVal ? [{label:'Worker Hours', val:whVal, color:'#7c3aed'}] : []),
+    ...(whVal ? [{label:'Job Duration', val:whVal, color:'#7c3aed'}] : []),
   ];
   document.getElementById('statsBar').innerHTML=statsData.map(s=>
     `<div class="stat-cell" style="--cell-color:${s.color};">

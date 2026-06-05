@@ -667,8 +667,8 @@ async function approveQuote() {
     }).catch(() => {})
   ]);
 
-  // Background: mark approved in customer DB
-  if (quoteData.phone) updateQuoteApproved(quoteData.phone, total);
+  // Background: mark approved in customer DB — pass addedServices so they survive into jobNotes
+  if (quoteData.phone) updateQuoteApproved(quoteData.phone, total, addedServices);
 
   // Show success
   document.getElementById('quoteView').style.display = 'none';
@@ -697,11 +697,16 @@ function guessJobDuration() {
   return 2;
 }
 
-function updateQuoteApproved(phone, approvedTotal) {
+function updateQuoteApproved(phone, approvedTotal, addedServiceNames) {
   // Use scoped public endpoint — never exposes full customer DB
   const params = new URLSearchParams(window.location.search);
   const code = (quoteData && quoteData.linkCode) || params.get('c') || params.get('id') || 'unknown';
-  const services = quoteData && Array.isArray(quoteData.services) ? quoteData.services : [];
+  const baseServices = quoteData && Array.isArray(quoteData.services) ? quoteData.services : [];
+  // Merge selected add-ons into the services string so jobNotes reaches the card (old-flow fix)
+  const _added = (addedServiceNames || []).filter(Boolean);
+  const services = _added.length
+    ? baseServices.join(', ') + '  + ADD-ONS: ' + _added.join(', ')
+    : baseServices;
 
   fetch(`${PCPC_API_CQ}/quote/${encodeURIComponent(code)}/approve`, {
     method: 'POST',
