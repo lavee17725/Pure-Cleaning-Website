@@ -7872,12 +7872,15 @@ function computeBouncieMetrics(customer) {
     const key = j.jobId || j.date || '';
     if (key && seenIds.has(key)) continue;
     if (key) seenIds.add(key);
+    // Track BOTH the jobId and the date so scheduledStatus can be deduped by either
+    if (j.date) seenIds.add(j.date);
     matched.push({ date: j.date || '', minutes: j.actualDuration });
   }
 
   const ss = customer.scheduledStatus || {};
   if (ss.actualDuration > 0) {
-    // Only add scheduledStatus if its jobId (or date) wasn't already captured from jobHistory
+    // Dedupe by jobId (_lastJobId) first, then by scheduledDate.
+    // Both are added to seenIds from jobHistory above so either key catches the duplicate.
     const ssKey = ss._lastJobId || ss.scheduledDate || '';
     if (!ssKey || !seenIds.has(ssKey)) {
       matched.push({ date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10), minutes: ss.actualDuration });
