@@ -4415,12 +4415,42 @@ async function _doCompleteJob(log) {
   // Reuse existing D1 jobId so _d1SyncJobHistory UPDATEs the existing row instead of INSERTing a new one
   const _jhJobId = jmJobId || ss._lastJobId || `${jmPhone}_${completedDate}_${Math.round((ss.approvedAmount||0)*100)}_cal${Date.now().toString(36)}`;
 
-  // ── Tier 1 ML context fields ─────────────────────────────────────────────
-  // crewSize: explicit crew array length, or rig-default (rig_3=Chevy/softwash is Tony solo)
-  const _mlCrew        = ss.crew || [];
+  // ── Crew derivation (Phase 3) ─────────────────────────────────────────────
+  // PRECEDENCE: manual ss.crew ALWAYS wins — roster consulted ONLY when ss.crew is empty.
+  // If Tyler explicitly set crew chips on the job card, that value is respected as-is.
+  // Roster derivation is best-effort enrichment; a fetch failure never blocks completion.
+  //
+  //   Path A: ss.crew non-empty     → _derivedCrew = ss.crew (manual, unchanged from before)
+  //   Path B: ss.crew empty + roster hit → _derivedCrew from DailyRigAssignment
+  //   Path C: ss.crew empty + no roster  → _derivedCrew = [] → fallback to _mlCrewDefault
+  //
   const _mlRig         = _normalizeRig(ss.rig || '');
   const _mlCrewDefault = _mlRig === 'rig_3' ? 1 : 2;
-  const _mlCrewSize    = _mlCrew.length > 0 ? _mlCrew.length : _mlCrewDefault;
+
+  let _derivedCrew = (ss.crew && ss.crew.length > 0) ? [...ss.crew] : [];   // Path A
+
+  if (_derivedCrew.length === 0 && ss.rig && completedDate) {               // Path B attempt
+    try {
+      const _rosterRes = await fetch(
+        `${PCPC_API}/admin/daily-rig-assignment?date=${encodeURIComponent(completedDate)}&rig=${encodeURIComponent(ss.rig)}`
+      );
+      if (_rosterRes.ok) {
+        const _rosterData = await _rosterRes.json();
+        const _rosterIds  = (_rosterData.crew || []).map(m => m.shortId).filter(Boolean);
+        if (_rosterIds.length > 0) _derivedCrew = _rosterIds;
+      }
+    } catch (_rErr) {
+      // Path C: fetch error → graceful fallback; _derivedCrew stays [], _mlCrewDefault kicks in
+      console.warn('[_doCompleteJob] roster fetch failed, using default crew count:', _rErr.message);
+    }
+  }
+
+  // _mlCrewSize: used for ML context. Derived length > rig-type heuristic.
+  const _mlCrewSize       = _derivedCrew.length > 0 ? _derivedCrew.length : _mlCrewDefault;
+  // _derivedCrewCount: written to jh.crewCount + D1 Job.crewCount.
+  // Non-null only when crew is actually known (derived or manual); null otherwise.
+  const _derivedCrewCount = _derivedCrew.length > 0 ? _derivedCrew.length : (ss.crewCount || null);
+  // ── End crew derivation ───────────────────────────────────────────────────
 
   // jobNumber: how many calendar_completion entries already exist for this rig+date across all customers
   const _mlJobNumber = (ss.rig
@@ -4497,7 +4527,7 @@ async function _doCompleteJob(log) {
     address:        c.address || null,
     status:         'completed',
     completedAt:    _jhNow,
-    crew:           (ss.crew || []).slice(),
+    crew:           _derivedCrew,          // Phase 3: manual OR roster-derived short IDs
     source:         'calendar_completion',
     // Tier 1 ML context
     crewSize:       _mlCrewSize,
@@ -4514,7 +4544,7 @@ async function _doCompleteJob(log) {
     scheduleNote:    ss.scheduleNote || null,
     jobLog:          ss.jobLog || null,
     window:          ss.window || null,
-    crewCount:       ss.crewCount || null,
+    crewCount:       _derivedCrewCount,    // Phase 3: derived length || ss.crewCount || null
     propertyLabel:   ss.propertyLabel || c.propertyLabel || null,
     workSiteAddress: c.workSiteAddress || null,
     leadSource:      c.leadSource?.primary || null,
@@ -4553,7 +4583,7 @@ async function _doCompleteJob(log) {
       completedAt:      ss.completedAt,
       roofStories:      ss.roofStories      || null,
       roofType:         ss.roofType         || null,
-      crewCount:        ss.crewCount        || null,
+      crewCount:        _derivedCrewCount,   // Phase 3: derived || ss.crewCount || null
       endCustomerName:  c.endCustomerName   || null,
       endCustomerPhone: c.endCustomerPhone  || null,
       workSiteAddress:  c.workSiteAddress   || null,
@@ -4585,6 +4615,24 @@ async function _doCompleteJob(log) {
       showToast('⚠️ D1 sync failed on completion — check reconcile gate. ' + e.message);
     }
   }
+
+  // ── JobCrewAssignment snapshot (Phase 3) ─────────────────────────────────
+  // Locked historical record: one row per crew member, written once at completion.
+  // Fire-and-forget — never blocks the completion; a write failure is logged but silent to user.
+  // INSERT OR REPLACE makes re-completion idempotent (e.g. double-tap by Mom).
+  if (_derivedCrew.length > 0 && _jhJobId) {
+    const _jcaDriverSid = ((calState.rigDriver||{})[completedDate]||{})[ss.rig||''] || null;
+    const _jcaPayload   = _derivedCrew.map(sid => ({
+      shortId: sid,
+      role:    sid === _jcaDriverSid ? 'driver' : 'crew',
+    }));
+    fetch(`${PCPC_API}/admin/job/${encodeURIComponent(_jhJobId)}/crew-assignment`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ crew: _jcaPayload }),
+    }).catch(e => console.warn('[_doCompleteJob] JobCrewAssignment snapshot failed:', e.message));
+  }
+  // ── End JobCrewAssignment snapshot ───────────────────────────────────────
 
   saveDb().catch(()=>{});
   closeJobModal();

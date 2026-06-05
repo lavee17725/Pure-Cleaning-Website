@@ -1019,6 +1019,47 @@ export default {
         return await handleCompleteJobGroup(request, env, jobId, corsHeaders);
       }
 
+      // POST /admin/job/:jobId/crew-assignment — snapshot per-job crew into JobCrewAssignment
+      // Called at completion with the finalized crew (derived or manual).
+      // INSERT OR REPLACE on (jobId, crewMemberId) PK makes it idempotent — re-completion safe.
+      // Locked historical record: written once, never mutated by later roster edits (T1.22).
+      if (path.startsWith('admin/job/') && path.endsWith('/crew-assignment') && request.method === 'POST') {
+        if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+        const jcaJobId = path.slice('admin/job/'.length, -'/crew-assignment'.length);
+        const jcaBody  = await request.json().catch(() => ({}));
+        const jcaCrew  = Array.isArray(jcaBody.crew) ? jcaBody.crew : [];
+        const jcaWarns = [];
+
+        // Resolve shortIds → UUIDs in one batch (same bridge as Phase 2)
+        const jcaSids = [...new Set(jcaCrew.map(c => c.shortId).filter(Boolean))];
+        let jcaUuidMap = {};
+        if (jcaSids.length > 0) {
+          const jcaPlaceholders = jcaSids.map(() => '?').join(',');
+          const { results: jcaCmRows } = await env.DB.prepare(
+            `SELECT crewMemberId, shortId FROM CrewMember WHERE shortId IN (${jcaPlaceholders}) AND active = 1`
+          ).bind(...jcaSids).all();
+          for (const r of (jcaCmRows || [])) jcaUuidMap[r.shortId] = r.crewMemberId;
+        }
+
+        const jcaInsert = [];
+        for (const entry of jcaCrew) {
+          const uuid = jcaUuidMap[entry.shortId];
+          if (!uuid) { jcaWarns.push(`shortId '${entry.shortId}' not resolved — skipped (T1.11)`); continue; }
+          jcaInsert.push({ crewMemberId: uuid, role: entry.role === 'driver' ? 'driver' : 'crew' });
+        }
+
+        if (jcaInsert.length > 0) {
+          const jcaStmts = jcaInsert.map(r =>
+            env.DB.prepare(
+              `INSERT OR REPLACE INTO JobCrewAssignment (jobId, crewMemberId, role) VALUES (?,?,?)`
+            ).bind(jcaJobId, r.crewMemberId, r.role)
+          );
+          await env.DB.batch(jcaStmts);
+        }
+
+        return jsonResponse({ success: true, jobId: jcaJobId, inserted: jcaInsert.length, warnings: jcaWarns }, corsHeaders);
+      }
+
       if (path.startsWith('admin/job/') && request.method === 'PATCH') {
         const jobId = path.slice('admin/job/'.length);
         return await handlePatchJob(request, env, jobId, corsHeaders);
@@ -1717,6 +1758,28 @@ export default {
           { success: true, date, rigId, inserted: insertRows.length, warnings },
           corsHeaders
         );
+      }
+
+      // GET /admin/daily-rig-assignment — roster lookup for crew derivation at completion
+      // Returns the crew assigned to a (date, rig) slot, including shortIds for calendar use.
+      if (path === 'admin/daily-rig-assignment' && request.method === 'GET') {
+        if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+        const qDate = url.searchParams.get('date');
+        const qRig  = url.searchParams.get('rig');
+        if (!qDate || !qRig)
+          return jsonResponse({ error: 'date and rig required' }, corsHeaders, 400);
+        const { results: draRows } = await env.DB.prepare(
+          `SELECT dra.crewMemberId, dra.role, dra.dayType, cm.shortId, cm.name
+           FROM DailyRigAssignment dra
+           JOIN CrewMember cm ON dra.crewMemberId = cm.crewMemberId
+           WHERE dra.date = ? AND dra.rigId = ?
+           ORDER BY dra.role DESC`  // 'driver' before 'crew' alphabetically
+        ).bind(qDate, qRig).all();
+        const draCrew   = (draRows || []).map(r => ({
+          crewMemberId: r.crewMemberId, shortId: r.shortId, name: r.name, role: r.role,
+        }));
+        const draDayType = draRows && draRows.length > 0 ? draRows[0].dayType : null;
+        return jsonResponse({ date: qDate, rigId: qRig, dayType: draDayType, crew: draCrew }, corsHeaders);
       }
 
       // ── Worker hours: per-customer attribution (protected) ───────────────────
