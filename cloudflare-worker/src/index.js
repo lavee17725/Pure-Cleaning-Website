@@ -3236,7 +3236,7 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     bouncieMatchStatus: j.bouncieMatchStatus || null,
     workSiteAddress:    j.workSiteAddress    || null,
     workSiteCity:       j.workSiteCity       || null,
-    crewCount:          j.crewCount          || 2,
+    crewCount:          j.crewCount          ?? null,  // null when unknown — Track 2 must not guess
     roofStories:        j.roofStories        || null,
     // Migration 0015: outcome + cost fields
     tipped:             !!j.tipped,
