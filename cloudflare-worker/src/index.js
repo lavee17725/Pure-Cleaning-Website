@@ -1698,6 +1698,163 @@ export default {
         }
       }
 
+      // ── May backfill: re-derive crew onto historical null-crew jobs ─────────
+      // POST /admin/crew/backfill-from-roster
+      // Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD&dryRun=true|false (default false)
+      // For each completed job in range: actualDuration>0, crewCount IS NULL, non-csv.
+      //   - Look up DailyRigAssignment for (scheduledDate, rigId).
+      //   - Match  → set Job.crewCount, INSERT OR REPLACE JobCrewAssignment, patch KV jh.crew/crewCount.
+      //   - No match → skip (crewCount stays null — no guessing).
+      // Idempotent: re-running produces identical results (INSERT OR REPLACE + crewCount overwrite).
+      // dryRun=true reports exactly what WOULD change, writes nothing.
+      // Per-job try/catch: one job failure never aborts the batch (returns error in result).
+      if (path === 'admin/crew/backfill-from-roster' && request.method === 'POST') {
+        if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+        const bfFrom    = url.searchParams.get('from') || '2026-05-01';
+        const bfTo      = url.searchParams.get('to')   || '2026-05-31';
+        const bfDryRun  = url.searchParams.get('dryRun') === 'true';
+        const bfNow     = new Date().toISOString();
+
+        // Validate date params
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(bfFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(bfTo))
+          return jsonResponse({ error: 'from/to must be YYYY-MM-DD' }, corsHeaders, 400);
+
+        // 1. Fetch all null-crew completed jobs in range with Bouncie data (non-csv)
+        const { results: bfJobs } = await env.DB.prepare(
+          `SELECT j.jobId, j.payerId, j.scheduledDate, j.rigId,
+                  p.firstName, p.lastName
+           FROM Job j
+           JOIN Person p ON j.payerId = p.personId
+           WHERE j.scheduledDate >= ? AND j.scheduledDate <= ?
+             AND j.state = 'completed'
+             AND j.actualDuration > 0
+             AND j.crewCount IS NULL
+             AND j.source NOT LIKE '%csv%'
+           ORDER BY j.scheduledDate, j.rigId`
+        ).bind(bfFrom, bfTo).all();
+
+        // 2. Fetch ALL DRA rows in range in one query (roster lookup without N+1)
+        const { results: bfDraRows } = await env.DB.prepare(
+          `SELECT dra.date, dra.rigId, dra.crewMemberId, dra.role,
+                  cm.shortId, cm.name
+           FROM DailyRigAssignment dra
+           JOIN CrewMember cm ON dra.crewMemberId = cm.crewMemberId
+           WHERE dra.date >= ? AND dra.date <= ?`
+        ).bind(bfFrom, bfTo).all();
+
+        // Index DRA by "date|rigId" → array of roster members
+        const bfRosterIndex = {};
+        for (const row of (bfDraRows || [])) {
+          const key = `${row.date}|${row.rigId}`;
+          if (!bfRosterIndex[key]) bfRosterIndex[key] = [];
+          bfRosterIndex[key].push({ crewMemberId: row.crewMemberId, shortId: row.shortId, role: row.role });
+        }
+
+        // 3. Load KV customer DB once (for KV sync on real run)
+        const bfKvDb = bfDryRun ? null : (await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] });
+        let   bfKvDirty = false;
+
+        const bfResults = [];
+        let bfCountBackfill = 0, bfCountSkip = 0, bfCountError = 0;
+
+        for (const job of (bfJobs || [])) {
+          const custName = `${job.firstName || ''} ${job.lastName || ''}`.trim() || job.payerId;
+          const rosterKey = `${job.scheduledDate}|${job.rigId}`;
+          const roster    = bfRosterIndex[rosterKey] || null;
+
+          if (!roster || roster.length === 0) {
+            bfResults.push({
+              jobId: job.jobId, customer: custName,
+              scheduledDate: job.scheduledDate, rigId: job.rigId,
+              currentCrewCount: null, rosterMatch: false,
+              rosterCrew: null, wouldSetCrewCount: null, wouldInsertJCA: 0,
+              action: 'skip',
+            });
+            bfCountSkip++;
+            continue;
+          }
+
+          const bfCrewCount = roster.length;
+          const bfShortIds  = roster.map(r => r.shortId).filter(Boolean);
+
+          if (bfDryRun) {
+            bfResults.push({
+              jobId: job.jobId, customer: custName,
+              scheduledDate: job.scheduledDate, rigId: job.rigId,
+              currentCrewCount: null, rosterMatch: true,
+              rosterCrew: bfShortIds, wouldSetCrewCount: bfCrewCount,
+              wouldInsertJCA: roster.length,
+              action: 'would_backfill',
+            });
+            bfCountBackfill++;
+            continue;
+          }
+
+          // ── Real run: write D1 + KV ──────────────────────────────────────
+          try {
+            // (a) UPDATE Job.crewCount in D1
+            await env.DB.prepare(
+              `UPDATE Job SET crewCount=?, modifiedAt=? WHERE jobId=? AND crewCount IS NULL`
+            ).bind(bfCrewCount, bfNow, job.jobId).run();
+
+            // (b) INSERT OR REPLACE JobCrewAssignment rows (idempotent snapshot)
+            const bfJcaStmts = roster.map(r =>
+              env.DB.prepare(
+                `INSERT OR REPLACE INTO JobCrewAssignment (jobId, crewMemberId, role) VALUES (?,?,?)`
+              ).bind(job.jobId, r.crewMemberId, r.role)
+            );
+            await env.DB.batch(bfJcaStmts);
+
+            // (c) Sync KV jobHistory entry — find customer by payerId → phone10
+            if (job.payerId.startsWith('person_1')) {
+              const bfPh10 = job.payerId.slice('person_1'.length);
+              const bfCust = (bfKvDb.customers || []).find(
+                c => (c.phone || '').replace(/\D/g, '').slice(-10) === bfPh10
+              );
+              if (bfCust && Array.isArray(bfCust.jobHistory)) {
+                const bfJhEntry = bfCust.jobHistory.find(jh => jh.jobId === job.jobId);
+                if (bfJhEntry) {
+                  bfJhEntry.crew      = bfShortIds;
+                  bfJhEntry.crewCount = bfCrewCount;
+                  bfKvDirty = true;
+                }
+              }
+            }
+
+            bfResults.push({
+              jobId: job.jobId, customer: custName,
+              scheduledDate: job.scheduledDate, rigId: job.rigId,
+              currentCrewCount: null, rosterMatch: true,
+              rosterCrew: bfShortIds, newCrewCount: bfCrewCount,
+              jcaRowsWritten: roster.length, action: 'backfilled',
+            });
+            bfCountBackfill++;
+          } catch (bfErr) {
+            bfResults.push({
+              jobId: job.jobId, customer: custName,
+              scheduledDate: job.scheduledDate, rigId: job.rigId,
+              action: 'error', error: bfErr.message,
+            });
+            bfCountError++;
+          }
+        }
+
+        // 4. Write KV once if anything changed (real run only)
+        if (!bfDryRun && bfKvDirty) {
+          await env.DATA.put(KV_KEYS.customers, JSON.stringify(bfKvDb));
+        }
+
+        return jsonResponse({
+          dryRun: bfDryRun,
+          from: bfFrom, to: bfTo,
+          processed: (bfJobs || []).length,
+          backfilled: bfCountBackfill,
+          skipped: bfCountSkip,
+          errors: bfCountError,
+          jobs: bfResults,
+        }, corsHeaders);
+      }
+
       // ── Daily rig assignment: write roster from crew popup ───────────────────
       // POST /admin/daily-rig-assignment
       // Body: { date, rigId, crew: [{shortId, role}], dayType }
