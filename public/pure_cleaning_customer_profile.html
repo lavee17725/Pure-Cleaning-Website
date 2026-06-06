@@ -348,6 +348,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .gal-thumb-inner img{width:100%;height:100%;object-fit:cover;display:block;}
 .gal-thumb-loading{display:flex;align-items:center;justify-content:center;height:100%;font-size:18px;color:var(--muted);}
 
+/* ── Property image cards (Phase 3) ─────────────────────────────────────────
+   Two labeled cards: 🛰 Satellite  |  🏠 Front/BCPA
+   Pinned above the existing KV job-photo gallery.
+   Thumbnails fetched via authenticated fetch → objectURL (no bare <img src> to /admin/*).
+ ──────────────────────────────────────────────────────────────────────────── */
+.pi-strip    { display:flex; gap:12px; }
+.pi-card     { flex:1; min-width:0; cursor:pointer; }
+.pi-card:hover .pi-thumb { filter:brightness(.88); }
+.pi-thumb    { border-radius:8px; overflow:hidden; background:var(--border);
+               aspect-ratio:16/9; display:flex; align-items:center;
+               justify-content:center; transition:filter .15s; }
+.pi-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.pi-icon     { font-size:22px; opacity:.45; }
+.pi-lbl      { font-size:11px; font-weight:700; color:var(--muted);
+               margin-top:5px; text-align:center; }
+
 /* ── Profile Zones (Phase 1 redesign) ─────────────────────────────────────── */
 .profile-page{max-width:820px;margin:0 auto;padding:1.25rem 1.25rem 3rem;}
 .zone-identity{background:var(--white);border:1px solid var(--border);border-radius:16px;padding:1.5rem 1.75rem 1.375rem;margin-bottom:1rem;box-shadow:0 2px 8px rgba(0,0,0,.07);}
@@ -1618,6 +1634,39 @@ function renderExtendedSections(c, events) {
     : `<div class="xsec-empty">No quotes on record.</div>`;
   sections.push(makeXSec('quotes', '📋', 'Quote History', quoteRows.length ? String(quoteRows.length) : null, quoteBody, false));
 
+  // ── Property Images (Phase 3: R2 satellite + front/BCPA) ───────────────────
+  // Source: c.properties[0].satelliteImageKey / frontImageKey (D1 Property columns).
+  // Rendered ABOVE the existing KV job-photo gallery — two separate sections,
+  // two separate sources, no collision.
+  // Thumbnails loaded via authenticated fetch (GET /admin/photos/key/{key}) →
+  // objectURL — not bare <img src> which would 401 on an auth-gated endpoint.
+  const _primaryProp   = (c.properties || [])[0] || {};
+  const _satKey        = _primaryProp.satelliteImageKey || null;
+  const _frontKey      = _primaryProp.frontImageKey     || null;
+  const _propImgPhone  = (c.phone || '').replace(/\D/g,'').slice(-10); // stable DOM id suffix
+
+  if (_satKey || _frontKey) {
+    const _piCard = (key, icon, label, thumbId) => `
+      <div class="pi-card" onclick="_openPropImgLb(${JSON.stringify(key)},${JSON.stringify(icon+' '+label)})">
+        <div class="pi-thumb" id="${esc(thumbId)}">
+          <div class="pi-icon">${icon}</div>
+        </div>
+        <div class="pi-lbl">${icon} ${label}</div>
+      </div>`;
+    const piHtml = `<div class="pi-strip">
+      ${_satKey   ? _piCard(_satKey,   '🛰', 'Satellite',   `pi-sat-${_propImgPhone}`)   : ''}
+      ${_frontKey ? _piCard(_frontKey, '🏠', 'Front / BCPA', `pi-front-${_propImgPhone}`) : ''}
+    </div>`;
+    sections.push(makeXSec('property-images', '📸', 'Property Images',
+      String((_satKey ? 1 : 0) + (_frontKey ? 1 : 0)), piHtml, true));
+    // Kick off thumbnail loads after the section is in the DOM
+    requestAnimationFrame(() => {
+      if (_satKey)   _loadPropImgThumb(_satKey,   `pi-sat-${_propImgPhone}`);
+      if (_frontKey) _loadPropImgThumb(_frontKey, `pi-front-${_propImgPhone}`);
+    });
+  }
+  // ── end Property Images ────────────────────────────────────────────────────
+
   // Photo gallery — collect IDs from scheduledStatus.photos + jobHistory[].photos
   const photoIds = [];
   (c.scheduledStatus?.photos || []).forEach(id => photoIds.includes(id) || photoIds.push(id));
@@ -1825,6 +1874,50 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape')     closeLightbox();
   }
 });
+
+// ── Property image helpers (Phase 3) ─────────────────────────────────────────
+//
+// _loadPropImgThumb: fetch one R2 image (auth'd) → objectURL → set into thumb container
+// _openPropImgLb:    reuse existing #photoLightbox for fullscreen view
+//
+// Auth: fetch() goes through the page-level interceptor (lines 9-20) which adds
+// Authorization: Bearer <token> to all purecleaning-api calls automatically.
+// Bare <img src="/admin/photos/key/..."> would 401 — always use fetch here.
+
+async function _loadPropImgThumb(key, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    const res = await fetch(`${API}/admin/photos/key/${key}`);
+    if (!res.ok) { el.innerHTML = ''; return; }  // absent key → show nothing
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    el.innerHTML = `<img src="${url}" alt="Property photo" loading="eager">`;
+  } catch(e) { el.innerHTML = ''; }  // network failure → silent (no broken icon)
+}
+
+function _openPropImgLb(key, label) {
+  // Reuse the existing photoLightbox — disable KV gallery navigation (arrows do nothing).
+  const lb   = document.getElementById('photoLightbox');
+  const img  = document.getElementById('lbImg');
+  const meta = document.getElementById('lbMeta');
+  const dl   = document.getElementById('lbDownload');
+  if (!lb || !img) return;
+  img.src      = '';
+  if (meta) meta.textContent = label + ' — loading…';
+  window._galPhotoIds = [];  // disable ‹/› navigation for property images
+  lb.style.display = 'flex';
+  fetch(`${API}/admin/photos/key/${key}`)
+    .then(r => r.ok ? r.blob() : null)
+    .then(blob => {
+      if (!blob) { if (meta) meta.textContent = label + ' — not found'; return; }
+      const url = URL.createObjectURL(blob);
+      img.src = url;
+      if (meta) meta.textContent = label;
+      if (dl)  { dl.href = url; dl.download = key.split('/').pop() || 'photo.jpg'; }
+    })
+    .catch(() => { if (meta) meta.textContent = label + ' — failed to load'; });
+}
 
 // Profile-page photo add button
 async function handleProfilePhotoAdd(files, phone) {

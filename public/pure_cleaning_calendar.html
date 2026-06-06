@@ -320,6 +320,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .modal-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;}
 .modal-input:focus{border-color:var(--sky);}
 .modal-footer{display:flex;gap:10px;margin-top:1.25rem;}
+/* Phase 3: property image strip inside #jobModal */
+.jm-pi-strip{display:flex;gap:8px;margin-bottom:.875rem;padding-bottom:.875rem;border-bottom:1px solid var(--border);}
+.jm-pi-card{flex:1;min-width:0;cursor:pointer;}
+.jm-pi-card:hover .jm-pi-thumb{filter:brightness(.88);}
+.jm-pi-thumb{border-radius:8px;overflow:hidden;background:var(--border);aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;transition:filter .15s;}
+.jm-pi-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.jm-pi-icon{font-size:20px;opacity:.4;}
+.jm-pi-lbl{font-size:10px;font-weight:700;color:var(--muted);text-align:center;margin-top:4px;}
 .mbtn-cancel{flex:1;padding:11px;border:1.5px solid var(--border);border-radius:10px;background:none;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;color:var(--muted);}
 .mbtn-save{flex:2;padding:11px;border:none;border-radius:10px;background:var(--sky);color:#fff;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
 .mbtn-save:hover{background:#2470c0;}
@@ -984,6 +992,15 @@ body{background:#f0f2f5;}
       <button class="mbtn-save" onclick="saveJobLog()">Save & Complete ✓</button>
     </div>
   </div>
+</div>
+
+<!-- ── PROPERTY IMAGE LIGHTBOX (Phase 3) ── -->
+<!-- Minimal fullscreen overlay for satellite / front property images in #jobModal. -->
+<!-- Auth: fetch() in _openCalPropImg goes through the page interceptor (lines 9-20). -->
+<div id="calPropImgLb" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;align-items:center;justify-content:center;" onclick="if(event.target===this)_closePropImgLb()">
+  <img id="calPropImgLbImg" src="" alt="" style="max-width:90vw;max-height:88vh;border-radius:10px;object-fit:contain;">
+  <button onclick="_closePropImgLb()" style="position:absolute;top:12px;right:14px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer;line-height:36px;text-align:center;padding:0;">×</button>
+  <div id="calPropImgLbMeta" style="position:absolute;bottom:14px;color:rgba(255,255,255,.6);font-size:12px;text-align:center;width:100%;padding:0 40px;box-sizing:border-box;"></div>
 </div>
 
 <!-- ── COMPLAINT MODAL ── -->
@@ -4110,6 +4127,19 @@ function openJobModal(phone, jobId) {
       ${addr ? addr+'<br>' : ''}
       ${crewNames !== '—' ? `👤 ${crewNames}<br>` : ''}
     </div>
+    ${(calJob?.satelliteImageKey || calJob?.frontImageKey) ? `
+    <div class="jm-pi-strip">
+      ${calJob?.satelliteImageKey ? `
+        <div class="jm-pi-card" onclick="event.stopPropagation();_openCalPropImg('${esc(calJob.satelliteImageKey)}','🛰 Satellite view')">
+          <div class="jm-pi-thumb" id="jm-pi-sat-${esc(jmJobId||'')}"><div class="jm-pi-icon">🛰</div></div>
+          <div class="jm-pi-lbl">🛰 Satellite</div>
+        </div>` : ''}
+      ${calJob?.frontImageKey ? `
+        <div class="jm-pi-card" onclick="event.stopPropagation();_openCalPropImg('${esc(calJob.frontImageKey)}','🏠 Front / BCPA')">
+          <div class="jm-pi-thumb" id="jm-pi-front-${esc(jmJobId||'')}"><div class="jm-pi-icon">🏠</div></div>
+          <div class="jm-pi-lbl">🏠 Front / BCPA</div>
+        </div>` : ''}
+    </div>` : ''}
     <div class="modal-field">
       <label>Rig</label>
       <div id="jmRigPicker" style="display:flex;gap:6px;margin-top:4px;">
@@ -4144,6 +4174,10 @@ function openJobModal(phone, jobId) {
     <button class="mbtn-save" onclick="saveJobModal()">Save</button>
   `;
   document.getElementById('jobModal').classList.remove('hidden');
+
+  // Phase 3: lazy-load property image thumbnails after DOM is ready
+  if (calJob?.satelliteImageKey) _loadCalPropThumb(calJob.satelliteImageKey, `jm-pi-sat-${jmJobId||''}`);
+  if (calJob?.frontImageKey)     _loadCalPropThumb(calJob.frontImageKey,     `jm-pi-front-${jmJobId||''}`);
 }
 
 function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); jmPhone=null; jmJobId=null; }
@@ -4222,6 +4256,51 @@ function _collectPaymentLog() {
     paidAt:         new Date().toISOString(),
   };
 }
+
+// ── PROPERTY IMAGE DISPLAY (Phase 3) ──────────────────────────────────────────
+// Fetch R2 property images (satellite + front/BCPA) authenticated via the page's
+// fetch interceptor (lines 9-20), which adds Authorization: Bearer <token> to all
+// purecleaning-api calls.  Never use bare <img src="/admin/..."> — would 401.
+
+async function _loadCalPropThumb(key, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/photos/key/${key}`);
+    if (!res.ok) { el.innerHTML = ''; return; }  // absent → show nothing
+    const blob = await res.blob();
+    el.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="Property photo" style="width:100%;height:100%;object-fit:cover;display:block;">`;
+  } catch(e) { el.innerHTML = ''; }  // silent fail — no broken icon
+}
+
+async function _openCalPropImg(key, label) {
+  const lb   = document.getElementById('calPropImgLb');
+  const img  = document.getElementById('calPropImgLbImg');
+  const meta = document.getElementById('calPropImgLbMeta');
+  if (!lb || !img) return;
+  img.src = '';
+  if (meta) meta.textContent = label + ' — loading…';
+  lb.style.display = 'flex';
+  try {
+    const res = await fetch(`${PCPC_API}/admin/photos/key/${key}`);
+    if (!res.ok) throw new Error('not found');
+    const blob = await res.blob();
+    img.src = URL.createObjectURL(blob);
+    if (meta) meta.textContent = label;
+  } catch(e) {
+    if (meta) meta.textContent = label + ' — not found';
+  }
+}
+
+function _closePropImgLb() {
+  const lb = document.getElementById('calPropImgLb');
+  if (lb) lb.style.display = 'none';
+}
+// Keyboard close for property image lightbox
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('calPropImgLb')?.style.display === 'flex')
+    _closePropImgLb();
+});
 
 // ── PHOTO CAPTURE ─────────────────────────────────────────────────────────────
 
@@ -5527,10 +5606,14 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   // ss.jobNotes is intentionally EXCLUDED — it's a services alias, not a notes field.
   // Every write to ss.jobNotes stores the services list (add_job:571, calendar:6198, worker:1993).
   // Trusting the name "jobNotes" here caused Bug A (services rendered in the notes box).
-  // Clean notes sources only: c.notes (pencil edit) → ss.scheduleNote (tap-schedule modal)
-  // → fallback fields. Omit section entirely when all sources empty — no blank box.
+  // Clean notes sources only: c.notes (pencil edit) → c.accessNotes (property access/crew
+  // instructions) → ss.scheduleNote (tap-schedule modal) → fallback fields.
+  // Omit section entirely when all sources empty — no blank box.
+  // EXCLUDED: Job.internalNotes (office-only), Person.billingNotes (billing-only) — must NOT print.
+  // ss.jobNotes intentionally excluded — it is a services alias, not a notes field (see Issue 5).
   const _notesSources = [
-    c.notes,           // customer-level persistent note (pencil edit writes here)
+    c.notes,           // customer-level persistent note (pencil edit writes here → Person.internalNotes)
+    c.accessNotes,     // property access/crew instructions (Property.accessNotes) — Fix A T1.22
     ss.scheduleNote,   // note from tap-schedule modal (was silently dropped before this fix)
     ss.notes,          // alternate ss field (sparsely written, preserved for safety)
     ss.customerNotes,  // KV scheduledStatus.customerNotes
@@ -6853,6 +6936,7 @@ async function saveFullEdit() {
         if (!qs.servicesAgreed) qs.servicesAgreed = {};
         if (_rt) qs.servicesAgreed.roofType = _rt;
       }
+      if (_rt) patchBody.roofType = _rt;  // Fix 2: send to D1 Job (T1.22); Fix 5 in worker also syncs Property
       if (_rt) c.roofType = _rt;
     }
     const _gc = document.getElementById('feGateCode').value.trim() || null;

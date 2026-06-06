@@ -3625,10 +3625,12 @@ function _d1PersonToKv(p, props, pjobs, propById) {
         propertyLabel: pp.propertyLabel  || null,
         propertyType:  pp.propertyType   || null,
         primaryContact: pp.primaryContact === 1 || pp.primaryContact === '1',
-        gateCode:      pp.gateCode       || null,
-        roofType:      pp.roofType       || null,
-        sqFt:          pp.sqft           || null,
-        accessNotes:   pp.accessNotes    || null,
+        gateCode:           pp.gateCode            || null,
+        roofType:           pp.roofType            || null,
+        sqFt:               pp.sqft                || null,
+        accessNotes:        pp.accessNotes         || null,
+        satelliteImageKey:  pp.satelliteImageKey   || null,  // Phase 3: R2 key
+        frontImageKey:      pp.frontImageKey       || null,  // Phase 3: R2 key
       })),
   };
 }
@@ -3640,7 +3642,8 @@ async function d1AllCustomersToKvShape(env) {
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType,' +
       'p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
-      'p.roofType, p.sqft ' +
+      'p.roofType, p.sqft,' +
+      'p.satelliteImageKey, p.frontImageKey ' +             // Phase 3: property images
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
     ).all().then(r => r.results || []),
     env.DB.prepare(
@@ -3726,7 +3729,8 @@ async function d1CustomerToKvShape(phone, env) {
       'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType, p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
       'p.googlePlaceId, p.formattedAddress, p.googleVerified,' +
-      'p.roofType, p.sqft ' +
+      'p.roofType, p.sqft,' +
+      'p.satelliteImageKey, p.frontImageKey ' +             // Phase 3: property images
       'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
@@ -3787,9 +3791,11 @@ async function d1CustomerToKvShape(phone, env) {
     roofType:         pp.roofType         || null,
     sqFt:             pp.sqft             || null,
     accessNotes:      pp.accessNotes      || null,
-    googlePlaceId:    pp.googlePlaceId    || null,
-    formattedAddress: pp.formattedAddress || null,
-    googleVerified:   pp.googleVerified   === 1 || pp.googleVerified === '1',
+    googlePlaceId:     pp.googlePlaceId    || null,
+    formattedAddress:  pp.formattedAddress || null,
+    googleVerified:    pp.googleVerified   === 1 || pp.googleVerified === '1',
+    satelliteImageKey: pp.satelliteImageKey || null,  // Phase 3: R2 key
+    frontImageKey:     pp.frontImageKey     || null,  // Phase 3: R2 key
   }));
   return customer;
 }
@@ -4481,6 +4487,8 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         prop.accessNotes,
         prop.sqft,
         prop.roofType AS propRoofType,
+        prop.satelliteImageKey,                      -- Phase 3: property images
+        prop.frontImageKey,                          -- Phase 3: property images
         pp.propertyLabel,
         pp.propertyType,
         pp.primaryContact,
