@@ -559,7 +559,9 @@ export default {
           const r = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url).href, request));
           return addCacheHeaders(r, 'html');
         }
-        if (/\.[a-zA-Z0-9]+$/.test(pn)) {
+        // /admin/* routes may contain file-extension-like segments (e.g. /admin/photos/key/...satellite.jpg)
+        // — never serve those from static assets; fall through to route handling below.
+        if (!pn.startsWith('/admin/') && /\.[a-zA-Z0-9]+$/.test(pn)) {
           const r = await env.ASSETS.fetch(request);
           return addCacheHeaders(r, pn.endsWith('.html') ? 'html' : 'asset');
         }
@@ -1115,6 +1117,30 @@ export default {
         if (request.method === 'GET') return await handlePhotoGet(env, photoId, true, corsHeaders);
       }
 
+      // ════════════════════════════════════════════════════════════════════════
+      // ── R2 Photo admin (Phase 1 foundation) ─────────────────────────────────
+      //
+      //  POST /admin/photos/upload           — write blob to env.PHOTOS R2
+      //  GET  /admin/photos/job/:jobId       — list keys from Job.photoKeys
+      //  GET  /admin/photos/key/*            — stream any R2 key
+      //
+      // All three are auth-gated (inside the verifySession block above).
+      // The existing KV photo routes (POST /photos etc.) are unchanged —
+      // they continue to serve the completion-modal photos until Phase 4 migration.
+      // ────────────────────────────────────────────────────────────────────────
+
+      if (path === 'admin/photos/upload' && request.method === 'POST') {
+        return await handlePhotoR2Upload(request, env, url, corsHeaders);
+      }
+      if (path.startsWith('admin/photos/job/') && request.method === 'GET') {
+        const r2JobId = path.slice('admin/photos/job/'.length);
+        return await handlePhotoR2GetJob(r2JobId, env, corsHeaders);
+      }
+      if (path.startsWith('admin/photos/key/') && request.method === 'GET') {
+        const r2Key = path.slice('admin/photos/key/'.length);
+        return await handlePhotoR2GetKey(r2Key, env, corsHeaders);
+      }
+
       // ── Import backup / snapshot / rollback ──────────────────────────────────
       if (path === 'import/snapshot' && request.method === 'POST') {
         return await handleImportSnapshot(env, corsHeaders);
@@ -1495,6 +1521,11 @@ export default {
       }
       if (path === 'admin/property-duplicates' && request.method === 'GET') {
         return await handlePropertyDuplicates(env, corsHeaders);
+      }
+
+      // ── POST /admin/property/backfill-access — KV→D1 gateCode+accessNotes backfill ──
+      if (path === 'admin/property/backfill-access' && request.method === 'POST') {
+        return await handleBackfillPropertyAccess(request, env, corsHeaders);
       }
 
       // ── Person duplicate review endpoints ────────────────────────────────────
@@ -2124,6 +2155,150 @@ export default {
   },
 };
 
+// ── R2 Photo admin (Phase 1 foundation) ──────────────────────────────────────
+//
+// Three endpoints that form the storage plumbing for the full photo system.
+// UI capture (Phase 2) and display (Phase 3) are built on top of these.
+// The existing KV photo routes below remain untouched until Phase 4 migration.
+
+// POST /admin/photos/upload
+//
+// Accepts a raw binary image body.  All context comes from query params so the
+// full Content-Length is available to R2 without parsing a multipart body.
+//
+// Required query params:
+//   type        — 'before' | 'after' | 'satellite'
+//   jobId       — required when type = before | after
+//   propertyId  — required when type = satellite
+//
+// Optional query param:
+//   updateD1=true — also patch Job.photoKeys (append) or Property.satelliteImageKey
+//                   after the R2 write succeeds.  Phase 2 will pass this flag so
+//                   a single upload call both stores the blob and wires the reference.
+//                   Omit in Phase 1 tests (pure storage check, no D1 side-effect).
+//
+// Returns: { success: true, key: "job/{jobId}/before_{ts}.jpg" }
+//
+async function handlePhotoR2Upload(request, env, url, corsHeaders) {
+  if (!env.PHOTOS) return jsonResponse({ error: 'R2 PHOTOS bucket not configured — create bucket and add [[r2_buckets]] binding in wrangler.toml' }, corsHeaders, 503);
+
+  const type       = url.searchParams.get('type')       || '';
+  const jobId      = url.searchParams.get('jobId')      || '';
+  const propertyId = url.searchParams.get('propertyId') || '';
+  const updateD1   = url.searchParams.get('updateD1') === 'true';
+
+  if (!['before', 'after', 'satellite'].includes(type)) {
+    return jsonResponse({ error: 'type must be before | after | satellite' }, corsHeaders, 400);
+  }
+  if (type === 'satellite' && !propertyId) {
+    return jsonResponse({ error: 'propertyId required for type=satellite' }, corsHeaders, 400);
+  }
+  if ((type === 'before' || type === 'after') && !jobId) {
+    return jsonResponse({ error: 'jobId required for type=before or type=after' }, corsHeaders, 400);
+  }
+
+  // Derive R2 key.
+  // Satellite overwrites on re-upload (same key = same property) — intended.
+  // Before/after get a timestamp suffix so multiple uploads per job never collide.
+  const ts  = Date.now();
+  const key = type === 'satellite'
+    ? `property/${propertyId}/satellite.jpg`
+    : `job/${jobId}/${type}_${ts}.jpg`;
+
+  const contentType = (request.headers.get('Content-Type') || 'image/jpeg').split(';')[0].trim();
+
+  try {
+    await env.PHOTOS.put(key, request.body, {
+      httpMetadata: { contentType },
+    });
+  } catch (e) {
+    console.error('[handlePhotoR2Upload] R2 put failed:', e.message);
+    return jsonResponse({ error: 'R2 write failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // Optional: wire the D1 reference in the same request.
+  // Phase 2 will always pass updateD1=true from the quote-builder save flow.
+  if (updateD1) {
+    const now = new Date().toISOString();
+    try {
+      if (type === 'satellite' && propertyId) {
+        await env.DB.prepare(
+          `UPDATE Property SET satelliteImageKey = ?, modifiedAt = ? WHERE propertyId = ?`
+        ).bind(key, now, propertyId).run();
+      } else if ((type === 'before' || type === 'after') && jobId) {
+        const row      = await env.DB.prepare(`SELECT photoKeys FROM Job WHERE jobId = ?`).bind(jobId).first();
+        const existing = (row?.photoKeys ? JSON.parse(row.photoKeys) : []);
+        const updated  = [...existing, key];
+        await env.DB.prepare(
+          `UPDATE Job SET photoKeys = ?, modifiedAt = ? WHERE jobId = ?`
+        ).bind(JSON.stringify(updated), now, jobId).run();
+      }
+    } catch (e) {
+      // R2 write succeeded — log D1 failure but still return the key so the
+      // caller can retry the reference patch without re-uploading the blob.
+      console.error('[handlePhotoR2Upload] D1 reference patch failed:', e.message);
+      return jsonResponse({ success: true, key, d1Warning: 'R2 write OK but D1 reference patch failed — retry with PATCH /admin/job/:id' }, corsHeaders);
+    }
+  }
+
+  return jsonResponse({ success: true, key }, corsHeaders);
+}
+
+// GET /admin/photos/job/:jobId
+//
+// Returns the R2 keys stored in Job.photoKeys so the UI can build
+// GET /admin/photos/key/... URLs for display.
+// Returns { jobId, keys: [...], total: N }  — empty keys array when null.
+//
+async function handlePhotoR2GetJob(jobId, env, corsHeaders) {
+  if (!env.PHOTOS) return jsonResponse({ error: 'R2 PHOTOS bucket not configured' }, corsHeaders, 503);
+  if (!jobId) return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+
+  let row;
+  try {
+    row = await env.DB.prepare(`SELECT photoKeys FROM Job WHERE jobId = ?`).bind(jobId).first();
+  } catch (e) {
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+  if (!row) return jsonResponse({ error: 'Job not found', jobId }, corsHeaders, 404);
+
+  const keys = row.photoKeys ? JSON.parse(row.photoKeys) : [];
+  return jsonResponse({ jobId, keys, total: keys.length }, corsHeaders);
+}
+
+// GET /admin/photos/key/*
+//
+// Streams any R2 object by its full key.
+// URL pattern: /admin/photos/key/job/{jobId}/before_{ts}.jpg
+//              /admin/photos/key/property/{propertyId}/satellite.jpg
+//
+// Long cache (1 year) because R2 keys are content-addressed by timestamp —
+// a re-uploaded satellite simply gets a new key via the upload endpoint.
+// (Satellite overwrite is same key — browser cache is still correct because
+//  the profile page always fetches live from this endpoint on render.)
+//
+async function handlePhotoR2GetKey(r2Key, env, corsHeaders) {
+  if (!env.PHOTOS) return jsonResponse({ error: 'R2 PHOTOS bucket not configured' }, corsHeaders, 503);
+  if (!r2Key) return new Response('Not found', { status: 404, headers: corsHeaders });
+
+  let obj;
+  try {
+    obj = await env.PHOTOS.get(r2Key);
+  } catch (e) {
+    return jsonResponse({ error: 'R2 read failed', detail: e.message }, corsHeaders, 500);
+  }
+  if (!obj) return new Response('Not found', { status: 404, headers: corsHeaders });
+
+  return new Response(obj.body, {
+    status: 200,
+    headers: {
+      'Content-Type':  obj.httpMetadata?.contentType || 'image/jpeg',
+      'Cache-Control': 'public, max-age=31536000',
+      ...corsHeaders,
+    },
+  });
+}
+
 // ── Photo storage (KV-backed) ─────────────────────────────────────────────────
 async function handlePhotoUpload(request, env, corsHeaders) {
   const body = await request.json().catch(() => null);
@@ -2537,6 +2712,11 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
     const kvKey  = `quote_${qCode}`;
     const existing = await env.DATA.get(kvKey, 'json');
     if (existing) {
+      // Part 1d (T1.22): propagate serviceTags from quote record → scheduledStatus
+      // so _d1SyncScheduledJob can write structured servicesRequested to D1.
+      if (Array.isArray(existing.serviceTags) && existing.serviceTags.length > 0) {
+        cust.scheduledStatus.serviceTags = existing.serviceTags;
+      }
       await env.DATA.put(kvKey, JSON.stringify({
         ...existing,
         confirmedDate: date,
@@ -4375,7 +4555,53 @@ async function handleCreatePartner(request, env, corsHeaders) {
 // Required body fields: payerId, propertyId, scheduledDate, amount, servicesRequested
 // Optional: rigId, jobNotes, servicesRaw, workSiteAddress, workSiteCity,
 //           workSiteZip, workSitePlaceId, workSiteGoogleVerified,
-//           endCustomerName, endCustomerPhone, source, roofStories, crewCount
+//           endCustomerName, endCustomerPhone, source, roofStories, crewCount,
+//           serviceTags (structured JSON array from quote_builder_v2 — used for servicesRequested)
+
+// ── _parseServiceTags — flat service string → canonical tag array (T1.22, Part 1c) ──
+// Called at worker layer for Mom's new_customer path (flat string arrives, no serviceTags body).
+// Also used as fallback when quote_builder_v2 doesn't supply serviceTags.
+// Safe: unrecognised tokens are silently omitted; all-fail → null (never break, never guess).
+// ADDITIVE: servicesRaw / jobNotes are NEVER touched.
+function _parseServiceTags(flatStr) {
+  if (!flatStr || typeof flatStr !== 'string') return null;
+  const PATTERNS = [
+    { pat:/softwash|soft.?wash/i,                tag:{ type:'roof', method:'softwash' } },
+    { pat:/roof.*traditional|traditional.*roof/i, tag:{ type:'roof', method:'traditional' } },
+    { pat:/roof.*water.?only|water.?only.*roof/i, tag:{ type:'roof', method:'water_only' } },
+    { pat:/\broof\b/i,                            tag:{ type:'roof' } },
+    { pat:/driveway/i,                            tag:{ type:'driveway' } },
+    { pat:/\bpatio\b/i,                           tag:{ type:'patio' } },
+    { pat:/pool.?deck/i,                          tag:{ type:'pool_deck' } },
+    { pat:/sidewalk|walkway/i,                    tag:{ type:'sidewalk' } },
+    { pat:/rinse.wall|rinse.window|rinse.front/i, tag:{ type:'rinse_walls' } },
+    { pat:/\brinse\b/i,                           tag:{ type:'rinse_walls' } },
+    { pat:/entranceway|entrance\b/i,              tag:{ type:'entranceway' } },
+    { pat:/screen.enclos/i,                       tag:{ type:'screen_enclosure' } },
+    { pat:/\bbalcony\b/i,                         tag:{ type:'balcony' } },
+    { pat:/fence.*wood|wood.*fence/i,             tag:{ type:'fence', material:'wood' } },
+    { pat:/fence.*vinyl|vinyl.*fence/i,           tag:{ type:'fence', material:'vinyl' } },
+    { pat:/fence.*metal|metal.*fence/i,           tag:{ type:'fence', material:'metal' } },
+    { pat:/\bfence\b/i,                           tag:{ type:'fence' } },
+    { pat:/\bdeck\b/i,                            tag:{ type:'deck' } },
+    { pat:/\bseal/i,                              tag:{ type:'sealing' } },
+    { pat:/\brust\b/i,                            tag:{ type:'rust' } },
+    { pat:/\bgutter\b/i,                          tag:{ type:'gutter' } },
+    { pat:/prep.paint|paint.prep/i,               tag:{ type:'prep_painting' } },
+  ];
+  const tokens = flatStr.split(/[,/\n·•]+/).map(t => t.trim()).filter(Boolean);
+  const seen = new Set();
+  const tags = [];
+  for (const tok of tokens) {
+    for (const { pat, tag } of PATTERNS) {
+      if (pat.test(tok)) {
+        if (!seen.has(tag.type)) { seen.add(tag.type); tags.push({ ...tag }); }
+        break;
+      }
+    }
+  }
+  return tags.length > 0 ? tags : null;
+}
 
 async function handleCreateScheduledJob(request, env, corsHeaders) {
   const body = await request.json().catch(() => null);
@@ -4388,8 +4614,19 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     workSitePlaceId, workSiteGoogleVerified,
     endCustomerName, endCustomerPhone,
     source, roofStories, crewCount, sqFt, roofType,
+    serviceTags,  // structured array from quote_builder_v2 (Part 1b, T1.22)
     parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent,
   } = body;
+
+  // Part 1b/1c: servicesRequested → JSON array.
+  // Precedence: explicit serviceTags (quote builder) > parse flat string (Mom's path) > flat string fallback.
+  // servicesRaw is NEVER modified — it keeps the human-readable string for all display consumers.
+  const _svcTagsVal = (() => {
+    if (Array.isArray(serviceTags) && serviceTags.length > 0) return JSON.stringify(serviceTags);
+    const parsed = _parseServiceTags(servicesRaw || servicesRequested);
+    if (parsed) return JSON.stringify(parsed);
+    return servicesRequested || servicesRaw || null;  // last-resort flat-string fallback
+  })();
 
   if (!payerId)           return jsonResponse({ error: 'payerId required' }, corsHeaders, 400);
   if (!propertyId)        return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
@@ -4437,17 +4674,19 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
           workSiteAddress, workSiteCity, workSiteZip,
           workSitePlaceId, workSiteGoogleVerified,
           endCustomerName, endCustomerPhone, roofStories, crewCount,
+          roofType,
           source, createdAt, modifiedAt,
           parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       jobId, payerId, propertyId, scheduledDate, 'scheduled', amount, 'pending',
-      servicesRequested, servicesRaw || servicesRequested, jobNotes || servicesRequested,
+      _svcTagsVal, servicesRaw || servicesRequested, jobNotes || servicesRequested,
       rigId || null,
       workSiteAddress || null, workSiteCity || null, workSiteZip || null,
       workSitePlaceId || null, workSiteGoogleVerified ? 1 : 0,
       endCustomerName || null, endCustomerPhone || null,
       roofStories || null, crewCount || null,
+      roofType || null,                              // Fix 1: snapshot at job creation (T1.22)
       src, now, now,
       parentJobId || null, dayNumber || null, totalDays || null, dayPhase || null,
       isMultiDayParent ? 1 : 0
@@ -4857,7 +5096,7 @@ async function handleSplitJob(request, env, corsHeaders) {
 
 const _JOB_MUTABLE_FIELDS = new Set([
   'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
-  'amount', 'jobNotes', 'servicesRaw', 'cancellationReason', 'cancelledAt',
+  'amount', 'jobNotes', 'servicesRaw', 'servicesRequested', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
   'workSitePlaceId', 'workSiteGoogleVerified',
@@ -4933,6 +5172,16 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
     ).bind(...vals).run();
 
     const updated = await env.DB.prepare('SELECT * FROM Job WHERE jobId = ?').bind(jobId).first();
+
+    // Fix 5 (T1.22): when roofType is patched on a Job, propagate to Property (durable source).
+    // Data model: Property.roofType = persistent truth; Job.roofType = snapshot at service time.
+    // ML feature: COALESCE(Job.roofType, Property.roofType). Both stay in sync here.
+    // propertyId comes from the updated row — always correct even if propertyId itself was patched.
+    if ('roofType' in updates && updated?.propertyId) {
+      await _d1SyncPropertyUpdate(updated.propertyId, {
+        roofType: updates.roofType || null,
+      }, env, now).catch(e => console.error('handlePatchJob:roofType→Property', e.message));
+    }
 
     // Fix C: dual-write KV for primary-property jobs so _d1SyncCustomersPut never
     // sees a D1-vs-KV date mismatch and inserts spurious scheduled rows.
@@ -5058,7 +5307,8 @@ async function _d1SyncPropertyUpdate(propId, fields, env, now) {
   const sets = [], vals = [];
   if (fields.sqft     !== undefined) { sets.push('sqft=?');     vals.push(fields.sqft     || null); }
   if (fields.roofType !== undefined) { sets.push('roofType=?'); vals.push(fields.roofType || null); }
-  if (fields.gateCode !== undefined) { sets.push('gateCode=?'); vals.push(fields.gateCode || null); }
+  if (fields.gateCode    !== undefined) { sets.push('gateCode=?');    vals.push(fields.gateCode    || null); }
+  if (fields.accessNotes !== undefined) { sets.push('accessNotes=?'); vals.push(fields.accessNotes || null); }
   if (!sets.length) return;
   sets.push('modifiedAt=?'); vals.push(now); vals.push(propId);
   await env.DB.prepare(`UPDATE Property SET ${sets.join(',')} WHERE propertyId=?`).bind(...vals).run();
@@ -5151,13 +5401,31 @@ async function _d1SyncScheduledJob(c, env, now) {
   if (!personId) return;
   const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
   const jobId  = _d1ScheduledJobId(personId, ss.scheduledDate);
+
+  // Part 1c (T1.22): structured servicesRequested from serviceTags (set by handleAgreementConfirm)
+  // or parsed from flat jobNotes as fallback. servicesRaw stays flat string.
+  const _syncSvcReq = (() => {
+    if (Array.isArray(ss.serviceTags) && ss.serviceTags.length > 0) return JSON.stringify(ss.serviceTags);
+    const parsed = _parseServiceTags(ss.jobNotes);
+    if (parsed) return JSON.stringify(parsed);
+    return ss.jobNotes || null;
+  })();
+
   try {
     await env.DB.prepare(
-      `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,amount,servicesRequested,servicesRaw,rigId,crewCount,actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT OR ROLLBACK INTO Job
+         (jobId,payerId,propertyId,scheduledDate,state,amount,
+          servicesRequested,servicesRaw,rigId,crewCount,
+          roofType,
+          actualDuration,actualArrival,actualDeparture,
+          bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,
+          source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
       jobId, personId, propId, ss.scheduledDate, 'scheduled',
-      ss.approvedAmount||0, ss.jobNotes||null, ss.jobNotes||null, ss.rig||null,
+      ss.approvedAmount||0, _syncSvcReq, ss.jobNotes||null, ss.rig||null,
       ss.crewCount||2,
+      ss.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,  // Fix 3 (T1.22)
       ss.actualDuration||null, ss.actualArrival||null, ss.actualDeparture||null,
       ss.durationConfidence||ss.bouncieMatchStatus||null, null, ss.geocodeSource||null,
       'phone_quote', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
@@ -5260,9 +5528,10 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
               'UPDATE Property SET streetAddress=?, city=?, modifiedAt=? WHERE propertyId=?'
             ).bind(c.address, c.city||'', now, _primaryProp.propertyId).run();
             await _d1SyncPropertyUpdate(_primaryProp.propertyId, {
-              sqft:     c.sqFt || null,
-              roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
-              gateCode: c.gateCode || null,
+              sqft:        c.sqFt || null,
+              roofType:    c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+              gateCode:    c.gateCode    || null,
+              accessNotes: c.accessNotes || null,
             }, env, now);
           } else {
             // MOVE: different house number or city → genuinely new address.
@@ -5283,9 +5552,10 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
               `UPDATE Job SET propertyId=?, modifiedAt=? WHERE payerId=? AND state IN ('scheduled','in_progress')`
             ).bind(propId, now, personId).run();
             await _d1SyncPropertyUpdate(propId, {
-              sqft:     c.sqFt || null,
-              roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
-              gateCode: c.gateCode || null,
+              sqft:        c.sqFt || null,
+              roofType:    c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+              gateCode:    c.gateCode    || null,
+              accessNotes: c.accessNotes || null,
             }, env, now);
           }
         } else {
@@ -5299,12 +5569,38 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
             `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
           ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 0, 'Main Residence').run();
           await _d1SyncPropertyUpdate(propId, {
-            sqft:     c.sqFt || null,
-            roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
-            gateCode: c.gateCode || null,
+            sqft:        c.sqFt || null,
+            roofType:    c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+            gateCode:    c.gateCode    || null,
+            accessNotes: c.accessNotes || null,
           }, env, now);
         }
       } catch(e) { await _logD1Failure(env, `_d1SyncCustomersPut:property_upsert:${ph}`, e.message); }
+    }
+
+    // Fix B — T1.22: sync gateCode + accessNotes to D1 independent of address change.
+    // The address-change block above handles them when address also changes.
+    // This catches the case where ONLY gateCode/accessNotes changed (e.g. calendar
+    // full-edit modal) — previously those edits wrote to KV only and were lost on reload.
+    // Runs ONLY when address did NOT change (no double-write on address-change path).
+    {
+      const _addrChanged = c.address && (c.address !== prev?.address || (c.city||'') !== (prev?.city||''));
+      const _gcChanged   = (c.gateCode    || null) !== (prev?.gateCode    || null);
+      const _anChanged   = (c.accessNotes || null) !== (prev?.accessNotes || null);
+      if (!_addrChanged && (_gcChanged || _anChanged)) {
+        try {
+          const _gcProp = await env.DB.prepare(
+            `SELECT pr.propertyId FROM PersonProperty pp JOIN Property pr ON pp.propertyId=pr.propertyId
+             WHERE pp.personId=? AND pp.primaryContact=1 LIMIT 1`
+          ).bind(personId).first();
+          if (_gcProp?.propertyId) {
+            await _d1SyncPropertyUpdate(_gcProp.propertyId, {
+              gateCode:    c.gateCode    || null,
+              accessNotes: c.accessNotes || null,
+            }, env, now);
+          }
+        } catch(e) { await _logD1Failure(env, `_d1SyncCustomersPut:gateCode_sync:${ph}`, e.message); }
+      }
     }
 
     // _d1SyncScheduledJob block removed — Law T1.20 (2026-05-26).
@@ -7777,6 +8073,112 @@ async function handleCanonicalizeAll(request, env, corsHeaders, url) {
 
 // ── GET /admin/property-duplicates ───────────────────────────────────────────
 // Returns any Property rows that share a googlePlaceId (post-migration residuals).
+
+// ── POST /admin/property/backfill-access ─────────────────────────────────────
+// One-time KV→D1 backfill for gateCode + accessNotes.
+// Reads the live KV customer_db blob, finds customers with non-empty gateCode or
+// accessNotes that differ from what D1 currently has, and writes them to the
+// corresponding Property row.
+//
+// Body: { dryRun: true|false }   (default: true — safe to call without body)
+//
+// Returns:
+//   { dryRun, toWrite: [{phone, name, propertyId, kvGateCode, d1GateCode, kvAccessNotes, d1AccessNotes}],
+//     written, errors, skipped }
+//
+// Re-runnable / idempotent — skips rows where D1 already matches KV.
+async function handleBackfillPropertyAccess(request, env, corsHeaders) {
+  const now = new Date().toISOString();
+  let dryRun = true;
+  try {
+    const body = await request.json().catch(() => ({}));
+    if (body && body.dryRun === false) dryRun = false;
+  } catch { /* default dry run */ }
+
+  // Read KV blob (source of truth for pre-Day-2 / manually entered values)
+  const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+  const kvCustomers = (kvDb.customers || []).filter(c => c && !c.deleted);
+
+  // Build D1 Property lookup: personId → { propertyId, gateCode, accessNotes }
+  const d1Props = await env.DB.prepare(
+    `SELECT pp.personId, pr.propertyId, pr.gateCode, pr.accessNotes
+     FROM PersonProperty pp JOIN Property pr ON pp.propertyId=pr.propertyId
+     WHERE pp.primaryContact=1`
+  ).all().then(r => r.results || []);
+  const d1PropByPerson = new Map();
+  for (const row of d1Props) {
+    if (row.personId) d1PropByPerson.set(row.personId, row);
+  }
+
+  const toWrite = [];
+  const skipped = [];
+
+  for (const c of kvCustomers) {
+    const ph = (c.phone || '').replace(/\D/g, '').slice(-10);
+    if (!ph || ph.length !== 10) continue;
+
+    const kvGateCode    = (c.gateCode    || '').trim() || null;
+    const kvAccessNotes = (c.accessNotes || '').trim() || null;
+
+    // Skip if nothing in KV
+    if (!kvGateCode && !kvAccessNotes) continue;
+
+    const personId = _d1PersonId(ph);
+    const d1Row    = d1PropByPerson.get(personId);
+    if (!d1Row?.propertyId) {
+      skipped.push({ phone: ph, reason: 'no_d1_property' });
+      continue;
+    }
+
+    const d1GateCode    = (d1Row.gateCode    || '').trim() || null;
+    const d1AccessNotes = (d1Row.accessNotes || '').trim() || null;
+
+    // Skip if D1 already matches KV
+    if (kvGateCode === d1GateCode && kvAccessNotes === d1AccessNotes) {
+      skipped.push({ phone: ph, reason: 'already_in_sync' });
+      continue;
+    }
+
+    toWrite.push({
+      phone:           ph,
+      name:            `${c.firstName||''} ${c.lastName||''}`.trim(),
+      propertyId:      d1Row.propertyId,
+      kvGateCode,
+      d1GateCode,
+      kvAccessNotes,
+      d1AccessNotes,
+    });
+  }
+
+  const written = [], errors = [];
+  if (!dryRun) {
+    for (const row of toWrite) {
+      try {
+        await _d1SyncPropertyUpdate(row.propertyId, {
+          gateCode:    row.kvGateCode,
+          accessNotes: row.kvAccessNotes,
+        }, env, now);
+        written.push({ phone: row.phone, name: row.name, propertyId: row.propertyId });
+      } catch(e) {
+        errors.push({ phone: row.phone, name: row.name, error: String(e.message).slice(0,200) });
+        await _logD1Failure(env, `backfill_access:${row.phone}`, e.message);
+      }
+    }
+  }
+
+  return jsonResponse({
+    dryRun,
+    toWriteCount: toWrite.length,
+    toWrite,           // full list for inspection
+    writtenCount: written.length,
+    written,
+    errorCount:   errors.length,
+    errors,
+    skippedCount: skipped.length,
+    // skipped details omitted from response (can be 1241 lines) — only counts matter
+  }, corsHeaders);
+}
+
 // ── Person duplicate review endpoints ────────────────────────────────────────
 
 // GET /admin/person-merge-candidates

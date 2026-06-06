@@ -33,6 +33,18 @@ database_id = "a9cca011-f138-4e99-b831-8f78f3165409"
 binding = "BACKUPS"
 bucket_name = "pure-cleaning-backups"
 
+# ── R2 photo bucket ───────────────────────────────────────────────────────────
+# SETUP REQUIRED before deploying: create R2 bucket "pure-cleaning-photos" in
+# Cloudflare dashboard → R2 → Create bucket, then this binding is live.
+# R2 cost: $0.015/GB-month (10GB free tier).
+# At ~2 photos/job × 400 jobs/yr × 400KB avg ≈ 320MB/yr — within free tier.
+# Key patterns:
+#   job/{jobId}/{before|after}_{timestamp}.jpg   — referenced in Job.photoKeys
+#   property/{propertyId}/satellite.jpg          — referenced in Property.satelliteImageKey
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "pure-cleaning-photos"
+
 [vars]
 ENVIRONMENT = "production"
 TWILIO_FROM = "+18337892824"
