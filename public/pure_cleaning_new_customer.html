@@ -223,6 +223,23 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .partner-sec-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#1d4ed8;margin-bottom:10px;}
 .partner-select{width:100%;padding:12px 14px;background:var(--white);border:2px solid #bfdbfe;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:15px;color:var(--text);outline:none;cursor:pointer;margin-bottom:10px;}
 .partner-select:focus{border-color:var(--sky);}
+/* ── Imagery + records link row (Part 1, port from quote_builder_v2) ──────── */
+.nc-prop-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);background:rgba(10,22,40,.04);border:1px solid var(--border);border-radius:6px;padding:3px 9px;text-decoration:none;transition:all .15s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+.nc-prop-link:hover{color:var(--sky);border-color:rgba(45,125,210,.4);background:#eff6ff;}
+.nc-prop-link-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;}
+/* ── Property reference photo drop zones (Part 2) ──────────────────────────── */
+.nc-pz-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px;}
+.nc-pz{border:2px dashed var(--border);border-radius:10px;padding:10px 8px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;min-height:80px;display:flex;align-items:center;justify-content:center;background:var(--white);box-sizing:border-box;}
+.nc-pz:hover{border-color:var(--sky);}
+.nc-pz.nc-drag{border-color:var(--sky);background:#eff6ff;}
+.nc-pz.nc-done{border-color:var(--green);border-style:solid;}
+.nc-pz-icon{font-size:19px;line-height:1;margin-bottom:3px;}
+.nc-pz-lbl{font-size:11px;font-weight:700;color:var(--text);}
+.nc-pz-sub{font-size:10px;color:var(--muted);margin-top:2px;letter-spacing:.2px;}
+.nc-pz-done{width:100%;}
+.nc-pz-done img{width:100%;height:62px;object-fit:cover;border-radius:6px;display:block;}
+.nc-pz-saved{font-size:10px;font-weight:700;color:var(--green);margin-top:3px;}
+.nc-photo-status{font-size:11px;color:var(--muted);min-height:14px;margin-top:2px;}
 </style>
 </head>
 <body>
@@ -467,11 +484,48 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <input type="hidden" id="nLng">
       <input type="hidden" id="nGoogleVerified" value="0">
       <!-- Street + City fields remain for confirmation/manual edit -->
-      <input id="nAddr" class="fi" type="text" placeholder="Street address" oninput="checkReq();onAddressInput();updateNcCopyBtn();_acClearVerified('main')" style="margin-bottom:6px;">
-      <input id="nCity" class="fi" type="text" placeholder="City" oninput="checkReq();_acClearVerified('main')">
+      <input id="nAddr" class="fi" type="text" placeholder="Street address" oninput="checkReq();onAddressInput();updateNcCopyBtn();_acClearVerified('main');updateNcPropLinks()" style="margin-bottom:6px;">
+      <input id="nCity" class="fi" type="text" placeholder="City" oninput="checkReq();_acClearVerified('main');updateNcPropLinks()">
     </div>
-    <div style="margin-top:-6px;margin-bottom:8px;">
+    <div style="margin-top:-6px;margin-bottom:6px;">
       <button type="button" id="nCopyAddrBtn" onclick="copyNcAddr()" style="font-size:11px;font-weight:600;color:var(--sky);background:#eff6ff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;opacity:.4;pointer-events:none;">📋 Copy address — paste into BCPA</button>
+    </div>
+
+    <!-- ── Imagery + records links (county-smart; coord-centered when Google-verified) ── -->
+    <div id="ncPropLinkWrap"></div>
+
+    <!-- ── Property reference photos: satellite + front/BCPA (Phase 2 capture, ported) ── -->
+    <!-- ⌘V anywhere · drag-drop · click. Uploaded to R2 on drop; D1 ref written at schedule. -->
+    <div id="ncPhotoCard" style="display:none;margin-bottom:6px;">
+      <div class="nc-pz-wrap">
+        <div id="ncSatZone" class="nc-pz"
+             onclick="document.getElementById('ncSatInput').click()"
+             ondragover="event.preventDefault();this.classList.add('nc-drag')"
+             ondragleave="this.classList.remove('nc-drag')"
+             ondrop="event.preventDefault();this.classList.remove('nc-drag');_ncHandleDrop(event.dataTransfer.files,'satellite')">
+          <div id="ncSatContent">
+            <div class="nc-pz-icon">🛰</div>
+            <div class="nc-pz-lbl">Satellite</div>
+            <div class="nc-pz-sub">⌘V · Drop · Click</div>
+          </div>
+          <input type="file" id="ncSatInput" accept="image/*" style="display:none;"
+                 onchange="_ncHandleSelect(this.files,'satellite');this.value=''">
+        </div>
+        <div id="ncFrontZone" class="nc-pz"
+             onclick="document.getElementById('ncFrontInput').click()"
+             ondragover="event.preventDefault();this.classList.add('nc-drag')"
+             ondragleave="this.classList.remove('nc-drag')"
+             ondrop="event.preventDefault();this.classList.remove('nc-drag');_ncHandleDrop(event.dataTransfer.files,'front')">
+          <div id="ncFrontContent">
+            <div class="nc-pz-icon">🏠</div>
+            <div class="nc-pz-lbl">Front / BCPA</div>
+            <div class="nc-pz-sub">⌘V · Drop · Click</div>
+          </div>
+          <input type="file" id="ncFrontInput" accept="image/*" style="display:none;"
+                 onchange="_ncHandleSelect(this.files,'front');this.value=''">
+        </div>
+      </div>
+      <div id="ncPhotoStatus" class="nc-photo-status"></div>
     </div>
 
     <!-- Roof sq ft — always visible, helps with future quotes even if not booking roof today -->
@@ -1550,6 +1604,8 @@ function resetForm() {
   if (jhTgl) jhTgl.textContent='▶ Show';
   renderNewAlerts();
   checkReq();
+  _ncResetPhotos();          // clear satellite/front drop zones
+  updateNcPropLinks();       // hide link row (addr now empty)
 }
 
 function setPath(path) {
@@ -2010,7 +2066,7 @@ async function _acSelect(surface, placeId, description) {
 
     // Fire downstream callbacks
     checkReq();
-    if (inst.addrId === 'nAddr') { onAddressInput(); updateNcCopyBtn(); }
+    if (inst.addrId === 'nAddr') { onAddressInput(); updateNcCopyBtn(); updateNcPropLinks(); }
   } catch(e) {
     if (typeof showToast === 'function') showToast('⚠️ Address lookup failed — enter manually', 'warn');
   }
@@ -2768,6 +2824,15 @@ async function submitScheduleNow() {
       return;
     }
 
+    // ── Phase 2 photo carry-over: write Property image keys to D1 ─────────────
+    // Property row guaranteed by _d1SyncNewCustomer (called inside scheduleJobWithDualWrite).
+    // Non-blocking — fire-and-forget; scheduling + SMS not gated on photo write (T1.11).
+    if (d1Result.propertyId && (_ncSatelliteKey || _ncFrontKey)) {
+      _ncPatchPropertyImages(d1Result.propertyId).catch(e =>
+        console.warn('[nc photos] carry-over failed — keys in R2, D1 ref missed:', e.message)
+      );
+    }
+
     // Step 3: KV write — mirrors scheduledStatus after D1 confirmed.
     // Calendar still works even if KV fails (D1 is authoritative for scheduling).
     try {
@@ -3097,6 +3162,267 @@ async function _ncAgConfirmMove() {
     errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block';
     btn.disabled = false; btn.textContent = 'Save Property';
   }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Part 1: Imagery + records link row ───────────────────────────────────────
+//
+// County city lists (identical to quote_builder_v2 _BROWARD/_MIAMI_DADE/_PALM_BEACH).
+// Detect from nCity field (separate from nAddr in this form).
+const _NC_BROWARD    = ['weston','davie','pembroke pines','coral springs','plantation','sunrise','fort lauderdale','hollywood','miramar','cooper city','southwest ranches','tamarac','lauderhill','margate','coconut creek','parkland','deerfield beach','pompano beach','oakland park','wilton manors','lauderdale lakes','lauderdale-by-the-sea','north lauderdale','dania beach','hallandale beach','west park','pembroke park','sea ranch lakes','lazy lake','hillsboro beach','lighthouse point'];
+const _NC_MIAMI_DADE = ['miami','aventura','kendall','doral','hialeah','hialeah gardens','homestead','cutler bay','pinecrest','palmetto bay','miami beach','miami lakes','coral gables','north miami','north miami beach','sunny isles beach','bay harbor islands','bal harbour','surfside','key biscayne','south miami','west miami','miami springs','medley','sweetwater','opa-locka','florida city','indian creek','biscayne park','el portal','miami shores','north bay village','virginia gardens'];
+const _NC_PALM_BEACH = ['boca raton','delray beach','wellington','boynton beach','west palm beach','palm beach','palm beach gardens','jupiter','lake worth beach','royal palm beach','greenacres','riviera beach','palm springs','highland beach','tequesta','north palm beach','lantana','manalapan','juno beach','atlantis','south palm beach','loxahatchee','belle glade','pahokee','south bay'];
+
+function _ncDetectCounty(city) {
+  const s = (city || '').toLowerCase();
+  if (_NC_BROWARD.some(c => s.includes(c)))    return 'broward';
+  if (_NC_MIAMI_DADE.some(c => s.includes(c))) return 'miami-dade';
+  if (_NC_PALM_BEACH.some(c => s.includes(c))) return 'palm-beach';
+  return null;
+}
+
+// Render the 4-button link row (and show the photo card) when address is present.
+// Called: on nAddr/nCity oninput, on _acSelect completion, on resetForm.
+// IMPROVEMENT over quote_builder_v2: when lat/lng are verified by Google Places,
+// use coords for a precisely centered Google Maps satellite + Bing aerial view.
+// Falls back to address-string query when not yet verified.
+function updateNcPropLinks() {
+  const wrap  = document.getElementById('ncPropLinkWrap');
+  const card  = document.getElementById('ncPhotoCard');
+  const addr  = (document.getElementById('nAddr')?.value  || '').trim();
+  const city  = (document.getElementById('nCity')?.value  || '').trim();
+  if (!wrap) return;
+
+  if (!addr) {
+    wrap.innerHTML = '';
+    if (card) card.style.display = 'none';
+    return;
+  }
+
+  // Use verified lat/lng from _acSelect (hidden fields populated by Places details)
+  const rawLat = document.getElementById('nLat')?.value || '';
+  const rawLng = document.getElementById('nLng')?.value || '';
+  const lat = parseFloat(rawLat) || null;
+  const lng = parseFloat(rawLng) || null;
+  const hasCoords = lat !== null && lng !== null && !isNaN(lat) && !isNaN(lng);
+
+  const addrStr = addr + (city ? ', ' + city : '') + ', FL';
+  const enc     = encodeURIComponent(addrStr);
+  const county  = _ncDetectCounty(city || addr);
+
+  // ── Satellite / aerial imagery deep-links — UNGATED, zero API cost ───────────
+  // Google: coord-centered (precise) when verified; address string (good) otherwise.
+  const googleUrl = hasCoords
+    ? `https://maps.google.com/maps?q=${lat},${lng}&t=k`
+    : `https://maps.google.com/maps?q=${enc}&t=k`;
+  // Bing: cp=lat~lng coord-centered aerial (lvl 19 = street level); address fallback.
+  const bingUrl = hasCoords
+    ? `https://www.bing.com/maps?cp=${lat}~${lng}&lvl=19&style=a`
+    : `https://www.bing.com/maps?q=${enc}&style=a`;
+
+  // ── Property appraiser (county-smart; replaces hardcoded links) ───────────────
+  let apprUrl, apprLabel;
+  if      (county === 'broward')    { apprUrl = 'https://web.bcpa.net/BcpaClient/#/Record-Search';     apprLabel = '📍 BCPA'; }
+  else if (county === 'miami-dade') { apprUrl = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';   apprLabel = '📍 Miami-Dade PA'; }
+  else if (county === 'palm-beach') { apprUrl = 'https://pbcpao.gov/AdvSearch/AdvanceSearch';           apprLabel = '📍 PBC PAO'; }
+  else                              { apprUrl = 'https://www.google.com/search?q=' + enc + '+property+appraiser'; apprLabel = '📍 Appraiser'; }
+
+  // ── County GIS (parcel/flood overlay; click-to-open, paste address) ──────────
+  let gisUrl = null, gisLabel = null;
+  if      (county === 'broward')    { gisUrl = 'https://gis.broward.org/BrowardGIS/';    gisLabel = '🗺 Broward GIS'; }
+  else if (county === 'miami-dade') { gisUrl = 'https://gisims.miamidade.gov/MDMapShop/'; gisLabel = '🗺 M-D GIS'; }
+  else if (county === 'palm-beach') { gisUrl = 'https://maps.co.palm-beach.fl.us/';       gisLabel = '🗺 PBC GIS'; }
+
+  const _lnk = (url, label, title) =>
+    `<a href="${url}" target="_blank" rel="noopener" class="nc-prop-link" title="${title}">${label}</a>`;
+
+  wrap.innerHTML =
+    `<div class="nc-prop-link-row">` +
+      _lnk(googleUrl, '🛰 Google',   hasCoords ? 'Google Maps satellite (coord-centered ✓)' : 'Google Maps satellite') +
+      _lnk(bingUrl,   '🦅 Bing',     hasCoords ? 'Bing aerial view (coord-centered ✓)'      : 'Bing aerial view') +
+      _lnk(apprUrl,   apprLabel,     'Open county property appraiser (paste address)') +
+      (gisUrl ? _lnk(gisUrl, gisLabel, 'Open county GIS viewer (paste address)') : '') +
+    `</div>`;
+
+  if (card) card.style.display = 'block';
+}
+
+// ── Part 2: Property reference photo capture ──────────────────────────────────
+//
+// Anchoring model: upload to R2 immediately on drop → hold key in module var →
+// at submitScheduleNow() success: PATCH /admin/property-images with d1Result.propertyId
+// (the real D1 propertyId, post-_d1SyncNewCustomer, guaranteed to exist).
+//
+// Types:
+//   'satellite' → property/{propId}/satellite.jpg → Property.satelliteImageKey (migration 0019)
+//   'front'     → property/{propId}/front.jpg     → Property.frontImageKey     (migration 0020)
+//
+// No orphan risk: _ncSatelliteKey/_ncFrontKey persist in module vars until resetForm()
+// clears them. Even if the user pauses between dropping and scheduling, the keys survive.
+
+let _ncSatelliteKey = null;
+let _ncFrontKey     = null;
+
+// Mirror of worker _d1PropId(street, city) — deterministic, stays in sync.
+function _ncPropId() {
+  const street = (document.getElementById('nAddr')?.value || '').trim();
+  const city   = (document.getElementById('nCity')?.value || '').trim();
+  if (!street) return null;
+  const norm = s => s.toLowerCase().trim().replace(/\s+/g, ' ');
+  return 'prop_' + (norm(street) + '|' + norm(city)).replace(/[^\w]/g, '_').slice(0, 40);
+}
+
+// Compressor: 1920px/80% JPEG full + 300px/70% thumb (identical to profile + quote_builder).
+function _ncCompressPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload  = ev => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload  = () => {
+        const maxPx = 1920;
+        let w = img.width, h = img.height;
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else        { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const c1 = document.createElement('canvas'); c1.width = w; c1.height = h;
+        c1.getContext('2d').drawImage(img, 0, 0, w, h);
+        const jpeg = c1.toDataURL('image/jpeg', 0.8).split(',')[1];
+        const tMax = 300;
+        let tw = img.width, th = img.height;
+        if (tw > tMax || th > tMax) {
+          if (tw >= th) { th = Math.round(th * tMax / tw); tw = tMax; }
+          else          { tw = Math.round(tw * tMax / th); th = tMax; }
+        }
+        const c2 = document.createElement('canvas'); c2.width = tw; c2.height = th;
+        c2.getContext('2d').drawImage(img, 0, 0, tw, th);
+        const thumb = c2.toDataURL('image/jpeg', 0.7).split(',')[1];
+        resolve({ jpeg, thumb });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// base64 → Uint8Array for raw binary POST to /admin/photos/upload
+function _ncB64ToBin(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function _ncUploadPhoto(type, file) {
+  const statusEl  = document.getElementById('ncPhotoStatus');
+  const zoneEl    = document.getElementById(type === 'satellite' ? 'ncSatZone'    : 'ncFrontZone');
+  const contentEl = document.getElementById(type === 'satellite' ? 'ncSatContent' : 'ncFrontContent');
+  const label     = type === 'satellite' ? 'Satellite' : 'Front/BCPA';
+
+  if (statusEl) statusEl.textContent = `Uploading ${label.toLowerCase()}…`;
+
+  const propId = _ncPropId();
+  if (!propId) {
+    if (statusEl) statusEl.textContent = '⚠️ Enter the address first, then drop photos';
+    return;
+  }
+
+  let compressed;
+  try { compressed = await _ncCompressPhoto(file); }
+  catch(e) { if (statusEl) statusEl.textContent = '⚠️ Could not read image — try again'; return; }
+
+  const params = new URLSearchParams({ type, propertyId: propId });
+  // No updateD1 flag: Property row may not exist yet (created at schedule-time).
+  // D1 reference is written by _ncPatchPropertyImages() after scheduleJobWithDualWrite().
+
+  let key;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/photos/upload?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: _ncB64ToBin(compressed.jpeg),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    key = data.key;
+    if (!key) throw new Error('no key returned');
+  } catch(e) {
+    if (statusEl) statusEl.textContent = `⚠️ Upload failed — ${e.message}`;
+    return;
+  }
+
+  if (type === 'satellite') _ncSatelliteKey = key;
+  else                      _ncFrontKey     = key;
+
+  // Render thumbnail inline
+  if (contentEl) {
+    contentEl.innerHTML =
+      `<div class="nc-pz-done">` +
+        `<img src="data:image/jpeg;base64,${compressed.thumb}" alt="${label} photo">` +
+        `<div class="nc-pz-saved">✓ Saved · click to replace</div>` +
+      `</div>`;
+  }
+  if (zoneEl) zoneEl.classList.add('nc-done');
+
+  if (statusEl) {
+    statusEl.textContent = `✓ ${label} saved`;
+    setTimeout(() => { if (statusEl.textContent === `✓ ${label} saved`) statusEl.textContent = ''; }, 3000);
+  }
+}
+
+function _ncHandleSelect(files, type) {
+  const f = Array.from(files || []).find(f => f.type.startsWith('image/'));
+  if (f) _ncUploadPhoto(type, f);
+}
+function _ncHandleDrop(files, type) {
+  const f = Array.from(files || []).find(f => f.type.startsWith('image/'));
+  if (f) _ncUploadPhoto(type, f);
+}
+
+// Paste anywhere on page (outside text inputs) → satellite first, then front
+document.addEventListener('paste', e => {
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+  const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
+  if (!item) return;
+  e.preventDefault();
+  const f = item.getAsFile();
+  if (!f) return;
+  const type = !_ncSatelliteKey ? 'satellite' : !_ncFrontKey ? 'front' : 'satellite';
+  _ncUploadPhoto(type, f);
+});
+
+// Reset photo drop zones (called from resetForm + after schedule)
+function _ncResetPhotos() {
+  _ncSatelliteKey = null;
+  _ncFrontKey     = null;
+  const defSat   = '<div class="nc-pz-icon">🛰</div><div class="nc-pz-lbl">Satellite</div><div class="nc-pz-sub">⌘V · Drop · Click</div>';
+  const defFront = '<div class="nc-pz-icon">🏠</div><div class="nc-pz-lbl">Front / BCPA</div><div class="nc-pz-sub">⌘V · Drop · Click</div>';
+  const sc = document.getElementById('ncSatContent');   if (sc) sc.innerHTML   = defSat;
+  const fc = document.getElementById('ncFrontContent'); if (fc) fc.innerHTML   = defFront;
+  const sz = document.getElementById('ncSatZone');      if (sz) sz.classList.remove('nc-done');
+  const fz = document.getElementById('ncFrontZone');    if (fz) fz.classList.remove('nc-done');
+  const st = document.getElementById('ncPhotoStatus');  if (st) st.textContent = '';
+}
+
+// Patch Property.satelliteImageKey + frontImageKey in D1 after scheduling.
+// Called non-blocking from submitScheduleNow() after d1Result.propertyId is known.
+// Uses PATCH /admin/property-images (new endpoint, worker Phase 3 port).
+async function _ncPatchPropertyImages(propertyId) {
+  if (!propertyId) return;
+  const body = { propertyId };
+  if (_ncSatelliteKey) body.satelliteImageKey = _ncSatelliteKey;
+  if (_ncFrontKey)     body.frontImageKey     = _ncFrontKey;
+  if (!body.satelliteImageKey && !body.frontImageKey) return;
+  const res = await fetch(`${PCPC_API}/admin/property-images`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 </script>
 </body>

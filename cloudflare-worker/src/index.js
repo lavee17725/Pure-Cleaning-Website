@@ -1506,6 +1506,13 @@ export default {
         return await handlePatchProposal(request, proposalId, env, corsHeaders);
       }
 
+      // ── PATCH /admin/property-images — set satelliteImageKey/frontImageKey on Property ──
+      // Called from new_customer.html after scheduleJobWithDualWrite() confirms the
+      // Property row exists. Non-blocking — scheduling is not gated on this write.
+      if (path === 'admin/property-images' && request.method === 'PATCH') {
+        return await handlePatchPropertyImages(request, env, corsHeaders);
+      }
+
       // ── Google Places API proxy (protected) ──────────────────────────────────
       // Law T1.14: API key stays server-side. KV caches details (30d TTL).
       if (path === 'admin/places/autocomplete' && request.method === 'GET') {
@@ -8124,6 +8131,32 @@ async function handleCanonicalizeAll(request, env, corsHeaders, url) {
 //
 // Returns:
 //   { dryRun, toWrite: [{phone, name, propertyId, kvGateCode, d1GateCode, kvAccessNotes, d1AccessNotes}],
+// ── PATCH /admin/property-images ─────────────────────────────────────────────
+// Set Property.satelliteImageKey and/or frontImageKey after the Property row
+// is confirmed to exist (called from new_customer.html after scheduleJobWithDualWrite).
+// Idempotent: re-sending the same key is a no-op UPDATE.
+async function handlePatchPropertyImages(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || !body.propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  const { propertyId, satelliteImageKey, frontImageKey } = body;
+  const sets = [], vals = [];
+  if (satelliteImageKey !== undefined) { sets.push('satelliteImageKey=?'); vals.push(satelliteImageKey || null); }
+  if (frontImageKey     !== undefined) { sets.push('frontImageKey=?');     vals.push(frontImageKey     || null); }
+  if (!sets.length) return jsonResponse({ success: true, updated: 0 }, corsHeaders);
+  sets.push('modifiedAt=?'); vals.push(new Date().toISOString());
+  vals.push(propertyId);
+  try {
+    const result = await env.DB.prepare(
+      `UPDATE Property SET ${sets.join(',')} WHERE propertyId=?`
+    ).bind(...vals).run();
+    return jsonResponse({ success: true, updated: result.meta?.changes ?? 0 }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, `handlePatchPropertyImages:${propertyId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
 //     written, errors, skipped }
 //
 // Re-runnable / idempotent — skips rows where D1 already matches KV.
