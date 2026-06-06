@@ -98,6 +98,13 @@ select option{background:var(--white);}
 .add-btn:hover{background:var(--terra);color:white;border-color:var(--terra);}
 .quick-btn{padding:5px 10px;font-size:11px;}
 .quick-section-lbl{font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:600;letter-spacing:.3px;}
+/* SIZE PICKERS — inline below chips for driveway/ground surfaces */
+.v2-size-row{display:flex;align-items:center;gap:8px;margin-top:5px;flex-wrap:wrap;}
+.v2-size-lbl{font-size:11px;font-weight:600;color:var(--muted);min-width:80px;}
+.v2-size-btns{display:flex;gap:4px;flex-wrap:wrap;}
+.v2-size-btn{padding:4px 10px;font-size:11px;font-weight:600;background:#f3f4f6;border:1.5px solid #d1d5db;border-radius:7px;cursor:pointer;color:var(--muted);transition:all .15s;font-family:'DM Sans',sans-serif;}
+.v2-size-btn:hover{border-color:var(--terra);color:var(--terra);}
+.v2-size-active{background:var(--terra-l)!important;border-color:var(--terra)!important;color:var(--terra-d)!important;}
 
 /* DATE CARDS */
 .date-alt-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
@@ -164,6 +171,34 @@ select option{background:var(--white);}
 .preview-date-pill{border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;}
 
 /* LIVE PEEK (compact preview in Build tab) */
+
+/* ── Quote-builder property photo capture (Phase 2) ──────────────────────── */
+.qb-photo-zone {
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  min-height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: var(--input-bg);
+  box-sizing: border-box;
+}
+.qb-photo-zone:hover              { border-color: var(--terra); }
+.qb-photo-zone.qb-drag            { border-color: var(--terra); background: rgba(194,65,12,.06); }
+.qb-photo-zone.qb-done            { border-color: #16a34a; border-style: solid; }
+.qb-photo-zone.qb-done:hover      { border-color: #15803d; }
+.qb-pz-icon   { font-size: 20px; line-height: 1; margin-bottom: 3px; }
+.qb-pz-lbl    { font-size: 12px; font-weight: 700; color: var(--text); }
+.qb-pz-sub    { font-size: 10px; color: var(--muted); margin-top: 2px; letter-spacing: .2px; }
+.qb-pz-done   { width: 100%; }
+.qb-pz-done img { width: 100%; height: 70px; object-fit: cover; border-radius: 6px; display: block; }
+.qb-pz-saved  { font-size: 10px; font-weight: 700; color: #16a34a; margin-top: 3px; }
 
 /* HISTORY */
 .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.5rem;}
@@ -286,28 +321,36 @@ select option{background:var(--white);}
       <div class="sec-hdr-sub">Pick the services Tony verbally quoted. They'll show on the agreement page.</div>
     </div>
     <div class="chips" id="serviceChips"></div>
+    <!-- Size pickers — shown inline for driveway / ground surfaces (Part 2, T1.22) -->
+    <div id="v2SizeDetails" style="display:none;margin-top:8px;padding:8px 10px;background:#fafafa;border:1px solid var(--border);border-radius:9px;"></div>
     <div class="add-service">
       <input type="text" id="newService" placeholder="Add a service…" onkeydown="if(event.key==='Enter') addService()">
       <button class="add-btn" onclick="addService()">+ Add</button>
     </div>
     <div style="margin-top:14px;">
+      <!-- Quick-add ordered by actual service frequency (Part 3, T1.22): roof cluster first
+           (highest revenue), then ground surfaces by count, then specialty/rare. -->
       <div class="quick-section-lbl">Quick add</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;">
         <button class="add-btn quick-btn" onclick="quickAdd('Roof — Softwash')">Roof Softwash</button>
-        <button class="add-btn quick-btn" onclick="quickAdd('Roof — Traditional')">Roof Traditional</button>
-        <button class="add-btn quick-btn" onclick="quickAdd('Roof — Water Only')">Roof Water Only</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Driveway')">Driveway</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Patio')">Patio</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Rinse Walls')">Rinse Walls</button>
-        <button class="add-btn quick-btn" onclick="quickAdd('Sidewalk')">Sidewalk</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Entranceway')">Entranceway</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Sidewalk')">Sidewalk</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Screen Enclosure')">Screen Enclosure</button>
-        <button class="add-btn quick-btn" onclick="quickAdd('Pool Deck')">Pool Deck</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Fence — Wood')">Fence Wood</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Fence — Vinyl')">Fence Vinyl</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Fence — Metal')">Fence Metal</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Sealing')">Sealing</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Rust removal')">Rust removal</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Prep for painting')">Prep for painting</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Deck')">Deck</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Pool Deck')">Pool Deck</button>
         <button class="add-btn quick-btn" onclick="quickAdd('Balcony')">Balcony</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Gutter')">Gutter</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Roof — Traditional')">Roof Traditional</button>
+        <button class="add-btn quick-btn" onclick="quickAdd('Roof — Water Only')">Roof Water Only</button>
       </div>
     </div>
   </div>
@@ -378,6 +421,49 @@ select option{background:var(--white);}
     </div>
     <textarea id="customerNotes" placeholder="Hi! Tony noticed your front walkway is looking rough — happy to add it on if you want." rows="3" oninput="updatePreview();saveDraft()"></textarea>
   </div>
+
+  <!-- ── PROPERTY PHOTOS (optional, Phase 2) ─────────────────────────────── -->
+  <!-- Paste (⌘V), drag-drop, or click. Saves satellite + front/BCPA to property. -->
+  <div class="form-card" id="qbPhotoCard">
+    <div class="sec-hdr">
+      <div class="sec-hdr-title">📸 Property photos <span style="font-weight:400;font-size:11px;color:var(--muted);text-transform:none;letter-spacing:0;">(optional)</span></div>
+      <div class="sec-hdr-sub">⌘V to paste screenshot anywhere · drag-drop · or click. Saved to property permanently.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px;">
+
+      <!-- Satellite overhead -->
+      <div id="qbSatZone" class="qb-photo-zone"
+           onclick="document.getElementById('qbSatInput').click()"
+           ondragover="event.preventDefault();this.classList.add('qb-drag')"
+           ondragleave="this.classList.remove('qb-drag')"
+           ondrop="event.preventDefault();this.classList.remove('qb-drag');_qbHandleDrop(event.dataTransfer.files,'satellite')">
+        <div id="qbSatContent">
+          <div class="qb-pz-icon">🛰</div>
+          <div class="qb-pz-lbl">Satellite</div>
+          <div class="qb-pz-sub">⌘V · Drop · Click</div>
+        </div>
+        <input type="file" id="qbSatInput" accept="image/*" style="display:none;"
+               onchange="_qbHandleSelect(this.files,'satellite');this.value=''">
+      </div>
+
+      <!-- Front / BCPA screenshot -->
+      <div id="qbFrontZone" class="qb-photo-zone"
+           onclick="document.getElementById('qbFrontInput').click()"
+           ondragover="event.preventDefault();this.classList.add('qb-drag')"
+           ondragleave="this.classList.remove('qb-drag')"
+           ondrop="event.preventDefault();this.classList.remove('qb-drag');_qbHandleDrop(event.dataTransfer.files,'front')">
+        <div id="qbFrontContent">
+          <div class="qb-pz-icon">🏠</div>
+          <div class="qb-pz-lbl">Front / BCPA</div>
+          <div class="qb-pz-sub">⌘V · Drop · Click</div>
+        </div>
+        <input type="file" id="qbFrontInput" accept="image/*" style="display:none;"
+               onchange="_qbHandleSelect(this.files,'front');this.value=''">
+      </div>
+    </div>
+    <div id="qbPhotoStatus" style="font-size:11px;color:var(--muted);margin-top:5px;min-height:14px;"></div>
+  </div>
+  <!-- ── end property photos ────────────────────────────────────────────────── -->
 
   <button class="send-btn send-btn-pressure" id="generateBtn" onclick="generateQuote()">Send Quote →</button>
   <button class="secondary-btn" onclick="switchTab('preview')">Preview first →</button>
@@ -475,6 +561,9 @@ const ROOF_ADDONS = [
 const FLOOR_ADDONS = [{id:'walls',label:'Rinse Walls',icon:'🧱',desc:'Add full wall rinse'}];
 
 let services = [];
+// serviceSize[i] parallels services[i]: { drivewaySize?, groundSize? } — null/absent = not yet picked.
+// Roof size comes from the shared roofSqFt input + v2RoofStories radio (not per-index).
+let serviceSize = [];
 let quotes = JSON.parse(localStorage.getItem('pureCleaningQuotesV2') || '[]');
 // Fix 1: tracks whether Tyler has MANUALLY selected a story on this session.
 // When true, checkCustomerAlerts must NEVER overwrite with history — sticky by design.
@@ -602,24 +691,159 @@ function checkCustomerAlerts(phone) {
   }).catch(() => {});
 }
 
-// ─── SERVICES ────────────────────────────────────────────────────
+// ─── SERVICES + STRUCTURED TAGS (Part 1a + Part 2, T1.22) ────────
+
+// Returns the size category for a service string, or null for no-size surfaces.
+// 'driveway': car-count picker. 'ground': S/M/L picker. null: tag-only.
+function _svcSizeCategory(svcStr) {
+  const s = svcStr.toLowerCase();
+  if (/driveway/i.test(s)) return 'driveway';
+  if (/\bpatio\b|pool.?deck|screen.enclos|\bbalcony\b|\bdeck\b/i.test(s)) return 'ground';
+  return null;
+}
+
+// Set (or toggle off) a size value for a specific service index.
+function setSvcSize(idx, key, val) {
+  if (!serviceSize[idx]) serviceSize[idx] = {};
+  serviceSize[idx][key] = (serviceSize[idx][key] === val) ? null : val; // tap again = deselect
+  _renderSizeDetails();
+  saveDraft();
+}
+
+// Re-render just the size details section (called on setSvcSize without full chip re-render).
+function _renderSizeDetails() {
+  const el = document.getElementById('v2SizeDetails');
+  if (!el) return;
+  const sizable = services.map((s,i) => ({s,i,cat:_svcSizeCategory(s)})).filter(x => x.cat);
+  if (!sizable.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = sizable.map(({s, i, cat}) => {
+    const sz  = serviceSize[i] || {};
+    const lbl = s.split('—')[0].trim();
+    if (cat === 'driveway') {
+      const opts = [['1-car','1car'],['2-car','2car'],['3-car','3car'],['4+','4plus']];
+      return `<div class="v2-size-row"><span class="v2-size-lbl">${lbl}:</span><span class="v2-size-btns">${
+        opts.map(([l,v]) => `<button class="v2-size-btn${sz.drivewaySize===v?' v2-size-active':''}" onclick="setSvcSize(${i},'drivewaySize','${v}')">${l}</button>`).join('')
+      }</span></div>`;
+    } else {
+      const opts = [['S','S'],['M','M'],['L','L']];
+      return `<div class="v2-size-row"><span class="v2-size-lbl">${lbl} size:</span><span class="v2-size-btns">${
+        opts.map(([l,v]) => `<button class="v2-size-btn${sz.groundSize===v?' v2-size-active':''}" onclick="setSvcSize(${i},'groundSize','${v}')">${l}</button>`).join('')
+      }</span></div>`;
+    }
+  }).join('');
+}
+
+// Map a chip label + size data → one canonical tag entry (Part 1a).
+function chipToTag(svcStr, sizeData, roofSqFtVal, roofStoriesVal) {
+  const s = svcStr.toLowerCase();
+  const e = {};
+  if      (/softwash|soft.?wash/i.test(svcStr))               { e.type='roof'; e.method='softwash'; }
+  else if (/roof.*traditional|traditional.*roof/i.test(svcStr)){ e.type='roof'; e.method='traditional'; }
+  else if (/roof.*water.?only|water.?only/i.test(svcStr))      { e.type='roof'; e.method='water_only'; }
+  else if (/\broof\b/i.test(svcStr))                           { e.type='roof'; }
+  else if (/driveway/i.test(s))                                { e.type='driveway'; }
+  else if (/\bpatio\b/i.test(s))                               { e.type='patio'; }
+  else if (/pool.?deck/i.test(s))                              { e.type='pool_deck'; }
+  else if (/sidewalk|walkway/i.test(s))                        { e.type='sidewalk'; }
+  else if (/rinse.wall|rinse.window|rinse.front/i.test(s))     { e.type='rinse_walls'; }
+  else if (/\brinse\b/i.test(s))                               { e.type='rinse_walls'; }
+  else if (/entranceway|entrance\b/i.test(s))                  { e.type='entranceway'; }
+  else if (/screen.enclos/i.test(s))                           { e.type='screen_enclosure'; }
+  else if (/\bbalcony\b/i.test(s))                             { e.type='balcony'; }
+  else if (/fence.*wood|wood.*fence/i.test(svcStr))            { e.type='fence'; e.material='wood'; }
+  else if (/fence.*vinyl|vinyl.*fence/i.test(svcStr))          { e.type='fence'; e.material='vinyl'; }
+  else if (/fence.*metal|metal.*fence/i.test(svcStr))          { e.type='fence'; e.material='metal'; }
+  else if (/\bfence\b/i.test(s))                               { e.type='fence'; }
+  else if (/\bdeck\b/i.test(s))                                { e.type='deck'; }
+  else if (/\bseal/i.test(s))                                  { e.type='sealing'; }
+  else if (/\brust\b/i.test(s))                                { e.type='rust'; }
+  else if (/\bgutter\b/i.test(s))                              { e.type='gutter'; }
+  else if (/prep.paint|paint.prep/i.test(s))                   { e.type='prep_painting'; }
+  else                                                          { e.type='other'; e.label=svcStr; }
+  // Merge size data
+  const sz = sizeData || {};
+  if (e.type === 'roof') {
+    const sq = parseInt(roofSqFtVal) || null;
+    const st = parseInt(roofStoriesVal) || null;
+    if (sq) e.sqft    = sq;
+    if (st) e.stories = st;
+  } else if (e.type === 'driveway') {
+    if (sz.drivewaySize) e.size = sz.drivewaySize;
+  } else if (['patio','pool_deck','screen_enclosure','balcony','deck'].includes(e.type)) {
+    if (sz.groundSize) e.size = sz.groundSize;
+  }
+  return e;
+}
+
+// Build the full structured tag array from the current chip list + size state + roof inputs.
+function buildServiceTags() {
+  const sqFt     = document.getElementById('roofSqFt')?.value     || '';
+  const stories  = document.querySelector('input[name=v2RoofStories]:checked')?.value || '';
+  return services.map((s, i) => chipToTag(s, serviceSize[i] || {}, sqFt, stories));
+}
+
+// Reverse a tag → chip label (used when loading a quote with saved serviceTags).
+function _tagToChipLabel(tag) {
+  if (!tag || !tag.type) return null;
+  switch (tag.type) {
+    case 'roof':     return tag.method === 'traditional' ? 'Roof — Traditional'
+                        : tag.method === 'water_only'   ? 'Roof — Water Only'
+                        :                                 'Roof — Softwash';
+    case 'driveway':        return 'Driveway';
+    case 'patio':           return 'Patio';
+    case 'pool_deck':       return 'Pool Deck';
+    case 'sidewalk':        return 'Sidewalk';
+    case 'rinse_walls':     return 'Rinse Walls';
+    case 'entranceway':     return 'Entranceway';
+    case 'screen_enclosure':return 'Screen Enclosure';
+    case 'balcony':         return 'Balcony';
+    case 'fence':           return tag.material === 'wood'  ? 'Fence — Wood'
+                                 : tag.material === 'vinyl' ? 'Fence — Vinyl'
+                                 : tag.material === 'metal' ? 'Fence — Metal' : 'Fence';
+    case 'deck':            return 'Deck';
+    case 'sealing':         return 'Sealing';
+    case 'rust':            return 'Rust removal';
+    case 'gutter':          return 'Gutter';
+    case 'prep_painting':   return 'Prep for painting';
+    case 'other':           return tag.label || 'Other';
+    default:                return null;
+  }
+}
+function _tagToSizeData(tag) {
+  if (!tag) return {};
+  const sz = {};
+  if (tag.type === 'driveway' && tag.size) sz.drivewaySize = tag.size;
+  if (['patio','pool_deck','screen_enclosure','balcony','deck'].includes(tag.type) && tag.size) sz.groundSize = tag.size;
+  return sz;
+}
+
 function addService() {
   const input = document.getElementById('newService');
   const svc = input.value.trim();
   if (!svc) return;
-  services.push(svc); input.value = '';
+  services.push(svc);
+  serviceSize.push({});
+  input.value = '';
   renderChips(); updatePreview();
 }
 function quickAdd(svc) {
-  if (!services.includes(svc)) { services.push(svc); renderChips(); updatePreview(); }
+  if (!services.includes(svc)) {
+    services.push(svc);
+    serviceSize.push({});
+    renderChips(); updatePreview();
+  }
 }
 function removeService(idx) {
-  services.splice(idx,1); renderChips(); updatePreview();
+  services.splice(idx, 1);
+  serviceSize.splice(idx, 1);
+  renderChips(); updatePreview();
 }
 function renderChips() {
   document.getElementById('serviceChips').innerHTML = services.map((s,i) =>
     `<div class="chip">${s}<span class="remove" onclick="removeService(${i})">×</span></div>`
   ).join('');
+  _renderSizeDetails();
   // Show/hide roof story selector
   const hasRoof = services.some(s => /roof|soft\s*wash|softwash/i.test(s));
   const storySel = document.getElementById('v2StorySel');
@@ -778,6 +1002,186 @@ function extractCityFromAddr(addr) {
 }
 
 // ─── GENERATE ────────────────────────────────────────────────────
+// ── Quote-builder property photo capture (Phase 2) ────────────────────────────
+//
+// ANCHORING MODEL (Step 0 finding):
+//   At drop-time NO jobId exists.  jobId = _d1ScheduledJobId(personId, scheduledDate)
+//   is only deterministic once the customer picks a date in the agreement flow.
+//   The Property row in D1 may also not exist yet — the fire-and-forget PUT /customers
+//   in generateQuote() creates it asynchronously.
+//
+//   Chosen anchor:
+//     1. Upload to R2 immediately → return key → store in _qbSatelliteKey / _qbFrontKey
+//     2. Include both keys in quotePayload at generateQuote() time → PUT /quote/{mqCode}
+//     3. handleAgreementConfirm reads keys from existing quote KV → writes to
+//        Property.satelliteImageKey / Property.frontImageKey AFTER _d1SyncNewCustomer
+//        guarantees the Property row exists.
+//
+//   No carry-over to Job.photoKeys — both images are permanent property references,
+//   not job-specific before/after shots.
+//
+// Photo types used:
+//   'satellite' → R2 key property/{propId}/satellite.jpg → Property.satelliteImageKey
+//   'front'     → R2 key property/{propId}/front.jpg     → Property.frontImageKey
+//                 (BCPA front-of-house screenshot, NOT a job 'before' photo)
+
+let _qbSatelliteKey = null;   // R2 key after upload, or null if not uploaded
+let _qbFrontKey     = null;
+
+// Compressor — identical to customer_profile.html _profileCompressPhoto
+// (1920px/80% JPEG full + 300px/70% thumb). No shared module yet; duplicated here.
+function _qbCompressPhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload  = ev => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload  = () => {
+        const maxPx = 1920;
+        let w = img.width, h = img.height;
+        if (w > maxPx || h > maxPx) {
+          if (w >= h) { h = Math.round(h * maxPx / w); w = maxPx; }
+          else        { w = Math.round(w * maxPx / h); h = maxPx; }
+        }
+        const c1 = document.createElement('canvas'); c1.width = w; c1.height = h;
+        c1.getContext('2d').drawImage(img, 0, 0, w, h);
+        const jpeg = c1.toDataURL('image/jpeg', 0.8).split(',')[1];
+        const tMax = 300;
+        let tw = img.width, th = img.height;
+        if (tw > tMax || th > tMax) {
+          if (tw >= th) { th = Math.round(th * tMax / tw); tw = tMax; }
+          else          { tw = Math.round(tw * tMax / th); th = tMax; }
+        }
+        const c2 = document.createElement('canvas'); c2.width = tw; c2.height = th;
+        c2.getContext('2d').drawImage(img, 0, 0, tw, th);
+        const thumb = c2.toDataURL('image/jpeg', 0.7).split(',')[1];
+        resolve({ jpeg, thumb });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// base64 → Uint8Array for raw binary POST body to /admin/photos/upload
+function _qbB64ToBin(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Mirror of worker _d1PropId(street, city) — must stay in sync
+function _qbPropId() {
+  const street = (document.getElementById('custAddr')?.value || '').trim();
+  const city   = extractCityFromAddr(street) || '';
+  if (!street) return null;
+  const norm = s => s.toLowerCase().trim().replace(/\s+/g, ' ');
+  return 'prop_' + (norm(street) + '|' + norm(city)).replace(/[^\w]/g, '_').slice(0, 40);
+}
+
+// Upload one compressed JPEG to R2 via POST /admin/photos/upload
+async function _qbUploadPhoto(type, file) {
+  const statusEl  = document.getElementById('qbPhotoStatus');
+  const zoneEl    = document.getElementById(type === 'satellite' ? 'qbSatZone'    : 'qbFrontZone');
+  const contentEl = document.getElementById(type === 'satellite' ? 'qbSatContent' : 'qbFrontContent');
+  const label     = type === 'satellite' ? 'Satellite' : 'Front/BCPA';
+
+  if (statusEl) statusEl.textContent = `Uploading ${label.toLowerCase()} photo…`;
+
+  // Require address before uploading — propId is derived from it
+  const propId = _qbPropId();
+  if (!propId) {
+    if (statusEl) statusEl.textContent = '⚠️ Enter the customer address first, then drop photos';
+    return;
+  }
+
+  let compressed;
+  try {
+    compressed = await _qbCompressPhoto(file);
+  } catch(e) {
+    if (statusEl) statusEl.textContent = `⚠️ Could not read image — try again`;
+    return;
+  }
+
+  const params = new URLSearchParams({ type, propertyId: propId });
+  // No updateD1=true — D1 reference applied at handleAgreementConfirm after
+  // Property row is guaranteed to exist.
+
+  let key;
+  try {
+    const res = await fetch(
+      `${PCPC_API}/admin/photos/upload?${params}`,
+      { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: _qbB64ToBin(compressed.jpeg) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    key = data.key;
+    if (!key) throw new Error('no key in response');
+  } catch(e) {
+    if (statusEl) statusEl.textContent = `⚠️ Upload failed — ${e.message}`;
+    return;
+  }
+
+  // Store key in module-level state — included in quotePayload at generateQuote() time
+  if (type === 'satellite') _qbSatelliteKey = key;
+  else                      _qbFrontKey     = key;
+
+  // Show thumbnail inline; clicking the zone re-opens file picker (replaces)
+  if (contentEl) {
+    contentEl.innerHTML = `
+      <div class="qb-pz-done">
+        <img src="data:image/jpeg;base64,${compressed.thumb}" alt="${label} photo">
+        <div class="qb-pz-saved">✓ Saved · click to replace</div>
+      </div>`;
+  }
+  if (zoneEl) zoneEl.classList.add('qb-done');
+
+  if (statusEl) {
+    statusEl.textContent = `✓ ${label} saved`;
+    setTimeout(() => { if (statusEl.textContent === `✓ ${label} saved`) statusEl.textContent = ''; }, 3000);
+  }
+}
+
+// ── Event handlers ─────────────────────────────────────────────────────────────
+function _qbHandleSelect(files, type) {
+  const f = Array.from(files || []).find(f => f.type.startsWith('image/'));
+  if (f) _qbUploadPhoto(type, f);
+}
+
+function _qbHandleDrop(files, type) {
+  const f = Array.from(files || []).find(f => f.type.startsWith('image/'));
+  if (f) _qbUploadPhoto(type, f);
+}
+
+// Paste anywhere on the page (outside text inputs) → fill satellite first, then front
+document.addEventListener('paste', e => {
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+  const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
+  if (!item) return;
+  e.preventDefault();
+  const f = item.getAsFile();
+  if (!f) return;
+  // Routing: fill satellite first → then front → then overwrite satellite
+  const type = !_qbSatelliteKey ? 'satellite' : !_qbFrontKey ? 'front' : 'satellite';
+  _qbUploadPhoto(type, f);
+});
+
+// Reset both photo zones (called after quote sends successfully)
+function _qbResetPhotos() {
+  _qbSatelliteKey = null;
+  _qbFrontKey     = null;
+  const defaultSat   = '<div class="qb-pz-icon">🛰</div><div class="qb-pz-lbl">Satellite</div><div class="qb-pz-sub">⌘V · Drop · Click</div>';
+  const defaultFront = '<div class="qb-pz-icon">🏠</div><div class="qb-pz-lbl">Front / BCPA</div><div class="qb-pz-sub">⌘V · Drop · Click</div>';
+  const satC   = document.getElementById('qbSatContent');   if (satC)   satC.innerHTML   = defaultSat;
+  const frontC = document.getElementById('qbFrontContent'); if (frontC) frontC.innerHTML = defaultFront;
+  const satZ   = document.getElementById('qbSatZone');      if (satZ)   satZ.classList.remove('qb-done');
+  const frontZ = document.getElementById('qbFrontZone');    if (frontZ) frontZ.classList.remove('qb-done');
+  const st     = document.getElementById('qbPhotoStatus');  if (st)     st.textContent = '';
+}
+
 async function generateQuote() {
   const first = document.getElementById('custFirst').value;
   if (!first) { alert('Please enter customer name.'); return; }
@@ -839,7 +1243,11 @@ async function generateQuote() {
     mainAmount: priceNum, approvedAmount: priceNum, addOns: [],
     dateSuggestions, miniQuoteCustomData: miniData,
     roofStories: v2RoofStories,
+    serviceTags: buildServiceTags(),   // Part 1a (T1.22): structured array alongside flat string
     source: 'quote_builder_v2', created: now,
+    // Phase 2: property reference photo R2 keys (null if not uploaded — omitted from JSON)
+    ...(_qbSatelliteKey ? { satelliteImageKey: _qbSatelliteKey } : {}),
+    ...(_qbFrontKey     ? { frontImageKey:     _qbFrontKey     } : {}),
   };
 
   // Keep local history entry
@@ -896,6 +1304,7 @@ async function generateQuote() {
   if (smsSpan) smsSpan.textContent = fn || 'Customer';
   document.getElementById('textPreview').textContent = (document.getElementById('textPreview').textContent || '').replace('[quote link]', generatedUrl);
   showQbToast(`✓ Quote link ready for ${fn || 'customer'}`);
+  _qbResetPhotos(); // Phase 2: clear photo zones — next quote starts clean
   try { localStorage.removeItem(DRAFT_KEY); } catch(e) {}
 
   // Auto-mark the incoming request as quoted
@@ -1037,11 +1446,16 @@ setTimeout(function() {
     console.log('[prefill] fields set — name:', parts[0]||'(none)', 'addr:', (d.a||'').slice(0,30));
     if (d.notes)     document.getElementById('internalNotes').value = d.notes;
     if (d.timeframe) setTimeframeBadge(d.timeframe);
-    if (d.s) {
-      services = d.s.split(',').map(s => s.trim()).filter(Boolean);
-      renderChips();
-      renderAddons();
+    // Part 1d (T1.22): if pre-fill includes saved serviceTags, restore structured state.
+    // Fall back to splitting flat string (from quote.html _slim) — structure is rebuilt via chipToTag.
+    if (Array.isArray(d.tags) && d.tags.length) {
+      services    = d.tags.map(_tagToChipLabel).filter(Boolean);
+      serviceSize = d.tags.map(_tagToSizeData);
+    } else if (d.s) {
+      services    = d.s.split(',').map(s => s.trim()).filter(Boolean);
+      serviceSize = services.map(() => ({}));
     }
+    if (services.length) { renderChips(); renderAddons(); }
     if (d.reqId) incomingReqId = d.reqId;
     updatePreview();
     updatePropLink();
@@ -1112,6 +1526,7 @@ function saveDraft() {
         roofSqFt: document.getElementById('roofSqFt')?.value || '',
         price: document.getElementById('quotePricePressure')?.value || '',
         services: [...services],
+        serviceSize: [...serviceSize],        // Part 1a: persist size selections in draft
         roofStories: _userSetStories ? _draftStoryVal : null, // only persist if user explicitly set it
         userSetStories: _userSetStories,
         primaryDate: document.getElementById('primaryDate')?.value || '',
@@ -1144,7 +1559,11 @@ function restoreDraft() {
     if (d.addr) { document.getElementById('custAddr').value = d.addr; updatePropLink(); }
     if (d.roofSqFt) document.getElementById('roofSqFt').value = d.roofSqFt;
     if (d.price) document.getElementById('quotePricePressure').value = d.price;
-    if (d.services && d.services.length) { services = d.services; renderChips(); renderAddons(); }
+    if (d.services && d.services.length) {
+      services = d.services;
+      serviceSize = Array.isArray(d.serviceSize) ? d.serviceSize : services.map(() => ({}));
+      renderChips(); renderAddons();
+    }
     // Restore story selection if user had explicitly set it.
     // Also restore _userSetStories so checkCustomerAlerts won't overwrite a restored deliberate pick.
     if (d.userSetStories && d.roofStories !== null && d.roofStories !== undefined) {

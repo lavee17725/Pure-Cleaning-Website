@@ -2187,23 +2187,26 @@ async function handlePhotoR2Upload(request, env, url, corsHeaders) {
   const propertyId = url.searchParams.get('propertyId') || '';
   const updateD1   = url.searchParams.get('updateD1') === 'true';
 
-  if (!['before', 'after', 'satellite'].includes(type)) {
-    return jsonResponse({ error: 'type must be before | after | satellite' }, corsHeaders, 400);
+  if (!['before', 'after', 'satellite', 'front'].includes(type)) {
+    return jsonResponse({ error: 'type must be before | after | satellite | front' }, corsHeaders, 400);
   }
-  if (type === 'satellite' && !propertyId) {
-    return jsonResponse({ error: 'propertyId required for type=satellite' }, corsHeaders, 400);
+  // satellite + front are property-level reference images; both require propertyId.
+  if ((type === 'satellite' || type === 'front') && !propertyId) {
+    return jsonResponse({ error: 'propertyId required for type=satellite or type=front' }, corsHeaders, 400);
   }
   if ((type === 'before' || type === 'after') && !jobId) {
     return jsonResponse({ error: 'jobId required for type=before or type=after' }, corsHeaders, 400);
   }
 
   // Derive R2 key.
-  // Satellite overwrites on re-upload (same key = same property) — intended.
+  // Satellite + front overwrite on re-upload (same key = same property) — intended.
   // Before/after get a timestamp suffix so multiple uploads per job never collide.
   const ts  = Date.now();
   const key = type === 'satellite'
     ? `property/${propertyId}/satellite.jpg`
-    : `job/${jobId}/${type}_${ts}.jpg`;
+    : type === 'front'
+      ? `property/${propertyId}/front.jpg`
+      : `job/${jobId}/${type}_${ts}.jpg`;
 
   const contentType = (request.headers.get('Content-Type') || 'image/jpeg').split(';')[0].trim();
 
@@ -2224,6 +2227,10 @@ async function handlePhotoR2Upload(request, env, url, corsHeaders) {
       if (type === 'satellite' && propertyId) {
         await env.DB.prepare(
           `UPDATE Property SET satelliteImageKey = ?, modifiedAt = ? WHERE propertyId = ?`
+        ).bind(key, now, propertyId).run();
+      } else if (type === 'front' && propertyId) {
+        await env.DB.prepare(
+          `UPDATE Property SET frontImageKey = ?, modifiedAt = ? WHERE propertyId = ?`
         ).bind(key, now, propertyId).run();
       } else if ((type === 'before' || type === 'after') && jobId) {
         const row      = await env.DB.prepare(`SELECT photoKeys FROM Job WHERE jobId = ?`).bind(jobId).first();
@@ -2726,6 +2733,31 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
         addOns: addOns || existing.addOns || [],
         lastUpdated: now,
       }));
+
+      // ── Phase 2: image keys carry-over → Property ─────────────────────────
+      // Photos were uploaded to R2 at quote-build time; R2 keys stored in the
+      // quote payload.  _d1SyncNewCustomer (above) guarantees the Property row
+      // exists before this runs. Idempotent — UPDATE on same key is safe.
+      if ((existing.satelliteImageKey || existing.frontImageKey) && env.DB) {
+        try {
+          const _imgPropId = cust.address ? _d1PropId(cust.address, cust.city||'') : null;
+          if (_imgPropId) {
+            if (existing.satelliteImageKey) {
+              await env.DB.prepare(
+                `UPDATE Property SET satelliteImageKey=?,modifiedAt=? WHERE propertyId=?`
+              ).bind(existing.satelliteImageKey, now, _imgPropId).run();
+            }
+            if (existing.frontImageKey) {
+              await env.DB.prepare(
+                `UPDATE Property SET frontImageKey=?,modifiedAt=? WHERE propertyId=?`
+              ).bind(existing.frontImageKey, now, _imgPropId).run();
+            }
+          }
+        } catch(e) {
+          // Non-fatal — R2 blobs are safe. Log and continue.
+          await _logD1Failure(env, `handleAgreementConfirm:imageKeys:${phone}`, e.message).catch(()=>{});
+        }
+      }
     }
   }
 
