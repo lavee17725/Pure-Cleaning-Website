@@ -781,7 +781,7 @@ function buildServiceDescription(jobHistory, quoteStatus, scheduledStatus) {
 
 const ACTIVE_VARIANT = {
   label: 'B',
-  template: `Hi {firstName}, Tyler from Pure Cleaning. It's been about {timeSinceLastService} since we cleaned your {lastServiceDescription} — {seasonalHook}.
+  template: `Hi {firstName}, Tyler from Pure Cleaning. It's been about {monthsText} since we pressure cleaned your exterior.
 
 Try out our new quote system, your info's already filled in:
 {quoteLink}
@@ -2301,7 +2301,11 @@ function resolveTemplateVars(customer, link) {
   const svcDesc        = buildServiceDescription(customer.jobHistory, customer.quoteStatus, customer.scheduledStatus) || 'place';
   const seasonalHook   = getSeasonalHook();
   const months         = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
-  return { firstName, timeSince, svcDesc, seasonalHook, months, link };
+  // monthsText — safe phrase for templates that say "about {monthsText} since…"
+  // Produces "14 months" (integer > 0) or "a while" (missing / no-history edge case).
+  // Hidden variants use {months} (bare integer) — monthsText is additive, not a replacement.
+  const monthsText     = months > 0 ? `${months} months` : 'a while';
+  return { firstName, timeSince, svcDesc, seasonalHook, months, monthsText, link };
 }
 
 function resolveTemplateFallbacks(customer) {
@@ -2313,7 +2317,7 @@ function resolveTemplateFallbacks(customer) {
 }
 
 function buildVariantBody(variant, customer, link) {
-  const { firstName, timeSince, svcDesc, seasonalHook, months } = resolveTemplateVars(customer, link);
+  const { firstName, timeSince, svcDesc, seasonalHook, months, monthsText } = resolveTemplateVars(customer, link);
   return variant.template
     .replace(/{firstName}/g, firstName)
     .replace(/{timeSinceLastService}/g, timeSince)
@@ -2321,6 +2325,7 @@ function buildVariantBody(variant, customer, link) {
     .replace(/{seasonalHook}/g, seasonalHook)
     .replace(/{quoteLink}/g, link)
     .replace(/{link}/g, link)
+    .replace(/{monthsText}/g, monthsText)
     .replace(/{months}/g, months);
 }
 

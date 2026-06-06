@@ -335,6 +335,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .modal-section-hdr:first-child{border-top:none;padding-top:0;}
 .mbtn-danger{flex:1;padding:11px;border:none;border-radius:10px;background:#fef2f2;color:var(--red);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
 .mbtn-green{flex:1;padding:11px;border:none;border-radius:10px;background:#d1fae5;color:#047857;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+/* Batch A — fullEditModal additions */
+.fe-alt-entry{background:#f0f6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:10px 12px;margin-top:8px;}
+.fe-alt-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.fe-alt-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--sky);}
+.fe-alt-rm{background:none;border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;padding:0;}
+.fe-alt-rm:hover{color:var(--red);}
+.fe-sec-hdr{display:flex;align-items:center;justify-content:space-between;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);padding:10px 0 4px;margin-top:2px;border-top:1px solid var(--border);}
+.fe-add-link{font-size:12px;color:var(--sky);background:none;border:none;font-weight:600;cursor:pointer;padding:0;font-family:'DM Sans',sans-serif;text-transform:none;letter-spacing:0;}
+.fe-prop-chip{display:inline-flex;align-items:center;gap:5px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:3px 8px;font-size:12px;font-weight:600;color:#047857;margin:2px 3px 2px 0;}
 .js-edit-btn{display:block;width:100%;padding:4px 8px;border:1px solid #dbeafe;border-radius:5px;background:#eff6ff;color:#1e40af;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:left;margin-top:4px;transition:background .1s;}
 .js-edit-btn:hover{background:#dbeafe;}
 .addon-edit-row{padding:5px 0;border-bottom:1px solid #f3f4f6;}
@@ -1298,6 +1307,38 @@ body{background:#f0f2f5;}
 
     <div class="modal-section-hdr">Notes</div>
     <div class="modal-field"><textarea id="feNotes" class="modal-input" rows="2" placeholder="Any notes…" style="resize:vertical;"></textarea></div>
+
+    <!-- Batch A Gap 2: alternate contacts -->
+    <div class="fe-sec-hdr">
+      <span>Alternate Contacts</span>
+      <button type="button" class="fe-add-link" onclick="_feAddAltContact()">+ Add</button>
+    </div>
+    <div id="feAltContactsWrap"></div>
+
+    <!-- Batch A Gap 3: add second property -->
+    <div class="fe-sec-hdr">
+      <span>Properties</span>
+      <button type="button" class="fe-add-link" id="feAddPropToggle" onclick="_feToggleAddProp()">+ Add second property</button>
+    </div>
+    <div id="feExistingProps" style="margin-bottom:4px;"></div>
+    <div id="feAddPropPanel" style="display:none;background:#f9fafb;border:1.5px solid var(--border);border-radius:10px;padding:12px;margin-top:6px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="modal-field"><label>Street Address *</label><input id="feNewPropAddr" class="modal-input" placeholder="Street address"></div>
+        <div class="modal-field"><label>City *</label><input id="feNewPropCity" class="modal-input" placeholder="City"></div>
+      </div>
+      <div class="modal-field">
+        <label>Property Label</label>
+        <select id="feNewPropLabel" class="modal-input">
+          <option value="Main Residence">Main Residence</option>
+          <option value="Rental Property">Rental Property</option>
+          <option value="Friend's Property">Friend's Property</option>
+          <option value="Parent's / Relative's">Parent's / Relative's</option>
+          <option value="Vacation Home">Vacation Home</option>
+          <option value="Office / Commercial">Office / Commercial</option>
+        </select>
+      </div>
+      <div id="feNewPropStatus" style="font-size:12px;margin-top:-4px;margin-bottom:6px;display:none;"></div>
+    </div>
 
     <div id="feSplitRow" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
       <button id="feSplitBtn" class="mbtn-cancel" style="width:100%;margin-bottom:6px;" onclick="openSplitModal()">✂️ Split into multiple days</button>
@@ -6319,17 +6360,16 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feServices').value = svc;
   checkFeRoof();
 
-  const roofType = _jh ? '' : (svcAgreed.roofType || '');
+  // Gap 1 fix: read stored roofType from calJob (propRoofType from D1 Property), customer, or svcAgreed
+  const roofType = _jh ? '' : (_calJob?.propRoofType || c.roofType || svcAgreed.roofType || '');
   document.getElementById('feRoofType').value = roofType;
   document.getElementById('feGateCode').value = c.gateCode || '';
 
   // Property label — only visible for multi-property customers.
   // _calJob is a raw calendarJobs[] row and never has isMultiProperty on it —
   // compute fresh from _calPayerCounts() exactly as the cards do.
-  // Known limitation: _calPayerCounts is week-scoped (jobs in the loaded window only).
-  // For Joe/Xiang both jobs are same week so this works; a future improvement would
-  // gate on customer.properties[].length > 1 to handle cross-week multi-property cases.
-  const _isMultiProp   = !!(_calJob && (_calPayerCounts()[_calJob.payerId] || 0) > 1);
+  // Gap 4 fix: gate on week-scoped count OR customer properties array (handles cross-week multi-property).
+  const _isMultiProp   = !!(_calJob && ((_calPayerCounts()[_calJob.payerId] || 0) > 1 || (c.properties?.length || 0) > 1));
   const _showPropLabel = !!(_feCalJobId && _isMultiProp);
   document.getElementById('fePropLabelRow').style.display = _showPropLabel ? '' : 'none';
   if (_showPropLabel) {
@@ -6375,6 +6415,32 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feError').style.display     = 'none';
   const saveBtn = document.getElementById('feSaveBtn');
   if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+
+  // Gap 2: populate alternate contacts
+  _feResetAltContacts();
+  if (Array.isArray(c.alternateContacts) && c.alternateContacts.length) {
+    c.alternateContacts.forEach(a => _feAddAltContact(a));
+  } else if (c.altPhone) {
+    const _dph = (c.altPhone||'').replace(/\D/g,'').slice(0,10);
+    if (_dph.length === 10) _feAddAltContact({ phone: _dph });
+  }
+
+  // Gap 3: show existing properties + reset add-panel
+  const _existEl = document.getElementById('feExistingProps');
+  const _addPanel = document.getElementById('feAddPropPanel');
+  const _addToggle = document.getElementById('feAddPropToggle');
+  if (_existEl) {
+    const _props = c.properties || [];
+    if (_props.length > 0) {
+      _existEl.innerHTML = _props.map(p =>
+        `<span class="fe-prop-chip">🏠 ${esc(p.propertyLabel || p.streetAddress || 'Property')}</span>`
+      ).join('');
+    } else {
+      _existEl.innerHTML = '';
+    }
+  }
+  if (_addPanel) { _addPanel.style.display = 'none'; document.getElementById('feNewPropAddr').value = ''; document.getElementById('feNewPropCity').value = ''; document.getElementById('feNewPropLabel').value = 'Main Residence'; document.getElementById('feNewPropStatus').style.display = 'none'; }
+  if (_addToggle) _addToggle.textContent = '+ Add second property';
 
   const _jobIsDaySplit = !!(_calJob?.isMultiDayParent || (_calJob?.parentJobId && !_calJob?.isRigSegment));
   const _jobIsRigGroup = !!(_calJob?.isMultiDayParent && !_calJob?.parentJobId && !_jobIsDaySplit);
@@ -6439,6 +6505,119 @@ function closeFullEditModal() {
   _feCust     = null;
   _feJhJobId  = null;
   _feCalJobId = null;
+}
+
+// ── Batch A: Alternate contacts helpers (Gap 2) ──────────────────────────────
+function _feAddAltContact(data) {
+  const container = document.getElementById('feAltContactsWrap');
+  if (!container) return;
+  const idx  = container.children.length;
+  const rel  = data?.relationship || '';
+  const name = data?.name || '';
+  const phRaw = (data?.phone||'').replace(/\D/g,'').slice(0,10);
+  const phFmt = phRaw.length === 10 ? `(${phRaw.slice(0,3)}) ${phRaw.slice(3,6)}-${phRaw.slice(6)}` : phRaw;
+  const div = document.createElement('div');
+  div.className = 'fe-alt-entry';
+  div.dataset.idx = idx;
+  div.innerHTML = `
+    <div class="fe-alt-hdr">
+      <span class="fe-alt-lbl">Alt contact ${idx + 1}</span>
+      <button type="button" class="fe-alt-rm" onclick="_feRemoveAltContact(this)">× Remove</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+      <div class="modal-field" style="margin-bottom:0;">
+        <label>Relationship</label>
+        <select class="modal-input" style="padding:8px 10px;font-size:13px;">
+          <option value="">Select…</option>
+          <option value="spouse"${rel==='spouse'?' selected':''}>Spouse</option>
+          <option value="family"${rel==='family'?' selected':''}>Family member</option>
+          <option value="property_manager"${rel==='property_manager'?' selected':''}>Property manager</option>
+          <option value="tenant"${rel==='tenant'?' selected':''}>Tenant</option>
+          <option value="other"${rel==='other'?' selected':''}>Other</option>
+        </select>
+      </div>
+      <div class="modal-field" style="margin-bottom:0;">
+        <label>Name</label>
+        <input class="modal-input" type="text" placeholder="Full name" style="font-size:13px;padding:8px 10px;" value="${esc(name)}">
+      </div>
+    </div>
+    <div class="modal-field" style="margin-bottom:0;">
+      <label>Phone</label>
+      <input class="modal-input" type="tel" placeholder="(954) 555-0000" style="font-size:13px;padding:8px 10px;" value="${esc(phFmt)}" oninput="_feFmtAltPhone(this)">
+    </div>`;
+  container.appendChild(div);
+}
+
+function _feRemoveAltContact(btn) {
+  const entry = btn.closest('.fe-alt-entry');
+  if (entry) entry.remove();
+  const container = document.getElementById('feAltContactsWrap');
+  if (!container) return;
+  Array.from(container.children).forEach((el, i) => {
+    const lbl = el.querySelector('.fe-alt-lbl');
+    if (lbl) lbl.textContent = `Alt contact ${i + 1}`;
+    el.dataset.idx = i;
+  });
+}
+
+function _feBuildAltContacts() {
+  const container = document.getElementById('feAltContactsWrap');
+  if (!container) return [];
+  return Array.from(container.children).map(entry => {
+    const relSel  = entry.querySelector('select');
+    const nameInp = entry.querySelector('input[type=text]');
+    const phInp   = entry.querySelector('input[type=tel]');
+    const name    = (nameInp?.value||'').trim();
+    const phone   = (phInp?.value||'').replace(/\D/g,'').slice(0,10);
+    const relationship = relSel?.value || '';
+    return { name, phone, relationship };
+  }).filter(e => e.name || e.phone);
+}
+
+function _feResetAltContacts() {
+  const container = document.getElementById('feAltContactsWrap');
+  if (container) container.innerHTML = '';
+}
+
+function _feFmtAltPhone(input) {
+  const d = input.value.replace(/\D/g,'').slice(0,10);
+  if (d.length >= 7) input.value = `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+  else if (d.length >= 4) input.value = `(${d.slice(0,3)}) ${d.slice(3)}`;
+  else input.value = d;
+}
+
+// ── Batch A: Add second property helpers (Gap 3) ─────────────────────────────
+function _feToggleAddProp() {
+  const panel  = document.getElementById('feAddPropPanel');
+  const toggle = document.getElementById('feAddPropToggle');
+  if (!panel) return;
+  const showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : '';
+  if (toggle) toggle.textContent = showing ? '+ Add second property' : '× Cancel';
+}
+
+async function _feSubmitNewPropertyIfReady(phone) {
+  const addr   = (document.getElementById('feNewPropAddr')?.value || '').trim();
+  const city   = (document.getElementById('feNewPropCity')?.value || '').trim();
+  const label  = document.getElementById('feNewPropLabel')?.value || 'Main Residence';
+  const panel  = document.getElementById('feAddPropPanel');
+  if (!addr || !city || panel?.style.display === 'none') return; // nothing entered or panel hidden
+  const personId = 'person_1' + phone.replace(/\D/g,'').slice(-10);
+  const statusEl = document.getElementById('feNewPropStatus');
+  if (statusEl) { statusEl.textContent = 'Adding property…'; statusEl.style.color = 'var(--muted)'; statusEl.style.display = ''; }
+  const resp = await fetch(`${PCPC_API}/admin/property`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ personId, streetAddress: addr, city, propertyLabel: label }),
+  });
+  const result = await resp.json().catch(() => ({}));
+  if (!result.success) {
+    const msg = result.error || 'Property creation failed';
+    if (statusEl) { statusEl.textContent = '⚠️ ' + msg; statusEl.style.color = 'var(--red)'; statusEl.style.display = ''; }
+    throw new Error(msg);
+  }
+  // Success — hide panel (property now shown on next modal open via refreshed c.properties)
+  if (statusEl) statusEl.style.display = 'none';
 }
 
 // === SPLIT JOB MODAL (Phase 2B / 2C) ===
@@ -6881,15 +7060,18 @@ async function saveFullEdit() {
         logEvent('phone_changed', newPhone, { oldPhone, newPhone, changedBy: 'admin' });
       }
     }
+    // Gap 2: save alternate contacts to KV customer record
+    c.alternateContacts = _feBuildAltContacts();
     const saveBtn = document.getElementById('feSaveBtn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
     const errEl2 = document.getElementById('feError');
     try {
+      await _feSubmitNewPropertyIfReady(newPhone);  // Gap 3: add second property if panel filled
       await saveDb();
       closeFullEditModal();
       render();
     } catch(e) {
-      errEl2.textContent = 'Save failed — check connection.';
+      errEl2.textContent = 'Save failed — ' + e.message;
       errEl2.style.display = 'block';
       if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
     }
@@ -6981,7 +7163,8 @@ async function saveFullEdit() {
       await patchJob(_feCalJobId, patchBody);
       // Property label — save if multi-property and value changed.
       // _saveCalJob is a raw calendarJobs[] row — isMultiProperty must be computed live.
-      const _isMultiPropSave = !!(_saveCalJob && (_calPayerCounts()[_saveCalJob.payerId] || 0) > 1);
+      // Gap 4 fix: also check c.properties.length > 1 for cross-week multi-property customers
+      const _isMultiPropSave = !!(_saveCalJob && ((_calPayerCounts()[_saveCalJob.payerId] || 0) > 1 || (c.properties?.length || 0) > 1));
       if (_isMultiPropSave && _saveCalJob.propertyId && _saveCalJob.payerId) {
         const _labelSel = document.getElementById('fePropLabel');
         const _newLabel = _labelSel?.value === 'Other'
@@ -6999,6 +7182,9 @@ async function saveFullEdit() {
           }).catch(e => console.error('propLabel save failed', e.message));
         }
       }
+      // Gap 2: save alternate contacts to KV customer record
+      c.alternateContacts = _feBuildAltContacts();
+      await _feSubmitNewPropertyIfReady(newPhone);  // Gap 3: add second property if panel filled
       await saveDb();       // customer metadata (scheduledStatus NOT modified → no dual-write trigger)
       await refreshCalendarJobs();
       closeFullEditModal();
@@ -7114,15 +7300,19 @@ async function saveFullEdit() {
     }).catch(() => {});
   }
 
+  // Gap 2: save alternate contacts to KV customer record
+  c.alternateContacts = _feBuildAltContacts();
+
   const saveBtn = document.getElementById('feSaveBtn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
   try {
+    await _feSubmitNewPropertyIfReady(newPhone);  // Gap 3: add second property if panel filled
     await saveDb();
     closeFullEditModal();
     render();
   } catch(e) {
-    errEl.textContent = 'Save failed — check connection.';
+    errEl.textContent = 'Save failed — ' + e.message;
     errEl.style.display = 'block';
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
   }

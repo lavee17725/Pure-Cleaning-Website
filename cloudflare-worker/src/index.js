@@ -3643,7 +3643,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
 }
 
 async function d1AllCustomersToKvShape(env) {
-  const [persons, propLinks, jobs, reviewStates, truckDriveTimes] = await Promise.all([
+  const [persons, propLinks, jobs, reviewStates, truckDriveTimes, kvDb] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType,' +
@@ -3677,6 +3677,9 @@ async function d1AllCustomersToKvShape(env) {
       ` ORDER BY t3.startedAt ASC LIMIT 1) AS driveOutMinutes` +
       ` FROM TruckEvent te WHERE te.eventType='job_arrival' AND te.jobId IS NOT NULL`
     ).all().then(r => r.results || []).catch(() => []),
+    // TEMP KV bridge: alternateContacts + altPhone live in KV only (no D1 column yet).
+    // Remove this fetch once Person.alternateContactsJson column is added.
+    env.DATA.get('customer_db', 'json').then(d => d || { customers: [] }),
   ]);
 
   // Index by personId + propertyId
@@ -3691,6 +3694,16 @@ async function d1AllCustomersToKvShape(env) {
   for (const j of jobs) {
     if (!jobsByPayer[j.payerId]) jobsByPayer[j.payerId] = [];
     jobsByPayer[j.payerId].push(j);
+  }
+
+  // TEMP KV bridge: build phone → {alternateContacts, altPhone} lookup
+  const _ph10 = p => (p||'').replace(/\D/g,'').slice(-10);
+  const kvAltMap = new Map();
+  for (const kc of (kvDb.customers || [])) {
+    const kph = _ph10(kc.phone);
+    if (kph && (kc.alternateContacts || kc.altPhone)) {
+      kvAltMap.set(kph, { alternateContacts: kc.alternateContacts || null, altPhone: kc.altPhone || null });
+    }
   }
 
   // TruckEvent drive-time lookup: jobId → { driveInMinutes, driveOutMinutes }
@@ -3717,6 +3730,12 @@ async function d1AllCustomersToKvShape(env) {
           if (dt.driveOutMinutes != null) jh.driveOutMinutes = dt.driveOutMinutes;
         }
       }
+    }
+    // TEMP KV bridge: merge alternateContacts + altPhone from KV if present
+    const kvAlt = kvAltMap.get(ph);
+    if (kvAlt) {
+      if (kvAlt.alternateContacts) customer.alternateContacts = kvAlt.alternateContacts;
+      if (kvAlt.altPhone) customer.altPhone = kvAlt.altPhone;
     }
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
     // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
@@ -3804,6 +3823,14 @@ async function d1CustomerToKvShape(phone, env) {
     satelliteImageKey: pp.satelliteImageKey || null,  // Phase 3: R2 key
     frontImageKey:     pp.frontImageKey     || null,  // Phase 3: R2 key
   }));
+  // TEMP KV bridge: merge alternateContacts + altPhone from KV (no D1 column yet).
+  // Remove once Person.alternateContactsJson column is added.
+  const kvDbSingle = await env.DATA.get('customer_db', 'json').then(d => d || { customers: [] });
+  const kvC = (kvDbSingle.customers || []).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
+  if (kvC) {
+    if (kvC.alternateContacts) customer.alternateContacts = kvC.alternateContacts;
+    if (kvC.altPhone)          customer.altPhone          = kvC.altPhone;
+  }
   return customer;
 }
 

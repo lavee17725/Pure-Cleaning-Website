@@ -223,6 +223,8 @@ select option{background:var(--white);}
 /* property appraiser link (smart auto-detect) */
 .prop-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);background:rgba(26,31,46,.04);border:1px solid var(--border);border-radius:6px;padding:3px 9px;text-decoration:none;transition:all .15s;font-family:'DM Sans',sans-serif;white-space:nowrap;}
 .prop-link:hover{color:var(--terra);border-color:rgba(194,65,12,.4);background:var(--terra-l);}
+/* imagery + records link row (multi-source quoting aid, Phase 3) */
+.prop-link-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:0;}
 /* toast */
 .qb-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--navy);color:var(--white);padding:9px 22px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;pointer-events:none;opacity:0;transition:opacity .35s;box-shadow:0 4px 20px rgba(0,0,0,.2);white-space:nowrap;border:1.5px solid rgba(194,65,12,.4);}
 .qb-toast.show{opacity:1;}
@@ -1381,23 +1383,46 @@ function updatePropLink() {
   if (!wrap) return;
 
   if (!addr) {
-    wrap.innerHTML = '<button class="prop-link" disabled title="Enter customer address first" style="opacity:.4;cursor:not-allowed;">📍 Look up property records →</button>';
+    wrap.innerHTML = '';          // hide row entirely when no address
     updateV2CopyBtn(false);
     return;
   }
 
+  const enc    = encodeURIComponent(addr);
   const county = detectCounty(addr);
-  let url;
-  if (county === 'broward') {
-    url = 'https://web.bcpa.net/BcpaClient/#/Record-Search';
-  } else if (county === 'miami-dade') {
-    url = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';
-  } else if (county === 'palm-beach') {
-    url = 'https://pbcpao.gov/AdvSearch/AdvanceSearch';
-  } else {
-    url = 'https://www.google.com/search?q=' + encodeURIComponent(addr + ' FL property appraiser');
-  }
-  wrap.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" class="prop-link" title="Opens property appraiser in new tab">📍 Look up property records →</a>';
+
+  // ── Satellite / aerial imagery deep-links (UNGATED — address string only, zero API cost) ──
+  // Google: &t=k requests satellite layer (widely supported, not officially documented).
+  // Opens at the address in satellite/hybrid view — user may need to confirm one map layer click.
+  const googleUrl = 'https://maps.google.com/maps?q=' + enc + '&t=k';
+  // Bing: &style=a = aerial (full overhead satellite). Works cleanly from an address string.
+  // &style=b = Bird's Eye (oblique) — available in most South FL suburbs but not all.
+  const bingUrl   = 'https://www.bing.com/maps?q=' + enc + '&style=a';
+
+  // ── Property appraiser (BCPA / county PA — click-to-open, no address param) ──
+  let apprUrl, apprLabel;
+  if      (county === 'broward')    { apprUrl = 'https://web.bcpa.net/BcpaClient/#/Record-Search';     apprLabel = '📍 BCPA'; }
+  else if (county === 'miami-dade') { apprUrl = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';   apprLabel = '📍 Miami-Dade PA'; }
+  else if (county === 'palm-beach') { apprUrl = 'https://pbcpao.gov/AdvSearch/AdvanceSearch';           apprLabel = '📍 PBC PAO'; }
+  else                              { apprUrl = 'https://www.google.com/search?q=' + enc + '+property+appraiser'; apprLabel = '📍 Appraiser'; }
+
+  // ── County GIS (parcel/flood/aerial overlay — click-to-open, no address param) ──
+  let gisUrl = null, gisLabel = null;
+  if      (county === 'broward')    { gisUrl = 'https://gis.broward.org/BrowardGIS/';   gisLabel = '🗺 Broward GIS'; }
+  else if (county === 'miami-dade') { gisUrl = 'https://gisims.miamidade.gov/MDMapShop/'; gisLabel = '🗺 M-D GIS'; }
+  else if (county === 'palm-beach') { gisUrl = 'https://maps.co.palm-beach.fl.us/';       gisLabel = '🗺 PBC GIS'; }
+
+  const _lnk = (url, label, title) =>
+    `<a href="${url}" target="_blank" rel="noopener" class="prop-link" title="${title}">${label}</a>`;
+
+  wrap.innerHTML =
+    `<div class="prop-link-row">` +
+      _lnk(googleUrl, '🛰 Google',    'Open in Google Maps — satellite view') +
+      _lnk(bingUrl,   '🦅 Bing',      'Open in Bing Maps — aerial view') +
+      _lnk(apprUrl,   apprLabel,      'Open county property appraiser (paste address)') +
+      (gisUrl ? _lnk(gisUrl, gisLabel, 'Open county GIS viewer (paste address)') : '') +
+    `</div>`;
+
   updateV2CopyBtn(true);
 }
 function updateV2CopyBtn(enable) {
