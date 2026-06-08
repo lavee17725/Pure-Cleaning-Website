@@ -6344,9 +6344,17 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feLn').value    = (c.lastName ||c.ln||'').trim();
   document.getElementById('fePhone').value = _fmtPhDisplay(_fePhone);
   document.getElementById('feEmail').value = c.email || '';
-  // Job-level address/city: from calJob (correct property), jhEntry, or customer default
-  const _jobAddr = _calJob ? (_calJob.streetAddress || '') : '';
-  const _jobCity = _calJob ? (_calJob.city || '') : '';
+  // F3/F4/F5 partner guard — computed once, used by all three fixes below.
+  const _isPartner = c.customerType === 'partner_referral';
+  // Job-level address/city: from calJob (correct property), jhEntry, or customer default.
+  // F5: for partner_referral, workSiteAddress is the homeowner's address (correct); streetAddress
+  // on old jobs is the billing anchor (wrong). Prefer workSiteAddress when available.
+  const _jobAddr = _calJob
+    ? (_isPartner ? (_calJob.workSiteAddress || _calJob.streetAddress || '') : (_calJob.streetAddress || ''))
+    : '';
+  const _jobCity = _calJob
+    ? (_isPartner ? (_calJob.workSiteCity    || _calJob.city           || '') : (_calJob.city           || ''))
+    : '';
   document.getElementById('feAddr').value  = _jh ? (_jh.address || '') : (_jobAddr || c.address || '');
   document.getElementById('feCity').value  = _jh ? (_jh.city    || '') : (_jobCity || c.city    || '');
   updateFeCopyBtn();
@@ -6360,8 +6368,11 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feServices').value = svc;
   checkFeRoof();
 
-  // Gap 1 fix: read stored roofType from calJob (propRoofType from D1 Property), customer, or svcAgreed
-  const roofType = _jh ? '' : (_calJob?.propRoofType || c.roofType || svcAgreed.roofType || '');
+  // Gap 1 fix: read stored roofType from calJob (propRoofType from D1 Property), customer, or svcAgreed.
+  // F4: for partner_referral, skip c.roofType (billing anchor's value) — each job is a different house.
+  // New jobs: propRoofType=null (worksite property), so blank is correct.
+  // Old jobs: propRoofType may be anchor's value; blank is safer than a stale value.
+  const roofType = (_jh || _isPartner) ? '' : (_calJob?.propRoofType || c.roofType || svcAgreed.roofType || '');
   document.getElementById('feRoofType').value = roofType;
   document.getElementById('feGateCode').value = c.gateCode || '';
 
@@ -6387,7 +6398,9 @@ function openEditModal(phone, jhJobId, calJobId) {
       _labelOtherRow.style.display = '';
     }
   }
-  const stories = _jh ? _jh.roofStories : (ss.roofStories || getLastKnownRoofStories(c) || null);
+  // F3: for partner_referral every job is a different house — never inherit last-known story from history.
+  // ss.roofStories (the value saved for THIS specific job) is still shown; only the cross-job fallback is blocked.
+  const stories = _jh ? _jh.roofStories : (ss.roofStories || (_isPartner ? null : getLastKnownRoofStories(c)) || null);
   const stEl = stories ? document.getElementById('feStories' + Math.min(Math.max(parseInt(stories)||1, 1), 2))
                        : document.getElementById('feStoriesUnk');
   if (stEl) stEl.checked = true;

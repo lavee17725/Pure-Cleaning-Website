@@ -1066,6 +1066,8 @@ function dbRecordToCustomer(r) {
     deletedAt: r.deletedAt || null,
     jobHistory: r.jobHistory || [],
     legacyStats: r.legacyStats || null,
+    // DL-06: carry customerType so partner_referral/commercial can be excluded from residential campaigns.
+    customerType: r.customerType || 'residential',
     // Per-service-type reactivation fields
     lastGroundDateObj, lastRoofDateObj, monthsSinceGround, monthsSinceRoof,
     svcSection, groundUrgency, roofUrgency,
@@ -1610,6 +1612,8 @@ function applyFilters() {
 
   if (poolTab === 'timeline') {
     filteredCustomers = allCustomers.filter(c => {
+      // DL-06: exclude partners + commercial from residential reactivation campaigns
+      if (c.customerType === 'partner_referral' || c.customerType === 'commercial') return false;
       if (c.reactivationExcluded?.excluded || c.optOut || c.movedAway) return false;
       if (!activeTiers.has(c.tier)) return false;
       if (city && c.city !== city) return false;
@@ -1640,6 +1644,10 @@ function applyFilters() {
     }
     // Exclude DNS/cold-storage customers from all other tabs
     if (c.quoteLifecycle === 'did_not_service' || c.quoteLifecycle === 'cold_storage') return false;
+    // DL-06: partners + commercial never in residential reactivation (opted_out/moved_away tabs still ok to show them)
+    if (poolTab !== 'opted_out' && poolTab !== 'moved_away' && poolTab !== 'excluded') {
+      if (c.customerType === 'partner_referral' || c.customerType === 'commercial') return false;
+    }
     if (poolTab === 'excluded')   return c.reactivationExcluded?.excluded === true;
     if (poolTab === 'opted_out')   return !!c.optOut;
     if (poolTab === 'moved_away')  return !!c.movedAway;

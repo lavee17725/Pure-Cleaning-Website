@@ -653,7 +653,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
 
 
-      <div class="field" style="margin-top:.5rem;">
+      <div class="field" id="nLeadSourceField" style="margin-top:.5rem;">
         <label>How did they hear about us? <span style="font-weight:400;font-size:12px;color:var(--muted);">(optional)</span></label>
         <select id="nLeadSource" class="fi" style="padding:10px 14px;" onchange="onLeadSourceChange(this)">
           <option value="">Select one…</option>
@@ -1258,7 +1258,7 @@ function getServicesAgreedValue() {
   return {
     structured,
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
-    roofStories:      isRoofSel ? (() => { const v = document.querySelector('input[name=nRoofStories]:checked')?.value; const s = v ? parseInt(v) : null; const _nph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(0,10); const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === _nph); const lastKnown = getLastKnownRoofStories(existing); if (lastKnown && s && lastKnown !== s && !confirm(`${existing?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${s}-story.\n\nClick OK to use ${s}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return s; })() : null,
+    roofStories:      isRoofSel ? (() => { const v = document.querySelector('input[name=nRoofStories]:checked')?.value; const s = v ? parseInt(v) : null; if (currentCustomerType === 'partner_referral') return s; const _nph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(0,10); const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === _nph); const lastKnown = getLastKnownRoofStories(existing); if (lastKnown && s && lastKnown !== s && !confirm(`${existing?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${s}-story.\n\nClick OK to use ${s}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return s; })() : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
     roofSqFt:         parseInt(document.getElementById('nRoofSqFt')?.value) || null,
@@ -1665,6 +1665,9 @@ function setCustomerType(type) {
   // Fix 1: hide main address block in partner mode — partner section has its own work-site address
   const mainAddrBlock = document.getElementById('mainAddrBlock');
   if (mainAddrBlock) mainAddrBlock.style.display = type === 'partner_referral' ? 'none' : '';
+  // F1: hide "How did they hear about us?" — partner IS the source, field is meaningless
+  const leadSrcField = document.getElementById('nLeadSourceField');
+  if (leadSrcField) leadSrcField.style.display = type === 'partner_referral' ? 'none' : '';
   checkReq();
 }
 
