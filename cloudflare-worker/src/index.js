@@ -3492,20 +3492,50 @@ function _d1BuildScheduledStatus(personJobs) {
   // book of record and holds the correct amount + rigId=null for the whole group.
   // Without this guard, a rig-segment child (amount=0, rigId=rig_X) could become the
   // KV scheduledStatus representative, showing $0 and the wrong rig on the profile.
-  const activeScheduled = personJobs.find(j => j.state === 'scheduled'  && !j.isRigSegment);
+  //
+  // Fix 1 (multi-day): also skip day-split children (parentJobId set, isRigSegment=0).
+  // Previously the latest-dated child (e.g. _d3 Seal $500) would win over the parent
+  // ($200), making ss.approvedAmount=$500 instead of the group total $1,000 and
+  // ss.jobNotes="Seal" instead of the full service list. The parent is always the
+  // representative; group total and full services are computed below.
+  const activeScheduled = personJobs.find(j => j.state === 'scheduled'  && !j.isRigSegment && !j.parentJobId);
   const recentCompleted = personJobs.find(j =>
-    j.state === 'completed' && j.completedAt && j.completedAt >= thirtyDaysAgo && !j.isRigSegment
+    j.state === 'completed' && j.completedAt && j.completedAt >= thirtyDaysAgo && !j.isRigSegment && !j.parentJobId
   );
   const ss = activeScheduled
            || recentCompleted
-           || personJobs.find(j => j.state !== 'cancelled' && !j.isRigSegment);
+           || personJobs.find(j => j.state !== 'cancelled' && !j.isRigSegment && !j.parentJobId);
   if (!ss) return null;
+
+  // Group total: for multi-day parents, sum all non-cancelled children's amounts.
+  // For rig-split parents the full amount already lives on the parent row ($0 on children).
+  // For standalone jobs this is a no-op (no children).
+  // Only day-split children (isRigSegment=0) get services concatenated.
+  // Rig-segment children (isRigSegment=1) carry the same servicesRaw as the parent —
+  // including them would triple/quadruple the service string. Their billing ($0) is
+  // already excluded from the amount sum (they contribute nothing). Fix 4 handles them.
+  const _multiDayChildren = ss.isMultiDayParent
+    ? personJobs.filter(c => c.parentJobId === ss.jobId && c.state !== 'cancelled' && !c.isRigSegment)
+    : [];
+  const _childAmtSum = _multiDayChildren.reduce((s, c) => s + (c.amount || 0), 0);
+  const _groupApprovedAmt = (ss.amount || 0) + _childAmtSum;
+
+  // Group service string: for multi-day parents, concatenate all days in dayNumber order.
+  // e.g. "Pressure Clean → Sand → Seal" instead of only "Pressure Clean" (the parent's row).
+  let _groupJobNotes = ss.servicesRaw || '';
+  if (ss.isMultiDayParent && _multiDayChildren.length > 0) {
+    const _childrenByDay = _multiDayChildren.slice().sort((a, b) => (a.dayNumber||0) - (b.dayNumber||0));
+    const _allSvc = [ss.servicesRaw, ..._childrenByDay.map(c => c.dayPhase || c.servicesRaw)]
+      .filter(Boolean);
+    if (_allSvc.length > 1) _groupJobNotes = _allSvc.join(' → ');
+  }
+
   return {
     state:               ss.state,
     scheduledDate:       ss.scheduledDate  || null,
     rig:                 ss.rigId          || null,
-    approvedAmount:      ss.amount         || 0,
-    jobNotes:            ss.servicesRaw    || '',
+    approvedAmount:      _groupApprovedAmt,
+    jobNotes:            _groupJobNotes,
     completedAt:         ss.completedAt    || null,
     completedDate:       ss.completedAt    ? ss.completedAt.slice(0,10) : null,
     paymentStatus:       ss.paymentStatus  || 'unpaid',
@@ -3550,7 +3580,20 @@ function _d1PersonToKv(p, props, pjobs, propById) {
   const totalJobs      = completedJobs.length;
   const jobHistory     = completedJobs.filter(j => j.jobId).map(j => {
     const entry = _d1JobToJhEntry(j, city, addr, propById);
-    if (j.isMultiDayParent) entry.amount = _groupAmt(j); // roll up children into parent entry
+    if (j.isMultiDayParent) {
+      // Fix 2: roll up group total AND concatenate all day-services onto the parent entry.
+      // Previously only amount was summed; services came from parent.servicesRaw alone
+      // (e.g. "Pressure Clean"), dropping child phases ("Sand", "Seal").
+      entry.amount = _groupAmt(j);
+      // Exclude rig-segment children (isRigSegment=1) — they duplicate the parent's
+      // servicesRaw and are handled separately in Fix 4 (multi-rig/Bouncie).
+      const _jhChildren = pjobs
+        .filter(c => c.parentJobId === j.jobId && c.state !== 'cancelled' && !c.isRigSegment)
+        .sort((a, b) => (a.dayNumber || 0) - (b.dayNumber || 0));
+      const _jhAllSvc = [j.servicesRaw, ..._jhChildren.map(c => c.dayPhase || c.servicesRaw)]
+        .filter(Boolean);
+      if (_jhAllSvc.length > 1) entry.services = _jhAllSvc.join(' → ');
+    }
     return entry;
   });
 
@@ -3662,7 +3705,8 @@ async function d1AllCustomersToKvShape(env) {
       'tipped,tipAmount,complained,complaintNotes,' +
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
       'drivetimeFromPreviousJob,milesFromPreviousJob,' +
-      'parentJobId,isMultiDayParent,isRigSegment ' +
+      'parentJobId,isMultiDayParent,isRigSegment,' +
+      'dayNumber,dayPhase ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
     env.DATA.get('review_states', 'json').then(d => d || {}),
@@ -3768,7 +3812,8 @@ async function d1CustomerToKvShape(phone, env) {
       'tipped,tipAmount,complained,complaintNotes,' +
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
       'drivetimeFromPreviousJob,milesFromPreviousJob,' +
-      'parentJobId,isMultiDayParent,isRigSegment ' +
+      'parentJobId,isMultiDayParent,isRigSegment,' +
+      'dayNumber,dayPhase ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
     // TruckEvent drive times scoped to this person's jobs
@@ -4800,7 +4845,7 @@ async function handleGetJobDays(request, env, jobId, corsHeaders) {
   const rootId = rootRow.rootId;
 
   const { results } = await env.DB.prepare(`
-    SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, totalDays, rigId
+    SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, totalDays, rigId, servicesRaw
     FROM Job
     WHERE (jobId=? OR parentJobId=?)
       AND state != 'cancelled'

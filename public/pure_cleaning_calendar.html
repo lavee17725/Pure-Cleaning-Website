@@ -4709,10 +4709,21 @@ async function _doCompleteJob(log) {
   }
   // ── End Tier 2 ML fields ─────────────────────────────────────────────────
 
+  // Fix 3 (multi-day services): rebuild the full service string from all group members
+  // in dayNumber order rather than reading ss.jobNotes (one day's services only).
+  // _groupSiblings comes from /admin/job/:id/days (includes servicesRaw after Fix 2 support).
+  // For standalone jobs or when the group-fetch failed, falls back to ss.jobNotes.
+  const _jhServices = (_isGroupJob && _groupSiblings.length > 1)
+    ? _groupSiblings
+        .filter(d => d.dayPhase || d.servicesRaw)
+        .map(d => d.dayPhase || d.servicesRaw)
+        .join(' → ')
+    : (ss.jobNotes || '');
+
   const _jhEntry = {
     jobId:          _jhJobId,
     date:           completedDate,
-    services:       ss.jobNotes || '',
+    services:       _jhServices,
     amount:         _groupTotalAmt,
     rig:            ss.rig || null,
     city:           c.city || null,
