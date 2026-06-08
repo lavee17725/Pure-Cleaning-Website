@@ -1484,23 +1484,47 @@ async function scheduleJobWithDualWrite({
       if (fullR && fullR.ok) {
         const fullD = await fullR.json().catch(() => null);
         const props = (fullD?.customer?.properties) || [];
-        // Law T1.11: multi-property customer — NEVER silently guess the service address.
-        // Single-property (the normal case): safe to auto-resolve, only one option exists.
-        // Multi-property + no explicit propertyId passed: fail loud so the caller is forced
-        // to resolve which property this job is for. A silent wrong-address booking is worse
-        // than a visible error — the latter gets fixed immediately.
-        //
-        // Partner exemption: partner_referral customers resolve location via workSiteAddress
-        // (the homeowner's address), not property selection. Their propertyId is always the
-        // billing anchor — auto-resolve to primaryContact is correct. Skip the guard.
-        if (props.length > 1 && fullD?.customer?.customerType !== 'partner_referral') {
-          return {
-            success: false,
-            error: 'multi_property_ambiguous',
-            message: `Cannot schedule — ${fullD?.customer?.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
-          };
+        const isPartner = fullD?.customer?.customerType === 'partner_referral';
+
+        // Model fix (Step 2): partner jobs bind to the ACTUAL WORKSITE as their D1 Property,
+        // not the partner's billing anchor. Every Harts/Carlos/etc. job is at a different
+        // homeowner's house — the property row should represent THAT house, so handleCalendarJobs
+        // JOINs return the correct address, roofType=null (new house), sqFt=null.
+        // POST /admin/property is idempotent: same streetAddress+city → same _d1PropId →
+        // INSERT OR IGNORE, so re-submitting the same worksite never duplicates the row.
+        // The worksite property links to the partner with primaryContact=0 — billing anchor untouched.
+        if (isPartner && workSiteAddress && workSiteCity) {
+          const wsResp = await fetch(`${PCPC_API}/admin/property`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              personId,
+              streetAddress: workSiteAddress,
+              city:          workSiteCity,
+              propertyLabel: 'Work Site',
+              ...(workSitePlaceId ? { googlePlaceId: workSitePlaceId } : {}),
+            }),
+          }).catch(() => null);
+          const wsResult = wsResp && wsResp.ok ? await wsResp.json().catch(() => null) : null;
+          if (wsResult?.success && wsResult.propertyId) {
+            propId = wsResult.propertyId;
+          }
+          // If POST /admin/property failed (network/D1 error), fall through to billing-anchor
+          // fallback below so scheduling still succeeds rather than silently blocking.
         }
-        propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
+
+        if (!propId) {
+          // Non-partner, or partner where workSiteAddress missing / property-create failed.
+          // Law T1.11: multi-property residential — NEVER silently guess the service address.
+          if (props.length > 1 && !isPartner) {
+            return {
+              success: false,
+              error: 'multi_property_ambiguous',
+              message: `Cannot schedule — ${fullD?.customer?.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
+            };
+          }
+          propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
+        }
       }
     } catch(_) {}
   }
