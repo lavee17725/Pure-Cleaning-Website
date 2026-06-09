@@ -1019,6 +1019,16 @@ export default {
         return await handleGetJobDays(request, env, jobId, corsHeaders);
       }
 
+      // GET /admin/monthly-breakdown?month=YYYY-MM
+      // One row per job-group (parents + standalone). Excludes rig_segment children
+      // and day-children (parent represents the group). Group amount computed in SQL
+      // because parent.amount is the Day-1 slice for multi-day jobs, not the total.
+      // Date filter uses business date: completedAt converted to ET for completed jobs,
+      // scheduledDate as-is for scheduled. Auth: gated by isPublic check above (admin).
+      if (path === 'admin/monthly-breakdown' && request.method === 'GET') {
+        return await handleMonthlyBreakdown(request, env, corsHeaders);
+      }
+
       if (path.startsWith('admin/job/') && path.endsWith('/complete-group') && request.method === 'POST') {
         const jobId = path.slice('admin/job/'.length, -'/complete-group'.length);
         return await handleCompleteJobGroup(request, env, jobId, corsHeaders);
@@ -4693,6 +4703,123 @@ async function handleCalendarJobs(request, env, corsHeaders) {
     return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: results || [] }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handleCalendarJobs', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── GET /admin/monthly-breakdown ─────────────────────────────────────────────
+// Returns one row per job-group for the given month. Group amount is computed
+// in SQL because the multi-day parent's Job.amount carries only Day 1's slice
+// (verified: Jessica's parent = $200, sum-with-children = $1,000). Rig-group
+// parent.amount is the full billing (Carlos = $1,200, segments are $0) — the
+// same formula works for both because rig_segment children are excluded from
+// the sum.
+//
+// Business date convention: scheduledDate ONLY. It is already an ET YYYY-MM-DD
+// business date with no time component, so the month bucket is timezone-safe by
+// design. Alternative (UTC completedAt converted via -4 hours) was DST-correct
+// during Mar-Nov but off by 1 hour during EST, putting jobs completed 11 PM-12 AM
+// ET on the last day of the month into the next month (T1.8 class issue).
+// scheduledDate also aligns with how the calendar buckets jobs (by scheduledDate),
+// so the monthly view = "what was on the calendar for this month" — Mom's mental model.
+// Trade-off: a job rescheduled across a month boundary is bucketed by its FINAL
+// scheduledDate, not its completion date. Acceptable — that matches the calendar.
+//
+// Partner-aware address: COALESCE(j.workSiteAddress, prop.streetAddress). After
+// the Step-2 partner model fix, prop.streetAddress IS the worksite for partners,
+// so this matches the client-side _partnerAddr helper for new + repaired partner
+// jobs. Legacy partner jobs (csv_backfill, pre-repair) get covered by the
+// workSiteAddress backup field when present.
+async function handleMonthlyBreakdown(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const url   = new URL(request.url);
+  const month = url.searchParams.get('month');
+  if (!month || !/^\d{4}-\d{2}$/.test(month))
+    return jsonResponse({ error: 'month required (YYYY-MM)' }, corsHeaders, 400);
+
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT
+        j.jobId,
+        j.scheduledDate,
+        j.completedAt,
+        j.state,
+        j.amount AS rawAmount,
+        j.servicesRaw,
+        j.jobNotes,
+        j.paymentStatus,
+        j.paymentMethod,
+        j.paidAt,
+        j.workSiteAddress,
+        j.workSiteCity,
+        j.rigId,
+        j.isMultiDayParent,
+        -- Group amount: parent.amount + sum(non-rig-segment non-cancelled children).
+        -- For standalone jobs and rig-group parents: sum is 0 → equals j.amount.
+        -- For multi-day parents (Jessica): rolls up day-children → returns group total.
+        (j.amount + COALESCE((
+          SELECT SUM(c.amount) FROM Job c
+          WHERE c.parentJobId = j.jobId
+            AND c.state != 'cancelled'
+            AND c.isRigSegment = 0
+        ), 0)) AS groupAmount,
+        -- Business date = scheduledDate. Timezone-safe (no time component), matches
+        -- how the calendar buckets jobs, eliminates DST math. See header comment.
+        j.scheduledDate AS businessDate,
+        p.firstName,
+        p.lastName,
+        p.primaryPhone,
+        p.customerType,
+        prop.streetAddress AS propStreetAddress,
+        prop.city          AS propCity
+      FROM Job j
+      JOIN Person p ON p.personId = j.payerId
+      LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+      WHERE j.state IN ('completed', 'scheduled', 'in_progress')
+        AND j.isRigSegment = 0
+        AND j.parentJobId IS NULL
+        AND substr(j.scheduledDate, 1, 7) = ?
+      ORDER BY j.scheduledDate, j.jobId
+    `).bind(month).all();
+
+    // Server-side _partnerAddr equivalent: per-job workSiteAddress first, then
+    // Property.streetAddress (post-Step-2 IS the worksite for partner jobs).
+    const rows = (results || []).map(r => {
+      const customerName = [r.firstName, r.lastName].filter(Boolean).join(' ').trim() || 'Unknown';
+      const address      = r.workSiteAddress || r.propStreetAddress || '';
+      const city         = r.workSiteCity    || r.propCity          || '';
+      return {
+        jobId:          r.jobId,
+        date:           r.businessDate,                              // YYYY-MM-DD
+        customerName,
+        phone:          (r.primaryPhone || '').replace(/\D/g, '').slice(-10),
+        customerType:   r.customerType || 'residential',
+        state:          r.state,
+        services:       (r.servicesRaw || r.jobNotes || '').slice(0, 240),
+        amount:         Number(r.groupAmount) || 0,
+        paymentStatus:  r.paymentStatus || null,                     // 'paid' | 'unpaid' | null
+        paymentMethod:  r.paymentMethod || null,
+        paidAt:         r.paidAt        || null,
+        address,
+        city,
+        isMultiDayParent: !!r.isMultiDayParent,
+      };
+    });
+
+    const totalRevenue = rows.reduce((s, r) => s + (r.amount || 0), 0);
+    const paidCount    = rows.filter(r => r.paymentStatus === 'paid').length;
+    const unpaidCount  = rows.length - paidCount;
+
+    return jsonResponse({
+      month,
+      rowCount:     rows.length,
+      totalRevenue,
+      paidCount,
+      unpaidCount,
+      rows,
+    }, corsHeaders);
+  } catch(e) {
+    await _logD1Failure(env, 'handleMonthlyBreakdown', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }

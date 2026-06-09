@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — mirrors calendar.html (lines 7-24). Do not remove. */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Monthly Breakdown — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0a1628;--navy2:#111f38;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;--green-bg:#e7f5ec;--green-bd:#a7d8b9;--red:#e53e3e;--white:#fff;--bg:#f4f6f9;--card:#fff;--text:#1a1f2e;--muted:#6b7280;--border:#e2e8f0;--shadow:0 2px 8px rgba(0,0,0,.08);}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+/* topbar — same DNA as calendar.html */
+.topbar{background:var(--navy);padding:.75rem 1.25rem;display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:200;}
+.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;letter-spacing:1px;}
+.topbar-logo span{color:var(--gold);}
+.back-link{color:#fff;text-decoration:none;font-size:13px;font-weight:600;opacity:.85;padding:6px 12px;border:1px solid rgba(255,255,255,.15);border-radius:8px;}
+.back-link:hover{opacity:1;background:rgba(255,255,255,.05);}
+.month-nav{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.month-nav button{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.month-nav button:hover{background:rgba(255,255,255,.06);}
+.month-label{color:#fff;font-weight:700;font-size:14px;letter-spacing:.3px;min-width:160px;text-align:center;}
+.month-picker{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:13px;cursor:pointer;color-scheme:dark;}
+.csv-btn{background:var(--gold);color:#1a1a1a;border:none;border-radius:8px;padding:7px 14px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.csv-btn:hover{filter:brightness(1.05);}
+
+/* page chrome */
+.page{padding:24px 28px 56px;max-width:1480px;margin:0 auto;}
+.page-h1{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;margin-bottom:14px;color:var(--navy);}
+.summary{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:11px 16px;min-width:150px;box-shadow:var(--shadow);}
+.kpi-lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:700;}
+.kpi-val{font-size:22px;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;margin-top:2px;}
+.kpi-val.green{color:var(--green);}
+
+/* table */
+.tbl-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;}
+.tbl-scroll{overflow:auto;max-height:calc(100vh - 230px);}
+table.mbk{width:100%;border-collapse:collapse;font-size:13px;font-family:'DM Sans',sans-serif;}
+table.mbk thead{position:sticky;top:0;background:#f8f8f3;z-index:5;}
+table.mbk thead th{font-size:10px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:700;padding:11px 12px;text-align:left;border-bottom:1.5px solid var(--border);}
+table.mbk thead th.num{text-align:right;}
+table.mbk tbody td{padding:10px 12px;border-bottom:1px solid #f0ede6;vertical-align:top;}
+table.mbk tbody tr:nth-child(odd){background:#fcfcf8;}
+table.mbk tbody tr:hover{background:#f0f8ff;}
+.col-date{font-variant-numeric:tabular-nums;color:var(--navy);font-weight:600;white-space:nowrap;}
+.col-cust{font-weight:600;color:var(--navy);}
+.col-cust .ctype{display:inline-block;font-size:10px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:5px;padding:0 5px;margin-left:5px;vertical-align:1px;}
+.col-cust .ctype.commercial{color:#854d0e;background:#fef3c7;border-color:#fde68a;}
+.col-cust .ctype.partner{color:#7c3aed;background:#ede9fe;border-color:#c4b5fd;}
+.col-svc{color:#444;max-width:340px;line-height:1.45;}
+.col-amt{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:var(--navy);white-space:nowrap;}
+.col-method{color:#444;text-transform:capitalize;}
+.col-addr{color:#555;font-size:12.5px;max-width:280px;line-height:1.4;}
+.state-tag{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:1px 6px;border-radius:5px;margin-right:6px;vertical-align:1px;}
+.state-tag.scheduled{color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;}
+.state-tag.in_progress{color:#854d0e;background:#fef3c7;border:1px solid #fde68a;}
+.state-tag.completed{display:none;}
+
+/* paid badge */
+.paid{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:14px;letter-spacing:.3px;}
+.paid.yes{color:#0d6940;background:var(--green-bg);border:1px solid var(--green-bd);}
+.paid.no{color:#6b7280;background:#f3f4f6;border:1px solid #e5e7eb;}
+
+/* totals */
+table.mbk tfoot td{padding:14px 12px;background:#f8f8f3;border-top:2px solid var(--navy);font-weight:700;color:var(--navy);font-size:13.5px;}
+table.mbk tfoot td.num{text-align:right;font-variant-numeric:tabular-nums;font-size:15px;}
+
+/* empty / loading / error */
+.state-msg{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6;}
+.state-msg .ico{font-size:36px;margin-bottom:10px;opacity:.6;}
+.state-msg .sub{font-size:12px;color:#9ca3af;margin-top:6px;}
+
+@media(max-width:780px){
+  .page{padding:14px;}
+  .col-addr,.col-method{display:none;}
+  table.mbk thead th.col-addr-h,table.mbk thead th.col-method-h{display:none;}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a href="/pure_cleaning_calendar.html" class="back-link">← Calendar</a>
+  <div class="topbar-logo">Pure <span>Cleaning</span></div>
+  <div class="month-nav">
+    <button onclick="changeMonth(-1)" title="Previous month">‹ Prev</button>
+    <input type="month" id="monthPicker" class="month-picker" onchange="onMonthChange()">
+    <button onclick="changeMonth(1)" title="Next month">Next ›</button>
+    <button onclick="goCurrentMonth()" title="Jump to current month">Today</button>
+    <button class="csv-btn" onclick="exportCsv()" title="Download as CSV">⬇ CSV</button>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-h1" id="pageTitle">Monthly Breakdown</div>
+
+  <div class="summary" id="summary">
+    <div class="kpi"><div class="kpi-lbl">Jobs</div><div class="kpi-val" id="kpiCount">—</div></div>
+    <div class="kpi"><div class="kpi-lbl">Revenue</div><div class="kpi-val green" id="kpiRevenue">—</div></div>
+    <div class="kpi"><div class="kpi-lbl">Paid</div><div class="kpi-val" id="kpiPaid">—</div></div>
+    <div class="kpi"><div class="kpi-lbl">Unpaid</div><div class="kpi-val" id="kpiUnpaid">—</div></div>
+  </div>
+
+  <div class="tbl-wrap">
+    <div class="tbl-scroll" id="tblScroll">
+      <div class="state-msg" id="loadingMsg"><div class="ico">⏳</div>Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let _currentMonth = null;    // 'YYYY-MM'
+let _currentRows  = [];      // for CSV export
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+function _fmtMonth(ym) {
+  if (!ym) return '';
+  const [y, m] = ym.split('-');
+  return new Date(+y, +m - 1, 1).toLocaleString('en-US', { month:'long', year:'numeric' });
+}
+function _todayMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function _setMonth(ym) {
+  _currentMonth = ym;
+  document.getElementById('monthPicker').value = ym;
+  document.getElementById('pageTitle').textContent = `Monthly Breakdown — ${_fmtMonth(ym)}`;
+  loadMonth(ym);
+}
+function changeMonth(delta) {
+  if (!_currentMonth) return;
+  const [y, m] = _currentMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  _setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+}
+function onMonthChange() {
+  const v = document.getElementById('monthPicker').value;
+  if (v && /^\d{4}-\d{2}$/.test(v)) _setMonth(v);
+}
+function goCurrentMonth() { _setMonth(_todayMonth()); }
+
+// ── Load + render ────────────────────────────────────────────────────────────
+async function loadMonth(ym) {
+  const scroll = document.getElementById('tblScroll');
+  scroll.innerHTML = `<div class="state-msg"><div class="ico">⏳</div>Loading…</div>`;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/monthly-breakdown?month=${encodeURIComponent(ym)}`)
+      .catch(e => { console.warn('[monthly] fetch failed:', e.message); return null; });
+    if (!res || !res.ok) {
+      const status = res ? res.status : 'network';
+      scroll.innerHTML = `<div class="state-msg"><div class="ico">⚠️</div>Couldn't load this month.<div class="sub">Status: ${status}</div></div>`;
+      _resetKpis();
+      return;
+    }
+    const data = await res.json();
+    _currentRows = data.rows || [];
+    _renderKpis(data);
+    _renderTable(data.rows || []);
+  } catch(e) {
+    console.error('[monthly] error:', e);
+    scroll.innerHTML = `<div class="state-msg"><div class="ico">⚠️</div>Couldn't load this month.<div class="sub">${e.message}</div></div>`;
+    _resetKpis();
+  }
+}
+
+function _resetKpis() {
+  document.getElementById('kpiCount').textContent   = '—';
+  document.getElementById('kpiRevenue').textContent = '—';
+  document.getElementById('kpiPaid').textContent    = '—';
+  document.getElementById('kpiUnpaid').textContent  = '—';
+}
+
+function _renderKpis(data) {
+  document.getElementById('kpiCount').textContent   = data.rowCount || 0;
+  document.getElementById('kpiRevenue').textContent = `$${Number(data.totalRevenue || 0).toLocaleString()}`;
+  document.getElementById('kpiPaid').textContent    = data.paidCount   || 0;
+  document.getElementById('kpiUnpaid').textContent  = data.unpaidCount || 0;
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function _fmtDate(d) {
+  if (!d) return '—';
+  const dt = new Date(d + 'T12:00:00');
+  return dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+}
+function _fmtMethod(m) {
+  if (!m) return '—';
+  return String(m).replace(/_/g,' ');
+}
+function _ctypeChip(t) {
+  if (t === 'partner_referral') return ' <span class="ctype partner">Partner</span>';
+  if (t === 'commercial')       return ' <span class="ctype commercial">Commercial</span>';
+  return '';
+}
+
+function _renderTable(rows) {
+  const scroll = document.getElementById('tblScroll');
+  if (!rows.length) {
+    scroll.innerHTML = `<div class="state-msg"><div class="ico">📭</div>No jobs in ${_fmtMonth(_currentMonth)}.<div class="sub">Try a different month or check back after jobs complete.</div></div>`;
+    return;
+  }
+  const totalRev = rows.reduce((s, r) => s + (r.amount || 0), 0);
+  scroll.innerHTML = `
+    <table class="mbk">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Customer</th>
+          <th>Services</th>
+          <th class="num">Amount</th>
+          <th>Paid</th>
+          <th class="col-method-h">Method</th>
+          <th class="col-addr-h">Address</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => {
+          const paid = r.paymentStatus === 'paid';
+          const stateTag = r.state !== 'completed'
+            ? `<span class="state-tag ${_esc(r.state)}">${_esc(r.state)}</span>` : '';
+          const addr  = r.address ? _esc(r.address) + (r.city ? ', ' + _esc(r.city) : '') : '—';
+          return `<tr>
+            <td class="col-date">${_esc(_fmtDate(r.date))}</td>
+            <td class="col-cust">${stateTag}${_esc(r.customerName)}${_ctypeChip(r.customerType)}</td>
+            <td class="col-svc">${_esc(r.services || '—')}</td>
+            <td class="col-amt">$${Number(r.amount || 0).toLocaleString()}</td>
+            <td><span class="paid ${paid?'yes':'no'}">${paid ? '✓ Paid' : 'Unpaid'}</span></td>
+            <td class="col-method">${_esc(_fmtMethod(r.paymentMethod))}</td>
+            <td class="col-addr">${addr}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3">${rows.length} job${rows.length !== 1 ? 's' : ''}</td>
+          <td class="num">$${Number(totalRev).toLocaleString()}</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+}
+
+// ── CSV export ───────────────────────────────────────────────────────────────
+function exportCsv() {
+  if (!_currentRows.length) {
+    alert('No rows to export for ' + _fmtMonth(_currentMonth));
+    return;
+  }
+  const _quote = v => {
+    const s = v == null ? '' : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const header = ['Date','Customer','CustomerType','Services','Amount','PaymentStatus','PaymentMethod','PaidAt','Address','City','State','JobId'];
+  const lines  = [header.join(',')];
+  for (const r of _currentRows) {
+    lines.push([
+      r.date,
+      r.customerName,
+      r.customerType,
+      r.services,
+      r.amount,
+      r.paymentStatus || '',
+      r.paymentMethod || '',
+      r.paidAt || '',
+      r.address || '',
+      r.city || '',
+      r.state,
+      r.jobId,
+    ].map(_quote).join(','));
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `pure_cleaning_monthly_${_currentMonth}.csv`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+// URL param ?month=YYYY-MM overrides default. Falls through to current month.
+(function init() {
+  const urlMonth = new URLSearchParams(location.search).get('month');
+  const ym = urlMonth && /^\d{4}-\d{2}$/.test(urlMonth) ? urlMonth : _todayMonth();
+  _setMonth(ym);
+})();
+</script>
+
+</body>
+</html>

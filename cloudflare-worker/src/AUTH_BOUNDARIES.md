@@ -46,6 +46,7 @@ Key protected resources:
 - `GET /admin/*` — all admin endpoints (errors, backups, reviews, cron heartbeat, alerts-active, google-drive/status, export-weekly)
 - `GET /admin/day-route?date=YYYY-MM-DD&rig=rig_1|rig_2|rig_3` — per-rig operational timeline from Bouncie GPS + jobHistory
 - `GET /admin/insights?start=YYYY-MM-DD&end=YYYY-MM-DD&prevStart=&prevEnd=&source=all|live` — D1 revenue/job aggregates for insights page; returns completed, pipeline, ytd, prevCompleted, migrationDate
+- `GET /admin/monthly-breakdown?month=YYYY-MM` — one row per job-group for the month (Excel-style table for Mom). Excludes rig_segment children + day-children (parent represents the group); computes groupAmount in SQL since multi-day parent.amount is Day-1 slice only. Date filter is business date (completedAt → ET for completed, scheduledDate otherwise). Address: workSiteAddress-first, partner-aware. Returns { month, rowCount, totalRevenue, paidCount, unpaidCount, rows[] }.
 - `GET /admin/drive-time?from=lat,lng&to=lat,lng` — Google Directions API proxy; KV-cached 7d; falls back to haversine; returns { duration_minutes, distance_miles, source: 'google'|'cache'|'haversine_fallback' }
 - `GET /admin/drive-time/stats` — cache hit rate, total API calls, estimated cost since reset
 - `GET /admin/places/autocomplete?input=<text>&sessiontoken=<uuid>` — Google Places Autocomplete proxy; US+address-type only, South FL biased; session token for cost optimization
