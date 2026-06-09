@@ -3619,17 +3619,24 @@ function _d1PersonToKv(p, props, pjobs, propById) {
   const _rigSegCompleted = pjobs.filter(j => j.state === 'completed' && j.isRigSegment && j.rigId);
   for (const seg of _rigSegCompleted) {
     jobHistory.push({
-      jobId:       seg.jobId,
-      date:        seg.scheduledDate || null,
-      services:    '',
-      amount:      0,
-      rig:         seg.rigId || null,
-      rigId:       seg.rigId || null,
-      status:      'completed',
-      completedAt: seg.completedAt  || null,
-      crew:        [],
-      source:      'rig_segment',
-      crewCount:   seg.crewCount    ?? null,
+      jobId:              seg.jobId,
+      date:               seg.scheduledDate || null,
+      services:           '',
+      amount:             0,
+      rig:                seg.rigId || null,
+      rigId:              seg.rigId || null,
+      status:             'completed',
+      completedAt:        seg.completedAt  || null,
+      crew:               [],
+      source:             'rig_segment',
+      crewCount:          seg.crewCount    ?? null,
+      // Bouncie GPS fields: present once the nightly matcher writes to this D1 row.
+      // jobCardHistoryExtra reads jhEntry.actualArrival directly, so these must be
+      // carried through from D1 → jh for the GPS time row to render on the card.
+      actualDuration:     seg.actualDuration     || null,
+      actualArrival:      seg.actualArrival       || null,
+      actualDeparture:    seg.actualDeparture     || null,
+      bouncieMatchStatus: seg.bouncieMatchStatus  || null,
     });
   }
 
@@ -3656,19 +3663,26 @@ function _d1PersonToKv(p, props, pjobs, propById) {
       if (!seg.scheduledDate) continue;
       if (jobHistory.some(e => e.source === 'day_segment' && e.jobId === seg.jobId)) continue;
       jobHistory.push({
-        jobId:       seg.jobId,
-        date:        seg.scheduledDate,
-        services:    seg.dayPhase || seg.servicesRaw || '',
-        amount:      seg.amount   || 0,
-        rig:         seg.rigId    || null,
-        rigId:       seg.rigId    || null,
-        status:      'completed',
-        completedAt: seg.completedAt || null,
-        crew:        [],
-        source:      'day_segment',
-        dayNumber:   seg.dayNumber  ?? null,
-        dayPhase:    seg.dayPhase   || null,
-        crewCount:   seg.crewCount  ?? null,
+        jobId:              seg.jobId,
+        date:               seg.scheduledDate,
+        services:           seg.dayPhase || seg.servicesRaw || '',
+        amount:             seg.amount   || 0,
+        rig:                seg.rigId    || null,
+        rigId:              seg.rigId    || null,
+        status:             'completed',
+        completedAt:        seg.completedAt || null,
+        crew:               [],
+        source:             'day_segment',
+        dayNumber:          seg.dayNumber  ?? null,
+        dayPhase:           seg.dayPhase   || null,
+        crewCount:          seg.crewCount  ?? null,
+        // Bouncie GPS fields: present once the nightly matcher writes to this D1 row.
+        // jobCardHistoryExtra reads jhEntry.actualArrival directly, so these must be
+        // carried through from D1 → jh for the GPS time row to render on each day's card.
+        actualDuration:     seg.actualDuration     || null,
+        actualArrival:      seg.actualArrival       || null,
+        actualDeparture:    seg.actualDeparture     || null,
+        bouncieMatchStatus: seg.bouncieMatchStatus  || null,
       });
     }
   }
