@@ -1268,6 +1268,15 @@ export default {
         }
       }
 
+      // ── POST /admin/bouncie/probe-coords — read-only diagnostic ──
+      // Runs proximityMatch against Bouncie trips for given lat/lon over a date list.
+      // NO D1/KV writes — purely returns what the matcher WOULD see. Used for diagnosing
+      // mismatches like "Ivan got no_data but Reza matched same day same rig".
+      // Body: { lat, lon, dates: ['YYYY-MM-DD', ...] }
+      if (path === 'admin/bouncie/probe-coords' && request.method === 'POST') {
+        return await handleBouncieProbeCoords(request, env, corsHeaders);
+      }
+
       // ── Geocode (single address → coordinates, optionally saved to customer) ────
       if (path === 'api/geocode' && request.method === 'POST') {
         const body = await request.json().catch(() => ({}));
@@ -6885,6 +6894,110 @@ async function geocodeAddress(address, env = null) {
       source: 'nominatim',
     };
   } catch { return null; }
+}
+
+// ── POST /admin/bouncie/probe-coords ─────────────────────────────────────────
+// Read-only diagnostic. Given { lat, lon, dates: [YYYY-MM-DD, ...] }, fetches
+// Bouncie trips for every mapped rig on each date and reports the closest dwell
+// per rig. No D1/KV writes. Mirrors the matcher's proximityMatch math so the
+// results are directly comparable to what bouncieJobDurationMatcher would see.
+async function handleBouncieProbeCoords(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body.lat !== 'number' || typeof body.lon !== 'number')
+    return jsonResponse({ error: 'lat and lon (numbers) required' }, corsHeaders, 400);
+  const dates = Array.isArray(body.dates) ? body.dates.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+  if (!dates.length)
+    return jsonResponse({ error: 'dates array required (YYYY-MM-DD)' }, corsHeaders, 400);
+
+  const MEDIUM_KM   = 0.1524; // 500 ft — same threshold matcher uses for hard reject
+  const MIN_DUR_MIN = 20;     // same minimum dwell duration
+
+  const rigMapping = await env.DATA.get('bouncie:rig_mapping', 'json') || {};
+  const rigEntries = Object.entries(rigMapping).filter(([, re]) => re && re.imei);
+  if (!rigEntries.length)
+    return jsonResponse({ error: 'no rig mapping configured' }, corsHeaders, 503);
+
+  let accessToken;
+  try { accessToken = await getBouncieAccessToken(env); }
+  catch(e) { return jsonResponse({ error: 'Bouncie auth failed', message: e.message }, corsHeaders, 502); }
+
+  const tripFirstCoord = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[0]          : null; };
+  const tripLastCoord  = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[c.length-1] : null; };
+
+  const probes = [];
+  for (const date of dates) {
+    const startsAfter = `${date}T00:00:00.000Z`;
+    const endsBefore  = `${date}T23:59:59.000Z`;
+    const perRig = [];
+    for (const [rig, rigEntry] of rigEntries) {
+      let trips = [];
+      try {
+        const res = await bouncieFetchWithRetry(
+          `${BOUNCIE_API_BASE}/trips?imei=${rigEntry.imei}&gpsFormat=geojson` +
+          `&startsAfter=${encodeURIComponent(startsAfter)}&endsBefore=${encodeURIComponent(endsBefore)}`,
+          env
+        );
+        trips = res.ok ? await res.json() : [];
+        if (!Array.isArray(trips)) trips = [];
+      } catch(e) { trips = []; }
+
+      // Find arrival trip whose last coord is closest to probe coords
+      let closestDistKm = Infinity, arrivalTrip = null;
+      for (const trip of trips) {
+        const last = tripLastCoord(trip);
+        if (!last) continue;
+        const d = haversineKm(last[1], last[0], body.lat, body.lon);
+        if (d < closestDistKm) { closestDistKm = d; arrivalTrip = trip; }
+      }
+      const closestDistFt = isFinite(closestDistKm) ? Math.round(closestDistKm * 3280.84) : null;
+
+      // If within threshold, search for departure trip → compute dwell duration
+      let dwell = null;
+      if (arrivalTrip && closestDistKm <= MEDIUM_KM) {
+        let departureTrip = null;
+        for (const trip of trips) {
+          if (trip.startTime <= arrivalTrip.endTime) continue;
+          const first = tripFirstCoord(trip);
+          if (!first) continue;
+          if (haversineKm(first[1], first[0], body.lat, body.lon) <= MEDIUM_KM) {
+            if (!departureTrip || trip.startTime > departureTrip.startTime) departureTrip = trip;
+          }
+        }
+        if (departureTrip) {
+          const durationMin = Math.round(
+            (+new Date(departureTrip.startTime) - +new Date(arrivalTrip.endTime)) / 60000
+          );
+          dwell = {
+            arrivalAt:   arrivalTrip.endTime,
+            departureAt: departureTrip.startTime,
+            durationMin,
+            qualifying:  durationMin >= MIN_DUR_MIN,
+          };
+        }
+      }
+
+      perRig.push({
+        rig,
+        imei:                rigEntry.imei,
+        nickname:            rigEntry.nickname || rigEntry.name || null,
+        tripCount:           trips.length,
+        closestDistFt,
+        closestDistMi:       isFinite(closestDistKm) ? +(closestDistKm * 0.621371).toFixed(2) : null,
+        closestArrivalAt:    arrivalTrip ? arrivalTrip.endTime : null,
+        withinGeofence:      isFinite(closestDistKm) && closestDistKm <= MEDIUM_KM,
+        dwell,
+      });
+    }
+    probes.push({ date, perRig });
+  }
+
+  return jsonResponse({
+    lat:          body.lat,
+    lon:          body.lon,
+    thresholdFt:  500,
+    minDwellMin:  MIN_DUR_MIN,
+    probes,
+  }, corsHeaders);
 }
 
 async function bouncieJobDurationMatcher(date, env) {

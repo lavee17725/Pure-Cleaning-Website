@@ -3505,7 +3505,7 @@ function jobCardHistoryExtra(c, jhEntry) {
     ${paymentBtnHtml}
     ${receiptBtnHtml}
     ${editBtnHtml}
-    <button class="jc-modal-btn" onclick="event.stopPropagation();openJobModal('${phone}')">📋 Full details</button>
+    <button class="jc-modal-btn" onclick="event.stopPropagation();openJobModal('${phone}','${jobId}')">📋 Full details</button>
     </div>
   </div>`;
 }
@@ -3766,6 +3766,31 @@ function getExtraCompletedJobsForRig(date, rig) {
             })[0]?.rig
         )
       : null; // null → _hasRigSegsForDate is false → guard below never fires
+    // Fix 7 (Carlos rig_1 GPS): the primary rig's rig_segment jh entry IS suppressed
+    // from rendering (its column is taken by the billing primary jh — see push filter
+    // below). But the rig_segment carries the GPS that the matcher wrote to the per-rig
+    // D1 row. Find that segment so the billing primary's render can inherit its GPS via
+    // _mergeRigGroupGps below. Display-only — no mutation of stored jh or D1.
+    const _primaryRigSegEntry = _hasRigSegsForDate && _primaryRigSegRig
+      ? jh.find(j2 => j2.source === 'rig_segment' && j2.date === date
+                   && _normalizeRig(j2.rig) === _primaryRigSegRig)
+      : null;
+    // Shallow-clones the entry being pushed and overlays the rig_segment's GPS when
+    // present. Only triggers when the entry has NO GPS of its own (parent billing rows
+    // are NULL by design — Carlos's $1,200 primary). Identity-preserving for entries
+    // that already carry GPS (multi-day day_segments, rig-segment entries themselves).
+    const _mergeRigGroupGps = (jhEntry) => {
+      if (!_primaryRigSegEntry) return jhEntry;
+      if (jhEntry && jhEntry.actualArrival) return jhEntry; // already has GPS — leave alone
+      if (!_primaryRigSegEntry.actualArrival) return jhEntry; // segment has no GPS yet either
+      return {
+        ...jhEntry,
+        actualArrival:     _primaryRigSegEntry.actualArrival,
+        actualDeparture:   _primaryRigSegEntry.actualDeparture,
+        actualDuration:    _primaryRigSegEntry.actualDuration,
+        bouncieMatchStatus: _primaryRigSegEntry.bouncieMatchStatus,
+      };
+    };
     // Fix 5: when day-segment entries exist for any date on this customer, the multi-day
     // parent's group-total primary jh entry (source='calendar_completion') is suppressed
     // from matching — day_segment entries render each day individually via direct push below.
@@ -3830,7 +3855,7 @@ function getExtraCompletedJobsForRig(date, rig) {
           const _custAddr = (c.address || '').trim().toLowerCase();
           if (!_jhAddr || _jhAddr === _custAddr) continue; // same property — phantom, suppress
         }
-        result.push({ customer: c, jhEntry }); // distinct job (different property, etc.) — render as extra
+        result.push({ customer: c, jhEntry: _mergeRigGroupGps(jhEntry) }); // distinct job (different property, etc.) — render as extra
       }
       continue;
     }
@@ -3848,12 +3873,14 @@ function getExtraCompletedJobsForRig(date, rig) {
         const sameJob = Math.abs((jhEntry.amount || 0) - (primaryEntry?.amount || 0)) <= 5
                      && (jhEntry.address || '') === (primaryEntry?.address || '');
         if (sameJob) continue;
-        result.push({ customer: c, jhEntry });
+        result.push({ customer: c, jhEntry: _mergeRigGroupGps(jhEntry) });
       }
       continue;
     }
+    // Default fallback path — rig-group billing primaries (Carlos rig_1) reach here.
+    // _mergeRigGroupGps decorates the billing primary with the suppressed rig_segment's GPS.
     for (const jhEntry of matching) {
-      result.push({ customer: c, jhEntry });
+      result.push({ customer: c, jhEntry: _mergeRigGroupGps(jhEntry) });
     }
   }
   return result;
@@ -4231,12 +4258,15 @@ function openJobModal(phone, jobId) {
   const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
 
   // Itemized panel signal: scheduled multi-day/rig-group parents (calJob has isMultiDayParent),
-  // OR completed jobs whose jobHistory carries day_segment / rig_segment entries on this date.
-  // Single-day jobs match neither → panel is omitted entirely. Hits /admin/job/:id/days async.
+  // OR completed jobs whose jobHistory carries day_segment / rig_segment entries on this date,
+  // OR scheduled day-children whose parentJobId is set (mid-completion Day 2/3 cards).
+  // Single-day jobs match none → panel is omitted entirely. Hits /admin/job/:id/days async,
+  // which resolves any child jobId to the parent's days via COALESCE(parentJobId, jobId).
   const _hasGroupSegs = jmJobId && (c.jobHistory || []).some(j =>
     (j.source === 'day_segment' || j.source === 'rig_segment') && j.date === ss.scheduledDate
   );
-  const _isGroupParent = !!(jmJobId && (calJob?.isMultiDayParent || _hasGroupSegs));
+  const _isGroupChild  = !!(calJob?.parentJobId);
+  const _isGroupParent = !!(jmJobId && (calJob?.isMultiDayParent || _hasGroupSegs || _isGroupChild));
   const _grpDivId = _isGroupParent ? `jm-group-${esc(jmJobId)}` : null;
 
   document.getElementById('jmTitle').textContent = name;
