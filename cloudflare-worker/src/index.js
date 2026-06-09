@@ -422,7 +422,10 @@ export default {
           if (env.DB && heartbeat.status !== 'error') {
             try {
               const sevenDaysAgo    = new Date(Date.now() -  7 * 86400000).toISOString().slice(0, 10);
-              const fourteenDaysAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+              // Fix 2: widened from 14 → 30 days so a ~monthly token outage auto-recovers.
+              // completedAt window covers late-completion jobs (scheduled long before completion).
+              // scheduledDate window stays 7 days (catches same-week late-completion edge cases).
+              const thirtyDaysAgo   = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
               const retryRows = await env.DB.prepare(
                 `SELECT DISTINCT scheduledDate FROM Job
                  WHERE state = 'completed'
@@ -433,7 +436,7 @@ export default {
                      OR (completedAt IS NOT NULL AND completedAt >= ?)
                    )
                  ORDER BY scheduledDate DESC`
-              ).bind(today, sevenDaysAgo, fourteenDaysAgo).all();
+              ).bind(today, sevenDaysAgo, thirtyDaysAgo).all();
               const retryDates = (retryRows.results || []).map(r => r.scheduledDate);
               if (retryDates.length) {
                 console.log(`[Bouncie retry] ${retryDates.length} historical date(s) with unmatched jobs: ${retryDates.join(', ')}`);
@@ -6859,6 +6862,11 @@ async function bouncieJobDurationMatcher(date, env) {
 
   const results = [];
   const d1BouncieUpdates = []; // accumulated for batch D1 UPDATE after KV write
+  // Fix 1: record specific failure reasons so bouncieMatchStatus is never left NULL
+  // after an attempt. NULL now strictly means "not yet attempted." Values: geocode_failed
+  // / no_data / no_reliable_match. Jobs with failure status still have actualDuration=NULL
+  // and remain in the retry window query, so they continue to be retried automatically.
+  const d1FailureUpdates = []; // { jobId, bouncieMatchStatus, bouncieMatchConfidence }
   let matched = 0;
   let coordsCached = 0, coordsGeocoded = 0, coordsFailed = 0;
   const kvDirty = new Set(); // KV customers modified — written back once at end
@@ -6940,6 +6948,7 @@ async function bouncieJobDurationMatcher(date, env) {
     if (!jobLat || !jobLon) {
       results.push({ jobId: row.jobId, name: rowName, status: 'geocode_failed',
         address: row.streetAddress, city: row.city });
+      d1FailureUpdates.push({ jobId: row.jobId, bouncieMatchStatus: 'geocode_failed', bouncieMatchConfidence: null });
       coordsFailed++;
       continue;
     }
@@ -6990,6 +6999,9 @@ async function bouncieJobDurationMatcher(date, env) {
     if (!bestRig && mappedRigsWithTrips.length === 0) {
       results.push({ jobId: row.jobId, name: rowName, status: 'no_data',
         note: 'No GPS data for any mapped rig on this date.' });
+      // Fix 1: stamp D1 so NULL = "not yet attempted" strictly.
+      // actualDuration stays NULL → job remains in retry window query → still auto-retried.
+      d1FailureUpdates.push({ jobId: row.jobId, bouncieMatchStatus: 'no_data', bouncieMatchConfidence: null });
       continue;
     }
 
@@ -6997,11 +7009,16 @@ async function bouncieJobDurationMatcher(date, env) {
     if (!bestRig) {
       const closestDistFt = Math.round(globalClosestDistKm * 3280.84);
       const closestMi     = (globalClosestDistKm * 0.621371).toFixed(2);
+      // Fix 1 + Fix 4 (closest distance): stamp D1 with reason + closest approach.
+      // bouncieMatchConfidence holds "<N>ft" so Tyler can see "missed by 800ft" vs "no GPS at all".
+      // Infinity means no trips were scanned (rig had no data) — stored as null in that case.
+      const _closestFtStr = isFinite(globalClosestDistKm) ? `${closestDistFt}ft` : null;
       results.push({
         jobId: row.jobId, name: rowName, status: 'no_reliable_match',
         note:  `No reliable proximity match. Best stop was ${closestDistFt} ft (${closestMi} mi) away — exceeds 500 ft threshold.`,
         closestRig: globalClosestRig, closestDistFt, closestArrival: globalClosestArrival,
       });
+      d1FailureUpdates.push({ jobId: row.jobId, bouncieMatchStatus: 'no_reliable_match', bouncieMatchConfidence: _closestFtStr });
       continue;
     }
 
@@ -7125,6 +7142,22 @@ async function bouncieJobDurationMatcher(date, env) {
     } catch(e) { await _logD1Failure(env, `bouncie_job_update:${upd.jobId}`, e.message); }
   }
   console.log(`[Bouncie matcher] D1 updates: ${d1UpdateCount}/${d1BouncieUpdates.length} succeeded`);
+
+  // Fix 1: write failure reasons to D1 — separate UPDATE so it never touches actualDuration.
+  // Only fires for jobs that were processed this run; pending (never-attempted) jobs stay NULL.
+  // SQL omits actualDuration/actualArrival/actualDeparture — those remain NULL for retrying.
+  let d1FailCount = 0;
+  for (const fail of d1FailureUpdates) {
+    try {
+      await env.DB.prepare(
+        `UPDATE Job SET bouncieMatchStatus=?, bouncieMatchConfidence=?, modifiedAt=?
+         WHERE jobId=?`
+      ).bind(fail.bouncieMatchStatus, fail.bouncieMatchConfidence, now, fail.jobId).run();
+      d1FailCount++;
+    } catch(e) { await _logD1Failure(env, `bouncie_fail_update:${fail.jobId}`, e.message); }
+  }
+  if (d1FailureUpdates.length > 0)
+    console.log(`[Bouncie matcher] D1 failure stamps: ${d1FailCount}/${d1FailureUpdates.length} (geocode_failed=${d1FailureUpdates.filter(f=>f.bouncieMatchStatus==='geocode_failed').length}, no_data=${d1FailureUpdates.filter(f=>f.bouncieMatchStatus==='no_data').length}, no_reliable_match=${d1FailureUpdates.filter(f=>f.bouncieMatchStatus==='no_reliable_match').length})`);
 
   // ── Morning stop validation ────────────────────────────────────────────────
   const morningStops = {};
