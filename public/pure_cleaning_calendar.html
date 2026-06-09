@@ -3700,13 +3700,18 @@ function getUnassignedJobs(date) {
   // Unassigned is the correct home; Tyler can retroactively assign rigs via the edit button.
   // Fix 5 defensive: suppress day-split multi-day parents (ss.isMultiDayParent, ss.rig != null)
   // from unassigned — their per-day cards render via day_segment entries on their own dates+rigs.
-  // Rig-group parents (ss.rig=null, isMultiDayParent) are NOT suppressed — their rig_segment
-  // attribution cards show in rig columns; the group summary card stays in unassigned as before.
+  // Fix 6: suppress rig-group parents (ss.rig=null + rig_segment jh entries on this date).
+  // Their primary billing entry ($1,200) is routed into the primary rig column as the main card
+  // by getExtraCompletedJobsForRig. The unassigned slot would be a 3rd redundant card.
+  // Gate is date-specific: only fires when rig_segments exist on THIS date (never affects
+  // normal jobs, multi-day day-split jobs, or rig-group jobs on other dates).
   const fromKvCompleted = (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
     if (!ss || ss.state !== 'completed' || ss.scheduledDate !== date || ss.rig) return false;
     // Suppress day-split parents (has a rig assigned, so they appear in rig columns via day_segments)
     if (ss.isMultiDayParent && (c.jobHistory||[]).some(j => j.source === 'day_segment')) return false;
+    // Fix 6: suppress rig-group parents — primary billing card is in the primary rig column now
+    if ((c.jobHistory||[]).some(j => j.source === 'rig_segment' && j.date === date)) return false;
     return true;
   });
   return [...fromD1, ...fromKvCompleted];
@@ -3739,7 +3744,16 @@ function getExtraCompletedJobsForRig(date, rig) {
     // Fix 4: when rig-segment entries exist for this date, suppress the null-rig primary
     // from per-rig columns (it stays in the Day Pool via getUnassignedJobs). Rig-segment
     // entries carry their explicit rigId and are pushed directly below, bypassing dedup.
+    // Fix 6: rig-group refinement — primary billing jh is now routed INTO the primary rig
+    // column (lowest-dayNumber rig_segment's rig) instead of staying in unassigned.
+    // _primaryRigSegRig identifies that column; used in jhRig fallback + rig_segment push filter.
     const _hasRigSegsForDate  = jh.some(j2 => j2.source === 'rig_segment' && j2.date === date);
+    const _primaryRigSegRig   = _hasRigSegsForDate
+      ? _normalizeRig(
+          jh.filter(j2 => j2.source === 'rig_segment' && j2.date === date)
+            .sort((a, b) => (a.dayNumber ?? 99) - (b.dayNumber ?? 99))[0]?.rig
+        )
+      : null; // null → _hasRigSegsForDate is false → guard below never fires
     // Fix 5: when day-segment entries exist for any date on this customer, the multi-day
     // parent's group-total primary jh entry (source='calendar_completion') is suppressed
     // from matching — day_segment entries render each day individually via direct push below.
@@ -3761,15 +3775,18 @@ function getExtraCompletedJobsForRig(date, rig) {
         const dayAge = (Date.now() - new Date(j.date + 'T12:00:00').getTime()) / 86400000;
         if (dayAge < 60) return false;
       }
-      // When rig-segment entries cover this date, don't let null-rig entries fall through
-      // to the 'rig_1' fallback — that would duplicate the card in rig_1 and rig_3 columns.
-      const jhRig = _normalizeRig(j.rig) || ssRig || (_hasRigSegsForDate ? null : 'rig_1');
+      // Fix 6: route null-rig primary billing jh into the primary rig column (_primaryRigSegRig)
+      // instead of the old null→excluded path. Non-rig-group jobs have _hasRigSegsForDate=false
+      // so they still use the 'rig_1' fallback — behaviour unchanged.
+      const jhRig = _normalizeRig(j.rig) || ssRig || (_hasRigSegsForDate ? _primaryRigSegRig : 'rig_1');
       if (!jhRig) return false;
       return jhRig === rig;
     });
     // Fix 4: push rig-segment entries directly for their explicit rig column (no dedup needed —
     // each segment has a unique jobId and explicit rigId; they are $0 attribution markers).
-    jh.filter(j => j.source === 'rig_segment' && j.date === date && _normalizeRig(j.rig) === rig)
+    // Fix 6: skip the primary rig's segment — its column is covered by the billing primary jh above.
+    jh.filter(j => j.source === 'rig_segment' && j.date === date && _normalizeRig(j.rig) === rig
+                && _normalizeRig(j.rig) !== _primaryRigSegRig)  // primary rig: billing jh handles it
       .forEach(jhEntry => result.push({ customer: c, jhEntry }));
     // Fix 5: push day-segment entries directly for their own date+rig column (no dedup needed —
     // each segment has its own jobId, explicit scheduledDate, and rigId; they are per-day slice cards).
@@ -3781,7 +3798,10 @@ function getExtraCompletedJobsForRig(date, rig) {
     // Primary dedup: suppress the specific completion identified by ss._lastJobId.
     // Handles both same-day completions AND late completions where jh.date ≠ ss.scheduledDate
     // (e.g., a job scheduled May 7 but completed May 13 — ssCovers would miss the date mismatch).
-    if (ss?.state === 'completed' && ss._lastJobId) {
+    // Fix 6: skip both dedup branches for rig-group jobs (_hasRigSegsForDate). The ss card is
+    // suppressed in getUnassignedJobs, so ssCovers/_lastJobId must NOT suppress the primary jh —
+    // it is the ONLY remaining card for that rig column.
+    if (ss?.state === 'completed' && ss._lastJobId && !_hasRigSegsForDate) {
       for (const jhEntry of matching) {
         if (jhEntry.jobId === ss._lastJobId) continue; // primary card covers this — skip
         // Defense-in-depth: suppress backfill/server_guard entries that match the primary job by
@@ -3804,7 +3824,8 @@ function getExtraCompletedJobsForRig(date, rig) {
     }
 
     // Fallback for legacy completions that predate _lastJobId: dedup by date match (ssCovers).
-    const ssCovers = ss && ss.scheduledDate === date && (_normalizeRig(ss.rig) || 'rig_1') === rig && ss.state === 'completed';
+    // Fix 6: disabled for rig-group jobs — ss card suppressed, primary jh must render freely.
+    const ssCovers = !_hasRigSegsForDate && ss && ss.scheduledDate === date && (_normalizeRig(ss.rig) || 'rig_1') === rig && ss.state === 'completed';
     if (ssCovers) {
       // Primary jobCardScheduled already renders the last jh entry for this date (same logic as _jhMatch).
       // Suppress only that entry; push any remaining distinct jobs as extras.
