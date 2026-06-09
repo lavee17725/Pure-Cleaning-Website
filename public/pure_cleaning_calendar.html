@@ -4229,6 +4229,15 @@ function openJobModal(phone, jobId) {
   const addr    = _jmAddr ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(_jmAddr+' '+_jmCity)}" target="_blank" style="color:var(--sky)">📍 ${esc(_jmAddr)}${_jmCity?', '+esc(formatCity(_jmCity)):''}</a>` : '';
   const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
 
+  // Itemized panel signal: scheduled multi-day/rig-group parents (calJob has isMultiDayParent),
+  // OR completed jobs whose jobHistory carries day_segment / rig_segment entries on this date.
+  // Single-day jobs match neither → panel is omitted entirely. Hits /admin/job/:id/days async.
+  const _hasGroupSegs = jmJobId && (c.jobHistory || []).some(j =>
+    (j.source === 'day_segment' || j.source === 'rig_segment') && j.date === ss.scheduledDate
+  );
+  const _isGroupParent = !!(jmJobId && (calJob?.isMultiDayParent || _hasGroupSegs));
+  const _grpDivId = _isGroupParent ? `jm-group-${esc(jmJobId)}` : null;
+
   document.getElementById('jmTitle').textContent = name;
   const curWin = ss.window || null;
   const curRig = ss.rig || null;
@@ -4242,6 +4251,10 @@ function openJobModal(phone, jobId) {
       ${addr ? addr+'<br>' : ''}
       ${crewNames !== '—' ? `👤 ${crewNames}<br>` : ''}
     </div>
+    ${_grpDivId ? `
+    <div class="modal-field" id="${_grpDivId}" style="margin-bottom:.875rem;">
+      <div style="font-size:11px;color:var(--muted);padding:6px 0;">Loading itemized breakdown…</div>
+    </div>` : ''}
     ${(calJob?.satelliteImageKey || calJob?.frontImageKey) ? `
     <div class="jm-pi-strip">
       ${calJob?.satelliteImageKey ? `
@@ -4293,9 +4306,128 @@ function openJobModal(phone, jobId) {
   // Phase 3: lazy-load property image thumbnails after DOM is ready
   if (calJob?.satelliteImageKey) _loadCalPropThumb(calJob.satelliteImageKey, `jm-pi-sat-${jmJobId||''}`);
   if (calJob?.frontImageKey)     _loadCalPropThumb(calJob.frontImageKey,     `jm-pi-front-${jmJobId||''}`);
+
+  // Batch 2: itemized panel — async fetch /admin/job/:id/days then render in-place.
+  // Single-day jobs short-circuit (no _grpDivId placeholder rendered above).
+  if (_grpDivId) _loadGroupBreakdown(jmJobId, _grpDivId, c);
 }
 
 function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); jmPhone=null; jmJobId=null; }
+
+// ── Itemized breakdown for multi-day / multi-rig parents ────────────────────
+// Fetches /admin/job/:id/days (parent + children atomic) and renders either
+// a per-day cost itemization (Jessica) or a per-rig attribution panel (Carlos).
+// Single-day responses (1 row) collapse the panel — never shown.
+async function _loadGroupBreakdown(jobId, containerId, c) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  // Explicit .catch() on the fetch so a network failure can never leave "Loading…" stuck.
+  // The outer try/catch still wraps json/render — defense in depth.
+  const res = await fetch(`${PCPC_API}/admin/job/${encodeURIComponent(jobId)}/days`)
+    .catch(e => { console.warn('[group-breakdown] fetch failed:', e.message); return null; });
+  if (!res || !res.ok) { el.style.display = 'none'; return; }
+  try {
+    const data = await res.json();
+    const days = data.days || [];
+    if (days.length < 2) { el.style.display = 'none'; return; }
+    const _hasRigSegs = days.some(d => d.isRigSegment);
+    el.innerHTML = _hasRigSegs
+      ? _renderRigGroupPanel(days, c)
+      : _renderMultiDayPanel(days, c);
+  } catch(e) {
+    console.warn('[group-breakdown] parse/render failed:', e.message);
+    el.style.display = 'none';
+  }
+}
+
+// Renders the GPS time + match-confidence sub-line under a row. Falls back to
+// nothing when the matcher hasn't yet written actualArrival to D1 / jh.
+function _renderGroupGpsLine(jhEntry) {
+  if (!jhEntry || !jhEntry.actualArrival) return '';
+  const _arr = new Date(jhEntry.actualArrival).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+  const _dep = jhEntry.actualDeparture
+    ? new Date(jhEntry.actualDeparture).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' })
+    : null;
+  const _dur = jhEntry.actualDuration || 0;
+  const _durFmt = _dur > 0 ? ` (${Math.floor(_dur/60)}h ${_dur%60}m)` : '';
+  const _conf = jhEntry.bouncieMatchStatus === 'matched_high'   ? ' · ✓ high confidence'
+              : jhEntry.bouncieMatchStatus === 'matched_medium' ? ' · ~ medium confidence'
+              : '';
+  return `<div style="font-size:11px;color:var(--muted);margin-top:3px;">⏱ ${_arr}${_dep ? ' – ' + _dep : ''}${_durFmt}${_conf}</div>`;
+}
+
+// Multi-day variant (Jessica): one row per non-rig-segment day-child + parent,
+// ordered by dayNumber. Cross-references c.jobHistory for GPS via day_segment
+// jh entries (which carry actualArrival after Bouncie GPS field fix).
+function _renderMultiDayPanel(days, c) {
+  const _byDay = days.filter(d => !d.isRigSegment)
+    .sort((a, b) => (a.dayNumber || 0) - (b.dayNumber || 0));
+  const jh    = c.jobHistory || [];
+  const total = _byDay.reduce((s, d) => s + (d.amount || 0), 0);
+  const _fmtDate = d => d
+    ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+    : '—';
+  const rows = _byDay.map(d => {
+    const _gpsJh = jh.find(j => j.jobId === d.jobId && j.source === 'day_segment') || {};
+    const _gps   = _renderGroupGpsLine(_gpsJh);
+    const svc    = d.dayPhase || d.servicesRaw || '';
+    return `<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="flex:1;min-width:0;padding-right:12px;">
+        <div style="font-size:13px;color:#0a1628;">
+          <strong>Day ${d.dayNumber || '?'}</strong>
+          <span style="color:var(--muted);"> · ${_fmtDate(d.scheduledDate)}</span>
+        </div>
+        <div style="font-size:13px;color:#1a1a1a;margin-top:2px;">${esc(svc)}</div>
+        ${_gps}
+      </div>
+      <div style="font-variant-numeric:tabular-nums;font-weight:700;color:#0a1628;font-size:14px;white-space:nowrap;">$${Number(d.amount || 0).toLocaleString()}</div>
+    </div>`;
+  }).join('');
+  return `
+    <label>Itemized Breakdown</label>
+    <div style="margin-top:6px;background:#fafaf6;border:1px solid var(--border);border-radius:8px;padding:4px 12px;">
+      ${rows}
+      <div style="display:flex;justify-content:space-between;padding:10px 0 6px;font-size:14px;font-weight:700;color:#0a1628;">
+        <span style="text-transform:uppercase;letter-spacing:0.5px;font-size:12px;color:#555;">Total</span>
+        <span style="font-variant-numeric:tabular-nums;font-size:16px;">$${total.toLocaleString()}</span>
+      </div>
+    </div>`;
+}
+
+// Rig-group variant (Carlos): one row per rig_segment child, total = parent.amount.
+// Per-rig GPS comes from c.jobHistory rig_segment entries (carry actualArrival
+// after Bouncie GPS field fix).
+function _renderRigGroupPanel(days, c) {
+  const _segs   = days.filter(d => d.isRigSegment)
+    .sort((a, b) => (a.dayNumber || 99) - (b.dayNumber || 99));
+  const _parent = days.find(d => !d.isRigSegment);
+  const jh      = c.jobHistory || [];
+  // Total = parent's amount when present (billing anchor); fallback to sum.
+  const total = (_parent && _parent.amount != null)
+    ? _parent.amount
+    : days.reduce((s, d) => s + (d.amount || 0), 0);
+  const rows = _segs.map(seg => {
+    const _gpsJh = jh.find(j => j.jobId === seg.jobId && j.source === 'rig_segment') || {};
+    const _gps   = _renderGroupGpsLine(_gpsJh);
+    const _label = (typeof RIG_LABELS !== 'undefined' && RIG_LABELS[seg.rigId]) || seg.rigId || '?';
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="font-size:13px;color:#0a1628;">
+        <strong>${esc(_label)}</strong>
+        <span style="color:var(--muted);"> · ${esc(seg.rigId || '')}</span>
+      </div>
+      ${_gps}
+    </div>`;
+  }).join('');
+  return `
+    <label>Rig Attribution</label>
+    <div style="margin-top:6px;background:#fafaf6;border:1px solid var(--border);border-radius:8px;padding:4px 12px;">
+      ${rows}
+      <div style="display:flex;justify-content:space-between;padding:10px 0 6px;font-size:14px;font-weight:700;color:#0a1628;">
+        <span style="text-transform:uppercase;letter-spacing:0.5px;font-size:12px;color:#555;">Total Billing</span>
+        <span style="font-variant-numeric:tabular-nums;font-size:16px;">$${Number(total).toLocaleString()}</span>
+      </div>
+    </div>`;
+}
 
 async function saveJobModal() {
   const newRig   = document.querySelector('#jmRigPicker .win-btn.active')?.dataset.rig;
