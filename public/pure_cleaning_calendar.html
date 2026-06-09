@@ -3369,11 +3369,15 @@ function jobCardScheduled(c) {
     ${svcLine}
     <div class="jc-detail">
     ${(() => {
-        // Prefer workSiteAddress for all job types when set (secondary property, partner, etc.)
-        const _dispAddr = c.workSiteAddress ? c.workSiteAddress
-          : (state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address;
-        const _dispCity = c.workSiteCity ? c.workSiteCity
-          : (state === 'completed' && _jhMatch?.city)    ? _jhMatch.city    : c.city;
+        // Prefer per-job workSiteAddress first (partner_referral jobs, secondary properties),
+        // then customer-level workSite, then jhMatch.address (Property bound to job after
+        // partner-model fix relinks the worksite Property), then c.address (billing anchor).
+        const _dispAddr = (_jhMatch && _jhMatch.workSiteAddress)
+          || c.workSiteAddress
+          || ((state === 'completed' && _jhMatch?.address) ? _jhMatch.address : c.address);
+        const _dispCity = (_jhMatch && _jhMatch.workSiteCity)
+          || c.workSiteCity
+          || ((state === 'completed' && _jhMatch?.city) ? _jhMatch.city : c.city);
         if (!_dispAddr) return '';
         const paUrl = getPropertyAppraiserUrl(_dispCity, _dispAddr);
         const paLbl = paUrl ? getPaLabel(_dispCity) : null;
@@ -4218,7 +4222,11 @@ function openJobModal(phone, jobId) {
   const crew = ss.crew || ( ss.rig && ss.scheduledDate ? (((calState.rigCrew||{})[ss.scheduledDate]||{})[ss.rig]||[]) : [] );
   const crewNames = crew.map(id => CREW_MEMBERS.find(cm=>cm.id===id)?.name||id).join(', ') || '—';
   const ph = c.phone ? `<a href="tel:${c.phone}" style="color:var(--sky)">📞 ${fmtPh(c.phone)}</a>` : '';
-  const addr = c.address ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(c.address+' '+c.city)}" target="_blank" style="color:var(--sky)">📍 ${esc(c.address)}${c.city?', '+esc(formatCity(c.city)):''}</a>` : '';
+  // Partner-aware: jhEntry for this job (if jobId given) drives worksite preference.
+  const _jmJh   = jmJobId ? _findJhByJobId(c, jmJobId) : null;
+  const _jmAddr = _partnerAddr(c, _jmJh);
+  const _jmCity = _partnerCity(c, _jmJh);
+  const addr    = _jmAddr ? `<a href="https://maps.apple.com/?q=${encodeURIComponent(_jmAddr+' '+_jmCity)}" target="_blank" style="color:var(--sky)">📍 ${esc(_jmAddr)}${_jmCity?', '+esc(formatCity(_jmCity)):''}</a>` : '';
   const stateBadge = {scheduled:'status-scheduled',in_progress:'status-progress',completed:'status-completed'}[ss.state]||'status-scheduled';
 
   document.getElementById('jmTitle').textContent = name;
@@ -5368,6 +5376,29 @@ function alertIcons(alerts) {
 }
 function fmtPh(p) { return (!p||p.length!==10)?p||'':(`(${p.slice(0,3)}) ${p.slice(3,6)}-${p.slice(6)}`); }
 function esc(s)   { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Partner-aware address read ──────────────────────────────────────────────
+// Resolves the address that should DISPLAY on customer-facing surfaces (invoice,
+// receipt, Full Details, calendar card). Partner_referral jobs are at homeowner
+// worksites — never the partner's billing anchor. Falls back cleanly for residential.
+// Precedence: jhEntry workSite (per-job, most specific) → customer workSite
+//   (multi-job customer-level) → jhEntry address (property bound to job) → c.address.
+// Safe for non-partners: when no workSite fields are populated, behavior is
+// identical to the prior _jh.address || c.address fallback chain.
+function _partnerAddr(c, jh) {
+  return (jh && jh.workSiteAddress)
+      || (c  && c.workSiteAddress)
+      || (jh && jh.address)
+      || (c  && c.address)
+      || '';
+}
+function _partnerCity(c, jh) {
+  return (jh && jh.workSiteCity)
+      || (c  && c.workSiteCity)
+      || (jh && jh.city)
+      || (c  && c.city)
+      || '';
+}
 const _CITY_ABBR = { sw:'Southwest', ft:'Fort', n:'North', s:'South', e:'East', w:'West', ne:'Northeast', nw:'Northwest', se:'Southeast', sw:'Southwest' };
 function formatCity(city) {
   if (!city) return '';
@@ -5651,65 +5682,80 @@ function printInvoice(phone, jhJobId) {
     ? (_jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')
     : (ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
   const amount   = _jh ? (_jh.amount || 0) : (ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0);
-  // For address display: use jhEntry address if available
-  const _printAddr = _jh?.address || c.address;
-  const _printCity = _jh?.city    || c.city;
+  // Partner-aware address: worksite first, billing anchor last (helper handles fallback)
+  const _printAddr = _partnerAddr(c, _jh);
+  const _printCity = _partnerCity(c, _jh);
   const addOns   = c.addOns || [];
   const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
 
-  let serviceRows = items.map(s=>`<tr><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;">${s}</td><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;text-align:right;"></td></tr>`).join('');
+  // Single-column service list — no blank Amount column, just clean ✓ rows.
+  // Add-ons show their bundle price inline (right-aligned, monospace) when present.
+  let serviceRows = items.map(s =>
+    `<tr><td style="padding:6pt 0;border-bottom:0.5pt solid #f0ede6;font-size:11pt;color:#1a1a1a;">
+       <span style="color:#1d9e75;font-weight:700;margin-right:8pt;">✓</span>${esc(s)}
+     </td></tr>`).join('');
   if (addOns.length) {
-    serviceRows += addOns.map(a=>`<tr><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;padding-left:16pt;">+ ${esc(a.name||'')}</td><td style="padding:5pt 8pt;border-bottom:0.5pt solid #eee;text-align:right;">$${Number(a.bundle||0).toFixed(2)}</td></tr>`).join('');
+    serviceRows += addOns.map(a => {
+      const _aoPx = `$${Number(a.bundle||0).toFixed(2)}`;
+      return `<tr><td style="padding:6pt 0;border-bottom:0.5pt solid #f0ede6;font-size:11pt;color:#1a1a1a;">
+        <span style="color:#0a1628;font-weight:700;margin-right:8pt;">+</span>${esc(a.name||'')}
+        <span style="float:right;font-variant-numeric:tabular-nums;color:#555;">${_aoPx}</span>
+      </td></tr>`;
+    }).join('');
   }
 
+  // Status: per Tyler — payment always precedes invoicing in this business, so the
+  // invoice is always issued post-payment. Status is unconditional "Paid in Full".
+  // If the flow ever changes (invoice-then-pay), restore the ss.paymentCollected gate.
+  const paidBadge = `<span style="display:inline-block;font-size:9pt;font-weight:700;color:#0d6940;background:#e7f5ec;border:1pt solid #a7d8b9;border-radius:18pt;padding:3pt 10pt;letter-spacing:0.5pt;">✓ PAID IN FULL</span>`;
+
   const html = `
-<table style="margin-bottom:20pt;">
+<table style="margin-bottom:22pt;">
   <tr>
-    <td>
-      <div style="font-size:17pt;font-weight:bold;">${PRINT_CO}</div>
-      <div style="font-size:9pt;color:#666;margin-top:2pt;">Family-owned · Since 1995 &nbsp;·&nbsp; ${PRINT_PHONE} &nbsp;·&nbsp; ${PRINT_WEBSITE}</div>
+    <td style="vertical-align:top;">
+      <div style="font-size:16pt;font-weight:bold;color:#0a1628;letter-spacing:0.2pt;">${PRINT_CO}</div>
+      <div style="font-size:8.5pt;color:#666;margin-top:4pt;">Family-owned · Since 1995 &nbsp;·&nbsp; ${PRINT_PHONE} &nbsp;·&nbsp; ${PRINT_WEBSITE}</div>
     </td>
-    <td style="text-align:right;">
-      <div style="font-size:26pt;font-weight:bold;color:#c2410c;letter-spacing:1pt;">INVOICE</div>
-      <div style="font-size:10pt;color:#555;margin-top:3pt;">Invoice #: ${invNum}<br>Date: ${compDate}</div>
+    <td style="text-align:right;vertical-align:top;">
+      <div style="font-size:24pt;font-weight:bold;color:#0a1628;letter-spacing:2pt;">INVOICE</div>
+      <div style="font-size:9pt;color:#666;margin-top:4pt;line-height:1.6;">Invoice #${invNum}<br>${compDate}</div>
+      <div style="margin-top:8pt;">${paidBadge}</div>
     </td>
   </tr>
 </table>
 
-<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:8pt;">Bill To</div>
-<div style="font-size:12pt;margin-bottom:20pt;">
-  <strong>${esc(name)}</strong><br>
-  ${_printAddr ? esc(_printAddr)+'<br>' : '<span style="color:#c2410c;font-style:italic;">Address not on file</span><br>'}
+<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;padding-bottom:4pt;margin-bottom:8pt;border-bottom:0.5pt solid #d4cfb8;">Bill To</div>
+<div style="font-size:11.5pt;margin-bottom:24pt;line-height:1.65;">
+  <strong style="font-size:13pt;color:#0a1628;">${esc(name)}</strong><br>
+  ${_printAddr ? esc(_printAddr)+'<br>' : '<span style="color:#9b6a3a;font-style:italic;">Address not on file</span><br>'}
   ${_printCity ? esc(_printCity)+', FL'+(c.zip?' '+c.zip:'')+'<br>' : ''}
-  ${c.phone ? fmtPh(c.phone) : '<span style="font-style:italic;">No phone on file</span>'}
+  <span style="color:#555;">${c.phone ? fmtPh(c.phone) : 'No phone on file'}</span>
 </div>
 
-<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;border-bottom:1pt solid #ccc;padding-bottom:3pt;margin-bottom:4pt;">Services Performed</div>
-<table style="margin-bottom:4pt;">
-  <thead><tr>
-    <th style="font-size:9pt;text-transform:uppercase;letter-spacing:1pt;color:#888;text-align:left;padding:5pt 8pt;border-bottom:1pt solid #ccc;">Description</th>
-    <th style="font-size:9pt;text-transform:uppercase;letter-spacing:1pt;color:#888;text-align:right;padding:5pt 8pt;border-bottom:1pt solid #ccc;">Amount</th>
-  </tr></thead>
+<div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;padding-bottom:4pt;margin-bottom:6pt;border-bottom:0.5pt solid #d4cfb8;">Services Performed</div>
+<table style="margin-bottom:8pt;">
   <tbody>${serviceRows}</tbody>
-  <tfoot><tr>
-    <td style="padding-top:8pt;border-top:1.5pt solid #1a1a1a;text-align:right;font-size:11pt;font-weight:bold;color:#555;">TOTAL</td>
-    <td style="padding-top:8pt;border-top:1.5pt solid #1a1a1a;text-align:right;font-size:16pt;font-weight:bold;color:#c2410c;">$${Number(amount).toFixed(2)}</td>
-  </tr></tfoot>
 </table>
 
-<div style="background:#f8f8f6;border:1pt solid #ddd;padding:10pt 14pt;margin-top:16pt;margin-bottom:20pt;">
-  <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:6pt;">Payment</div>
+<table style="margin-top:14pt;margin-bottom:24pt;">
+  <tr>
+    <td style="text-align:right;padding:10pt 0;border-top:1.5pt solid #0a1628;font-size:11pt;font-weight:bold;color:#555;letter-spacing:1pt;text-transform:uppercase;">Total</td>
+    <td style="text-align:right;padding:10pt 0;border-top:1.5pt solid #0a1628;font-size:18pt;font-weight:bold;color:#0a1628;font-variant-numeric:tabular-nums;width:130pt;">$${Number(amount).toFixed(2)}</td>
+  </tr>
+</table>
+
+<div style="background:#f8f8f3;border:0.75pt solid #d4cfb8;border-radius:4pt;padding:12pt 16pt;margin-bottom:24pt;">
+  <div style="font-size:8pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.5pt;color:#888;margin-bottom:8pt;">Payment</div>
   <table style="font-size:11pt;">
-    <tr><td style="padding:2pt 0;color:#555;width:180pt;">Methods Accepted:</td><td style="padding:2pt 8pt;font-weight:bold;">Zelle · Check · Cash · Venmo</td></tr>
-    <tr><td style="padding:2pt 0;color:#555;">Status:</td><td style="padding:2pt 8pt;font-weight:bold;color:${ss.paymentCollected?'#15803d':'#c2410c'};">${ss.paymentCollected?'✓ PAID':'PAYMENT DUE'}</td></tr>
+    <tr><td style="padding:3pt 0;color:#555;width:170pt;">Methods Accepted:</td><td style="padding:3pt 8pt;font-weight:600;color:#0a1628;">Zelle · Check · Cash · Venmo</td></tr>
+    <tr><td style="padding:3pt 0;color:#555;">Status:</td><td style="padding:3pt 8pt;font-weight:700;color:#0d6940;">✓ Paid in Full</td></tr>
   </table>
 </div>
 
-<div style="margin-top:32pt;padding-top:12pt;border-top:1pt solid #ccc;font-size:9pt;color:#666;text-align:center;line-height:1.8;">
-  Thank you for trusting ${PRINT_CO}.<br>
-  30 years serving South Florida families.<br><br>
-  Questions? Call or text ${PRINT_PHONE}<br>
-  ${PRINT_CO}
+<div style="margin-top:28pt;padding-top:16pt;border-top:0.5pt solid #d4cfb8;font-size:9pt;color:#666;text-align:center;line-height:1.9;">
+  Thank you for trusting <strong style="color:#0a1628;">${PRINT_CO}</strong>.<br>
+  30 years serving South Florida families.<br>
+  <span style="color:#999;">Questions? Call or text ${PRINT_PHONE}</span>
 </div>`;
 
   _openPrintWin(html, `Invoice ${invNum} — ${name}`);
@@ -5734,11 +5780,15 @@ function emailInvoice(phone, jhJobId) {
   const services = _jh
     ? (_jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')
     : (ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
-  const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  • ${s}`).join('\n');
-  const _emailAddr = _jh?.address || c.address;
-  const _emailCity = _jh?.city    || c.city;
+  const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  ✓  ${s}`).join('\n');
+  // Partner-aware address: worksite first, billing anchor last (helper handles fallback)
+  const _emailAddr = _partnerAddr(c, _jh);
+  const _emailCity = _partnerCity(c, _jh);
   const addrLine = [_emailAddr, _emailCity ? _emailCity+', FL'+(c.zip?' '+c.zip:'') : ''].filter(Boolean).join(', ');
-  const payStatus = ss.paymentCollected ? '✓ PAID — Thank you!' : 'Payment due upon receipt.';
+  // Status: per Tyler — payment always precedes invoicing in this business, so the
+  // status is unconditional "Paid in Full". If the flow ever changes (invoice-then-pay),
+  // restore the ss.paymentCollected gate.
+  const payStatus = '✓ Paid in Full — Thank you!';
 
   const subject = `${PRINT_CO} — Invoice ${invNum}`;
   const body = [
@@ -5746,23 +5796,25 @@ function emailInvoice(phone, jhJobId) {
     ``,
     `Thank you for choosing ${PRINT_CO}! Please find your invoice below.`,
     ``,
-    `─────────────────────────────`,
+    `═════════════════════════════`,
     `INVOICE #${invNum}`,
     `Date: ${compDate}`,
-    `─────────────────────────────`,
+    `═════════════════════════════`,
     ``,
-    `Bill To: ${name}`,
-    addrLine ? `Address: ${addrLine}` : '',
+    `BILL TO`,
+    `  ${name}`,
+    addrLine ? `  ${addrLine}` : '',
     ``,
-    `Services Performed:`,
+    `SERVICES PERFORMED`,
     svcItems,
     ``,
     `─────────────────────────────`,
-    `TOTAL: $${Number(amount).toFixed(2)}`,
+    `TOTAL                 $${Number(amount).toFixed(2)}`,
     `─────────────────────────────`,
     ``,
-    `Payment methods: Zelle · Check · Cash · Venmo`,
-    payStatus,
+    `PAYMENT`,
+    `  Methods Accepted:  Zelle · Check · Cash · Venmo`,
+    `  Status:            ${payStatus}`,
     ``,
     `Questions? Call or text ${PRINT_PHONE}`,
     `${PRINT_CO}  ·  Family-owned since 1995`,

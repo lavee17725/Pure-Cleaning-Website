@@ -335,7 +335,12 @@ function renderPage() {
   const fn       = customer.firstName || customer.fn || '';
   const ln       = customer.lastName  || customer.ln || '';
   const fullName = [fn, ln].filter(Boolean).join(' ');
-  const addr     = [customer.address, customer.city].filter(Boolean).join(', ');
+  // Partner-aware: prefer workSite address over the billing anchor. Last completed jh entry
+  // is the best per-job source; falls back to customer-level workSite then billing anchor.
+  const _lastJh   = (customer.jobHistory || []).slice().reverse().find(j => j && j.status === 'completed') || {};
+  const _rcptAddr = _lastJh.workSiteAddress || customer.workSiteAddress || _lastJh.address || customer.address;
+  const _rcptCity = _lastJh.workSiteCity    || customer.workSiteCity    || _lastJh.city    || customer.city;
+  const addr      = [_rcptAddr, _rcptCity].filter(Boolean).join(', ');
 
   // Banner
   document.getElementById('banner-name').textContent = fn || fullName;
@@ -424,7 +429,11 @@ function buildPrintContent() {
   const fn      = customer.firstName || customer.fn || '';
   const ln      = customer.lastName  || customer.ln || '';
   const fullName = [fn, ln].filter(Boolean).join(' ');
-  const addr    = [customer.address, customer.city].filter(Boolean).join(', ');
+  // Partner-aware (mirrors renderPage): worksite address first, billing anchor last.
+  const _lastJh = (customer.jobHistory || []).slice().reverse().find(j => j && j.status === 'completed') || {};
+  const _printAddr2 = _lastJh.workSiteAddress || customer.workSiteAddress || _lastJh.address || customer.address;
+  const _printCity2 = _lastJh.workSiteCity    || customer.workSiteCity    || _lastJh.city    || customer.city;
+  const addr    = [_printAddr2, _printCity2].filter(Boolean).join(', ');
   const services = qs.mainServices || ss.jobNotes || qs.notes || '—';
   const addons   = customer.addOns || qs.addOns || [];
   const total    = pi.totalPaid || ss.approvedAmount || qs.approvedAmount || 0;

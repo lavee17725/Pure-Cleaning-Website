@@ -1486,6 +1486,33 @@ async function scheduleJobWithDualWrite({
         const props = (fullD?.customer?.properties) || [];
         const isPartner = fullD?.customer?.customerType === 'partner_referral';
 
+        // Entry-guard (Reza-class repair): partner submitted a Google PlaceID picker selection
+        // but no typed street. Without resolution, the partner branch below would fail its
+        // (workSiteAddress && workSiteCity) gate and fall back to the billing anchor (BUG).
+        // Resolve placeId → street/city/zip server-side, then proceed normally.
+        // Non-blocking on failure: we log & fall through (better a partial address than no schedule).
+        let _wsAddr = workSiteAddress, _wsCity = workSiteCity, _wsZip = null;
+        if (isPartner && workSitePlaceId && !_wsAddr) {
+          try {
+            const rRes = await fetch(`${PCPC_API}/admin/places/resolve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ placeId: workSitePlaceId }),
+            });
+            const rJson = rRes.ok ? await rRes.json().catch(() => null) : null;
+            if (rJson?.success && rJson.streetAddress) {
+              _wsAddr = rJson.streetAddress;
+              _wsCity = _wsCity || rJson.city || null;
+              _wsZip  = rJson.zip || null;
+              console.log(`[partner-resolve] placeId ${workSitePlaceId} → ${_wsAddr}, ${_wsCity}`);
+            } else {
+              console.warn('[partner-resolve] placeId resolve failed:', rJson?.error || 'unknown');
+            }
+          } catch(e) {
+            console.warn('[partner-resolve] network error:', e.message);
+          }
+        }
+
         // Model fix (Step 2): partner jobs bind to the ACTUAL WORKSITE as their D1 Property,
         // not the partner's billing anchor. Every Harts/Carlos/etc. job is at a different
         // homeowner's house — the property row should represent THAT house, so handleCalendarJobs
@@ -1493,14 +1520,15 @@ async function scheduleJobWithDualWrite({
         // POST /admin/property is idempotent: same streetAddress+city → same _d1PropId →
         // INSERT OR IGNORE, so re-submitting the same worksite never duplicates the row.
         // The worksite property links to the partner with primaryContact=0 — billing anchor untouched.
-        if (isPartner && workSiteAddress && workSiteCity) {
+        if (isPartner && _wsAddr && _wsCity) {
           const wsResp = await fetch(`${PCPC_API}/admin/property`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               personId,
-              streetAddress: workSiteAddress,
-              city:          workSiteCity,
+              streetAddress: _wsAddr,
+              city:          _wsCity,
+              ...(_wsZip ? { zip: _wsZip } : {}),
               propertyLabel: 'Work Site',
               ...(workSitePlaceId ? { googlePlaceId: workSitePlaceId } : {}),
             }),
@@ -1508,6 +1536,10 @@ async function scheduleJobWithDualWrite({
           const wsResult = wsResp && wsResp.ok ? await wsResp.json().catch(() => null) : null;
           if (wsResult?.success && wsResult.propertyId) {
             propId = wsResult.propertyId;
+            // Update outer scope so the Job row's workSiteAddress backup fields get the
+            // resolved values (not the original nulls).
+            workSiteAddress = _wsAddr;
+            workSiteCity    = _wsCity;
           }
           // If POST /admin/property failed (network/D1 error), fall through to billing-anchor
           // fallback below so scheduling still succeeds rather than silently blocking.

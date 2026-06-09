@@ -1478,6 +1478,18 @@ export default {
         return await handleCreateProperty(request, env, corsHeaders);
       }
 
+      // ── POST /admin/places/resolve — placeId → structured address ──
+      // Body: { placeId }
+      // Returns: { success, streetAddress, city, state, zip, latitude, longitude, formattedAddress }
+      // Used by:
+      //   (1) Partner-flow entry guard (new_customer.html) when user picks a Google suggestion
+      //       and submits without a typed street — resolves the placeId server-side so the
+      //       worksite Property can be created instead of falling back to billing anchor.
+      //   (2) One-shot repairs of legacy partner jobs that have workSitePlaceId but no street.
+      if (path === 'admin/places/resolve' && request.method === 'POST') {
+        return await handlePlacesResolve(request, env, corsHeaders);
+      }
+
       if (path === 'admin/person-property' && request.method === 'PATCH') {
         return await handlePatchPersonProperty(request, env, corsHeaders);
       }
@@ -7435,6 +7447,60 @@ async function handleTruckEventBackfill(request, env, corsHeaders) {
     totalInserted,
     results: allResults,
   }, corsHeaders);
+}
+
+// ── Places resolver: placeId → structured address ─────────────────────────────
+// Hits Google Places "place details" with address_components so the partner-flow
+// entry guard can turn a picker-only submission into a real worksite Property.
+// Idempotent / read-only — no D1/KV writes here, only Google API call.
+async function handlePlacesResolve(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.placeId)
+    return jsonResponse({ success: false, error: 'placeId required' }, corsHeaders, 400);
+  if (!env.GOOGLE_PLACES_API_KEY)
+    return jsonResponse({ success: false, error: 'places_api_key_missing' }, corsHeaders, 503);
+
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/place/details/json?` +
+      `place_id=${encodeURIComponent(body.placeId)}` +
+      `&fields=address_components,formatted_address,geometry,name,types` +
+      `&key=${env.GOOGLE_PLACES_API_KEY}`
+    );
+    const data = await res.json();
+    if (data.status !== 'OK' || !data.result)
+      return jsonResponse({ success: false, error: 'places_lookup_failed', detail: data.status, message: data.error_message || null }, corsHeaders, 502);
+
+    const comps = data.result.address_components || [];
+    const find  = (type) => comps.find(c => (c.types || []).includes(type));
+    const num   = find('street_number')?.long_name || '';
+    const route = find('route')?.long_name || '';
+    const streetAddress = [num, route].filter(Boolean).join(' ').trim() || null;
+    const city  = find('locality')?.long_name
+               || find('postal_town')?.long_name
+               || find('sublocality')?.long_name
+               || find('administrative_area_level_3')?.long_name
+               || null;
+    const state = find('administrative_area_level_1')?.short_name || null;
+    const zip   = find('postal_code')?.long_name || null;
+    const loc   = data.result.geometry?.location || {};
+
+    return jsonResponse({
+      success:          true,
+      placeId:          body.placeId,
+      streetAddress,
+      city,
+      state,
+      zip,
+      latitude:         loc.lat ?? null,
+      longitude:        loc.lng ?? null,
+      formattedAddress: data.result.formatted_address || null,
+      name:             data.result.name || null,
+      types:            data.result.types || null,
+    }, corsHeaders);
+  } catch(e) {
+    return jsonResponse({ success: false, error: 'places_network_error', detail: e.message }, corsHeaders, 502);
+  }
 }
 
 // ── Property creation: Property + PersonProperty link ─────────────────────────
