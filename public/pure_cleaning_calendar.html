@@ -2086,7 +2086,8 @@ function highlightSidebarJob(phone) {
 function getLastKnownRoofStories(customer) {
   if (!customer || !Array.isArray(customer.jobHistory)) return null;
   const roofJobs = customer.jobHistory
-    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .filter(j => j && j.date && j.roofStories && j.source !== 'rig_segment'  // Fix 4: rig-segment entries are $0 attribution markers, not billing jobs
+              && /roof|soft\s*wash|softwash/i.test(j.services || ''))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
 }
@@ -3724,8 +3725,13 @@ function getExtraCompletedJobsForRig(date, rig) {
     const ssRig = _normalizeRig(c.scheduledStatus?.rig);
     const ss = c.scheduledStatus;
     const ssActiveOnDate = ss && ss.scheduledDate === date;
+    // Fix 4: when rig-segment entries exist for this date, suppress the null-rig primary
+    // from per-rig columns (it stays in the Day Pool via getUnassignedJobs). Rig-segment
+    // entries carry their explicit rigId and are pushed directly below, bypassing dedup.
+    const _hasRigSegsForDate = jh.some(j2 => j2.source === 'rig_segment' && j2.date === date);
     const matching = jh.filter(j => {
       if (j.date !== date || j.status !== 'completed') return false;
+      if (j.source === 'rig_segment') return false; // pushed directly below — bypass dedup
       // Suppress csv_backfill entries when customer already has an active scheduled entry for this same date
       if (j.source === 'csv_backfill' && ssActiveOnDate) return false;
       // Suppress csv_backfill entries from the past 60 days when customer has an upcoming scheduled job
@@ -3734,9 +3740,16 @@ function getExtraCompletedJobsForRig(date, rig) {
         const dayAge = (Date.now() - new Date(j.date + 'T12:00:00').getTime()) / 86400000;
         if (dayAge < 60) return false;
       }
-      const jhRig = _normalizeRig(j.rig) || ssRig || 'rig_1';
+      // When rig-segment entries cover this date, don't let null-rig entries fall through
+      // to the 'rig_1' fallback — that would duplicate the card in rig_1 and rig_3 columns.
+      const jhRig = _normalizeRig(j.rig) || ssRig || (_hasRigSegsForDate ? null : 'rig_1');
+      if (!jhRig) return false;
       return jhRig === rig;
     });
+    // Fix 4: push rig-segment entries directly for their explicit rig column (no dedup needed —
+    // each segment has a unique jobId and explicit rigId; they are $0 attribution markers).
+    jh.filter(j => j.source === 'rig_segment' && j.date === date && _normalizeRig(j.rig) === rig)
+      .forEach(jhEntry => result.push({ customer: c, jhEntry }));
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
 
@@ -4776,6 +4789,36 @@ async function _doCompleteJob(log) {
       Math.abs((j.amount || 0) - (ss.approvedAmount || 0)) <= 5
     );
     if (_existingEntry?.jobId) ss._lastJobId = _existingEntry.jobId;
+  }
+
+  // Fix 4 (multi-rig): push per-rig supplementary jh entries for rig-segment children.
+  // These are $0 attribution markers — billing lives on the primary entry only.
+  // source='rig_segment' ensures they are excluded from lifetimeSpend, tier calcs,
+  // review queue, SMS outreach, job counts, and _d1SyncJobHistory D1 writes.
+  // They give getExtraCompletedJobsForRig the rigId it needs to show the correct column.
+  // The D1 read path (_d1PersonToKv) also adds these persistently so they survive reloads.
+  if (_isGroupJob) {
+    const _rigSegs = _groupSiblings.filter(d => d.isRigSegment && d.rigId);
+    for (const seg of _rigSegs) {
+      const _segDup = c.jobHistory.some(j =>
+        j.source === 'rig_segment' && j.jobId === seg.jobId && j.date === completedDate
+      );
+      if (!_segDup) {
+        c.jobHistory.push({
+          jobId:       seg.jobId,
+          date:        completedDate,
+          services:    '',
+          amount:      0,
+          rig:         seg.rigId,
+          rigId:       seg.rigId,
+          status:      'completed',
+          completedAt: _jhNow,
+          crew:        [],
+          source:      'rig_segment',
+          crewCount:   seg.crewCount || null,
+        });
+      }
+    }
   }
 
   // PATCH D1 — group jobs use /complete-group to cascade parent+all children atomically;

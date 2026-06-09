@@ -997,7 +997,9 @@ function svcMoCell(c) {
 
 function dbRecordToCustomer(r) {
   // Use same effective stats as getTier() — jobHistory takes priority over stale aggregate fields
-  const jh = r.jobHistory || [];
+  // Fix 4: exclude rig_segment supplementary entries ($0 attribution markers) from all stat
+  // calculations — they must not inflate job counts, lifetime spend, or tier scores.
+  const jh = (r.jobHistory || []).filter(j => j.source !== 'rig_segment');
   const effectiveLastService = jh.length > 0
     ? (jh.map(j => j.date).filter(Boolean).sort().slice(-1)[0] || null)
     : (r.lastService || null);

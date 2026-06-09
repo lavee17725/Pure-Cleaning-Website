@@ -3597,6 +3597,29 @@ function _d1PersonToKv(p, props, pjobs, propById) {
     return entry;
   });
 
+  // Fix 4 (multi-rig): add per-rig supplementary jh entries for rig-segment children.
+  // These carry rig=rigId so getExtraCompletedJobsForRig renders the correct column.
+  // amount=0 — billing lives on the parent entry only (no double-count).
+  // source='rig_segment' — exclusion tag: excluded from lifetimeSpend, totalJobs, tier
+  //   calculations, review queue, SMS outreach, and _d1SyncJobHistory D1 writes.
+  // Stored persistently in the D1→KV read path so they survive page reloads.
+  const _rigSegCompleted = pjobs.filter(j => j.state === 'completed' && j.isRigSegment && j.rigId);
+  for (const seg of _rigSegCompleted) {
+    jobHistory.push({
+      jobId:       seg.jobId,
+      date:        seg.scheduledDate || null,
+      services:    '',
+      amount:      0,
+      rig:         seg.rigId || null,
+      rigId:       seg.rigId || null,
+      status:      'completed',
+      completedAt: seg.completedAt  || null,
+      crew:        [],
+      source:      'rig_segment',
+      crewCount:   seg.crewCount    ?? null,
+    });
+  }
+
   // Migration 0015: outcome rollups — computed from D1, never stored directly
   const tippedJobs     = completedJobs.filter(j => j.tipped);
   const isTipper       = tippedJobs.length > 0;
@@ -4845,7 +4868,8 @@ async function handleGetJobDays(request, env, jobId, corsHeaders) {
   const rootId = rootRow.rootId;
 
   const { results } = await env.DB.prepare(`
-    SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, totalDays, rigId, servicesRaw
+    SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, totalDays, rigId, servicesRaw,
+           crewCount, isRigSegment
     FROM Job
     WHERE (jobId=? OR parentJobId=?)
       AND state != 'cancelled'
@@ -5484,6 +5508,7 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
   for (const jh of (c.jobHistory||[])) {
     if (!jh.jobId || prevJhIds.has(jh.jobId)) continue;
     if (jh.source === 'csv_backfill') continue; // historical records already in D1 from Day 1
+    if (jh.source === 'rig_segment')  continue; // supplementary display entries — D1 row already exists
     // Fix D: guard against jobId-format collisions between Day 1 migration rows and Phase 2
     // calendar-generated rows. Same payerId+scheduledDate+propertyId = same real job under a
     // different jobId — skip INSERT rather than creating a phantom duplicate.
