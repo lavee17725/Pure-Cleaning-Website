@@ -3535,6 +3535,16 @@ function _d1BuildScheduledStatus(personJobs) {
     scheduledDate:       ss.scheduledDate  || null,
     rig:                 ss.rigId          || null,
     approvedAmount:      _groupApprovedAmt,
+    // Fix 5 (multi-day calendar): explicit group total for payment-warning check.
+    // The per-day ss card is suppressed for multi-day parents; day_segment jh entries
+    // render each day's card. The payment modal reads groupApprovedAmount so the
+    // $1,000 warning fires correctly even though Day-1 card shows $200.
+    groupApprovedAmount: _groupApprovedAmt,
+    // Fix 5: flag so getScheduledForRig fromKv path can suppress the single merged card
+    // and defer to the per-day day_segment entries in getExtraCompletedJobsForRig.
+    // dayNumber != null distinguishes day-split parents (dayNumber=1) from rig-group parents
+    // (dayNumber=null, isMultiDayParent=1) — rig-group parents must NOT be suppressed here.
+    isMultiDayParent:    (ss.isMultiDayParent && ss.dayNumber != null) ? 1 : 0,
     jobNotes:            _groupJobNotes,
     completedAt:         ss.completedAt    || null,
     completedDate:       ss.completedAt    ? ss.completedAt.slice(0,10) : null,
@@ -3618,6 +3628,46 @@ function _d1PersonToKv(p, props, pjobs, propById) {
       source:      'rig_segment',
       crewCount:   seg.crewCount    ?? null,
     });
+  }
+
+  // Fix 5 (multi-day calendar): add per-day supplementary jh entries for each day-child
+  // (and the parent/Day-1 row) so getExtraCompletedJobsForRig can render a completed card
+  // on each day's own date with its own service label and amount slice.
+  // source='day_segment' — excluded from lifetimeSpend (parent jh entry already carries the
+  //   group total), totalJobs, tier calculations, and _d1SyncJobHistory D1 writes.
+  // The parent primary jh entry ($1,000 group total + all services) is NOT removed — it
+  //   remains canonical for job history, profile display, and outreach eligibility.
+  //   The calendar rendering path suppresses the single merged completed card for
+  //   multi-day parents (via ss.isMultiDayParent) and uses these per-day entries instead.
+  // dayNumber != null: day-split parents only (dayNumber=1). Rig-group parents have
+  // dayNumber=null and must NOT get day_segment entries — their rig_segment children
+  // already handle per-rig calendar attribution.
+  const _multiDayParents = completedJobs.filter(j => j.isMultiDayParent && j.dayNumber != null);
+  for (const parent of _multiDayParents) {
+    // All completed non-rig-segment siblings: children + parent (day 1)
+    const _daySiblings = pjobs
+      .filter(c => (c.jobId === parent.jobId || c.parentJobId === parent.jobId)
+                && c.state === 'completed' && !c.isRigSegment)
+      .sort((a, b) => (a.dayNumber || 0) - (b.dayNumber || 0));
+    for (const seg of _daySiblings) {
+      if (!seg.scheduledDate) continue;
+      if (jobHistory.some(e => e.source === 'day_segment' && e.jobId === seg.jobId)) continue;
+      jobHistory.push({
+        jobId:       seg.jobId,
+        date:        seg.scheduledDate,
+        services:    seg.dayPhase || seg.servicesRaw || '',
+        amount:      seg.amount   || 0,
+        rig:         seg.rigId    || null,
+        rigId:       seg.rigId    || null,
+        status:      'completed',
+        completedAt: seg.completedAt || null,
+        crew:        [],
+        source:      'day_segment',
+        dayNumber:   seg.dayNumber  ?? null,
+        dayPhase:    seg.dayPhase   || null,
+        crewCount:   seg.crewCount  ?? null,
+      });
+    }
   }
 
   // Migration 0015: outcome rollups — computed from D1, never stored directly
@@ -5509,6 +5559,7 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
     if (!jh.jobId || prevJhIds.has(jh.jobId)) continue;
     if (jh.source === 'csv_backfill') continue; // historical records already in D1 from Day 1
     if (jh.source === 'rig_segment')  continue; // supplementary display entries — D1 row already exists
+    if (jh.source === 'day_segment')  continue; // per-day display entries — D1 row already exists
     // Fix D: guard against jobId-format collisions between Day 1 migration rows and Phase 2
     // calendar-generated rows. Same payerId+scheduledDate+propertyId = same real job under a
     // different jobId — skip INSERT rather than creating a phantom duplicate.

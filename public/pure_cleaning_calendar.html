@@ -3668,9 +3668,13 @@ function getScheduledForRig(date, rig) {
     .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
   // Completed: still from dbRecord — the /admin/calendar-jobs endpoint only returns state='scheduled'.
   // Completed cards remain KV-sourced in Phase 2B-1; this merges cleanly until 2B-2.
+  // Fix 5: multi-day parents (ss.isMultiDayParent) are suppressed here — their per-day cards
+  // come from source='day_segment' jh entries via getExtraCompletedJobsForRig, one per date.
+  // Normal single-day completed cards (ss.isMultiDayParent falsy) are unchanged.
   const fromKv = (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
-    return ss && ss.state==='completed' && ss.scheduledDate===date && ss.rig===rig;
+    return ss && ss.state==='completed' && ss.scheduledDate===date && ss.rig===rig
+      && !ss.isMultiDayParent;
   }).map(c => {
     // Attach _stableId so getScheduledForRigOrdered can index completed cards the same way
     // jobCardScheduled uses _editJobId — derive the matching stable id here.
@@ -3694,9 +3698,16 @@ function getUnassignedJobs(date) {
     .map(j => _jobRowToShape(j, (payerCounts[j.payerId]||0) > 1));
   // Also include completed null-rig customers from KV — no rig assigned means no rig lane matches.
   // Unassigned is the correct home; Tyler can retroactively assign rigs via the edit button.
+  // Fix 5 defensive: suppress day-split multi-day parents (ss.isMultiDayParent, ss.rig != null)
+  // from unassigned — their per-day cards render via day_segment entries on their own dates+rigs.
+  // Rig-group parents (ss.rig=null, isMultiDayParent) are NOT suppressed — their rig_segment
+  // attribution cards show in rig columns; the group summary card stays in unassigned as before.
   const fromKvCompleted = (dbRecord.customers||[]).filter(c => {
     const ss = c.scheduledStatus;
-    return ss && ss.state === 'completed' && ss.scheduledDate === date && !ss.rig;
+    if (!ss || ss.state !== 'completed' || ss.scheduledDate !== date || ss.rig) return false;
+    // Suppress day-split parents (has a rig assigned, so they appear in rig columns via day_segments)
+    if (ss.isMultiDayParent && (c.jobHistory||[]).some(j => j.source === 'day_segment')) return false;
+    return true;
   });
   return [...fromD1, ...fromKvCompleted];
 }
@@ -3728,10 +3739,20 @@ function getExtraCompletedJobsForRig(date, rig) {
     // Fix 4: when rig-segment entries exist for this date, suppress the null-rig primary
     // from per-rig columns (it stays in the Day Pool via getUnassignedJobs). Rig-segment
     // entries carry their explicit rigId and are pushed directly below, bypassing dedup.
-    const _hasRigSegsForDate = jh.some(j2 => j2.source === 'rig_segment' && j2.date === date);
+    const _hasRigSegsForDate  = jh.some(j2 => j2.source === 'rig_segment' && j2.date === date);
+    // Fix 5: when day-segment entries exist for any date on this customer, the multi-day
+    // parent's group-total primary jh entry (source='calendar_completion') is suppressed
+    // from matching — day_segment entries render each day individually via direct push below.
+    const _hasDaySegsForDate  = jh.some(j2 => j2.source === 'day_segment' && j2.date === date);
     const matching = jh.filter(j => {
       if (j.date !== date || j.status !== 'completed') return false;
       if (j.source === 'rig_segment') return false; // pushed directly below — bypass dedup
+      if (j.source === 'day_segment') return false; // pushed directly below — bypass dedup
+      // Fix 5: suppress the group-total primary entry when a day_segment covers this same
+      // date + jobId (i.e., the parent's own Day-1 entry). Per-day cards use day_segments.
+      // Normal standalone jobs have no day_segments → this guard never fires for them.
+      if (_hasDaySegsForDate && jh.some(ds => ds.source === 'day_segment' && ds.date === date && ds.jobId === j.jobId))
+        return false;
       // Suppress csv_backfill entries when customer already has an active scheduled entry for this same date
       if (j.source === 'csv_backfill' && ssActiveOnDate) return false;
       // Suppress csv_backfill entries from the past 60 days when customer has an upcoming scheduled job
@@ -3749,6 +3770,10 @@ function getExtraCompletedJobsForRig(date, rig) {
     // Fix 4: push rig-segment entries directly for their explicit rig column (no dedup needed —
     // each segment has a unique jobId and explicit rigId; they are $0 attribution markers).
     jh.filter(j => j.source === 'rig_segment' && j.date === date && _normalizeRig(j.rig) === rig)
+      .forEach(jhEntry => result.push({ customer: c, jhEntry }));
+    // Fix 5: push day-segment entries directly for their own date+rig column (no dedup needed —
+    // each segment has its own jobId, explicit scheduledDate, and rigId; they are per-day slice cards).
+    jh.filter(j => j.source === 'day_segment' && j.date === date && _normalizeRig(j.rig) === rig)
       .forEach(jhEntry => result.push({ customer: c, jhEntry }));
     if (!matching.length) continue;
     matching.sort((a, b) => (b.completedAt||b.date||'').localeCompare(a.completedAt||a.date||''));
@@ -4491,9 +4516,12 @@ function saveJobLog() {
   const payLog    = _collectPaymentLog();
 
   // Warn when payment amount differs from agreed job price
+  // Fix 5: multi-day parents use groupApprovedAmount (group total) for the check.
+  // The Day-1 card shows $200, but the payment warning must compare against $1,000 total.
+  // approvedAmount fallback preserves the check for all other job types.
   if (payLog.paymentAmount > 0) {
     const c = findCustomer(jmPhone);
-    const approved = c?.scheduledStatus?.approvedAmount || 0;
+    const approved = c?.scheduledStatus?.groupApprovedAmount || c?.scheduledStatus?.approvedAmount || 0;
     if (approved > 0 && payLog.paymentAmount !== approved) {
       _pendingJobLog = { satisfied, endTime, issues, notes, ...payLog };
       const fmtAmt = n => `$${Number(n).toLocaleString('en-US', {maximumFractionDigits:0})}`;
@@ -4816,6 +4844,40 @@ async function _doCompleteJob(log) {
           crew:        [],
           source:      'rig_segment',
           crewCount:   seg.crewCount || null,
+        });
+      }
+    }
+  }
+
+  // Fix 5 (multi-day calendar): push per-day supplementary jh entries for each day-child
+  // (and Day 1/parent) so getExtraCompletedJobsForRig can render per-day completed cards.
+  // Each entry carries the day's own scheduledDate, service label, and amount slice.
+  // source='day_segment' — excluded from lifetimeSpend (group total already on primary),
+  //   totalJobs, tier calcs, _d1SyncJobHistory D1 writes.
+  // The D1 read path (_d1PersonToKv) also adds these persistently so they survive reloads.
+  if (_isGroupJob) {
+    const _daySiblings = _groupSiblings.filter(d => !d.isRigSegment);
+    for (const seg of _daySiblings) {
+      const _segDate = seg.scheduledDate;
+      if (!_segDate) continue;
+      const _dayDup = c.jobHistory.some(j =>
+        j.source === 'day_segment' && j.jobId === seg.jobId
+      );
+      if (!_dayDup) {
+        c.jobHistory.push({
+          jobId:       seg.jobId,
+          date:        _segDate,
+          services:    seg.dayPhase || seg.servicesRaw || '',
+          amount:      seg.amount   || 0,
+          rig:         seg.rigId    || null,
+          rigId:       seg.rigId    || null,
+          status:      'completed',
+          completedAt: _jhNow,
+          crew:        [],
+          source:      'day_segment',
+          dayNumber:   seg.dayNumber  ?? null,
+          dayPhase:    seg.dayPhase   || null,
+          crewCount:   seg.crewCount  ?? null,
         });
       }
     }
