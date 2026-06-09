@@ -3751,7 +3751,14 @@ function getExtraCompletedJobsForRig(date, rig) {
     const _primaryRigSegRig   = _hasRigSegsForDate
       ? _normalizeRig(
           jh.filter(j2 => j2.source === 'rig_segment' && j2.date === date)
-            .sort((a, b) => (a.dayNumber ?? 99) - (b.dayNumber ?? 99))[0]?.rig
+            .sort((a, b) => {
+              const dn = (a.dayNumber ?? 99) - (b.dayNumber ?? 99);
+              if (dn !== 0) return dn;
+              // Tie-break by rig name alphabetically: rig_1 < rig_2 < rig_3.
+              // rig_segment jh entries have dayNumber=null (not stored), so this
+              // tiebreaker ensures the lowest-numbered rig is always the primary.
+              return (a.rig || '').localeCompare(b.rig || '');
+            })[0]?.rig
         )
       : null; // null → _hasRigSegsForDate is false → guard below never fires
     // Fix 5: when day-segment entries exist for any date on this customer, the multi-day
