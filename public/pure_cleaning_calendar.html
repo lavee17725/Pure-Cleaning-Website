@@ -230,7 +230,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-print-btn:hover{background:#e5e7eb;}
 .js-email-btn{flex:1;padding:4px 8px;border:1px solid #c4b5fd;border-radius:5px;background:#ede9fe;color:#7c3aed;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:500;cursor:pointer;text-align:center;transition:background .1s;}
 .js-email-btn:hover{background:#ddd6fe;}
-.js-inv-btns{display:flex;gap:5px;margin-top:4px;}
+.js-invoice-btn{flex:1;padding:4px 8px;border:1px solid #a7d8b9;border-radius:5px;background:#e7f5ec;color:#0d6940;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;cursor:pointer;text-align:center;transition:background .1s;}
+.js-invoice-btn:hover{background:#d3ecd9;}
+.js-inv-btns{display:flex;gap:5px;margin-top:4px;flex-wrap:wrap;}
+/* Hosted-invoice link modal */
+.inv-link-overlay{position:fixed;inset:0;background:rgba(10,22,40,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:1rem;}
+.inv-link-card{background:#fff;border-radius:14px;max-width:440px;width:100%;padding:1.25rem;box-shadow:0 10px 40px rgba(0,0,0,.2);}
+.inv-link-title{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#6b7280;font-weight:700;margin-bottom:4px;}
+.inv-link-num{font-size:18px;font-weight:700;color:#0a1628;margin-bottom:.5rem;font-variant-numeric:tabular-nums;}
+.inv-link-meta{font-size:12px;color:#6b7280;margin-bottom:.875rem;}
+.inv-link-meta b{color:#0d6940;}
+.inv-link-url{display:flex;gap:6px;margin-bottom:.75rem;}
+.inv-link-url input{flex:1;padding:8px 10px;border:1px solid #e2e8f0;border-radius:7px;font-family:'DM Mono',monospace;font-size:12px;background:#fafaf7;}
+.inv-link-btn-row{display:flex;gap:8px;}
+.inv-link-btn{flex:1;padding:9px;border-radius:8px;border:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.inv-link-btn.copy{background:#0a1628;color:#fff;}
+.inv-link-btn.open{background:#1d9e75;color:#fff;}
+.inv-link-btn.close{background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;}
 /* Week grid drag-to-scroll */
 #weekViewWrap{position:relative;}
 #calGrid{cursor:grab;}
@@ -3212,7 +3228,8 @@ function jobCardScheduled(c) {
 
   if (state === 'completed') {
     if (!c.isTest && phone) {
-      printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button></div>`;
+      const _jcInvJob = c.jobId || '';
+      printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button><button class="js-invoice-btn" onclick="event.stopPropagation();openInvoiceLink('${phone}','${_jcInvJob}')" title="Create or open hosted invoice link">🧾 Invoice</button></div>`;
 
       // Payment logging
       if (c.paymentInfo && c.paymentInfo.paidAt) {
@@ -3482,8 +3499,12 @@ function jobCardHistoryExtra(c, jhEntry) {
 
   // Print + Email — pass jobId so they use jhEntry data
   const _jqStr2 = jobId ? `,'${jobId}'` : '';
+  // Batch 6: hosted invoice button — only emit when jobId is known (template B always has it).
+  const _invBtnFrag = jobId
+    ? `<button class="js-invoice-btn" onclick="event.stopPropagation();openInvoiceLink('${phone}','${jobId}')" title="Create or open hosted invoice link">🧾 Invoice</button>`
+    : '';
   const printBtnHtml = (!c.isTest && phone)
-    ? `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}'${_jqStr2})">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}'${_jqStr2})">📧 Email</button></div>`
+    ? `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}'${_jqStr2})">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}'${_jqStr2})">📧 Email</button>${_invBtnFrag}</div>`
     : '';
 
   // Edit button — passes jobId so fullEditModal populates from jhEntry
@@ -5827,6 +5848,69 @@ function _openPrintWin(html, title) {
   if (!w) { alert('Please allow pop-ups to print.'); return; }
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>${_printCss()}</head><body onload="setTimeout(()=>window.print(),400)">${html}</body></html>`);
   w.document.close();
+}
+
+// ── HOSTED INVOICE LINK (Batch 6) ─────────────────────────────────────────────
+// POSTs to /admin/invoice/from-job → idempotent create or fetch. Shows modal with
+// Copy + Open. Does NOT touch existing printInvoice / emailInvoice.
+async function openInvoiceLink(phone, jobId) {
+  if (!jobId) { showToast('Job ID missing — refresh and try again.'); return; }
+  try {
+    const res = await fetch(`${PCPC_API}/admin/invoice/from-job`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId }),
+    }).catch(e => { console.warn('[invoice] fetch failed:', e.message); return null; });
+    if (!res || !res.ok) { showToast(`Invoice failed (${res ? res.status : 'network'})`); return; }
+    const d = await res.json();
+    _showInvoiceLinkModal(d);
+    // Audit log — fire-and-forget
+    pcpcApi.logEvent({
+      eventType:  'invoice_link_opened',
+      phone,
+      customer:   { jobId },
+      invoiceId:  d.invoiceId,
+      invoiceNumber: d.invoiceNumber,
+      idempotent: !!d.idempotent,
+      openedAt:   new Date().toISOString(),
+    });
+  } catch(e) {
+    showToast('Network error');
+  }
+}
+
+function _showInvoiceLinkModal(d) {
+  const url = d.url || `https://purecleaningpressurecleaning.com/pure_cleaning_invoice.html?id=${encodeURIComponent(d.invoiceId)}`;
+  const overlay = document.createElement('div');
+  overlay.className = 'inv-link-overlay';
+  overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="inv-link-card" onclick="event.stopPropagation()">
+      <div class="inv-link-title">${d.idempotent ? 'Existing invoice' : 'New invoice'}</div>
+      <div class="inv-link-num">${esc(d.invoiceNumber || d.invoiceId)}</div>
+      <div class="inv-link-meta">${d.status === 'paid' ? '<b>✓ Paid in Full</b> · ' : ''}Total $${Number(d.total || 0).toLocaleString()}${d.sector ? ' · ' + esc(d.sector) : ''}</div>
+      <div class="inv-link-url">
+        <input type="text" id="_invUrlInput" readonly value="${esc(url)}" onclick="this.select()">
+      </div>
+      <div class="inv-link-btn-row">
+        <button class="inv-link-btn copy" id="_invCopyBtn">📋 Copy link</button>
+        <button class="inv-link-btn open">🔗 Open</button>
+        <button class="inv-link-btn close">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const inp = overlay.querySelector('#_invUrlInput');
+  overlay.querySelector('.copy').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      overlay.querySelector('.copy').textContent = '✓ Copied';
+    } catch(_) {
+      inp.select(); document.execCommand('copy');
+      overlay.querySelector('.copy').textContent = '✓ Copied';
+    }
+  };
+  overlay.querySelector('.open').onclick = () => { window.open(url, '_blank'); };
+  overlay.querySelector('.close').onclick = () => overlay.remove();
 }
 
 // ── INVOICE ───────────────────────────────────────────────────────────────────

@@ -619,6 +619,7 @@ export default {
         (path === 'events'          && request.method === 'POST') ||  // public — analytics from all pages; was working pre-auth
         (path === 'calendar/blocked-dates' && request.method === 'GET') ||  // public — stub in agreement.html; falls back gracefully
         (/^customer\/[^/]+$/.test(path) && request.method === 'GET') ||  // public — scoped: returns only that customer's record for agreement/receipt pages
+        (/^invoice\/[^/]+$/.test(path)  && request.method === 'GET') ||  // public — scoped: returns ONE invoice's render data for pure_cleaning_invoice.html (rule 13)
         (path === 'dates/suggest'   && request.method === 'GET')  ||
         (path === 'service-frequency' && request.method === 'GET') ||
         (path === 'addons-config'   && request.method === 'GET')  ||
@@ -944,6 +945,20 @@ export default {
         return jsonResponse({ customer }, corsHeaders);
       }
 
+      // ── GET /invoice/{invoiceId} — scoped public for pure_cleaning_invoice.html ──
+      // Returns ONLY that invoice's render data — never any other customer info.
+      // Rate limited per IP (30/min). Tracks viewedAt on first call.
+      if (/^invoice\/[^/]+$/.test(path) && request.method === 'GET') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rk = `rate:invview:${ip}`;
+        const n  = (await env.DATA.get(rk, 'json')) || 0;
+        if (n >= 30) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
+
+        const invoiceId = path.slice('invoice/'.length);
+        return await handleGetInvoicePublic(env, invoiceId, corsHeaders);
+      }
+
       // ── Customer delete / restore / hard-delete ───────────────────────────────
       if (path.startsWith('customer/')) {
         const rest   = path.slice('customer/'.length);
@@ -1027,6 +1042,13 @@ export default {
       // scheduledDate as-is for scheduled. Auth: gated by isPublic check above (admin).
       if (path === 'admin/monthly-breakdown' && request.method === 'GET') {
         return await handleMonthlyBreakdown(request, env, corsHeaders);
+      }
+
+      // POST /admin/invoice/from-job  { jobId } → idempotent create+return Invoice + LineItems.
+      // Creates one Invoice row (or returns existing if jobIds already references the jobId),
+      // line-items per day for multi-day, atomic counter via DocumentCounter ON CONFLICT UPDATE.
+      if (path === 'admin/invoice/from-job' && request.method === 'POST') {
+        return await handleInvoiceFromJob(request, env, corsHeaders);
       }
 
       if (path.startsWith('admin/job/') && path.endsWith('/complete-group') && request.method === 'POST') {
@@ -4831,6 +4853,294 @@ async function handleMonthlyBreakdown(request, env, corsHeaders) {
     await _logD1Failure(env, 'handleMonthlyBreakdown', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
+}
+
+// ── Invoice helpers ─────────────────────────────────────────────────────────
+const _PRINT_CO      = 'Pure Cleaning Pressure Cleaning, LLC';
+const _PRINT_PHONE   = '954-389-2642';
+const _PRINT_WEBSITE = 'purecleaningpressurecleaning.com';
+const _PRINT_SINCE   = '1995';
+
+// Server-side _partnerAddr equivalent. Mirrors the client helper used since Batch 1.
+function _invoiceServiceAddress(job, prop) {
+  return {
+    address: job.workSiteAddress || prop?.streetAddress || '',
+    city:    job.workSiteCity    || prop?.city          || '',
+    zip:     job.workSiteZip     || prop?.zip           || '',
+  };
+}
+
+// One-row-per-job-group amount: parent + non-rig non-cancelled children, same formula
+// as monthly-breakdown. Returns null for non-parent jobs (caller uses j.amount directly).
+async function _invoiceGroupAmount(env, job) {
+  if (!job.isMultiDayParent) return Number(job.amount || 0);
+  const r = await env.DB.prepare(
+    `SELECT COALESCE(SUM(c.amount), 0) AS childSum
+     FROM Job c
+     WHERE c.parentJobId = ? AND c.state != 'cancelled' AND c.isRigSegment = 0`
+  ).bind(job.jobId).first();
+  return Number(job.amount || 0) + Number(r?.childSum || 0);
+}
+
+// POST /admin/invoice/from-job  { jobId } → idempotent invoice creation.
+// Multi-day parents get one LineItem per non-rig child + parent (Day 1) row.
+// Rig-group parents (Carlos) get a single line — billing is on the parent, rigs are
+// attribution-only with $0 amounts that would clutter the invoice.
+// Address: workSite-first via _invoiceServiceAddress (residential + commercial + partner).
+// Bill-to varies by sector: partners → company; commercial → businessName + contact; residential → person.
+async function handleInvoiceFromJob(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || !body.jobId) return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+  const jobId = body.jobId;
+
+  // Load job + person + bound property
+  const job = await env.DB.prepare(
+    `SELECT j.*, prop.streetAddress AS propStreet, prop.city AS propCity, prop.zip AS propZip,
+            p.firstName, p.lastName, p.businessName, p.customerType, p.email, p.primaryPhone,
+            p.billingNotes
+     FROM Job j
+     JOIN Person p ON p.personId = j.payerId
+     LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+     WHERE j.jobId = ?`
+  ).bind(jobId).first();
+  if (!job) return jsonResponse({ error: 'job not found', jobId }, corsHeaders, 404);
+
+  // Rule 12 guard: synthetic historicals are NEVER invoiceable. Excluding csv_backfill
+  // and any backfill_* source kills the counter-pollution risk permanently and keeps
+  // invoices tied only to real deliverable work.
+  const _src = String(job.source || '');
+  if (_src === 'csv_backfill' || _src.startsWith('backfill_')) {
+    return jsonResponse({
+      error: 'historical_record_not_invoiceable',
+      message: 'historical record — not invoiceable',
+      detail: `Job source='${_src}'. Synthetic historical records (csv_backfill, backfill_*) are excluded from invoice generation per DL-04 / Rule 12.`,
+    }, corsHeaders, 422);
+  }
+
+  // Idempotency: scan existing Invoice rows for one that already references this jobId.
+  // jobIds is JSON text like ["jobId1","jobId2"]; we use INSTR rather than LIKE because
+  // SQLite errors on "LIKE pattern too complex" when underscores in jobIds need escaping.
+  // INSTR has no wildcard semantics — pure substring match — and the JSON quotes around
+  // the jobId guarantee uniqueness (no jobId is a substring of another quoted jobId).
+  const existing = await env.DB.prepare(
+    `SELECT invoiceId FROM Invoice WHERE INSTR(jobIds, ?) > 0 LIMIT 1`
+  ).bind(`"${jobId}"`).first();
+  if (existing) {
+    const url = `https://purecleaningpressurecleaning.com/pure_cleaning_invoice.html?id=${encodeURIComponent(existing.invoiceId)}`;
+    // Re-fetch the invoice's number for the response (idempotent caller convenience)
+    const meta = await env.DB.prepare(
+      `SELECT invoiceId, sector, status, total, paymentTerms, sentAt FROM Invoice WHERE invoiceId = ?`
+    ).bind(existing.invoiceId).first();
+    return jsonResponse({
+      success:    true,
+      idempotent: true,
+      invoiceId:  existing.invoiceId,
+      invoiceNumber: meta?.invoiceId.split('-').slice(-3).join('-') ? meta.invoiceId : existing.invoiceId,
+      sector:     meta?.sector,
+      status:     meta?.status,
+      total:      meta?.total,
+      url,
+    }, corsHeaders);
+  }
+
+  // Sector + status
+  const isCommercial = job.customerType === 'commercial' || !!job.isCommercialJob;
+  const isPartner    = job.customerType === 'partner_referral';
+  const sector       = isCommercial ? 'commercial' : 'residential';
+
+  const paid       = job.paymentStatus === 'paid';
+  const status     = paid ? 'paid' : 'sent';
+  const paidAt     = job.paidAt || null;
+  const paymentMethod = job.paymentMethod || null;
+  const paymentTerms  = paid ? null : (job.billingNotes || 'Payment due upon receipt.');
+
+  // Atomic counter increment via ON CONFLICT UPDATE (per migration 0016 docstring)
+  const year      = new Date().getFullYear();
+  const counterId = `${sector}-invoice-${year}`;
+  const counterRow = await env.DB.prepare(
+    `INSERT INTO DocumentCounter (counterId, sector, docType, year, lastSeq)
+     VALUES (?, ?, 'invoice', ?, 1)
+     ON CONFLICT(sector, docType, year) DO UPDATE SET lastSeq = lastSeq + 1
+     RETURNING lastSeq`
+  ).bind(counterId, sector, year).first();
+  const seq           = counterRow?.lastSeq || 1;
+  const sectorTag     = sector === 'commercial' ? 'COM' : 'RES';
+  const invoiceNumber = `INV-${sectorTag}-${year}-${String(seq).padStart(4, '0')}`;
+  const invoiceId     = invoiceNumber;
+
+  // Resolve total
+  const total = await _invoiceGroupAmount(env, job);
+
+  // Line items: multi-day expands into one row per non-rig child + parent (Day 1 row)
+  const lineItems = [];
+  if (job.isMultiDayParent && job.dayNumber != null) {
+    const { results: days } = await env.DB.prepare(
+      `SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, servicesRaw
+       FROM Job
+       WHERE (jobId = ? OR parentJobId = ?)
+         AND state != 'cancelled' AND isRigSegment = 0
+       ORDER BY dayNumber`
+    ).bind(jobId, jobId).all();
+    for (const d of (days || [])) {
+      lineItems.push({
+        description: `Day ${d.dayNumber || '?'} — ${d.dayPhase || d.servicesRaw || 'Service'}`,
+        quantity:    1,
+        unit:        null,
+        unitPrice:   Number(d.amount || 0),
+        lineTotal:   Number(d.amount || 0),
+      });
+    }
+  } else {
+    // Standalone OR rig-group parent (Carlos) — single line item from servicesRaw
+    lineItems.push({
+      description: (job.servicesRaw || job.jobNotes || 'Pressure cleaning services').slice(0, 220),
+      quantity:    1,
+      unit:        null,
+      unitPrice:   Number(job.amount || 0),
+      lineTotal:   Number(total),  // total reflects rig-group parent.amount (segments are $0)
+    });
+  }
+
+  const now      = new Date().toISOString();
+  const today    = now.slice(0, 10);
+  const jobIdsJson = JSON.stringify([jobId]);
+
+  // Atomic-ish insert: invoice row first, then line items. Failure of line items leaves an
+  // orphan Invoice row — acceptable here (no money double-counted, just an empty invoice;
+  // next call's idempotency returns it intact).
+  await env.DB.prepare(
+    `INSERT INTO Invoice
+       (invoiceId, personId, sector, status, invoiceDate, subtotal, total, amountPaid,
+        paymentTerms, paymentMethod, paidAt, sentAt, jobIds, createdAt, modifiedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    invoiceId, job.payerId, sector, status, today,
+    total, total, paid ? total : 0,
+    paymentTerms, paymentMethod, paidAt, now, jobIdsJson, now, now
+  ).run();
+
+  for (let i = 0; i < lineItems.length; i++) {
+    const li = lineItems[i];
+    await env.DB.prepare(
+      `INSERT INTO LineItem (lineItemId, documentType, documentId, sortOrder,
+                             description, quantity, unit, unitPrice, lineTotal, createdAt)
+       VALUES (?, 'invoice', ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      `${invoiceId}-LI-${i + 1}`, invoiceId, i,
+      li.description, li.quantity, li.unit, li.unitPrice, li.lineTotal, now
+    ).run();
+  }
+
+  const url = `https://purecleaningpressurecleaning.com/pure_cleaning_invoice.html?id=${encodeURIComponent(invoiceId)}`;
+  return jsonResponse({
+    success:        true,
+    idempotent:     false,
+    invoiceId,
+    invoiceNumber,
+    sector,
+    status,
+    total,
+    isPartner,
+    url,
+  }, corsHeaders);
+}
+
+// GET /invoice/{invoiceId} — public, scoped, rate-limited. Returns ONLY the render
+// data for one invoice. Never exposes personId / jobIds / internal notes.
+// Tracks viewedAt on first view.
+async function handleGetInvoicePublic(env, invoiceId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const inv = await env.DB.prepare(
+    `SELECT i.invoiceId, i.sector, i.status, i.invoiceDate, i.subtotal, i.total,
+            i.amountPaid, i.paymentTerms, i.paymentMethod, i.paidAt, i.sentAt, i.viewedAt,
+            i.jobIds,
+            p.firstName, p.lastName, p.businessName, p.customerType, p.primaryPhone
+     FROM Invoice i
+     JOIN Person p ON p.personId = i.personId
+     WHERE i.invoiceId = ?`
+  ).bind(invoiceId).first();
+  if (!inv) return jsonResponse({ error: 'not found' }, corsHeaders, 404);
+
+  // First-view tracking
+  if (!inv.viewedAt) {
+    const now = new Date().toISOString();
+    try {
+      await env.DB.prepare(
+        `UPDATE Invoice SET viewedAt = ?, modifiedAt = ? WHERE invoiceId = ?`
+      ).bind(now, now, invoiceId).run();
+    } catch(_) { /* non-fatal */ }
+  }
+
+  // Line items
+  const { results: lis } = await env.DB.prepare(
+    `SELECT description, quantity, unit, unitPrice, lineTotal
+     FROM LineItem
+     WHERE documentType = 'invoice' AND documentId = ?
+     ORDER BY sortOrder`
+  ).bind(invoiceId).all();
+
+  // Service address: resolved from first referenced jobId (jobIds[0])
+  let serviceAddress = { address: '', city: '', zip: '' };
+  try {
+    const jobIds = JSON.parse(inv.jobIds || '[]');
+    if (jobIds[0]) {
+      const jobRow = await env.DB.prepare(
+        `SELECT j.workSiteAddress, j.workSiteCity, j.workSiteZip,
+                prop.streetAddress, prop.city, prop.zip
+         FROM Job j
+         LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+         WHERE j.jobId = ?`
+      ).bind(jobIds[0]).first();
+      if (jobRow) {
+        serviceAddress = {
+          address: jobRow.workSiteAddress || jobRow.streetAddress || '',
+          city:    jobRow.workSiteCity    || jobRow.city          || '',
+          zip:     jobRow.workSiteZip     || jobRow.zip           || '',
+        };
+      }
+    }
+  } catch(_) {}
+
+  const isCommercial = inv.customerType === 'commercial';
+  const isPartner    = inv.customerType === 'partner_referral';
+  const customerName = [inv.firstName, inv.lastName].filter(Boolean).join(' ').trim() || 'Customer';
+
+  return jsonResponse({
+    invoiceId:     inv.invoiceId,
+    invoiceNumber: inv.invoiceId,
+    sector:        inv.sector,
+    status:        inv.status,
+    invoiceDate:   inv.invoiceDate,
+    billTo: {
+      companyName:  inv.businessName || null,
+      contactName:  customerName,
+      isPartner,
+      isCommercial,
+      phone:        (inv.primaryPhone || '').replace(/\D/g, '').slice(-10),
+    },
+    serviceAddress,
+    lineItems: (lis || []).map(li => ({
+      description: li.description,
+      quantity:    Number(li.quantity || 1),
+      unit:        li.unit,
+      unitPrice:   Number(li.unitPrice || 0),
+      lineTotal:   Number(li.lineTotal || 0),
+    })),
+    subtotal:      Number(inv.subtotal || 0),
+    total:         Number(inv.total    || 0),
+    amountPaid:    Number(inv.amountPaid || 0),
+    paymentMethod: inv.paymentMethod || null,
+    paidAt:        inv.paidAt        || null,
+    paymentTerms:  inv.paymentTerms  || null,
+    paidInFull:    inv.status === 'paid',
+    brand: {
+      coName:  _PRINT_CO,
+      phone:   _PRINT_PHONE,
+      website: _PRINT_WEBSITE,
+      since:   _PRINT_SINCE,
+    },
+  }, corsHeaders);
 }
 
 async function handleCreatePartner(request, env, corsHeaders) {

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Invoice — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:#0a1628; --navy2:#111f38; --gold:#f4a620; --terra:#c2410c;
+  --green:#1d9e75; --green-bg:#e7f5ec; --green-bd:#a7d8b9;
+  --bg:#fafaf7; --white:#fff; --text:#1a1f2e;
+  --muted:#6b7280; --border:#e8e2d8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+/* ── Header ── */
+.site-header { background: var(--navy); padding: 1rem 1.25rem .875rem; text-align: center; }
+.hdr-logo { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: .5px; margin-bottom: 4px; }
+.hdr-logo span { color: var(--gold); }
+.hdr-tagline { font-size: 12px; color: rgba(255,255,255,.55); letter-spacing: .3px; margin-bottom: 6px; }
+.hdr-phone a { font-size: 13px; font-weight: 700; color: var(--gold); text-decoration: none; }
+
+.wrap { max-width: 520px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+#state-loading, #state-error, #state-main { display: none; }
+.loading-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: 1rem; }
+.spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--navy); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 14px; color: var(--muted); font-weight: 500; }
+.error-center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 2rem; gap: .75rem; text-align: center; }
+.error-icon { font-size: 40px; }
+.error-title { font-size: 17px; font-weight: 600; }
+.error-sub { font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+/* ── Invoice card ── */
+.inv-card { background: var(--white); border-radius: 16px; border: 1.5px solid var(--border); box-shadow: 0 3px 16px rgba(10,22,40,.09); overflow: hidden; margin-bottom: 1.25rem; }
+.inv-top { background: var(--navy); padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.inv-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2.5px; color: var(--gold); }
+.inv-number { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.9); font-variant-numeric: tabular-nums; margin-top: 3px; }
+.paid-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #86efac; background: rgba(134,239,172,.12); border: 1px solid rgba(134,239,172,.3); border-radius: 20px; padding: 3px 10px; letter-spacing: .3px; }
+.due-badge  { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: #fcd34d; background: rgba(252,211,77,.10); border: 1px solid rgba(252,211,77,.3); border-radius: 20px; padding: 3px 10px; letter-spacing: .3px; }
+.inv-body { padding: 1.25rem; }
+
+/* Bill-to / service-address rows */
+.dual-cols { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 1rem; }
+.dual-col { flex: 1; min-width: 200px; }
+.dual-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 4px; }
+.dual-val { font-size: 14px; color: var(--text); line-height: 1.55; }
+.dual-val strong { display: block; color: var(--navy); font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+
+.meta-row { display: flex; gap: 1.25rem; flex-wrap: wrap; padding: .875rem 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+.meta-item { display: flex; flex-direction: column; gap: 2px; }
+.meta-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+.meta-val { font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* Line items */
+.line-list { background: #fafaf7; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 1rem; }
+.line-row { display: flex; align-items: flex-start; gap: 10px; padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
+.line-row:last-child { border-bottom: none; }
+.line-check { width: 22px; height: 22px; border-radius: 50%; background: var(--green-bg); border: 1.5px solid var(--green-bd); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #0d6940; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.line-info { flex: 1; min-width: 0; }
+.line-name { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.line-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.line-amt  { font-size: 14.5px; font-weight: 700; color: var(--navy); flex-shrink: 0; padding-top: 1px; font-variant-numeric: tabular-nums; }
+
+/* Total card */
+.total-card { background: var(--navy); border-radius: 12px; padding: 1rem 1.25rem; }
+.total-row { display: flex; justify-content: space-between; align-items: center; }
+.total-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: rgba(255,255,255,.55); }
+.total-amt { font-size: 30px; font-weight: 800; color: var(--gold); letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.pay-detail-row { display: flex; justify-content: space-between; padding: 3px 0; }
+.pay-detail-row + .pay-detail-row { margin-top: 0; }
+.pay-detail-row.first { margin-top: .625rem; padding-top: .625rem; border-top: 1px solid rgba(255,255,255,.12); }
+.pay-detail-lbl { font-size: 12px; color: rgba(255,255,255,.6); }
+.pay-detail-val { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); }
+
+/* Payment methods card */
+.methods-card { background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: .75rem; margin-top: 1.25rem; }
+.methods-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 6px; }
+.methods-body { font-size: 13.5px; color: var(--text); line-height: 1.65; }
+.methods-body strong { color: var(--navy); }
+.terms-block { font-size: 12.5px; color: var(--muted); margin-top: 6px; line-height: 1.55; }
+
+/* Action buttons */
+.action-section { margin-top: 1.25rem; }
+.action-btn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: .75rem; background: var(--white); border: 1.5px solid var(--border); border-radius: 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; width: 100%; margin-bottom: .5rem; -webkit-tap-highlight-color: transparent; }
+.action-btn:hover { border-color: var(--navy); background: #f8f9fb; }
+
+/* Toast */
+.toast { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%) translateY(-80px); background: var(--navy); color: #fff; font-size: 13.5px; font-weight: 600; padding: .625rem 1.25rem; border-radius: 100px; white-space: nowrap; z-index: 9999; transition: transform .3s cubic-bezier(0.34,1.56,0.64,1), opacity .3s; opacity: 0; pointer-events: none; box-shadow: 0 4px 20px rgba(10,22,40,.25); }
+.toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+/* Footer */
+.site-footer { background: var(--navy); padding: 1.5rem 1.25rem 2rem; text-align: center; margin-top: 2rem; }
+.footer-logo { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+.footer-logo span { color: var(--gold); }
+.footer-company { font-size: 12px; color: rgba(255,255,255,.45); margin-bottom: 12px; }
+.footer-since { font-size: 11px; color: rgba(255,255,255,.3); }
+
+/* Print */
+@media print {
+  .site-header, .site-footer, .toast, .action-section { display: none !important; }
+  body { background: #fff; }
+  .wrap { max-width: 100%; padding: .5in; }
+  .inv-card { box-shadow: none; border: 1px solid #000; }
+  .inv-top { background: #fff !important; color: #000 !important; border-bottom: 2px solid #000; }
+  .inv-label { color: #000 !important; }
+  .inv-number { color: #333 !important; }
+  .total-card { background: #f5f5f0 !important; border: 1px solid #000; }
+  .total-amt { color: #000 !important; }
+  .total-lbl { color: #555 !important; }
+  .pay-detail-lbl { color: #555 !important; }
+  .pay-detail-val { color: #000 !important; }
+  .pay-detail-row.first { border-top: 1px solid #999; }
+}
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="hdr-logo">Pure <span>Cleaning</span></div>
+  <div class="hdr-tagline">Pressure Cleaning · Family-owned since 1995</div>
+  <div class="hdr-phone"><a href="tel:9543892642">📞 954-389-2642</a></div>
+</header>
+
+<div class="wrap">
+
+  <div id="state-loading">
+    <div class="loading-center">
+      <div class="spinner"></div>
+      <div class="loading-text">Loading your invoice…</div>
+    </div>
+  </div>
+
+  <div id="state-error">
+    <div class="error-center">
+      <div class="error-icon">⚠️</div>
+      <div class="error-title">Invoice Not Found</div>
+      <div class="error-sub" id="err-sub">We couldn't load this invoice. The link may have expired or been mistyped.</div>
+    </div>
+  </div>
+
+  <div id="state-main">
+    <div class="inv-card">
+      <div class="inv-top">
+        <div>
+          <div class="inv-label">Invoice</div>
+          <div class="inv-number" id="inv-number">—</div>
+        </div>
+        <div id="inv-status-badge"></div>
+      </div>
+      <div class="inv-body">
+        <div class="dual-cols">
+          <div class="dual-col">
+            <div class="dual-lbl">Bill To</div>
+            <div class="dual-val" id="bill-to">—</div>
+          </div>
+          <div class="dual-col">
+            <div class="dual-lbl">Service Address</div>
+            <div class="dual-val" id="service-addr">—</div>
+          </div>
+        </div>
+
+        <div class="meta-row">
+          <div class="meta-item"><span class="meta-lbl">Invoice Date</span><span class="meta-val" id="inv-date">—</span></div>
+          <div class="meta-item" id="paid-meta-wrap" style="display:none;"><span class="meta-lbl">Paid On</span><span class="meta-val" id="paid-date">—</span></div>
+          <div class="meta-item" id="method-meta-wrap" style="display:none;"><span class="meta-lbl">Method</span><span class="meta-val" id="pay-method">—</span></div>
+        </div>
+
+        <div class="line-list" id="line-list">
+          <!-- line items injected here -->
+        </div>
+
+        <div class="total-card">
+          <div class="total-row">
+            <span class="total-lbl">Total</span>
+            <span class="total-amt" id="total-amt">$0</span>
+          </div>
+          <div id="paid-detail-block" style="display:none;">
+            <div class="pay-detail-row first"><span class="pay-detail-lbl">Amount Paid</span><span class="pay-detail-val" id="amount-paid">$0</span></div>
+            <div class="pay-detail-row"><span class="pay-detail-lbl">Status</span><span class="pay-detail-val">✓ Paid in Full</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="methods-card">
+      <div class="methods-title">Payment Methods Accepted</div>
+      <div class="methods-body"><strong>Zelle</strong> · <strong>Check</strong> · <strong>Cash</strong> · <strong>Venmo</strong></div>
+      <div class="terms-block" id="terms-block" style="display:none;"></div>
+    </div>
+
+    <div class="action-section">
+      <button class="action-btn" onclick="window.print()">🖨 Print this invoice</button>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<footer class="site-footer">
+  <div class="footer-logo">Pure <span>Cleaning</span></div>
+  <div class="footer-company">Pure Cleaning Pressure Cleaning, LLC</div>
+  <div class="footer-since">Licensed &amp; Insured · South Florida · Since 1995</div>
+</footer>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function _fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.length === 10 ? iso + 'T12:00:00' : iso);
+  return d.toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+}
+function _fmtPhone(p) {
+  const d = (p || '').replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : '';
+}
+function _fmtMethod(m) {
+  if (!m) return '—';
+  const s = String(m).replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function _fmtMoney(n) {
+  return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+function _showState(name) {
+  for (const id of ['state-loading', 'state-error', 'state-main']) {
+    document.getElementById(id).style.display = id === ('state-' + name) ? 'block' : 'none';
+  }
+}
+
+async function loadInvoice() {
+  const id = new URLSearchParams(location.search).get('id');
+  if (!id || !/^[A-Z0-9-]+$/i.test(id)) {
+    document.getElementById('err-sub').textContent = 'Missing or invalid invoice id in the link.';
+    _showState('error');
+    return;
+  }
+  _showState('loading');
+
+  const res = await fetch(`${PCPC_API}/invoice/${encodeURIComponent(id)}`)
+    .catch(e => { console.warn('[invoice] fetch failed:', e.message); return null; });
+  if (!res || !res.ok) {
+    if (res && res.status === 429) {
+      document.getElementById('err-sub').textContent = 'Too many requests. Please wait a minute and refresh.';
+    }
+    _showState('error');
+    return;
+  }
+
+  let d;
+  try { d = await res.json(); }
+  catch(_) { _showState('error'); return; }
+
+  renderInvoice(d);
+  _showState('main');
+}
+
+function renderInvoice(d) {
+  document.title = `${d.invoiceNumber || 'Invoice'} — Pure Cleaning`;
+  document.getElementById('inv-number').textContent = d.invoiceNumber || d.invoiceId || '—';
+  document.getElementById('inv-date').textContent   = _fmtDate(d.invoiceDate);
+
+  // Status badge
+  const badgeEl = document.getElementById('inv-status-badge');
+  if (d.paidInFull) {
+    badgeEl.innerHTML = `<span class="paid-badge">✓ Paid in Full</span>`;
+  } else {
+    badgeEl.innerHTML = `<span class="due-badge">Payment Due</span>`;
+  }
+
+  // Bill-To
+  const billTo = d.billTo || {};
+  let billHtml = '';
+  if (billTo.isPartner || billTo.isCommercial) {
+    if (billTo.companyName) {
+      billHtml += `<strong>${_esc(billTo.companyName)}</strong>`;
+      if (billTo.contactName) billHtml += `Attn: ${_esc(billTo.contactName)}<br>`;
+    } else {
+      billHtml += `<strong>${_esc(billTo.contactName || 'Customer')}</strong>`;
+    }
+  } else {
+    billHtml += `<strong>${_esc(billTo.contactName || 'Customer')}</strong>`;
+  }
+  if (billTo.phone) billHtml += `<span style="color:var(--muted);">${_esc(_fmtPhone(billTo.phone))}</span>`;
+  document.getElementById('bill-to').innerHTML = billHtml || '<span style="color:var(--muted);">—</span>';
+
+  // Service Address
+  const sa = d.serviceAddress || {};
+  const sl = [sa.address, [sa.city, sa.zip ? sa.zip : ''].filter(Boolean).join(' ').trim()].filter(Boolean);
+  document.getElementById('service-addr').innerHTML = sl.length
+    ? sl.map(_esc).join('<br>')
+    : '<span style="color:var(--muted);">Address on file</span>';
+
+  // Line items
+  const lis = d.lineItems || [];
+  document.getElementById('line-list').innerHTML = lis.length
+    ? lis.map(li => `
+        <div class="line-row">
+          <div class="line-check">✓</div>
+          <div class="line-info">
+            <div class="line-name">${_esc(li.description || 'Service')}</div>
+            ${li.quantity && li.quantity !== 1 ? `<div class="line-sub">${_esc(li.quantity)}${li.unit ? ' ' + _esc(li.unit) : ''} × ${_fmtMoney(li.unitPrice)}</div>` : ''}
+          </div>
+          <div class="line-amt">${_fmtMoney(li.lineTotal)}</div>
+        </div>`).join('')
+    : `<div class="line-row"><div class="line-info"><div class="line-name" style="color:var(--muted);">No line items.</div></div></div>`;
+
+  // Total + paid block
+  document.getElementById('total-amt').textContent = _fmtMoney(d.total);
+  if (d.paidInFull) {
+    document.getElementById('paid-detail-block').style.display = 'block';
+    document.getElementById('amount-paid').textContent = _fmtMoney(d.amountPaid || d.total);
+    if (d.paidAt) {
+      document.getElementById('paid-meta-wrap').style.display = 'flex';
+      document.getElementById('paid-date').textContent = _fmtDate(d.paidAt);
+    }
+    if (d.paymentMethod) {
+      document.getElementById('method-meta-wrap').style.display = 'flex';
+      document.getElementById('pay-method').textContent = _fmtMethod(d.paymentMethod);
+    }
+  } else if (d.paymentTerms) {
+    document.getElementById('terms-block').style.display = 'block';
+    document.getElementById('terms-block').textContent = d.paymentTerms;
+  }
+}
+
+// Boot
+loadInvoice();
+</script>
+
+</body>
+</html>
