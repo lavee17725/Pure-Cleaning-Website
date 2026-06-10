@@ -247,6 +247,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .inv-link-btn.copy{background:#0a1628;color:#fff;}
 .inv-link-btn.open{background:#1d9e75;color:#fff;}
 .inv-link-btn.close{background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;}
+.inv-link-btn.email-primary{display:block;width:100%;background:#1d9e75;color:#fff;padding:13px;font-size:14.5px;margin-bottom:.875rem;letter-spacing:.2px;}
+.inv-link-btn.email-primary:hover{filter:brightness(1.05);}
+.inv-link-btn.save{flex:0 0 auto;background:#0a1628;color:#fff;padding:9px 18px;}
+.inv-link-email-add{margin-bottom:.875rem;padding:.75rem;background:#fafaf7;border:1px solid #e5e7eb;border-radius:8px;}
+.inv-link-email-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin-bottom:6px;}
+.inv-link-email-row{display:flex;gap:6px;}
+.inv-link-email-row input{flex:1;padding:9px 11px;border:1px solid #e2e8f0;border-radius:7px;font-family:'DM Sans',sans-serif;font-size:13.5px;background:#fff;}
+.inv-link-email-row input:focus{outline:none;border-color:#0a1628;}
+.inv-link-email-hint{font-size:11px;color:#9ca3af;margin-top:6px;line-height:1.4;}
 /* Week grid drag-to-scroll */
 #weekViewWrap{position:relative;}
 #calGrid{cursor:grab;}
@@ -5882,7 +5891,7 @@ async function openInvoiceLink(phone, jobId) {
     }).catch(e => { console.warn('[invoice] fetch failed:', e.message); return null; });
     if (!res || !res.ok) { showToast(`Invoice failed (${res ? res.status : 'network'})`); return; }
     const d = await res.json();
-    _showInvoiceLinkModal(d);
+    _showInvoiceLinkModal(d, phone);
     // Audit log — fire-and-forget
     pcpcApi.logEvent({
       eventType:  'invoice_link_opened',
@@ -5898,38 +5907,152 @@ async function openInvoiceLink(phone, jobId) {
   }
 }
 
-function _showInvoiceLinkModal(d) {
+// Batch 6b — Email-first invoice delivery.
+// Two modal states, controlled by whether c.email is set:
+//   (A) Has email   → primary "📧 Email invoice" button opens mailto:<email> prefilled
+//                     with subject + friendly note + hosted link. Copy/Open are secondary.
+//   (B) No email    → primary input "Add email for this customer" + Save. On Save:
+//                     PATCH /admin/person/{personId} (the SAME write path saveFullEdit uses
+//                     at line ~7510 — D1 Person.email + KV mirror, no new endpoint, no
+//                     localStorage). On success, c.email updates locally and the modal
+//                     re-renders into state (A) without closing.
+// Partner nuance: c.email IS the payer's email on the partner Person record (Person.email
+// for personId='person_1<phone>'). Worksite/homeowner email is never the target.
+function _showInvoiceLinkModal(d, phone) {
   const url = d.url || `https://purecleaningpressurecleaning.com/pure_cleaning_invoice.html?id=${encodeURIComponent(d.invoiceId)}`;
+  const c = findCustomer(phone) || {};
+  const fname = (c.firstName || c.fn || '').trim().split(' ')[0] || 'there';
+
+  // mailto body: short friendly note + hosted link + thank-you + phone.
+  // Plain text; browsers will URL-encode via encodeURIComponent.
+  const _emailSubject = `Invoice ${d.invoiceNumber || d.invoiceId} — Pure Cleaning Pressure Cleaning`;
+  const _emailBody = [
+    `Hi ${fname},`,
+    ``,
+    `Thanks again for choosing Pure Cleaning! Your invoice is ready to view here:`,
+    ``,
+    url,
+    ``,
+    d.status === 'paid'
+      ? `Marked Paid in Full — appreciate you!`
+      : `Payment is due upon receipt; methods accepted: Zelle, Check, Cash, Venmo.`,
+    ``,
+    `Questions? Call or text us at 954-389-2642.`,
+    ``,
+    `— Pure Cleaning Pressure Cleaning, LLC`,
+  ].join('\n');
+
   const overlay = document.createElement('div');
   overlay.className = 'inv-link-overlay';
   overlay.onclick = (ev) => { if (ev.target === overlay) overlay.remove(); };
-  overlay.innerHTML = `
-    <div class="inv-link-card" onclick="event.stopPropagation()">
-      <div class="inv-link-title">${d.idempotent ? 'Existing invoice' : 'New invoice'}</div>
-      <div class="inv-link-num">${esc(d.invoiceNumber || d.invoiceId)}</div>
-      <div class="inv-link-meta">${d.status === 'paid' ? '<b>✓ Paid in Full</b> · ' : ''}Total $${Number(d.total || 0).toLocaleString()}${d.sector ? ' · ' + esc(d.sector) : ''}</div>
-      <div class="inv-link-url">
-        <input type="text" id="_invUrlInput" readonly value="${esc(url)}" onclick="this.select()">
-      </div>
-      <div class="inv-link-btn-row">
-        <button class="inv-link-btn copy" id="_invCopyBtn">📋 Copy link</button>
-        <button class="inv-link-btn open">🔗 Open</button>
-        <button class="inv-link-btn close">Close</button>
-      </div>
-    </div>`;
   document.body.appendChild(overlay);
-  const inp = overlay.querySelector('#_invUrlInput');
-  overlay.querySelector('.copy').onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      overlay.querySelector('.copy').textContent = '✓ Copied';
-    } catch(_) {
-      inp.select(); document.execCommand('copy');
-      overlay.querySelector('.copy').textContent = '✓ Copied';
+
+  // Render is a closure so the "no email → save → re-render with email" flow works
+  // without closing the modal.
+  const render = () => {
+    const email = (c.email || '').trim();
+    const _hasEmail = !!email;
+    overlay.innerHTML = `
+      <div class="inv-link-card" onclick="event.stopPropagation()">
+        <div class="inv-link-title">${d.idempotent ? 'Existing invoice' : 'New invoice'}</div>
+        <div class="inv-link-num">${esc(d.invoiceNumber || d.invoiceId)}</div>
+        <div class="inv-link-meta">${d.status === 'paid' ? '<b>✓ Paid in Full</b> · ' : ''}Total $${Number(d.total || 0).toLocaleString()}${d.sector ? ' · ' + esc(d.sector) : ''}</div>
+        ${_hasEmail
+          ? `<button class="inv-link-btn email-primary" id="_invEmailBtn" title="Open your mail client with this invoice prefilled">📧 Email invoice to ${esc(email)}</button>`
+          : `<div class="inv-link-email-add">
+               <div class="inv-link-email-lbl">No email on file. Add one for this customer:</div>
+               <div class="inv-link-email-row">
+                 <input type="email" id="_invEmailInput" placeholder="customer@example.com" autocomplete="email" inputmode="email">
+                 <button class="inv-link-btn save" id="_invSaveBtn">Save</button>
+               </div>
+               <div class="inv-link-email-hint">Saves to their customer profile (permanent), then opens the email.</div>
+             </div>`}
+        <div class="inv-link-url">
+          <input type="text" id="_invUrlInput" readonly value="${esc(url)}" onclick="this.select()">
+        </div>
+        <div class="inv-link-btn-row">
+          <button class="inv-link-btn copy" id="_invCopyBtn">📋 Copy link</button>
+          <button class="inv-link-btn open" id="_invOpenBtn">🔗 Open</button>
+          <button class="inv-link-btn close" id="_invCloseBtn">Close</button>
+        </div>
+      </div>`;
+
+    const inp = overlay.querySelector('#_invUrlInput');
+    overlay.querySelector('#_invCopyBtn').onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        overlay.querySelector('#_invCopyBtn').textContent = '✓ Copied';
+      } catch(_) {
+        inp.select(); document.execCommand('copy');
+        overlay.querySelector('#_invCopyBtn').textContent = '✓ Copied';
+      }
+    };
+    overlay.querySelector('#_invOpenBtn').onclick = () => { window.open(url, '_blank'); };
+    overlay.querySelector('#_invCloseBtn').onclick = () => overlay.remove();
+
+    if (_hasEmail) {
+      overlay.querySelector('#_invEmailBtn').onclick = () => {
+        // Match existing emailInvoice pattern (line ~5950): window.open with '_blank'.
+        // The mailto: URL handler swaps to the OS mail client; on browsers that don't intercept,
+        // the blank tab is harmless and Mom closes it.
+        const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(_emailSubject)}&body=${encodeURIComponent(_emailBody)}`;
+        window.open(href, '_blank');
+        pcpcApi.logEvent({
+          eventType: 'invoice_email_initiated',
+          phone, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
+          to: email, startedAt: new Date().toISOString(),
+        });
+      };
+    } else {
+      const emailInput = overlay.querySelector('#_invEmailInput');
+      const saveBtn    = overlay.querySelector('#_invSaveBtn');
+      emailInput.focus();
+      const tryAddEmail = async () => {
+        const newEmail = (emailInput.value || '').trim();
+        // Minimal client validation — server is authoritative
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+          showToast('Please enter a valid email address');
+          emailInput.focus(); return;
+        }
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        // Same write path saveFullEdit uses (line ~7510): personId = 'person_1' + 10-digit-phone.
+        // Worker handler updates D1 Person.email (canonical) AND refreshes the KV customer_db
+        // mirror (handlePatchPerson lines 8175-8194), so the customer profile page reads it back.
+        try {
+          const ph10 = (phone || '').replace(/\D/g, '').slice(-10);
+          const personId = `person_1${ph10}`;
+          const res = await fetch(`${PCPC_API}/admin/person/${encodeURIComponent(personId)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: newEmail }),
+          });
+          if (!res.ok) {
+            const det = await res.json().catch(() => ({}));
+            throw new Error(det.error || `HTTP ${res.status}`);
+          }
+          // Update the in-memory customer record so the profile / other surfaces see it
+          // without a full reload, and so the re-render below shows the email button.
+          c.email = newEmail;
+          pcpcApi.logEvent({
+            eventType: 'customer_email_added',
+            phone, source: 'invoice_modal',
+            invoiceId: d.invoiceId,
+            savedAt: new Date().toISOString(),
+          });
+          showToast('Email saved to profile');
+          render(); // re-enter the modal with state (A) — primary email button visible
+          // Auto-fire mailto so the user lands in their mail client without a second click
+          setTimeout(() => overlay.querySelector('#_invEmailBtn')?.click(), 50);
+        } catch(e) {
+          saveBtn.disabled = false; saveBtn.textContent = 'Save';
+          showToast(`Save failed: ${e.message}`);
+        }
+      };
+      saveBtn.onclick = tryAddEmail;
+      emailInput.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); tryAddEmail(); } };
     }
   };
-  overlay.querySelector('.open').onclick = () => { window.open(url, '_blank'); };
-  overlay.querySelector('.close').onclick = () => overlay.remove();
+
+  render();
 }
 
 // ── INVOICE ───────────────────────────────────────────────────────────────────
