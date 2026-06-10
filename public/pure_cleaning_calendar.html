@@ -3228,8 +3228,27 @@ function jobCardScheduled(c) {
 
   if (state === 'completed') {
     if (!c.isTest && phone) {
-      const _jcInvJob = c.jobId || '';
-      printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button><button class="js-invoice-btn" onclick="event.stopPropagation();openInvoiceLink('${phone}','${_jcInvJob}')" title="Create or open hosted invoice link">🧾 Invoice</button></div>`;
+      // Hotfix: resolve the job id this completed card represents.
+      // c.jobId is set by _jobRowToShape for scheduled cards (calendarJobs[] path) but
+      // is undefined for completed cards rendered via getScheduledForRig's fromKv path.
+      // Fallback chain:
+      //   1) c._stableId — attached by fromKv specifically for completed cards (line ~3705)
+      //   2) ss._lastJobId — set client-side by _doCompleteJob, persists in same session
+      //                      but is dropped by the D1 read path; covers fresh completions
+      //   3) jobHistory lookup — most recent completed jh entry on ss.scheduledDate;
+      //                          handles reloaded historical completed cards
+      // Render the 🧾 button ONLY when we have a real id — pre-D1 historical completions
+      // with no resolvable jobId get no button (silent skip, not an error toast).
+      const _ssJC = c.scheduledStatus || {};
+      const _jcInvJob = c.jobId
+        || c._stableId
+        || _ssJC._lastJobId
+        || ((c.jobHistory || []).slice().reverse().find(j => j.status === 'completed' && j.date === _ssJC.scheduledDate)?.jobId)
+        || '';
+      const _jcInvBtn = _jcInvJob
+        ? `<button class="js-invoice-btn" onclick="event.stopPropagation();openInvoiceLink('${phone}','${_jcInvJob}')" title="Create or open hosted invoice link">🧾 Invoice</button>`
+        : '';
+      printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printInvoice('${phone}')">🖨 Print</button><button class="js-email-btn" onclick="event.stopPropagation();emailInvoice('${phone}')">📧 Email</button>${_jcInvBtn}</div>`;
 
       // Payment logging
       if (c.paymentInfo && c.paymentInfo.paidAt) {
