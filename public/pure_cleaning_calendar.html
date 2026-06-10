@@ -345,6 +345,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .modal-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);outline:none;}
 .modal-input:focus{border-color:var(--sky);}
 .modal-footer{display:flex;gap:10px;margin-top:1.25rem;}
+/* Batch 4: before/after photo drop section inside #jobModal */
+.jm-photos label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:6px;}
+.jm-photo-bar{display:flex;gap:6px;margin-bottom:8px;}
+.jm-photo-pick{flex:1;padding:10px 8px;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:12.5px;font-weight:700;cursor:pointer;text-align:center;transition:background .12s,border-color .12s;}
+.jm-photo-pick.before{background:#eff6ff;border:1.5px solid #bfdbfe;color:#1d4ed8;}
+.jm-photo-pick.before:hover,.jm-photo-pick.before.drag{background:#dbeafe;border-color:#60a5fa;}
+.jm-photo-pick.after{background:#e7f5ec;border:1.5px solid #a7d8b9;color:#0d6940;}
+.jm-photo-pick.after:hover,.jm-photo-pick.after.drag{background:#d3ecd9;border-color:#34d399;}
+.jm-photo-progress{font-size:11px;color:var(--muted);font-weight:600;padding:4px 0 6px;}
+.jm-photo-error{font-size:11.5px;color:#dc2626;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;margin-bottom:6px;line-height:1.4;}
+.jm-photo-error b{color:#991b1b;}
+.jm-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px;}
+.jm-photo-empty{grid-column:1/-1;font-size:11px;color:var(--muted);padding:10px;text-align:center;border:1px dashed var(--border);border-radius:8px;}
+.jm-photo-thumb{position:relative;aspect-ratio:1/1;border-radius:7px;overflow:hidden;background:var(--border);cursor:pointer;}
+.jm-photo-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.jm-photo-thumb .jm-photo-tag{position:absolute;bottom:0;left:0;right:0;font-size:9px;font-weight:700;text-align:center;padding:2px 0;letter-spacing:.5px;text-transform:uppercase;}
+.jm-photo-thumb.before .jm-photo-tag{background:rgba(29,78,216,.85);color:#fff;}
+.jm-photo-thumb.after  .jm-photo-tag{background:rgba(13,105,64,.85);color:#fff;}
+.jm-photo-thumb.unknown .jm-photo-tag{background:rgba(75,85,99,.85);color:#fff;}
+
 /* Phase 3: property image strip inside #jobModal */
 .jm-pi-strip{display:flex;gap:8px;margin-bottom:.875rem;padding-bottom:.875rem;border-bottom:1px solid var(--border);}
 .jm-pi-card{flex:1;min-width:0;cursor:pointer;}
@@ -3282,7 +3302,14 @@ function jobCardScheduled(c) {
       }
     }
   } else if ((state === 'scheduled' || state === 'in_progress') && !c.isTest && phone) {
-    printBtnHtml = `<button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}','${c.jobId||''}')">🖨 Print job sheet</button>`;
+    // Batch 4 Item 2: 🧾 Invoice button on scheduled cards too. Generator is state-agnostic;
+    // c.jobId is set by _jobRowToShape for cards backed by calendarJobs[], same truthy-guard
+    // as the hotfix (090f69b) — no button when no real id resolves.
+    const _scInvJob = c.jobId || '';
+    const _scInvBtn = _scInvJob
+      ? `<button class="js-invoice-btn" onclick="event.stopPropagation();openInvoiceLink('${phone}','${_scInvJob}')" title="Create or open hosted invoice link">🧾 Invoice</button>`
+      : '';
+    printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}','${c.jobId||''}')">🖨 Print job sheet</button>${_scInvBtn}</div>`;
     if (ss.scheduledDate && ss.scheduledDate <= isoToday()) {
       const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
       const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
@@ -4335,6 +4362,28 @@ function openJobModal(phone, jobId) {
     <div class="modal-field" id="${_grpDivId}" style="margin-bottom:.875rem;">
       <div style="font-size:11px;color:var(--muted);padding:6px 0;">Loading itemized breakdown…</div>
     </div>` : ''}
+    ${jmJobId ? `
+    <div class="modal-field jm-photos" id="jm-photos-${esc(jmJobId)}" style="margin-bottom:.875rem;">
+      <label>Photos</label>
+      <div class="jm-photo-bar">
+        <button type="button" class="jm-photo-pick before"
+          onclick="event.stopPropagation();_jmPickPhotos('before')"
+          ondragover="event.preventDefault();this.classList.add('drag');"
+          ondragleave="this.classList.remove('drag');"
+          ondrop="event.preventDefault();this.classList.remove('drag');_jmDropPhotos(event,'before');">📷 Before</button>
+        <button type="button" class="jm-photo-pick after"
+          onclick="event.stopPropagation();_jmPickPhotos('after')"
+          ondragover="event.preventDefault();this.classList.add('drag');"
+          ondragleave="this.classList.remove('drag');"
+          ondrop="event.preventDefault();this.classList.remove('drag');_jmDropPhotos(event,'after');">📷 After</button>
+      </div>
+      <input type="file" id="jm-photo-input" accept="image/*" multiple style="display:none;">
+      <div class="jm-photo-progress" id="jm-photo-progress" style="display:none;"></div>
+      <div class="jm-photo-error"    id="jm-photo-error"    style="display:none;"></div>
+      <div class="jm-photo-grid"     id="jm-photo-grid">
+        <div class="jm-photo-empty">Loading photos…</div>
+      </div>
+    </div>` : ''}
     ${(calJob?.satelliteImageKey || calJob?.frontImageKey) ? `
     <div class="jm-pi-strip">
       ${calJob?.satelliteImageKey ? `
@@ -4390,6 +4439,9 @@ function openJobModal(phone, jobId) {
   // Batch 2: itemized panel — async fetch /admin/job/:id/days then render in-place.
   // Single-day jobs short-circuit (no _grpDivId placeholder rendered above).
   if (_grpDivId) _loadGroupBreakdown(jmJobId, _grpDivId, c);
+
+  // Batch 4 Item 1: load existing photos for this job (only when jobId present).
+  if (jmJobId) _loadJobPhotos(jmJobId);
 }
 
 function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); jmPhone=null; jmJobId=null; }
@@ -4622,6 +4674,190 @@ async function _openCalPropImg(key, label) {
 function _closePropImgLb() {
   const lb = document.getElementById('calPropImgLb');
   if (lb) lb.style.display = 'none';
+}
+
+// ── BATCH 4: Job photo drop (before/after) ──────────────────────────────────
+// Backend: POST /admin/photos/upload?type=before|after&jobId=&updateD1=true,
+//          GET  /admin/photos/job/:jobId, GET /admin/photos/key/* — already live.
+// Single shared file input is reused for both buttons; the "current type" tracks
+// which button (or drop-zone) initiated the pick so the upload sends the right
+// type query param.
+let _jmPhotoCurrentType = null;
+const _JM_PHOTO_MAX_EDGE = 1600;
+const _JM_PHOTO_QUALITY  = 0.85;
+
+function _jmPickPhotos(type) {
+  if (!jmJobId) return;
+  _jmPhotoCurrentType = type;
+  const inp = document.getElementById('jm-photo-input');
+  if (!inp) return;
+  inp.value = '';
+  // The handler is wired ONCE — bind on the fly so each open captures fresh state.
+  inp.onchange = () => {
+    const files = Array.from(inp.files || []);
+    if (files.length) _uploadJobPhotos(jmJobId, type, files);
+  };
+  inp.click();
+}
+
+function _jmDropPhotos(ev, type) {
+  if (!jmJobId) return;
+  const files = Array.from(ev.dataTransfer?.files || []).filter(f => /^image\//.test(f.type));
+  if (files.length) _uploadJobPhotos(jmJobId, type, files);
+}
+
+async function _loadJobPhotos(jobId) {
+  const grid = document.getElementById('jm-photo-grid');
+  if (!grid) return;
+  const res = await fetch(`${PCPC_API}/admin/photos/job/${encodeURIComponent(jobId)}`)
+    .catch(e => { console.warn('[photos] list failed:', e.message); return null; });
+  if (!res || !res.ok) {
+    grid.innerHTML = `<div class="jm-photo-empty">Photos unavailable right now.</div>`;
+    return;
+  }
+  let d; try { d = await res.json(); }
+  catch(_) { grid.innerHTML = `<div class="jm-photo-empty">Photos unavailable right now.</div>`; return; }
+  _jmRenderPhotoGrid(d.keys || [], grid);
+}
+
+function _jmKeyType(key) {
+  if (/\/before_/.test(key)) return 'before';
+  if (/\/after_/.test(key))  return 'after';
+  return 'unknown';
+}
+
+function _jmRenderPhotoGrid(keys, grid) {
+  if (!grid) grid = document.getElementById('jm-photo-grid');
+  if (!grid) return;
+  if (!keys.length) {
+    grid.innerHTML = `<div class="jm-photo-empty">No photos yet — drop or pick to add.</div>`;
+    return;
+  }
+  // Render placeholders first; each thumb fetched lazily with auth.
+  grid.innerHTML = keys.map((k, i) => {
+    const t = _jmKeyType(k);
+    return `<div class="jm-photo-thumb ${t}" data-key="${esc(k)}" id="_jmpt_${i}_${Math.random().toString(36).slice(2,7)}"
+              onclick="event.stopPropagation();_openCalPropImg('${esc(k)}','${t==='before'?'📷 Before photo':t==='after'?'📷 After photo':'📷 Photo'}')">
+              <div class="jm-photo-tag">${t}</div>
+            </div>`;
+  }).join('');
+  // Lazy-load each thumb (reuses _loadCalPropThumb's auth'd fetch pattern).
+  Array.from(grid.querySelectorAll('.jm-photo-thumb')).forEach(el => {
+    const key = el.dataset.key; if (!key) return;
+    fetch(`${PCPC_API}/admin/photos/key/${key}`).then(r => r.ok ? r.blob() : null).then(b => {
+      if (!b) return;
+      const img = document.createElement('img');
+      img.alt = 'Job photo';
+      img.src = URL.createObjectURL(b);
+      el.insertBefore(img, el.firstChild);
+    }).catch(() => {});
+  });
+}
+
+// Downscale on a canvas — keeps R2 storage and bandwidth small.
+// Long edge clamped to _JM_PHOTO_MAX_EDGE; JPEG quality _JM_PHOTO_QUALITY.
+// Returns a Promise<Blob> of image/jpeg. Falls back to original blob on canvas failure.
+function _jmDownscaleImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+        const scale    = Math.min(1, _JM_PHOTO_MAX_EDGE / Math.max(1, longEdge));
+        const w = Math.max(1, Math.round(img.naturalWidth  * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(blob => {
+          URL.revokeObjectURL(url);
+          if (!blob) return resolve(file);
+          resolve(blob);
+        }, 'image/jpeg', _JM_PHOTO_QUALITY);
+      } catch(e) {
+        URL.revokeObjectURL(url);
+        reject(e);
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image decode failed')); };
+    img.src = url;
+  });
+}
+
+async function _uploadJobPhotos(jobId, type, files) {
+  const prog  = document.getElementById('jm-photo-progress');
+  const errEl = document.getElementById('jm-photo-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (!files.length) return;
+
+  const errors  = []; // per-file: { name, reason }
+  const warns   = []; // per-file: { name, key, warning } — R2 OK but D1 patch failed
+  let okCount   = 0;
+  const total   = files.length;
+  const _setProg = (i) => {
+    if (!prog) return;
+    prog.style.display = 'block';
+    prog.textContent   = `Uploading ${i}/${total}…`;
+  };
+
+  for (let i = 0; i < total; i++) {
+    _setProg(i + 1);
+    const f = files[i];
+    try {
+      const blob = await _jmDownscaleImage(f).catch(() => f); // fall back to original on downscale failure
+      const res = await fetch(
+        `${PCPC_API}/admin/photos/upload?type=${encodeURIComponent(type)}&jobId=${encodeURIComponent(jobId)}&updateD1=true`,
+        { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob },
+      ).catch(e => { errors.push({ name: f.name, reason: 'network: ' + e.message }); return null; });
+      if (!res) continue;
+      if (!res.ok) {
+        const det = await res.json().catch(() => ({}));
+        errors.push({ name: f.name, reason: det.error || `HTTP ${res.status}` });
+        continue;
+      }
+      const d = await res.json().catch(() => null);
+      if (!d || !d.success) {
+        errors.push({ name: f.name, reason: 'unexpected response' });
+        continue;
+      }
+      // Surface d1Warning as warning (R2 succeeded but D1 reference patch failed).
+      // The photo is in R2 but the Job.photoKeys array wasn't appended — caller
+      // can retry, and the photo still uploads successfully on retry (re-uses key).
+      if (d.d1Warning) warns.push({ name: f.name, key: d.key, warning: d.d1Warning });
+      okCount++;
+    } catch(e) {
+      errors.push({ name: f.name, reason: e.message || 'unknown' });
+    }
+  }
+
+  if (prog) prog.style.display = 'none';
+
+  // T1.11: any failure must be visible. Re-render grid from D1 truth (don't trust
+  // the optimistic count — re-fetch /admin/photos/job/:id to confirm what actually
+  // landed in Job.photoKeys).
+  await _loadJobPhotos(jobId);
+
+  if (errors.length || warns.length) {
+    const lines = [];
+    if (errors.length) {
+      lines.push(`<b>${errors.length} upload${errors.length>1?'s':''} failed:</b> ` +
+        errors.map(e => `${esc(e.name)} (${esc(e.reason)})`).join('; '));
+    }
+    if (warns.length) {
+      lines.push(`<b>${warns.length} R2 OK but Job.photoKeys not updated:</b> ` +
+        warns.map(w => esc(w.name)).join(', ') + ' — re-open the modal to retry the D1 patch.');
+    }
+    if (errEl) {
+      errEl.innerHTML = lines.join('<br>');
+      errEl.style.display = 'block';
+    } else {
+      showToast(`${errors.length} upload failure${errors.length===1?'':'s'}`);
+    }
+  } else if (okCount) {
+    showToast(`📷 ${okCount} photo${okCount===1?'':'s'} uploaded`);
+  }
 }
 // Keyboard close for property image lightbox
 document.addEventListener('keydown', e => {
