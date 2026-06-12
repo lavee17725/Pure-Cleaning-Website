@@ -260,20 +260,80 @@ async function sendSms(env, to, body) {
   }
 }
 
-// Text 1 body — new web lead
+// UTF-8-safe base64 (TextEncoder → bytes → bin string → btoa). Mirrors the client's
+// `btoa(unescape(encodeURIComponent(JSON.stringify(slim))))` so Tyler's tapped link
+// decodes identically to one built by the form's submit handler.
+function _utf8Btoa(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+// Quote-builder pre-fill link. Same shape (slim {n,p,a,s}) the form emits so the
+// builder's existing prefill path reads it without changes.
+function _buildQuoteBuilderLink(cd) {
+  const fn = cd.firstName || '';
+  const ln = cd.lastName  || '';
+  const phone = cd.phone  || '';
+  const addr = [cd.address, cd.city, cd.zip].filter(Boolean).join(', ');
+  const services = Array.isArray(cd.services) ? cd.services.join(', ') : (cd.services || '');
+  const slim = { n: `${fn} ${ln}`.trim(), p: phone, a: addr, s: services };
+  const b64 = _utf8Btoa(JSON.stringify(slim));
+  return 'https://purecleaningpressurecleaning.com/pure_cleaning_quote_builder_v2.html?customer=' + encodeURIComponent(b64);
+}
+
+// Text 1 body — new web lead (full breakdown).
+//   Line 1: "⭐ SEAL — New lead: …" when sealing requested, else "🏠 New lead: …"
+//   Then one per line: services (roof method already embedded), sealing surfaces,
+//   rust area, timeframe, notes (~200ch truncated), lead source, full address, phone,
+//   quote-builder pre-fill link last (replaces the legacy View link — Tyler taps the
+//   link in iMessage and the builder opens prefilled with this lead's data).
+// Multi-segment SMS is acceptable per the brief — accuracy > brevity.
 function _smsLeadBody(firstName, lastName, city, cd) {
+  const sealPriority = !!(cd.sealing && cd.sealing.requested);
+  const headline = sealPriority
+    ? `⭐ SEAL — New lead: ${firstName} ${lastName} — ${city}`
+    : `🏠 New lead: ${firstName} ${lastName} — ${city}`;
+
   const svcs = Array.isArray(cd.services) ? cd.services.join(', ') : (cd.services || '');
+
+  const sealSurfaces = sealPriority && Array.isArray(cd.sealing?.surfaces) && cd.sealing.surfaces.length
+    ? cd.sealing.surfaces.join(', ')
+    : null;
+
+  const rustArea = (cd.rustRemoval && cd.rustRemoval.requested && cd.rustRemoval.area)
+    ? cd.rustRemoval.area
+    : null;
+
+  const notes = cd.notes
+    ? (cd.notes.length > 200 ? cd.notes.slice(0, 200).trimEnd() + '…' : cd.notes)
+    : null;
+
+  const leadSrc = (cd.leadSource && typeof cd.leadSource === 'object')
+    ? (cd.leadSource.label || cd.leadSource.primary || null)
+    : (typeof cd.leadSource === 'string' ? cd.leadSource : null);
+
+  const fullAddr = [cd.address, cd.city, cd.zip].filter(Boolean).join(', ');
+
   const ph10 = (cd.phone || '').replace(/\D/g, '').slice(-10);
   const phFmt = ph10.length === 10
     ? `(${ph10.slice(0,3)}) ${ph10.slice(3,6)}-${ph10.slice(6)}`
     : ph10;
+
+  const qbLink = _buildQuoteBuilderLink(cd);
+
   return [
-    `🏠 New lead: ${firstName} ${lastName} — ${city}`,
-    svcs               ? `Services: ${svcs}` : null,
-    cd.timeframe       ? `Timeframe: ${cd.timeframe}` : null,
-    cd.notes           ? `Note: ${cd.notes.slice(0, 120)}` : null,
-    phFmt              ? `Call: ${phFmt}` : null,
-    `View: purecleaningpressurecleaning.com/pure_cleaning_incoming.html`,
+    headline,
+    svcs           ? `Services: ${svcs}` : null,
+    sealSurfaces   ? `Sealing surfaces: ${sealSurfaces}` : null,
+    rustArea       ? `Rust area: ${rustArea}` : null,
+    cd.timeframe   ? `Timeframe: ${cd.timeframe}` : null,
+    notes          ? `Note: ${notes}` : null,
+    leadSrc        ? `Lead source: ${leadSrc}` : null,
+    fullAddr       ? `Address: ${fullAddr}` : null,
+    phFmt          ? `Call: ${phFmt}` : null,
+    qbLink         ? `Quote builder: ${qbLink}` : null,
   ].filter(Boolean).join('\n');
 }
 

@@ -131,6 +131,12 @@
   .fence-type.active .fradio{border-color:var(--sky)}
   .fence-type.active .fradio::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--sky)}
 
+  /* seal nudge — inline single-line prompt above the seal card when paver/concrete
+     surface is checked but seal isn't. Tinted gold to lean into the premium framing
+     but stays gentle (no border, no shadow, not a popup) so it's a suggestion not a block. */
+  .seal-nudge{grid-column:span 2;display:none;margin:0 0 10px;padding:10px 14px;background:#fff8ed;border-left:3px solid var(--gold);border-radius:8px;font-size:13.5px;color:#7a5c00;line-height:1.5}
+  .seal-nudge.shown{display:block}
+
   /* sealing — matches rich page "Bring It Back to Life" presentation */
   .seal-wrap{grid-column:span 2}
   .seal-card{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid #f4a620;border-radius:10px;cursor:pointer;background:#fff8ed;transition:all .15s;user-select:none}
@@ -445,6 +451,10 @@
         </div>
       </div>
     </div>
+
+    <!-- Smart nudge: shows above the seal card when a paver/concrete surface is selected
+         and seal is not. One line, gentle, non-blocking. Reactive to service+seal state. -->
+    <div class="seal-nudge" id="sealNudge" role="note">&#128274; Cleaning your pavers? It's the perfect time to seal &mdash; most customers bundle them.</div>
 
     <!-- SEALING — "Bring It Back to Life" presentation -->
     <div class="seal-wrap">
@@ -764,8 +774,20 @@
       if (state.services.has(svc)) state.services.delete(svc); else state.services.add(svc);
       el.classList.toggle('checked', state.services.has(svc));
       el.querySelector('.cb').classList.toggle('checked', state.services.has(svc));
+      syncSealNudge();
     });
   });
+
+  // ── Seal nudge — gentle one-line prompt that appears above the seal card when the
+  // customer has chosen a paver/concrete surface (Driveway or Patio in our taxonomy)
+  // but hasn't yet checked Seal. Not a popup, not blocking — just a suggestion.
+  // Reactive: called from every relevant toggle (service add/remove + seal toggle).
+  var SEAL_NUDGE_TRIGGERS = ['Driveway','Patio'];
+  function syncSealNudge() {
+    var nudge = $('sealNudge'); if (!nudge) return;
+    var hasPaverSurface = SEAL_NUDGE_TRIGGERS.some(function(s){ return state.services.has(s); });
+    nudge.classList.toggle('shown', hasPaverSurface && !state.sealChecked);
+  }
 
   // Roof method radio — also collapse the method block after selection for a
   // smoother flow (matches rich page UX). Show the chosen method as a label
@@ -805,6 +827,7 @@
       });
       var sandCb = $('cbSealSand'); if (sandCb) sandCb.classList.remove('checked');
     }
+    syncSealNudge();
   });
 
   // Seal surface checkboxes (Driveway / Patio)
@@ -1040,7 +1063,11 @@
 
     // ── 2. Formspree (the actual lead-alert email) ──
     var fd = new FormData();
-    fd.append('_subject', '🧽 New Quote Request (Homepage) — Pure Cleaning');
+    // Seal-priority subject: ⭐ prefix surfaces seal requests at the top of the inbox
+    // since they're the largest tickets. Worker SMS gets the same prefix server-side.
+    fd.append('_subject', state.sealChecked
+      ? '⭐ SEAL REQUEST — New Quote (Homepage) — Pure Cleaning'
+      : '🧽 New Quote Request (Homepage) — Pure Cleaning');
     fd.append('Customer Name', form.firstName + ' ' + form.lastName);
     fd.append('Phone', form.phone);
     fd.append('Email', form.email || 'Not provided');
