@@ -8759,7 +8759,12 @@ async function handleAddressGate(request, env, corsHeaders) {
 // (~1/day given 24h cache) and returns placeMeta on the response so it stays
 // visible — but NEVER persists the resolved ID to KV without confirmation.
 // Wrong-listing-cached-forever footgun avoided.
-const PURE_CLEANING_PLACE_ID = null;  // Update after Tyler confirms placeMeta in /public/google-reviews response
+// Resolved 2026-06-12 by following the g.page review URL
+// (https://g.page/r/CRQZRl3rokhmEAE/review) through its redirect chain via
+// Playwright — the final Google Maps URL title confirmed "Pure Cleaning
+// Pressure Cleaning - Google Maps" and the page contained this ChIJ ID.
+// FID-verified: 0x8c3b256eefcdd78b:0x6648a2eb5d461914.
+const PURE_CLEANING_PLACE_ID = 'ChIJi9fN724lO4wRFBlGXeuiSGY';
 
 async function handlePublicGoogleReviews(env, corsHeaders) {
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -8805,36 +8810,44 @@ async function handlePublicGoogleReviews(env, corsHeaders) {
     );
   }
 
-  // 3. Fetch reviews + name (name fills placeMeta so Tyler can confirm the listing)
+  // 3. Fetch reviews + name via Places API v1 (places.googleapis.com).
+  //    Legacy /maps/api/place/details/json returned NOT_FOUND for our valid ChIJ ID;
+  //    the v1 endpoint accepts the same ChIJ format and our key is enabled for it
+  //    (existing autocomplete/details calls use legacy because they hit the older
+  //    KV cache layer — this handler is the only public-reviews consumer).
   const detailsUrl =
-    `https://maps.googleapis.com/maps/api/place/details/json?` +
-    `place_id=${encodeURIComponent(placeId)}&fields=reviews,name,formatted_address&key=${key}`;
-  const detRes = await fetch(detailsUrl);
+    `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}` +
+    `?fields=displayName,formattedAddress,reviews`;
+  const detRes = await fetch(detailsUrl, {
+    headers: {
+      'X-Goog-Api-Key': key,
+      'X-Goog-FieldMask': 'displayName,formattedAddress,reviews',
+    },
+  });
   if (!detRes.ok) {
+    let bodyText = '';
+    try { bodyText = await detRes.text(); } catch {}
     if (cached) return jsonResponse({ reviews: cached.reviews, cachedAt: cached.cachedAt, placeMeta: cached.placeMeta || null, source: 'stale_cache' }, corsHeaders);
-    // 200 + empty reviews so homepage console stays clean. Fallback content already rendered.
-    return jsonResponse({ error: 'details_fetch_failed', reviews: [], placeMeta, source: 'details_http_error' }, corsHeaders);
+    return jsonResponse({ error: 'details_fetch_failed', detailsStatus: detRes.status, detailsBody: bodyText.slice(0, 300), reviews: [], placeMeta, source: 'details_http_error' }, corsHeaders);
   }
   const det = await detRes.json();
-  if (det.status !== 'OK') {
-    if (cached) return jsonResponse({ reviews: cached.reviews, cachedAt: cached.cachedAt, placeMeta: cached.placeMeta || null, source: 'stale_cache' }, corsHeaders);
-    return jsonResponse({ error: `places_api_${det.status}`, reviews: [], placeMeta, source: 'details_api_error' }, corsHeaders);
-  }
 
   // Enrich placeMeta with the listing name/address from Place Details (authoritative)
-  if (det.result?.name) placeMeta = { ...placeMeta, name: det.result.name };
-  if (det.result?.formatted_address) placeMeta = { ...placeMeta, formattedAddress: det.result.formatted_address };
+  if (det.displayName?.text) placeMeta = { ...placeMeta, name: det.displayName.text };
+  if (det.formattedAddress)  placeMeta = { ...placeMeta, formattedAddress: det.formattedAddress };
 
   // 4. Filter to 5-star, take up to 5
-  const reviews = (det.result?.reviews || [])
+  //    v1 shape: reviews[].rating, .text.text (localized), .relativePublishTimeDescription,
+  //    .authorAttribution.displayName, .publishTime
+  const reviews = (det.reviews || [])
     .filter(r => r.rating === 5)
     .slice(0, 5)
     .map(r => ({
-      author: r.author_name,
+      author: r.authorAttribution?.displayName || '',
       rating: r.rating,
-      text: r.text,
-      time: r.time,
-      relativeTime: r.relative_time_description,
+      text: r.text?.text || r.originalText?.text || '',
+      time: r.publishTime ? Math.floor(new Date(r.publishTime).getTime() / 1000) : null,
+      relativeTime: r.relativePublishTimeDescription || '',
     }));
 
   const payload = { reviews, cachedAt: new Date().toISOString(), placeMeta };
