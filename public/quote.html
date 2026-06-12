@@ -137,6 +137,33 @@
   .seal-nudge{grid-column:span 2;display:none;margin:0 0 10px;padding:10px 14px;background:#fff8ed;border-left:3px solid var(--gold);border-radius:8px;font-size:13.5px;color:#7a5c00;line-height:1.5}
   .seal-nudge.shown{display:block}
 
+  /* ── Photo upload section (CONDITIONAL — appears when imagery-blind services
+       are selected; matches mockups/quote_photo_upload_preview.html visual spec) ── */
+  .photo-sec{display:none;border:1.5px solid #e2e8f0;border-radius:14px;padding:18px;background:#fbfdff;margin-top:14px}
+  .photo-sec.shown{display:block}
+  .photo-sec .ph-hd{display:flex;align-items:center;gap:8px}
+  .photo-sec .ph-hd .ph-ico{font-size:22px}
+  .photo-sec .ph-hd h3{margin:0;font-size:15.5px;color:var(--navy);font-weight:700}
+  .photo-sec .ph-opt{font-size:11.5px;font-weight:700;color:#64748b;background:#eef2f7;border-radius:999px;padding:3px 10px;margin-left:auto}
+  .photo-sec p.ph-why{font-size:13.5px;color:var(--mut);margin:8px 0 14px;line-height:1.55}
+  .photo-sec p.ph-why b{color:#1a4a8a}
+  .ph-drop{border:2px dashed #c3d2e4;border-radius:12px;padding:22px;text-align:center;cursor:pointer;transition:all .15s;background:#fff;display:block}
+  .ph-drop:hover{border-color:var(--orange);background:#fff8f4}
+  .ph-drop .ph-big{font-size:30px}
+  .ph-drop .ph-t1{font-weight:800;font-size:14.5px;color:var(--navy);margin-top:6px}
+  .ph-drop .ph-t2{font-size:12.5px;color:var(--mut);margin-top:3px}
+  .photo-sec input[type=file]{display:none}
+  .ph-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:10px;margin-top:14px}
+  .ph-th{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid #e2e8f0;background:#eef2f7}
+  .ph-th img{width:100%;height:100%;object-fit:cover;display:block}
+  .ph-th .ph-x{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:rgba(10,22,40,.8);color:#fff;border:none;font-size:12px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .ph-th .ph-err{position:absolute;inset:0;background:rgba(229,62,62,.85);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:700;padding:6px;text-align:center;line-height:1.3}
+  .ph-th.uploading::after{content:"";position:absolute;inset:0;border-radius:10px;background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.7) 50%,rgba(255,255,255,0) 100%);background-size:200% 100%;animation:phShimmer 1.2s linear infinite}
+  @keyframes phShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  .ph-cap{font-size:12px;color:#8896a8;margin-top:10px;text-align:center}
+  .ph-limit{display:none;font-size:12.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-top:10px}
+  .ph-limit.shown{display:block}
+
   /* sealing — matches rich page "Bring It Back to Life" presentation */
   .seal-wrap{grid-column:span 2}
   .seal-card{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid #f4a620;border-radius:10px;cursor:pointer;background:#fff8ed;transition:all .15s;user-select:none}
@@ -279,11 +306,11 @@
 <div class="success" id="successPanel">
   <div class="check">&#9989;</div>
   <h2>Request Sent!</h2>
-  <p id="successMsg">Thanks! We'll review your request and get back to you <strong>same day</strong> with pricing and available dates.</p>
+  <p id="successMsg">Thanks! Your full quote is on its way &mdash; we'll send it to your email and text you <strong>same day</strong> with pricing and available dates.</p>
   <p style="font-size:14px;margin-top:14px">Questions? Call us at <a href="tel:+19543892642" style="color:var(--sky);font-weight:700;text-decoration:none">954-389-2642</a></p>
   <div class="next">
     <div class="next-hdr">What happens next</div>
-    <div class="next-row"><span class="nicon">&#128241;</span><span>We text you pricing today</span></div>
+    <div class="next-row"><span class="nicon">&#128241;</span><span>We email your full quote + text you pricing today</span></div>
     <div class="next-row"><span class="nicon">&#128197;</span><span>Confirm your preferred date</span></div>
     <div class="next-row"><span class="nicon">&#9989;</span><span>We show up and get it spotless</span></div>
   </div>
@@ -526,6 +553,27 @@
     <textarea id="otherServices" placeholder="e.g. walkways, pool deck, stepping stones&hellip;"></textarea>
   </div>
 
+  <!-- Photo upload (conditional — only visible when selected services are imagery-blind:
+       rust removal, patio/pool deck, sidewalk, fence/enclosure. Roof/driveway-only
+       selections leave this hidden because satellite covers them) -->
+  <div class="photo-sec" id="photoSec" aria-live="polite">
+    <div class="ph-hd">
+      <span class="ph-ico">&#128248;</span>
+      <h3>Add photos of the areas</h3>
+      <span class="ph-opt">OPTIONAL</span>
+    </div>
+    <p class="ph-why" id="photoWhy">A quick photo of the areas helps us quote <b>faster and more accurately</b> &mdash; often the same hour.</p>
+    <label class="ph-drop" for="photoInput">
+      <div class="ph-big">&#128247;</div>
+      <div class="ph-t1">Tap to add photos</div>
+      <div class="ph-t2">or drag &amp; drop &middot; up to 6 photos</div>
+    </label>
+    <input type="file" id="photoInput" accept="image/jpeg,image/png,image/webp" multiple>
+    <div class="ph-thumbs" id="photoThumbs"></div>
+    <div class="ph-limit" id="photoLimit">That's the max 6 photos &mdash; remove one to swap in another.</div>
+    <div class="ph-cap">Photos are private &mdash; only our team sees them.</div>
+  </div>
+
   <!-- Remote quoting note -->
   <div class="remote-note">
     <span style="font-size:18px;flex-shrink:0">&#128752;&#65039;</span>
@@ -615,8 +663,25 @@
     selectedWeek: null,
     waitlistFor: null,
     submitting: false,
+    // Photo upload state (Batch: customer photo upload — conditional, security-first)
+    leadId: null,         // 8-64 char url-safe id, generated once per quote session
+    photos: [],           // [{ status: 'uploading'|'ok'|'error', key?: string, name: string, thumbUrl: string, reason?: string }]
   };
   var blockedWeeks = [];
+
+  // Generate a session-stable leadId on demand (mirror of the auto-sat _qbQuoteCode
+  // pattern, but URL-safe random — no collision risk across sessions since this only
+  // identifies the upload bucket and is never user-visible).
+  function _getLeadId() {
+    if (state.leadId) return state.leadId;
+    if (window.crypto && crypto.randomUUID) {
+      state.leadId = ('lead_' + crypto.randomUUID().replace(/-/g, '')).slice(0, 32);
+    } else {
+      // Older browser fallback — sub-second clash chance negligible at our volume
+      state.leadId = 'lead_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+    }
+    return state.leadId;
+  }
 
   // ────────────────────────────────────────────────────────────────────────────
   // Helpers
@@ -749,6 +814,7 @@
           $('fenceTypeLabel').textContent = '';
           document.querySelectorAll('.fence-type.active').forEach(function(m){ m.classList.remove('active'); });
         }
+        syncPhotoSection();
         return;
       }
 
@@ -762,6 +828,7 @@
           state.rustArea = '';
           document.querySelectorAll('.rust-area.active').forEach(function(m){ m.classList.remove('active'); });
         }
+        syncPhotoSection();
         return;
       }
 
@@ -775,6 +842,7 @@
       el.classList.toggle('checked', state.services.has(svc));
       el.querySelector('.cb').classList.toggle('checked', state.services.has(svc));
       syncSealNudge();
+      syncPhotoSection();
     });
   });
 
@@ -788,6 +856,156 @@
     var hasPaverSurface = SEAL_NUDGE_TRIGGERS.some(function(s){ return state.services.has(s); });
     nudge.classList.toggle('shown', hasPaverSurface && !state.sealChecked);
   }
+
+  // ── Photo section reactivity ──
+  // Section shows ONLY when the selected services include imagery-blind items
+  // (rust, patio/pool deck, sidewalk/walkways, fence/screen enclosure).
+  // Roof/driveway-only stays hidden — satellite already covers those.
+  //
+  // Copy adapts to the highest-priority trigger present:
+  //   rust  → "A close-up of the rust stains helps us quote it right"
+  //   patio → "Satellites can't see under screen enclosures — a quick patio photo helps a lot"
+  //   other → generic walkways/fence copy
+  function syncPhotoSection() {
+    var sec = $('photoSec'); if (!sec) return;
+    var hasRust  = state.rustChecked;
+    var hasPatio = state.services.has('Patio');   // also covers "pool deck" conceptually
+    var hasSidewalk    = state.services.has('Sidewalk');
+    var hasScreen      = state.services.has('Screen enclosure');
+    var hasFence       = state.fenceChecked;
+    var triggered = hasRust || hasPatio || hasSidewalk || hasScreen || hasFence;
+    sec.classList.toggle('shown', triggered);
+
+    // Adaptive helper copy
+    var why = $('photoWhy'); if (!why) return;
+    if (hasRust) {
+      why.innerHTML = 'A <b>close-up of the rust stains</b> helps us quote it right &mdash; rust pricing is sensitive to surface and severity.';
+    } else if (hasPatio) {
+      why.innerHTML = 'Satellites can\'t see under screen enclosures &mdash; a quick <b>patio photo</b> helps a lot.';
+    } else if (hasSidewalk || hasScreen || hasFence) {
+      why.innerHTML = 'A quick photo of the area helps us quote <b>faster and more accurately</b> &mdash; often the same hour.';
+    } else {
+      why.innerHTML = 'A quick photo of the areas helps us quote <b>faster and more accurately</b> &mdash; often the same hour.';
+    }
+  }
+
+  // ── Photo upload pipeline ──
+  // Client-side downscale (canvas 1600px / q0.85) — Batch 4 pattern. Upload to
+  // /public/quote-photo with raw bytes + Content-Type. T1.11: a single photo
+  // failure NEVER blocks submission — error chip appears on the thumb, user
+  // can remove it or try another. The overall submit handler ignores photo
+  // status entirely (lead capture is sacred).
+  function _downscaleImage(file) {
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onerror = reject;
+      reader.onload = function(ev){
+        var img = new Image();
+        img.onerror = reject;
+        img.onload = function(){
+          var MAX = 1600;
+          var w = img.width, h = img.height;
+          if (w > MAX || h > MAX) {
+            if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+            else        { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          var c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          c.toBlob(function(blob){
+            if (!blob) return reject(new Error('toBlob returned null'));
+            resolve(blob);
+          }, 'image/jpeg', 0.85);
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function _renderPhotoThumbs() {
+    var wrap = $('photoThumbs'); if (!wrap) return;
+    wrap.innerHTML = '';
+    state.photos.forEach(function(p, idx){
+      var d = document.createElement('div');
+      d.className = 'ph-th' + (p.status === 'uploading' ? ' uploading' : '');
+      var img = document.createElement('img');
+      img.src = p.thumbUrl;
+      img.alt = p.name || ('Photo ' + (idx + 1));
+      d.appendChild(img);
+      if (p.status === 'error') {
+        var err = document.createElement('div');
+        err.className = 'ph-err';
+        err.textContent = p.reason || 'Upload failed';
+        d.appendChild(err);
+      }
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'ph-x';
+      x.setAttribute('aria-label', 'Remove photo');
+      x.textContent = '✕';
+      x.onclick = function(){
+        state.photos.splice(idx, 1);
+        $('photoLimit').classList.remove('shown');
+        _renderPhotoThumbs();
+      };
+      d.appendChild(x);
+      wrap.appendChild(d);
+    });
+  }
+
+  async function _addPhotoFile(file) {
+    if (state.photos.length >= 6) {
+      $('photoLimit').classList.add('shown');
+      return;
+    }
+    var idx = state.photos.length;
+    var entry = {
+      status: 'uploading',
+      name:   file.name || ('photo_' + idx),
+      thumbUrl: URL.createObjectURL(file),   // immediate preview from the raw file
+    };
+    state.photos.push(entry);
+    _renderPhotoThumbs();
+
+    // Downscale + upload — fully fire-and-forget against the submit handler.
+    try {
+      var blob = await _downscaleImage(file);
+      // Update thumb to the downscaled blob (smaller memory + accurate preview)
+      try { URL.revokeObjectURL(entry.thumbUrl); } catch(_) {}
+      entry.thumbUrl = URL.createObjectURL(blob);
+
+      var leadId = _getLeadId();
+      var params = new URLSearchParams({ leadId: leadId, idx: String(idx) });
+      var res = await fetch(API + '/public/quote-photo?' + params, {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: blob,
+      });
+      var data = await res.json().catch(function(){ return null; });
+      if (!res.ok || !data || !data.success) {
+        entry.status = 'error';
+        entry.reason = (data && data.reason) ? data.reason : ('HTTP ' + res.status);
+      } else {
+        entry.status = 'ok';
+        entry.key    = data.key;
+      }
+    } catch (e) {
+      entry.status = 'error';
+      entry.reason = 'network';
+    }
+    _renderPhotoThumbs();
+  }
+
+  // Wire file input + drop handlers
+  (function _wirePhotoInput(){
+    var input = $('photoInput'); if (!input) return;
+    input.addEventListener('change', function(){
+      var files = Array.from(input.files || []).filter(function(f){ return /^image\//i.test(f.type); });
+      files.forEach(_addPhotoFile);
+      input.value = '';
+    });
+  })();
 
   // Roof method radio — also collapse the method block after selection for a
   // smoother flow (matches rich page UX). Show the chosen method as a label
@@ -988,7 +1206,14 @@
       allServices.push('Roof cleaning' + (state.roofMethod ? ' (' + state.roofMethod + ')' : ''));
       allServices.push('Rinse walls & windows');
     }
-    state.services.forEach(function(s){ allServices.push(s); });
+    // Dedupe overlap: syncRinseWalls() auto-adds 'Rinse walls' to state.services
+    // when roof is checked (drives the "Included free" badge + green card state).
+    // Without this filter, allServices ends up with both 'Rinse walls & windows'
+    // AND 'Rinse walls' on every roof submission. Walls-without-roof unchanged.
+    state.services.forEach(function(s){
+      if (state.roofChecked && s === 'Rinse walls') return;
+      allServices.push(s);
+    });
     if (state.fenceChecked) allServices.push(state.fenceType || 'Fence');
     if (state.rustChecked)  allServices.push('Rust removal — ' + (state.rustArea || 'area TBD'));
     if (state.sealChecked)  allServices.push('Sealing quote requested');
@@ -1056,7 +1281,13 @@
               capturedAt: new Date().toISOString(),
               capturedBy: 'form'
             };
-          })()
+          })(),
+          // Lead-capture photos: only the successfully-uploaded R2 keys ride along.
+          // Errored/in-flight photos are silently dropped — lead capture is sacred
+          // (T1.11). leadId is the upload bucket; conversion endpoint uses it to
+          // locate + migrate the quote-leads/{leadId}/* blobs onto Property.photoKeys.
+          photos: state.photos.filter(function(p){ return p.status === 'ok' && p.key; }).map(function(p){ return p.key; }),
+          leadId: state.leadId || null
         }
       })
     }).catch(function(e){ try { console.warn('[incoming]', e && e.message); } catch(_){} });
@@ -1100,10 +1331,21 @@
       }).catch(function(){})
     ])
     .then(function(){
-      // Success: swap to confirmation panel
-      var msg = 'Thanks' + (form.firstName ? ', ' + escapeHtml(form.firstName) : '') +
-                '! We’ll review your request and get back to you' +
-                (form.phone ? ' at ' + escapeHtml(form.phone) : '') +
+      // Success: swap to confirmation panel.
+      // Phone echoed in (XXX) XXX-XXXX form — raw digits like "9546103843" read as
+      // typo or bot output and undercut the confirmation. Accepts any input shape
+      // (with/without dashes/parens/spaces) since the form's tel input doesn't enforce
+      // a mask; falls back to the raw string if we don't get exactly 10 digits.
+      function _fmtPhone(s) {
+        var d = String(s || '').replace(/\D/g, '');
+        if (d.length === 11 && d[0] === '1') d = d.slice(1);
+        if (d.length !== 10) return s;
+        return '(' + d.slice(0,3) + ') ' + d.slice(3,6) + '-' + d.slice(6);
+      }
+      var firstHtml = form.firstName ? ', ' + escapeHtml(form.firstName) : '';
+      var phoneHtml = form.phone     ? escapeHtml(_fmtPhone(form.phone))  : '';
+      var msg = 'Thanks' + firstHtml + '! Your full quote is on its way — we’ll send it to your email' +
+                (phoneHtml ? ' and text you at ' + phoneHtml : ' and text you') +
                 ' <strong>same day</strong> with pricing and available dates.';
       $('successMsg').innerHTML = msg;
       $('formCard').style.display = 'none';

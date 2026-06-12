@@ -722,7 +722,9 @@ export default {
         )) ||
         (path.startsWith('appointment/') && request.method === 'POST') ||
         (path.startsWith('receipt/')     && (request.method === 'GET' || request.method === 'PATCH')) ||
-        (path.startsWith('public/')      && request.method === 'GET');  // scoped public namespace: review-count, google-reviews
+        (path.startsWith('public/')      && request.method === 'GET')   // scoped public namespace: review-count, google-reviews
+        ||
+        (path === 'public/quote-photo'   && request.method === 'POST');  // public-form lead photo upload (rate-limited, magic-byte sniffed, 4MB cap)
 
       if (!isPublic) {
         const authed = await verifySession(request, env);
@@ -1300,6 +1302,26 @@ export default {
       if (path === 'admin/satellite-backfill' && request.method === 'POST') {
         return await handleSatelliteBackfill(request, env, url, corsHeaders);
       }
+      // Public quote-form lead photo upload — rate-limited, magic-byte sniffed,
+      // 4MB cap, quarantined R2 prefix. Returns the R2 key for the client to
+      // attach to /incoming.customerData.photos[].
+      if (path === 'public/quote-photo' && request.method === 'POST') {
+        return await handleQuotePhotoUpload(request, env, url, corsHeaders);
+      }
+      // Lead→customer conversion: re-keys quote-leads/{leadId}/* photos to
+      // property/{propertyId}/lead_{ts}_{n}.jpg and updates Property.photoKeys.
+      // Called by new_customer.html on Person create (fire-and-forget).
+      if (path === 'admin/quote-photo-connect' && request.method === 'POST') {
+        return await handleQuotePhotoConnect(request, env, corsHeaders);
+      }
+      // Quote-leads orphan census — leads that never converted leave R2 objects
+      // sitting under quote-leads/{leadId}/. Surfaces the count + per-lead breakdown
+      // so we can decide a janitor policy (e.g. 90-day cleanup) in a later batch.
+      // GET only — no destructive action lives here. ?keys=true expands the per-lead
+      // entries with the exact object keys (operator cleanup convenience).
+      if (path === 'admin/quote-leads-stats' && request.method === 'GET') {
+        return await handleQuoteLeadsStats(env, corsHeaders, url.searchParams.get('keys') === 'true');
+      }
       if (path.startsWith('admin/photos/job/') && request.method === 'GET') {
         const r2JobId = path.slice('admin/photos/job/'.length);
         return await handlePhotoR2GetJob(r2JobId, env, corsHeaders);
@@ -1722,6 +1744,16 @@ export default {
       // ── POST /admin/property/backfill-access — KV→D1 gateCode+accessNotes backfill ──
       if (path === 'admin/property/backfill-access' && request.method === 'POST') {
         return await handleBackfillPropertyAccess(request, env, corsHeaders);
+      }
+
+      // ── Property measurement vault (Build B, ground-truth + tracer) ──
+      // POST appends one measurement; GET returns the array.
+      // Schema dependency: migration 0021 (Property.measurements column).
+      if (path.startsWith('admin/property/') && path.endsWith('/measurements')) {
+        const propertyId = path.slice('admin/property/'.length, -'/measurements'.length);
+        if (request.method === 'POST') return await handlePropertyMeasurementAdd(request, env, propertyId, corsHeaders);
+        if (request.method === 'GET')  return await handlePropertyMeasurementsGet(env, propertyId, corsHeaders);
+        return jsonResponse({ error: 'method not allowed' }, corsHeaders, 405);
       }
 
       // ── Person duplicate review endpoints ────────────────────────────────────
@@ -2677,6 +2709,363 @@ async function handlePhotoR2GetJob(jobId, env, corsHeaders) {
 
   const keys = row.photoKeys ? JSON.parse(row.photoKeys) : [];
   return jsonResponse({ jobId, keys, total: keys.length }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PUBLIC quote-form lead photo upload
+//
+// POST /public/quote-photo?leadId=...&idx=0..5
+//   body: raw bytes (image/jpeg, image/png, or image/webp)
+//
+// SECURITY-FIRST: this is the only public-facing R2 write endpoint we run.
+// Five hard guards layered in:
+//   1. Rate limit  — 10 uploads/IP/hour (KV counter rate:quotephoto:{ip}, TTL 1h)
+//   2. Size cap    — Content-Length OR arrayBuffer ≤ 4 MB
+//   3. Type allow  — Content-Type must be image/jpeg | image/png | image/webp
+//   4. Magic-byte  — declared type must match the first bytes of the body
+//   5. R2 prefix   — writes to `quote-leads/{leadId}/...` quarantine namespace
+//                    (separate from job/, property/, and any future prefix —
+//                    grep this string and you've enumerated the surface)
+//
+// Read is admin-only — there is NO `/public/quote-photo/...` GET route. Photos
+// are served via the existing `/admin/photos/key/*` streamer, which is
+// admin-gated by the isPublic check above. The quote-leads/ prefix is just a
+// naming convention; the auth boundary is enforced at the read endpoint.
+//
+// leadId is sanitized to [A-Za-z0-9_-]{8,64}. idx is parsed to int and clamped
+// 0..5. Keys are timestamped so retries never collide.
+//
+// T1.11 contract: ALWAYS 200 with { success, key? | reason, detail? }.
+//                 NEVER 5xx. Submission flow never sees an exception.
+async function handleQuotePhotoUpload(request, env, url, corsHeaders) {
+  const fail = async (reason, detail, status) => {
+    if (detail) await _logD1Failure(env, `quote_photo:${reason}`, detail).catch(()=>{});
+    // Use status code only for rate_limited (429 surfaces it to clients/tests
+    // distinctly) — every other failure mode stays 200 per T1.11.
+    return jsonResponse({ success: false, reason, ...(detail ? { detail } : {}) }, corsHeaders, status || 200);
+  };
+
+  if (!env.PHOTOS) return await fail('r2_not_configured', 'env.PHOTOS binding missing');
+
+  // ── 1. Rate limit ──
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const rk = `rate:quotephoto:${ip}`;
+  const cnt = (await env.DATA.get(rk, 'json')) || 0;
+  if (cnt >= 10) return await fail('rate_limited', `ip=${ip} count=${cnt}`, 429);
+  // Increment optimistically — failed magic-byte sniff still consumes a slot
+  // (avoids bots burning through with junk; ratelimit is sneeze-resistant).
+  await env.DATA.put(rk, JSON.stringify(cnt + 1), { expirationTtl: 3600 });
+
+  // ── 2. Size cap (4 MB) ──
+  const MAX_BYTES = 4 * 1024 * 1024;
+  const declaredLen = parseInt(request.headers.get('Content-Length') || '0', 10);
+  if (declaredLen > MAX_BYTES) return await fail('too_large', `content-length=${declaredLen}`);
+
+  // ── 3. Content-Type allow-list ──
+  const declaredType = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  if (!ALLOWED.has(declaredType)) return await fail('wrong_type', `content-type=${declaredType || 'missing'}`);
+
+  // ── leadId + idx sanitization ──
+  const leadIdRaw = url.searchParams.get('leadId') || '';
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(leadIdRaw)) return await fail('bad_lead_id', `leadId=${leadIdRaw.slice(0,16)}`);
+  const idx = Math.max(0, Math.min(5, parseInt(url.searchParams.get('idx') || '0', 10) || 0));
+
+  // ── Read body, enforce size, magic-byte sniff ──
+  let bytes;
+  try {
+    const buf = await request.arrayBuffer();
+    if (buf.byteLength > MAX_BYTES) return await fail('too_large', `byte-length=${buf.byteLength}`);
+    bytes = new Uint8Array(buf);
+  } catch (e) {
+    return await fail('body_read_failed', e.message);
+  }
+  if (bytes.length < 12) return await fail('too_small', `bytes=${bytes.length}`);
+
+  // ── 4. Magic-byte sniff — declared type must match actual bytes ──
+  const isJpeg = bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF;
+  const isPng  = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47
+              && bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A;
+  const isWebp = bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+              && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+  const actualType = isJpeg ? 'image/jpeg' : isPng ? 'image/png' : isWebp ? 'image/webp' : null;
+  if (!actualType) return await fail('magic_byte_mismatch', `first8=${Array.from(bytes.slice(0, 8)).map(b => b.toString(16).padStart(2,'0')).join('')}`);
+  if (actualType !== declaredType) return await fail('magic_byte_mismatch', `declared=${declaredType} actual=${actualType}`);
+
+  // ── 5. Write to R2 in the quarantined prefix ──
+  const ext = actualType === 'image/jpeg' ? 'jpg' : actualType === 'image/png' ? 'png' : 'webp';
+  const ts  = Date.now();
+  const key = `quote-leads/${leadIdRaw}/photo_${idx}_${ts}.${ext}`;
+  try {
+    await env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: actualType } });
+  } catch (e) {
+    return await fail('r2_write_failed', e.message);
+  }
+
+  return jsonResponse({ success: true, key, type: actualType, size: bytes.length }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Lead → Customer conversion: migrate quote-leads/ photos to property/
+//
+// POST /admin/quote-photo-connect
+//   body: { leadId, propertyId, photoKeys: ["quote-leads/{leadId}/...", ...] }
+//
+// For each provided key:
+//   - R2 GET from quote-leads/{leadId}/...
+//   - R2 PUT to property/{propertyId}/lead_{ts}_{n}.{ext}
+//   - delete the quote-leads/ source (defensive — quote-leads/ is single-use
+//     and we want a clean R2 footprint)
+//   - track the new key
+// Then merges the new keys into Property.photoKeys (JSON array, additive).
+//
+// Idempotent at the per-key level — if a destination already exists, we skip
+// the copy/delete but still append the key to the array (set-uniqued before
+// writing). The endpoint can be re-invoked safely on partial failure.
+//
+// Admin-only (under `admin/` so it's behind the auth gate). T1.22-Connect.
+async function handleQuotePhotoConnect(request, env, corsHeaders) {
+  if (!env.PHOTOS) return jsonResponse({ error: 'R2 PHOTOS bucket not configured' }, corsHeaders, 503);
+  if (!env.DB)     return jsonResponse({ error: 'env.DB binding missing' },           corsHeaders, 503);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, corsHeaders, 400); }
+  const { leadId, propertyId, photoKeys } = body || {};
+
+  if (!leadId      || !/^[A-Za-z0-9_-]{8,64}$/.test(leadId))      return jsonResponse({ error: 'bad leadId' },     corsHeaders, 400);
+  if (!propertyId  || typeof propertyId !== 'string')             return jsonResponse({ error: 'bad propertyId' }, corsHeaders, 400);
+  if (!Array.isArray(photoKeys) || photoKeys.length === 0)        return jsonResponse({ error: 'photoKeys must be non-empty array' }, corsHeaders, 400);
+  if (photoKeys.length > 12)                                      return jsonResponse({ error: 'too many photoKeys (max 12)' },      corsHeaders, 400);
+
+  const expectedPrefix = `quote-leads/${leadId}/`;
+  const ts = Date.now();
+  const newKeys = [];
+  const errors  = [];
+
+  for (let i = 0; i < photoKeys.length; i++) {
+    const srcKey = photoKeys[i];
+    if (typeof srcKey !== 'string' || !srcKey.startsWith(expectedPrefix)) {
+      errors.push({ srcKey, reason: 'prefix_mismatch' });
+      continue;
+    }
+    try {
+      const obj = await env.PHOTOS.get(srcKey);
+      if (!obj) { errors.push({ srcKey, reason: 'src_not_found' }); continue; }
+
+      // Preserve the source extension (jpg/png/webp) so content-type round-trips.
+      const ext = srcKey.split('.').pop() || 'jpg';
+      const dstKey = `property/${propertyId}/lead_${ts}_${i}.${ext}`;
+
+      const blob = await obj.arrayBuffer();
+      const ct   = obj.httpMetadata?.contentType || 'image/jpeg';
+      await env.PHOTOS.put(dstKey, blob, { httpMetadata: { contentType: ct } });
+
+      // Defensive cleanup — quote-leads/ is single-use, we don't want stragglers.
+      try { await env.PHOTOS.delete(srcKey); } catch { /* non-fatal */ }
+
+      newKeys.push(dstKey);
+    } catch (e) {
+      errors.push({ srcKey, reason: 'transfer_failed', detail: e.message.slice(0, 200) });
+      await _logD1Failure(env, `quote_photo_connect:${srcKey}`, e.message).catch(()=>{});
+    }
+  }
+
+  // Merge into Property.photoKeys (JSON array, additive, set-uniqued)
+  let merged = newKeys.slice();
+  try {
+    const row = await env.DB.prepare(`SELECT photoKeys FROM Property WHERE propertyId = ?`).bind(propertyId).first();
+    if (!row) {
+      // Property row may not exist yet — handleAgreementConfirm creates it
+      // downstream. Leave R2 keys in place; caller can re-fire connect later.
+      return jsonResponse({ success: false, reason: 'property_not_found', propertyId, newKeys, errors }, corsHeaders);
+    }
+    const existing = row.photoKeys ? JSON.parse(row.photoKeys) : [];
+    merged = Array.from(new Set([...existing, ...newKeys]));
+    await env.DB.prepare(
+      `UPDATE Property SET photoKeys = ?, modifiedAt = ? WHERE propertyId = ?`
+    ).bind(JSON.stringify(merged), new Date().toISOString(), propertyId).run();
+  } catch (e) {
+    await _logD1Failure(env, 'quote_photo_connect:property_update', e.message).catch(()=>{});
+    return jsonResponse({ success: false, reason: 'property_update_failed', detail: e.message, newKeys, errors }, corsHeaders);
+  }
+
+  return jsonResponse({
+    success: true,
+    propertyId,
+    newKeys,
+    merged_count: merged.length,
+    errors,
+  }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Quote-leads orphan census — visibility for the retention question Tyler raised
+// on the connect-button batch: leads that never convert leave their photos in
+// the quote-leads/ quarantine forever. This endpoint surfaces what's actually
+// sitting there so we can decide a cleanup policy later (e.g. 90-day janitor).
+//
+// GET /admin/quote-leads-stats
+//   Returns: { total_objects, total_bytes, lead_count, oldest_upload, leads[≤50] }
+//   leads[]:  [{ leadId, objects, bytes, oldest_upload }]
+// R2 list paginates internally — cursor walks the whole prefix; capped at 1000
+// objects per page (env.PHOTOS.list default). For tens of thousands the call may
+// time out, but we're nowhere near that scale on this surface.
+// ────────────────────────────────────────────────────────────────────────────
+// Build B — Ground-Truth Measurement Vault (Property.measurements)
+//
+// POST /admin/property/{propertyId}/measurements
+//   body: { surface, sqft, source, detail?, polygon?, measuredAt?, measuredBy? }
+//
+// APPEND-ONLY: read-modify-write the JSON array. Never replaces the array
+// wholesale — multiple entries per surface are intentional (e.g. one traced
+// and one measured 'driveway' so the accuracy panel can compute % error).
+//
+// Validation: surface must be in the allowed enum; sqft must be a positive
+// finite number; source must be 'tyler_measured_onsite' or 'traced_satellite'.
+// Polygon is optional, validated only for shape, not content (the tracer page
+// owns the math; this endpoint just records what the operator saved).
+//
+// Returns: { success, measurement, total_count } on success.
+const _MEASUREMENT_SURFACES = new Set([
+  'driveway', 'patio', 'pool_deck', 'sidewalk', 'walkway', 'roof', 'other',
+]);
+const _MEASUREMENT_SOURCES = new Set([
+  'tyler_measured_onsite', 'traced_satellite',
+]);
+
+async function handlePropertyMeasurementAdd(request, env, propertyId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, corsHeaders, 400); }
+
+  const surface = (body.surface || '').toString().trim().toLowerCase();
+  if (!_MEASUREMENT_SURFACES.has(surface)) {
+    return jsonResponse({ error: 'surface must be one of ' + [..._MEASUREMENT_SURFACES].join(' | ') }, corsHeaders, 400);
+  }
+  const sqft = Number(body.sqft);
+  if (!Number.isFinite(sqft) || sqft <= 0) {
+    return jsonResponse({ error: 'sqft must be a positive number' }, corsHeaders, 400);
+  }
+  const source = (body.source || '').toString().trim();
+  if (!_MEASUREMENT_SOURCES.has(source)) {
+    return jsonResponse({ error: 'source must be one of ' + [..._MEASUREMENT_SOURCES].join(' | ') }, corsHeaders, 400);
+  }
+  const detail     = body.detail     ? String(body.detail).slice(0, 240) : '';
+  const measuredBy = body.measuredBy ? String(body.measuredBy).slice(0, 80) : 'operator';
+  const measuredAt = body.measuredAt && typeof body.measuredAt === 'string'
+    ? body.measuredAt
+    : new Date().toISOString();
+  // polygon meta — only validated for shape (object with array points)
+  let polygon = null;
+  if (body.polygon && typeof body.polygon === 'object' && Array.isArray(body.polygon.points)) {
+    polygon = {
+      points:     body.polygon.points,
+      zoom:       Number(body.polygon.zoom)       || null,
+      scale:      Number(body.polygon.scale)      || null,
+      centerLat:  Number(body.polygon.centerLat)  || null,
+      centerLng:  Number(body.polygon.centerLng)  || null,
+      imgSize:    body.polygon.imgSize            || null,
+    };
+  }
+
+  const measurement = { surface, sqft: Math.round(sqft / 10) * 10, source, detail, polygon, measuredAt, measuredBy };
+
+  // Read-modify-write the JSON array. Append, never replace.
+  let row;
+  try {
+    row = await env.DB.prepare(`SELECT measurements FROM Property WHERE propertyId = ?`).bind(propertyId).first();
+  } catch (e) {
+    await _logD1Failure(env, `property_measurements:select:${propertyId}`, e.message).catch(()=>{});
+    return jsonResponse({ error: 'D1 SELECT failed', detail: e.message }, corsHeaders, 500);
+  }
+  if (!row) return jsonResponse({ error: 'Property not found', propertyId }, corsHeaders, 404);
+
+  let existing = [];
+  if (row.measurements) {
+    try { existing = JSON.parse(row.measurements); if (!Array.isArray(existing)) existing = []; }
+    catch { existing = []; }
+  }
+  existing.push(measurement);
+
+  try {
+    await env.DB.prepare(
+      `UPDATE Property SET measurements = ?, modifiedAt = ? WHERE propertyId = ?`
+    ).bind(JSON.stringify(existing), new Date().toISOString(), propertyId).run();
+  } catch (e) {
+    await _logD1Failure(env, `property_measurements:update:${propertyId}`, e.message).catch(()=>{});
+    return jsonResponse({ error: 'D1 UPDATE failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({ success: true, measurement, total_count: existing.length }, corsHeaders);
+}
+
+async function handlePropertyMeasurementsGet(env, propertyId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  let row;
+  try {
+    row = await env.DB.prepare(`SELECT measurements FROM Property WHERE propertyId = ?`).bind(propertyId).first();
+  } catch (e) {
+    return jsonResponse({ error: 'D1 SELECT failed', detail: e.message }, corsHeaders, 500);
+  }
+  if (!row) return jsonResponse({ error: 'Property not found', propertyId }, corsHeaders, 404);
+  let measurements = [];
+  if (row.measurements) {
+    try { measurements = JSON.parse(row.measurements); if (!Array.isArray(measurements)) measurements = []; }
+    catch { measurements = []; }
+  }
+  return jsonResponse({ propertyId, measurements, count: measurements.length }, corsHeaders);
+}
+
+async function handleQuoteLeadsStats(env, corsHeaders, includeKeys = false) {
+  if (!env.PHOTOS) return jsonResponse({ error: 'env.PHOTOS not configured' }, corsHeaders, 503);
+  const byLead = new Map();
+  let totalObjects = 0;
+  let totalBytes   = 0;
+  let oldestUpload = null;
+  let cursor;
+  try {
+    do {
+      const page = await env.PHOTOS.list({ prefix: 'quote-leads/', cursor });
+      for (const obj of (page.objects || [])) {
+        totalObjects++;
+        totalBytes += obj.size || 0;
+        const ts = obj.uploaded ? new Date(obj.uploaded).toISOString() : null;
+        if (ts && (!oldestUpload || ts < oldestUpload)) oldestUpload = ts;
+
+        // Key shape: quote-leads/{leadId}/photo_X_Y.ext
+        const parts = obj.key.split('/');
+        const leadId = parts[1] || '_unknown';
+        const ent = byLead.get(leadId) || { objects: 0, bytes: 0, oldest_upload: null, keys: [] };
+        ent.objects++;
+        ent.bytes += obj.size || 0;
+        if (ts && (!ent.oldest_upload || ts < ent.oldest_upload)) ent.oldest_upload = ts;
+        if (includeKeys) ent.keys.push(obj.key);
+        byLead.set(leadId, ent);
+      }
+      cursor = page.truncated ? page.cursor : null;
+    } while (cursor);
+  } catch (e) {
+    return jsonResponse({ error: 'r2_list_failed', detail: e.message }, corsHeaders, 500);
+  }
+  const leads = Array.from(byLead.entries())
+    .map(([leadId, v]) => {
+      const out = { leadId, objects: v.objects, bytes: v.bytes, oldest_upload: v.oldest_upload };
+      if (includeKeys) out.keys = v.keys;
+      return out;
+    })
+    .sort((a, b) => (a.oldest_upload || '').localeCompare(b.oldest_upload || ''))
+    .slice(0, 50);
+  return jsonResponse({
+    total_objects: totalObjects,
+    total_bytes:   totalBytes,
+    lead_count:    byLead.size,
+    oldest_upload: oldestUpload,
+    leads,
+    note: 'Retention policy TBD — these are leads that never converted. Future janitor batch will purge keys older than N days.',
+  }, corsHeaders);
 }
 
 // GET /admin/photos/key/*
@@ -4167,6 +4556,12 @@ function _d1PersonToKv(p, props, pjobs, propById) {
         accessNotes:        pp.accessNotes         || null,
         satelliteImageKey:  pp.satelliteImageKey   || null,  // Phase 3: R2 key
         frontImageKey:      pp.frontImageKey       || null,  // Phase 3: R2 key
+        measurements:       pp.measurements
+          ? (() => { try { return JSON.parse(pp.measurements); } catch { return []; } })()
+          : [],                                              // Build B: ground-truth vault
+        photoKeys:          pp.photoKeys
+          ? (() => { try { return JSON.parse(pp.photoKeys); } catch { return []; } })()
+          : [],                                              // Customer photo upload: lead-captured R2 keys
       })),
   };
 }
@@ -4179,8 +4574,10 @@ async function d1AllCustomersToKvShape(env) {
       'p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
       'p.roofType, p.sqft,' +
-      'p.satelliteImageKey, p.frontImageKey ' +             // Phase 3: property images
-      'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
+      'p.satelliteImageKey, p.frontImageKey, ' +            // Phase 3: property images
+      'p.measurements, '                                     // Build B: ground-truth vault
+      + 'p.photoKeys '                                       // Customer photo upload: lead-captured R2 keys
+      + 'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
     ).all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
@@ -4286,8 +4683,10 @@ async function d1CustomerToKvShape(phone, env) {
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
       'p.googlePlaceId, p.formattedAddress, p.googleVerified,' +
       'p.roofType, p.sqft,' +
-      'p.satelliteImageKey, p.frontImageKey ' +             // Phase 3: property images
-      'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
+      'p.satelliteImageKey, p.frontImageKey, ' +            // Phase 3: property images
+      'p.measurements, '                                     // Build B: ground-truth vault
+      + 'p.photoKeys '                                       // Customer photo upload: lead-captured R2 keys
+      + 'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
@@ -4353,6 +4752,12 @@ async function d1CustomerToKvShape(phone, env) {
     googleVerified:    pp.googleVerified   === 1 || pp.googleVerified === '1',
     satelliteImageKey: pp.satelliteImageKey || null,  // Phase 3: R2 key
     frontImageKey:     pp.frontImageKey     || null,  // Phase 3: R2 key
+    measurements:      pp.measurements
+      ? (() => { try { return JSON.parse(pp.measurements); } catch { return []; } })()
+      : [],                                            // Build B: ground-truth vault
+    photoKeys:         pp.photoKeys
+      ? (() => { try { return JSON.parse(pp.photoKeys); } catch { return []; } })()
+      : [],                                            // Customer photo upload: lead-captured R2 keys
   }));
   // TEMP KV bridge: merge alternateContacts + altPhone from KV (no D1 column yet).
   // Remove once Person.alternateContactsJson column is added.

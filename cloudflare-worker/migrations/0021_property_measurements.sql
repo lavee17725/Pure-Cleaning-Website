@@ -1,0 +1,36 @@
+-- Migration 0021: Property.measurements — ground-truth measurement vault
+--
+-- One column on Property:
+--   measurements TEXT DEFAULT NULL
+--
+-- JSON array of measurement objects, each in the shape:
+--   {
+--     surface:    'driveway' | 'patio' | 'pool_deck' | 'sidewalk' | 'walkway' | 'roof' | 'other',
+--     sqft:       number (positive, rounded to nearest 10),
+--     source:     'tyler_measured_onsite' | 'traced_satellite',
+--     detail:     string  (e.g. 'measuring wheel' or 'tape' for measured;
+--                         polygon vertex count / tracing context for traced),
+--     polygon?:   { points: [[x,y], …], zoom, scale, centerLat, centerLng, imgSize },
+--                 (only for source='traced_satellite' — re-auditable; future AI
+--                  training input. Coordinates are pixel-space on the satellite image.)
+--     measuredAt: ISO 8601 timestamp,
+--     measuredBy: operator name (e.g. 'tyler' / 'mom')
+--   }
+--
+-- Writes are APPEND-ONLY via POST /admin/property/{propertyId}/measurements
+-- (read-modify-write the JSON array — never replace wholesale). Multiple
+-- entries per surface are intentional: a single property may have one
+-- 'driveway' measured + one 'driveway' traced so the accuracy panel can compute
+-- % error per surface and aggregate vault-wide.
+--
+-- ADDITIVE ONLY. No existing table dropped or column modified. Zero behavior
+-- change for any existing read path. Read-surface integration on the customer
+-- profile is a strict display addition (no quoting/pricing consumer in this
+-- batch — Tyler's standing scope rule for this build).
+--
+-- Schema dependency for /admin/property/{propertyId}/measurements (worker handler).
+-- Deploys inside the Rule-15 cutover window alongside migrations 0022.
+--
+-- Date: 2026-06-12
+
+ALTER TABLE Property ADD COLUMN measurements TEXT DEFAULT NULL;

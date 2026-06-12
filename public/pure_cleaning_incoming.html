@@ -83,6 +83,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .chip-lead{background:rgba(167,139,250,.13);border:1px solid rgba(167,139,250,.32);color:#c4b5fd;}
 /* "✓ intro texted" pill — sits next to action buttons */
 .intro-pill{font-size:11px;color:var(--green);font-family:'DM Mono',monospace;background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.25);border-radius:6px;padding:4px 9px;white-space:nowrap;}
+/* Lead-capture photo strip — admin-authed thumbnails on incoming cards */
+.lead-photos-label{font-size:11px;color:var(--mut,#5b6472);font-weight:600;margin-top:8px;letter-spacing:.3px;text-transform:uppercase}
+.lead-photos-strip{display:flex;gap:6px;margin-top:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.lead-photo-thumb{flex-shrink:0;width:64px;height:64px;border-radius:8px;overflow:hidden;background:#1f2937;border:1px solid rgba(255,255,255,.08);cursor:pointer;position:relative}
+.lead-photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.lead-photo-thumb.lp-err{background:rgba(229,62,62,.18);display:flex;align-items:center;justify-content:center;font-size:9px;color:#fc8181;font-weight:700;text-align:center;padding:4px}
 
 .req-note{font-size:12px;color:var(--muted);background:rgba(255,255,255,.035);border-radius:8px;padding:7px 10px;margin-bottom:.5rem;line-height:1.55;}
 
@@ -459,6 +465,29 @@ function renderTab() {
   reqs.forEach(r => { html += buildCard(r); });
   wrap.innerHTML = html;
   updateBulkBar();
+
+  // Post-render lazy-load lead-capture photo thumbnails. Each thumb is an empty
+  // div carrying data-key="quote-leads/{leadId}/photo_X_TS.jpg"; we fetch via the
+  // page-level fetch interceptor (Bearer auth injected) → blob → objectURL.
+  // Bare <img src="/admin/photos/key/…"> would 401 since the browser image loader
+  // bypasses fetch (), so this auth'd-fetch dance is necessary.
+  document.querySelectorAll('.lead-photo-thumb[data-key]').forEach(el => {
+    const key = el.dataset.key;
+    if (!key) return;
+    fetch(`${PCPC_API}/admin/photos/key/${key}`)
+      .then(r => r.ok ? r.blob() : Promise.reject(new Error('HTTP ' + r.status)))
+      .then(blob => {
+        const img = document.createElement('img');
+        img.alt = 'Lead-capture photo';
+        img.src = URL.createObjectURL(blob);
+        el.appendChild(img);
+        el.addEventListener('click', () => window.open(img.src, '_blank'));
+      })
+      .catch(() => {
+        el.classList.add('lp-err');
+        el.textContent = '✕ load';
+      });
+  });
 }
 
 function setCount(tab, n, isNew) {
@@ -532,6 +561,21 @@ function buildCard(req) {
     chips += `<span class="chip chip-lead">📣 Heard via: ${esc(leadLabel)}${esc(leadDetail)}</span>`;
   }
 
+  // Lead-capture photo strip — admin-auth'd thumbnails. Each thumb lazy-loads via
+  // an authed fetch → blob → objectURL pattern (bare <img src> against /admin/photos/key/*
+  // would 401 since the browser image loader bypasses the page-level fetch interceptor).
+  // Wired post-render in renderLeadPhotos() below.
+  let leadPhotoStrip = '';
+  if (Array.isArray(d.photos) && d.photos.length) {
+    const stripId = `lead-photos-${req.id}`;
+    const cells = d.photos.map((k, i) =>
+      `<div class="lead-photo-thumb" data-key="${esc(k)}" id="${stripId}-${i}"></div>`
+    ).join('');
+    leadPhotoStrip = `
+      <div class="lead-photos-label">📷 Photos from the customer (${d.photos.length})</div>
+      <div class="lead-photos-strip" id="${stripId}">${cells}</div>`;
+  }
+
   // Notes
   let notes = '';
   if (d.notes) notes += `<div class="req-note">📝 ${esc(d.notes)}</div>`;
@@ -573,6 +617,7 @@ function buildCard(req) {
   const delBtn = `<button class="btn-delete" onclick="deleteRequest('${req.id}')">✕ Delete</button>`;
   if (req.status === 'new') {
     const qUrl = buildQuoteUrl(req);
+    const cUrl = buildConvertUrl(req);
     const name = esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || req.customer_name || '');
     // "💬 Text intro" — the post-quote-sent intro message. Distinct from the existing
     // "💬 Text" (exploratory chat). Click opens Tyler's Messages app prefilled, then
@@ -583,6 +628,7 @@ function buildCard(req) {
       : `<button class="btn-build" style="background:#a78bfa;color:#1a1f2e;" onclick="initIntroText('${req.id}','${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}','${esc(address || city || '')}',this)">💬 Text intro</button>`;
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
+      <a href="${cUrl}" class="btn-build" style="background:#0369a1;">👤 Convert &rarr;</a>
       <button class="btn-build" style="background:#1d9e75;" onclick="initCall('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">📞 Call</button>
       <button class="btn-build" style="background:#1d9e75;" onclick="initText('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">💬 Text</button>
       ${introBtn}
@@ -634,6 +680,7 @@ function buildCard(req) {
       ${d.reminderFrequency? `<span class="meta-item">🔄 ${esc(d.reminderFrequency)}</span>` : ''}
     </div>
     ${chips ? `<div class="svc-label">Services</div><div class="svc-chips">${chips}</div>` : ''}
+    ${leadPhotoStrip}
     ${notes}
     <div class="req-actions">${actions}</div>
   </div>`;
@@ -664,6 +711,40 @@ function buildQuoteUrl(req) {
     const encoded = btoa(unescape(encodeURIComponent(payload)));
     return `${QUOTE_BUILDER_URL}?customer=${encodeURIComponent(encoded)}`;
   } catch(e) { return QUOTE_BUILDER_URL; }
+}
+
+// "👤 Convert →" navigation: new_customer.html?fromOnline=<b64> with everything
+// the new-customer form prefill handler reads (fn/ln/phone/addr/city/zip/email/
+// notes/ls) PLUS photos[] + leadId so the T1.22-Connect chain is fully traversable
+// from a single click. The connect endpoint fires post-saveDb() over there.
+// ADDITIVE — does not replace or modify the existing ✨ Build Quote button.
+function buildConvertUrl(req) {
+  const d = req.customerData || {};
+  try {
+    // fromOnline shape (lines 1372-1393 of new_customer.html):
+    //   fn / ln / phone / addr / city / zip / email / notes / ls (lead source primary)
+    // Extensions for this batch:
+    //   leadId / photos[]
+    const lsPrimary = (d.leadSource && typeof d.leadSource === 'object')
+      ? (d.leadSource.primary || '')
+      : (typeof d.leadSource === 'string' ? d.leadSource : '');
+    const payload = JSON.stringify({
+      fn:    d.firstName || '',
+      ln:    d.lastName  || '',
+      phone: d.phone     || '',
+      addr:  d.address   || '',
+      city:  d.city      || '',
+      zip:   d.zip       || '',
+      email: d.email     || '',
+      notes: d.notes     || '',
+      ls:    lsPrimary,
+      // T1.22-Connect carry: leadId + photoKeys[] re-key to property/ on save
+      leadId: d.leadId || null,
+      photos: Array.isArray(d.photos) ? d.photos : [],
+    });
+    const encoded = btoa(unescape(encodeURIComponent(payload)));
+    return `${NEW_CUSTOMER_URL}?fromOnline=${encodeURIComponent(encoded)}`;
+  } catch(e) { return NEW_CUSTOMER_URL; }
 }
 
 function initCall(phone, firstName) {

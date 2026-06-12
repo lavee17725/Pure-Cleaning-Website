@@ -1385,6 +1385,12 @@ async function init() {
         const lsEl = document.getElementById('nLeadSource');
         if (lsEl) { lsEl.value = data.ls; onLeadSourceChange(lsEl); }
       }
+      // T1.22-Connect: stash lead-capture photos so the post-create connect
+      // call can re-key them onto the customer's Property.photoKeys. The actual
+      // R2 transfer + D1 update happens server-side in /admin/quote-photo-connect.
+      if (data.leadId && Array.isArray(data.photos) && data.photos.length) {
+        window.__pcpcLeadPhotoConnect = { leadId: data.leadId, photoKeys: data.photos };
+      }
       checkReq();
       if (data.phone) {
         const phoneEl = document.getElementById('nPhone');
@@ -2732,7 +2738,31 @@ async function submitDigitalPath() {
     customer.linkCode = code;
     customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
     showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
-    saveDb().catch(e => console.warn('[new_customer] DB save failed:', e.message));
+    // saveDb() PUT → dual-write infra creates the Property row before the response
+    // lands. AFTER that resolves, fire the quote-photo connect (T1.22) so any photos
+    // captured on the public quote form re-key onto Property.photoKeys and become
+    // profile-visible. Fire-and-forget — the customer create is the user-visible
+    // success; the connect is best-effort and re-runnable if it fails.
+    saveDb()
+      .then(() => {
+        const connect = window.__pcpcLeadPhotoConnect;
+        if (!connect || !connect.leadId || !Array.isArray(connect.photoKeys) || !connect.photoKeys.length) return;
+        const propId = _ncPropId();
+        if (!propId) { console.warn('[connect] no propertyId — leaving keys at quote-leads/'); return; }
+        fetch(`${PCPC_API}/admin/quote-photo-connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ leadId: connect.leadId, propertyId: propId, photoKeys: connect.photoKeys }),
+        }).then(r => r.json()).then(d => {
+          if (d && d.success) {
+            console.log('[connect] photos migrated to', d.newKeys);
+            window.__pcpcLeadPhotoConnect = null;  // consumed
+          } else {
+            console.warn('[connect] failed', d);
+          }
+        }).catch(e => console.warn('[connect] error', e.message));
+      })
+      .catch(e => console.warn('[new_customer] DB save failed:', e.message));
   } catch(e) {
     alert('Error: ' + e.message);
     btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';

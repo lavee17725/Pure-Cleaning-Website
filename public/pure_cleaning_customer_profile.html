@@ -1688,6 +1688,64 @@ function renderExtendedSections(c, events) {
   }
   // ── end Property Images ────────────────────────────────────────────────────
 
+  // ── Property Measurements (Build B — ground-truth vault) ───────────────────
+  // Read-only display of Property.measurements (JSON array on D1, mapped to
+  // c.properties[0].measurements by the customer payload builder). Source-aware:
+  // 'tyler_measured_onsite' badges as "measured", 'traced_satellite' as "traced".
+  // Quoting/pricing never consumes these in this batch — display only per scope rule.
+  const _measArr = Array.isArray(_primaryProp.measurements) ? _primaryProp.measurements : [];
+  if (_measArr.length) {
+    const surfLabel = s => ({ driveway:'Driveway', patio:'Patio', pool_deck:'Pool deck', sidewalk:'Sidewalk', walkway:'Walkway', roof:'Roof', other:'Other' }[s] || s);
+    const lines = _measArr.map(m => {
+      const src = m.source === 'tyler_measured_onsite' ? 'measured' : 'traced';
+      const date = m.measuredAt ? new Date(m.measuredAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+      return `<div class="xsec-row">
+        <span class="xsec-row-label">📐 ${esc(surfLabel(m.surface))}</span>
+        <span class="xsec-row-val">${Number(m.sqft).toLocaleString()} sqft <span style="font-size:11px;font-weight:700;color:${src==='measured'?'#065f46':'#1e40af'};background:${src==='measured'?'#d1fae5':'#dbeafe'};padding:1px 6px;border-radius:4px;margin-left:5px;text-transform:uppercase;letter-spacing:.3px">${src}</span><span style="color:var(--muted);font-size:11px;margin-left:6px">${esc(date)}</span></span>
+      </div>`;
+    }).join('');
+    sections.push(makeXSec('property-measurements', '📐', 'Property Measurements', String(_measArr.length), lines, false));
+  }
+  // ── end Property Measurements ──────────────────────────────────────────────
+
+  // ── Property Photos (Customer photo upload — lead-captured R2 keys) ───────
+  // Display surface for c.properties[0].photoKeys (Property.photoKeys column,
+  // populated by /admin/quote-photo-connect on lead→customer conversion).
+  // Mirrors the Property Images pattern (auth'd fetch → blob → objectURL) but
+  // renders as a thumbnail grid since it's a variable-count JSON array.
+  const _propPhotoKeys = Array.isArray(_primaryProp.photoKeys) ? _primaryProp.photoKeys : [];
+  if (_propPhotoKeys.length) {
+    const _ppHostId = `prop-photos-host-${esc(_propImgPhone)}`;
+    const _ppThumbs = _propPhotoKeys.map((k, i) =>
+      `<div class="x-prop-photo-thumb" data-key="${esc(k)}" id="${_ppHostId}-${i}"></div>`
+    ).join('');
+    const _ppHtml = `
+      <div id="${_ppHostId}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(82px,1fr));gap:6px">
+        ${_ppThumbs}
+      </div>`;
+    sections.push(makeXSec('property-photos', '📷', 'Property Photos', String(_propPhotoKeys.length), _ppHtml, false));
+    requestAnimationFrame(() => {
+      document.querySelectorAll(`#${_ppHostId} .x-prop-photo-thumb`).forEach(el => {
+        const k = el.dataset.key;
+        if (!k) return;
+        fetch(`${API}/admin/photos/key/${k}`)
+          .then(r => r.ok ? r.blob() : null)
+          .then(blob => {
+            if (!blob) return;
+            const img = document.createElement('img');
+            img.alt = 'Property photo';
+            img.src = URL.createObjectURL(blob);
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;border-radius:7px';
+            el.appendChild(img);
+            el.style.cssText = 'aspect-ratio:1/1;border-radius:7px;overflow:hidden;background:#1f2937;cursor:pointer';
+            el.addEventListener('click', () => _openPropImgLb(k, '📷 Property photo'));
+          })
+          .catch(() => {});
+      });
+    });
+  }
+  // ── end Property Photos ────────────────────────────────────────────────────
+
   // ── Job Photos (R2 / Batch 4 read surface) ────────────────────────────────
   // Job.photoKeys is NOT carried on the customer payload (T1.21 audit confirmed:
   // _d1JobToJhEntry omits it intentionally — adding it would bloat every jh entry

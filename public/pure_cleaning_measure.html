@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>📐 Measure — Pure Cleaning</title>
+<style>
+  :root{--navy:#0a1628;--ink:#1a1f2e;--mut:#5b6472;--bg:#f7f9fc;--border:#e2e8f0;--gold:#f59e0b;--orange:#c2410c;--sky:#2d7dd2;--green:#1d9e75;--red:#e53e3e}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px 18px 40px}
+  h1{font-size:20px;color:var(--navy);margin-bottom:4px}
+  .lede{color:var(--mut);font-size:13px;margin-bottom:18px}
+  .lede code{background:#fff;border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:12px}
+
+  .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 2px 6px rgba(10,22,40,.04)}
+  .card h2{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;display:flex;align-items:center;gap:6px}
+
+  /* Picker */
+  .picker{display:flex;flex-direction:column;gap:8px}
+  .picker input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;outline:none}
+  .picker input:focus{border-color:var(--sky)}
+  .picker-results{max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;display:none}
+  .picker-results.shown{display:block}
+  .pres-row{padding:8px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;align-items:baseline;gap:8px}
+  .pres-row:hover{background:#f0f7ff}
+  .pres-row:last-child{border-bottom:none}
+  .pres-name{font-weight:700}
+  .pres-addr{color:var(--mut);font-size:12.5px}
+  .pres-meta{margin-left:auto;font-size:11px;color:var(--mut);font-family:'DM Mono',monospace}
+  .pres-meta .ok{color:var(--green);font-weight:700}
+  .pres-meta .no{color:#b91c1c;font-weight:700}
+
+  /* Active property bar */
+  .active{display:none;align-items:center;gap:12px;background:#f0f7ff;border:1.5px solid var(--sky);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+  .active.shown{display:flex}
+  .active .ico{font-size:18px}
+  .active .nm{font-weight:700}
+  .active .ad{color:var(--mut);font-size:12.5px}
+  .active button{margin-left:auto;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+
+  /* Canvas + sidebar */
+  .stage{display:grid;grid-template-columns:1fr 280px;gap:14px}
+  @media(max-width:880px){.stage{grid-template-columns:1fr}}
+  .canvas-wrap{position:relative;background:#0a1628;border-radius:12px;overflow:hidden;border:1px solid var(--border);aspect-ratio:1/1;display:flex;align-items:center;justify-content:center}
+  .canvas-wrap canvas{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
+  .canvas-wrap .placeholder{color:#94a3b8;text-align:center;padding:24px;font-size:13px}
+  .canvas-wrap .placeholder button{margin-top:10px;background:var(--orange);color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+  .canvas-wrap .scale-bar{position:absolute;bottom:8px;left:8px;background:rgba(10,22,40,.7);color:#fff;font-size:11px;font-family:'DM Mono',monospace;padding:3px 8px;border-radius:5px;pointer-events:none}
+
+  /* Polygon controls (right column) */
+  .controls h3{font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+  .controls .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+  .controls button{background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:8px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--ink)}
+  .controls button:hover{border-color:var(--sky)}
+  .controls button.primary{background:var(--green);color:#fff;border-color:var(--green)}
+  .controls button.primary:hover{background:#159870}
+  .controls button:disabled{opacity:.45;cursor:not-allowed}
+  .controls .readout{background:#f7f9fc;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;margin-bottom:10px}
+  .controls .readout .sqft{font-size:24px;font-weight:900;color:var(--navy);font-family:'DM Mono',monospace}
+  .controls .readout .sub{color:var(--mut);font-size:11px;margin-top:3px}
+  .controls .surf-pick{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff;font-family:inherit;margin-bottom:8px}
+
+  /* Manual entry */
+  .manual-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .manual-grid label{font-size:11px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px}
+  .manual-grid input,.manual-grid select{width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;background:#fff;font-family:inherit}
+  .manual-grid .full{grid-column:span 2}
+
+  /* Saved measurements + accuracy */
+  .meas-row{display:flex;align-items:baseline;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;font-size:13px}
+  .meas-row:last-child{border-bottom:none}
+  .meas-row .src{font-size:10px;font-weight:700;border-radius:4px;padding:1px 6px;text-transform:uppercase;letter-spacing:.4px}
+  .meas-row .src.measured{background:#d1fae5;color:#065f46}
+  .meas-row .src.traced{background:#dbeafe;color:#1e40af}
+  .meas-row .sf{font-weight:700;font-family:'DM Mono',monospace}
+  .meas-row .surf{text-transform:capitalize;font-weight:600}
+  .meas-row .dtl{color:var(--mut);font-size:11.5px;margin-left:auto}
+  .accuracy{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-top:10px}
+  .accuracy .big{font-size:22px;font-weight:900;color:#92400e;font-family:'DM Mono',monospace}
+  .accuracy .sub{font-size:11.5px;color:#78350f;margin-top:2px}
+  .accuracy .pair{font-size:12px;color:#78350f;margin-top:6px;padding-top:6px;border-top:1px solid #fde68a}
+
+  .status{font-size:12px;color:var(--mut);margin-top:8px;min-height:16px}
+  .status.ok{color:var(--green)}
+  .status.err{color:#b91c1c}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>📐 Measurement Vault &amp; Satellite Tracer</h1>
+<p class="lede">
+  Trace polygons on the satellite to estimate surface area, or punch in tape-measured ground truth from on-site.
+  Both go to <code>Property.measurements</code>. The accuracy panel shows how close the tracer is to reality —
+  this number is the whole point.
+</p>
+
+<!-- Picker -->
+<div class="card">
+  <h2>🔎 Pick a property</h2>
+  <div class="picker">
+    <input type="text" id="searchInput" placeholder="Search by name, address, or phone…" autocomplete="off">
+    <div class="picker-results" id="pickerResults"></div>
+  </div>
+  <div class="status" id="pickerStatus">Loading customer database…</div>
+</div>
+
+<!-- Active property bar -->
+<div class="active" id="activeBar">
+  <span class="ico">📍</span>
+  <div>
+    <div class="nm" id="activeName"></div>
+    <div class="ad" id="activeAddr"></div>
+  </div>
+  <button onclick="clearProperty()">change</button>
+</div>
+
+<!-- Stage: canvas + controls -->
+<div class="stage">
+
+  <div class="card" style="padding:10px">
+    <div class="canvas-wrap">
+      <div class="placeholder" id="canvasPlaceholder">
+        <div>Pick a property above to load its satellite image.</div>
+      </div>
+      <canvas id="satCanvas" width="1280" height="1280" style="display:none"></canvas>
+      <div class="scale-bar" id="scaleBar" style="display:none"></div>
+    </div>
+    <div class="status" id="canvasStatus" style="margin-top:6px"></div>
+  </div>
+
+  <div>
+    <!-- Tracer controls -->
+    <div class="card controls">
+      <h3>📐 Tracer</h3>
+      <div class="readout">
+        <div><span class="sqft" id="liveSqft">—</span> <span style="color:var(--mut)">sqft</span></div>
+        <div class="sub" id="liveSub">Click on the image to drop polygon vertices.</div>
+      </div>
+      <label style="font-size:11px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px">Surface</label>
+      <select id="traceSurface" class="surf-pick">
+        <option value="driveway">Driveway</option>
+        <option value="patio">Patio</option>
+        <option value="pool_deck">Pool deck</option>
+        <option value="sidewalk">Sidewalk</option>
+        <option value="walkway">Walkway</option>
+        <option value="roof">Roof</option>
+        <option value="other">Other</option>
+      </select>
+      <div class="btn-row">
+        <button onclick="undoPoint()" id="btnUndo">↶ Undo point</button>
+        <button onclick="closePolygon()" id="btnDone">✓ Done</button>
+      </div>
+      <button class="primary" style="width:100%;padding:10px;font-size:13.5px" onclick="saveTracedMeasurement()" id="btnSaveTrace" disabled>💾 Save traced measurement</button>
+      <button style="width:100%;padding:7px;font-size:12px;margin-top:6px;background:transparent" onclick="resetPolygon()">Clear polygon</button>
+    </div>
+
+    <!-- Manual entry -->
+    <div class="card">
+      <h2>✋ Manual entry (ground truth)</h2>
+      <div class="manual-grid">
+        <div>
+          <label>Surface</label>
+          <select id="mSurface">
+            <option value="driveway">Driveway</option>
+            <option value="patio">Patio</option>
+            <option value="pool_deck">Pool deck</option>
+            <option value="sidewalk">Sidewalk</option>
+            <option value="walkway">Walkway</option>
+            <option value="roof">Roof</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label>Sqft</label>
+          <input type="number" id="mSqft" min="1" step="10" placeholder="1240">
+        </div>
+        <div class="full">
+          <label>How measured</label>
+          <input type="text" id="mDetail" placeholder="measuring wheel · tape · estimated">
+        </div>
+      </div>
+      <button class="primary" style="width:100%;padding:10px;margin-top:10px;font-size:13.5px;background:var(--orange);border-color:var(--orange);color:#fff;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-family:inherit" onclick="saveManualMeasurement()" id="btnSaveManual">💾 Save measured</button>
+    </div>
+  </div>
+</div>
+
+<!-- Saved measurements + accuracy panel -->
+<div class="card" id="vaultCard" style="display:none">
+  <h2>📋 Saved measurements (this property)</h2>
+  <div id="measList"></div>
+  <div class="accuracy" id="accuracyPanel" style="display:none">
+    <div><span class="big" id="vaultError">—</span> <span style="color:#78350f;font-size:14px">avg error</span></div>
+    <div class="sub" id="vaultStatsSub">No traced/measured pairs yet on this property.</div>
+    <div id="pairDetails"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// ─── DB load + property picker ───────────────────────────────────────────────
+let allCustomers = [];
+let activeCustomer = null;
+let activePropertyId = null;
+let activeLat = null, activeLng = null;
+let activeAddress = '';
+
+async function loadDb() {
+  const status = document.getElementById('pickerStatus');
+  try {
+    const r = await fetch(`${API}/customers`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    allCustomers = (data.customers || []).filter(c => !c.deleted);
+    status.textContent = `${allCustomers.length} customers loaded — start typing to search`;
+    status.className = 'status ok';
+  } catch (e) {
+    status.textContent = 'Failed to load customer DB: ' + e.message;
+    status.className = 'status err';
+  }
+}
+
+function searchAndRender() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const results = document.getElementById('pickerResults');
+  if (!q || q.length < 2) { results.classList.remove('shown'); return; }
+  const hits = allCustomers.filter(c => {
+    const blob = [
+      c.firstName, c.lastName, c.address, c.city,
+      (c.phone || '').replace(/\D/g, ''),
+    ].filter(Boolean).join(' ').toLowerCase();
+    return blob.includes(q.replace(/\D/g, '').length >= 4 ? q.replace(/\D/g, '') : q);
+  }).slice(0, 20);
+
+  if (!hits.length) { results.innerHTML = '<div style="padding:10px;color:#94a3b8;font-size:13px">No matches.</div>'; results.classList.add('shown'); return; }
+
+  results.innerHTML = hits.map(c => {
+    const name = `${c.firstName || ''} ${c.lastName || ''}`.trim();
+    const addr = [c.address, c.city].filter(Boolean).join(', ');
+    const prop = (c.properties || [])[0] || {};
+    const satFlag = prop.satelliteImageKey
+      ? '<span class="ok">🛰 sat</span>'
+      : '<span class="no">no sat</span>';
+    return `<div class="pres-row" onclick='pickProperty(${JSON.stringify({phone: c.phone, address: c.address})})'>
+      <span class="pres-name">${escapeHtml(name || '—')}</span>
+      <span class="pres-addr">${escapeHtml(addr || 'no address')}</span>
+      <span class="pres-meta">${satFlag}</span>
+    </div>`;
+  }).join('');
+  results.classList.add('shown');
+}
+
+function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function pickProperty(arg) {
+  const c = allCustomers.find(x => x.phone === arg.phone);
+  if (!c) return;
+  activeCustomer = c;
+  const prop = (c.properties || [])[0] || {};
+  // _d1PropId mirror — must stay in sync with worker
+  const street = (c.address || '').trim();
+  const city   = (c.city || '').trim();
+  const norm = s => s.toLowerCase().trim().replace(/\s+/g, ' ');
+  activePropertyId = 'prop_' + (norm(street) + '|' + norm(city)).replace(/[^\w]/g, '_').slice(0, 40);
+  activeLat = prop.latitude || null;
+  activeLng = prop.longitude || null;
+  activeAddress = `${c.address || ''}, ${c.city || ''}`;
+  document.getElementById('activeName').textContent = `${c.firstName || ''} ${c.lastName || ''}`.trim();
+  document.getElementById('activeAddr').textContent = `${activeAddress} · ${activePropertyId}`;
+  document.getElementById('activeBar').classList.add('shown');
+  document.getElementById('pickerResults').classList.remove('shown');
+  document.getElementById('searchInput').value = '';
+  loadSatellite(prop);
+  loadMeasurements();
+}
+
+function clearProperty() {
+  activeCustomer = null; activePropertyId = null; activeLat = activeLng = null;
+  document.getElementById('activeBar').classList.remove('shown');
+  document.getElementById('canvasPlaceholder').style.display = '';
+  document.getElementById('satCanvas').style.display = 'none';
+  document.getElementById('scaleBar').style.display = 'none';
+  document.getElementById('vaultCard').style.display = 'none';
+  resetPolygon();
+}
+
+// ─── Satellite load (auth'd fetch → blob → image) ────────────────────────────
+let satImgEl = null;
+async function loadSatellite(prop) {
+  const ph = document.getElementById('canvasPlaceholder');
+  const cv = document.getElementById('satCanvas');
+  const sb = document.getElementById('scaleBar');
+  const st = document.getElementById('canvasStatus');
+  ph.style.display = ''; cv.style.display = 'none'; sb.style.display = 'none';
+  st.textContent = '';
+
+  let key = prop.satelliteImageKey;
+  if (!key) {
+    ph.innerHTML = `<div>No satellite image yet for this property.</div>
+      <button onclick="fetchSatelliteNow()">🛰 Fetch satellite now</button>`;
+    return;
+  }
+  await renderSatelliteByKey(key);
+}
+
+async function fetchSatelliteNow() {
+  if (!activeCustomer || !activePropertyId) return;
+  const ph = document.getElementById('canvasPlaceholder');
+  ph.innerHTML = '<div>Fetching satellite from Google Static Maps…</div>';
+  try {
+    const params = new URLSearchParams({ propertyId: activePropertyId });
+    const res = await fetch(`${API}/admin/photos/auto-satellite?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ address: activeAddress }),
+    });
+    const data = await res.json();
+    if (!data || !data.success) {
+      ph.innerHTML = `<div>Could not fetch: ${data && data.reason ? data.reason : 'unknown'}.</div>
+        <button onclick="fetchSatelliteNow()">Try again</button>`;
+      return;
+    }
+    // Local cache: stash key on activeCustomer's property for the rest of this session
+    if (activeCustomer.properties && activeCustomer.properties[0]) {
+      activeCustomer.properties[0].satelliteImageKey = data.key;
+    }
+    await renderSatelliteByKey(data.key);
+  } catch (e) {
+    ph.innerHTML = `<div>Network error: ${e.message}</div><button onclick="fetchSatelliteNow()">Retry</button>`;
+  }
+}
+
+async function renderSatelliteByKey(key) {
+  const ph = document.getElementById('canvasPlaceholder');
+  const cv = document.getElementById('satCanvas');
+  const sb = document.getElementById('scaleBar');
+  const st = document.getElementById('canvasStatus');
+  try {
+    const r = await fetch(`${API}/admin/photos/key/${key}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      satImgEl = img;
+      // Resize canvas to image natural dims for pixel-accurate clicks; CSS scales for display.
+      cv.width = img.width; cv.height = img.height;
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      ph.style.display = 'none';
+      cv.style.display = 'block';
+      sb.style.display = 'block';
+      updateScaleBar();
+      resetPolygon();
+      st.textContent = `Loaded ${img.width}×${img.height} satellite · zoom 20 · scale 2`;
+    };
+    img.onerror = () => { st.textContent = 'Could not decode satellite image.'; st.className='status err'; };
+    img.src = url;
+  } catch (e) {
+    st.textContent = 'Fetch failed: ' + e.message;
+    st.className = 'status err';
+  }
+}
+
+function updateScaleBar() {
+  const sb = document.getElementById('scaleBar');
+  const mpp = metersPerPixel();
+  if (!mpp) { sb.textContent = '(no coords — scale unknown)'; return; }
+  // 100-pixel bar
+  const meters = mpp * 100;
+  const feet = meters * 3.28084;
+  sb.textContent = `100px ≈ ${feet.toFixed(1)} ft · ${(mpp*1000).toFixed(1)} mm/px`;
+}
+
+// ─── Geo / polygon math ──────────────────────────────────────────────────────
+const ZOOM = 20, SCALE = 2;
+function metersPerPixel() {
+  if (activeLat == null) return null;
+  return 156543.03392 * Math.cos(activeLat * Math.PI / 180) / Math.pow(2, ZOOM) / SCALE;
+}
+
+// Shoelace formula. Points are in image pixels.
+function polygonAreaPx2(points) {
+  if (!points || points.length < 3) return 0;
+  let a = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[(i + 1) % points.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(a) / 2;
+}
+
+function pixelsToSqft(areaPx2) {
+  const mpp = metersPerPixel();
+  if (!mpp) return null;
+  const m2 = areaPx2 * mpp * mpp;
+  return m2 * 10.7639;
+}
+
+// ─── Polygon tracer ──────────────────────────────────────────────────────────
+let polygon = [];   // array of [x, y] image-pixel coords
+let polygonClosed = false;
+const CLOSE_THRESHOLD_PX = 14;   // displayed-coord threshold for click-near-start
+
+function getCanvasClickPos(ev, cv) {
+  const r = cv.getBoundingClientRect();
+  const cx = (ev.clientX - r.left) * cv.width  / r.width;
+  const cy = (ev.clientY - r.top)  * cv.height / r.height;
+  return [Math.round(cx), Math.round(cy)];
+}
+
+document.getElementById('satCanvas').addEventListener('pointerdown', ev => {
+  if (!satImgEl) return;
+  const cv = ev.currentTarget;
+  const [x, y] = getCanvasClickPos(ev, cv);
+  if (polygonClosed) {
+    // Clicking after close → start fresh polygon for the next surface
+    polygon = [];
+    polygonClosed = false;
+  }
+  if (polygon.length >= 3) {
+    const [sx, sy] = polygon[0];
+    const r = cv.getBoundingClientRect();
+    const dispDX = (x - sx) * r.width  / cv.width;
+    const dispDY = (y - sy) * r.height / cv.height;
+    if (Math.hypot(dispDX, dispDY) <= CLOSE_THRESHOLD_PX) {
+      closePolygon();
+      return;
+    }
+  }
+  polygon.push([x, y]);
+  drawPolygon();
+  updateLiveReadout();
+});
+
+function drawPolygon() {
+  if (!satImgEl) return;
+  const cv = document.getElementById('satCanvas');
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(satImgEl, 0, 0);
+  if (polygon.length === 0) return;
+
+  ctx.strokeStyle = '#f59e0b';
+  ctx.fillStyle   = 'rgba(245,158,11,0.25)';
+  ctx.lineWidth   = 3;
+
+  ctx.beginPath();
+  ctx.moveTo(polygon[0][0], polygon[0][1]);
+  for (let i = 1; i < polygon.length; i++) ctx.lineTo(polygon[i][0], polygon[i][1]);
+  if (polygonClosed) {
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.stroke();
+
+  // Vertex dots
+  polygon.forEach(([x, y], i) => {
+    ctx.fillStyle = i === 0 ? '#22c55e' : '#fff';
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#0a1628'; ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function updateLiveReadout() {
+  const el = document.getElementById('liveSqft');
+  const sub = document.getElementById('liveSub');
+  const btn = document.getElementById('btnSaveTrace');
+  if (polygon.length < 3) {
+    el.textContent = '—';
+    sub.textContent = polygon.length === 0
+      ? 'Click on the image to drop polygon vertices.'
+      : `Vertex ${polygon.length} of 3+ — keep clicking. Click near the green start point to close.`;
+    btn.disabled = true;
+    return;
+  }
+  const sqft = pixelsToSqft(polygonAreaPx2(polygon));
+  if (sqft == null) {
+    el.textContent = '—';
+    sub.textContent = '⚠ No lat/lng on this property — can\'t convert pixels to sqft. Use manual entry.';
+    btn.disabled = true;
+    return;
+  }
+  el.textContent = Math.round(sqft / 10) * 10;
+  sub.textContent = polygonClosed
+    ? `${polygon.length} vertices · click anywhere to start a new shape · Save below`
+    : `${polygon.length} vertices · ✓ Done (or click green dot) to close`;
+  btn.disabled = !polygonClosed;
+}
+
+function undoPoint() {
+  if (polygon.length === 0) return;
+  polygon.pop();
+  polygonClosed = false;
+  drawPolygon();
+  updateLiveReadout();
+}
+
+function closePolygon() {
+  if (polygon.length < 3) return;
+  polygonClosed = true;
+  drawPolygon();
+  updateLiveReadout();
+}
+
+function resetPolygon() {
+  polygon = [];
+  polygonClosed = false;
+  if (satImgEl) drawPolygon();
+  updateLiveReadout();
+}
+
+// ─── Save handlers ───────────────────────────────────────────────────────────
+async function saveTracedMeasurement() {
+  if (!activePropertyId || !polygonClosed || polygon.length < 3) return;
+  const sqft = pixelsToSqft(polygonAreaPx2(polygon));
+  if (sqft == null) { alert('No coords — cannot save traced measurement.'); return; }
+  const surface = document.getElementById('traceSurface').value;
+  const payload = {
+    surface,
+    sqft: Math.round(sqft / 10) * 10,
+    source: 'traced_satellite',
+    detail: `${polygon.length} vertices · zoom ${ZOOM} scale ${SCALE} · ${metersPerPixel().toFixed(4)} m/px @ lat ${activeLat}`,
+    polygon: {
+      points: polygon,
+      zoom: ZOOM, scale: SCALE,
+      centerLat: activeLat, centerLng: activeLng,
+      imgSize: [satImgEl.width, satImgEl.height],
+    },
+    measuredBy: 'tracer',
+  };
+  await postMeasurement(payload, 'btnSaveTrace', '✓ Traced measurement saved');
+  resetPolygon();
+}
+
+async function saveManualMeasurement() {
+  if (!activePropertyId) { alert('Pick a property first.'); return; }
+  const surface = document.getElementById('mSurface').value;
+  const sqft    = Number(document.getElementById('mSqft').value);
+  const detail  = document.getElementById('mDetail').value.trim();
+  if (!Number.isFinite(sqft) || sqft <= 0) { alert('Enter a positive sqft.'); return; }
+  const payload = {
+    surface,
+    sqft: Math.round(sqft / 10) * 10,
+    source: 'tyler_measured_onsite',
+    detail: detail || 'measured',
+    measuredBy: 'tyler',
+  };
+  await postMeasurement(payload, 'btnSaveManual', '✓ Ground-truth saved');
+  document.getElementById('mSqft').value = '';
+  document.getElementById('mDetail').value = '';
+}
+
+async function postMeasurement(payload, btnId, okMsg) {
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const res = await fetch(`${API}/admin/property/${encodeURIComponent(activePropertyId)}/measurements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error((data && (data.error || data.detail)) || ('HTTP ' + res.status));
+    // Reload list + accuracy
+    await loadMeasurements();
+    if (btn) { btn.disabled = false; btn.textContent = okMsg; setTimeout(() => resetSaveBtn(btn), 2500); }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '⚠ ' + (e.message || 'Save failed'); setTimeout(() => resetSaveBtn(btn), 4500); }
+  }
+}
+function resetSaveBtn(btn) {
+  if (btn.id === 'btnSaveTrace')  btn.textContent = '💾 Save traced measurement';
+  if (btn.id === 'btnSaveManual') btn.textContent = '💾 Save measured';
+}
+
+// ─── Measurement list + accuracy panel ───────────────────────────────────────
+let measurementsCache = [];
+async function loadMeasurements() {
+  const card = document.getElementById('vaultCard');
+  const list = document.getElementById('measList');
+  if (!activePropertyId) { card.style.display = 'none'; return; }
+  try {
+    const r = await fetch(`${API}/admin/property/${encodeURIComponent(activePropertyId)}/measurements`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    measurementsCache = d.measurements || [];
+    card.style.display = '';
+    list.innerHTML = measurementsCache.length
+      ? measurementsCache.map(m => {
+          const date = m.measuredAt ? new Date(m.measuredAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+          return `<div class="meas-row">
+            <span class="src ${m.source === 'tyler_measured_onsite' ? 'measured' : 'traced'}">${m.source === 'tyler_measured_onsite' ? 'MEASURED' : 'TRACED'}</span>
+            <span class="surf">${escapeHtml(m.surface)}</span>
+            <span class="sf">${m.sqft.toLocaleString()} sqft</span>
+            <span class="dtl">${escapeHtml(m.detail || '')} · ${date}</span>
+          </div>`;
+        }).join('')
+      : '<div style="color:var(--mut);font-size:13px;padding:8px 0">No measurements yet on this property.</div>';
+    renderAccuracy();
+  } catch (e) {
+    list.innerHTML = `<div class="status err">Load failed: ${e.message}</div>`;
+  }
+}
+
+function renderAccuracy() {
+  const panel = document.getElementById('accuracyPanel');
+  const big   = document.getElementById('vaultError');
+  const sub   = document.getElementById('vaultStatsSub');
+  const details = document.getElementById('pairDetails');
+  // Group by surface; require both sources to form a pair
+  const bySurface = new Map();
+  measurementsCache.forEach(m => {
+    const arr = bySurface.get(m.surface) || { measured: [], traced: [] };
+    if (m.source === 'tyler_measured_onsite') arr.measured.push(m);
+    else if (m.source === 'traced_satellite') arr.traced.push(m);
+    bySurface.set(m.surface, arr);
+  });
+  const pairs = [];
+  bySurface.forEach((g, surface) => {
+    if (!g.measured.length || !g.traced.length) return;
+    // Latest of each
+    const m = g.measured.sort((a,b) => (b.measuredAt||'').localeCompare(a.measuredAt||''))[0];
+    const t = g.traced  .sort((a,b) => (b.measuredAt||'').localeCompare(a.measuredAt||''))[0];
+    const err = Math.abs(t.sqft - m.sqft) / m.sqft * 100;
+    pairs.push({ surface, measured: m.sqft, traced: t.sqft, err });
+  });
+  if (!pairs.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const avg = pairs.reduce((a, p) => a + p.err, 0) / pairs.length;
+  big.textContent = avg.toFixed(1) + '%';
+  sub.textContent = `Tracer vs tape: avg error ${avg.toFixed(1)}% across ${pairs.length} surface${pairs.length===1?'':'s'} on this property.`;
+  details.innerHTML = pairs.map(p =>
+    `<div class="pair"><strong style="text-transform:capitalize">${escapeHtml(p.surface)}</strong> · tape ${p.measured.toLocaleString()} sqft vs traced ${p.traced.toLocaleString()} sqft = <strong>${p.err.toFixed(1)}% error</strong></div>`
+  ).join('');
+}
+
+// ─── Wire input listeners ────────────────────────────────────────────────────
+document.getElementById('searchInput').addEventListener('input', searchAndRender);
+
+loadDb();
+</script>
+</body>
+</html>
