@@ -305,8 +305,9 @@
       <input type="tel" id="phone" autocomplete="tel" placeholder="(954) 000-0000">
     </div>
     <div class="field">
-      <label>Email <span class="opt">(optional)</span></label>
-      <input type="email" id="email" autocomplete="email" inputmode="email">
+      <label>Email <span class="req">*</span></label>
+      <input type="email" id="email" autocomplete="email" inputmode="email" required>
+      <div style="font-size:12px;color:var(--mut);margin-top:4px">We send your full quote by email so you can review it anytime.</div>
     </div>
   </div>
 
@@ -548,6 +549,22 @@
   <div class="field" style="margin-top:14px">
     <label>Anything else we should know?</label>
     <textarea id="notes" placeholder="Gate code, special instructions&hellip;" style="min-height:72px"></textarea>
+  </div>
+
+  <!-- Lead source (OPTIONAL — values match new_customer.html's _LEAD_LABELS_NC so the
+       Person record carries the same key when Mom converts via fromOnline) -->
+  <div class="field" style="margin-top:14px">
+    <label>How did you hear about us? <span class="opt">(optional)</span></label>
+    <select id="leadSource" style="display:block;width:100%;padding:11px 13px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;font-family:inherit;color:var(--ink);background:#fff;outline:none;-webkit-appearance:none;appearance:none">
+      <option value="">Pick one if you'd like &mdash; totally optional</option>
+      <option value="google">Google Search</option>
+      <option value="nextdoor">Nextdoor</option>
+      <option value="social">Facebook / Instagram</option>
+      <option value="referral">Friend or Neighbor</option>
+      <option value="truck_sign">Saw Our Crew Working</option>
+      <option value="repeat">Repeat Customer</option>
+      <option value="other">Other</option>
+    </select>
   </div>
 
   <!-- Submit error -->
@@ -914,10 +931,11 @@
       zip:       $('zip').value.trim(),
       notes:     $('notes').value.trim(),
       otherServices: $('otherServices').value.trim(),
+      leadSource: $('leadSource').value || '',
     };
 
-    // Required fields
-    var required = ['firstName','lastName','phone','address','city'];
+    // Required fields (email now mandatory — quote delivery guarantee)
+    var required = ['firstName','lastName','phone','email','address','city'];
     var hasError = false;
     required.forEach(function(f){
       var bad = !form[f];
@@ -928,6 +946,16 @@
       alert('Please fill in all required fields.');
       var firstBad = required.find(function(f){ return !form[f]; });
       if (firstBad) $(firstBad).focus();
+      return;
+    }
+    // Email format check — we deliver the full quote by email, so a typo means
+    // the customer never gets it. Same regex shape as the rich page (see
+    // pure_cleaning_quote.html submit).
+    var emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRe.test(form.email)) {
+      setError('email', true);
+      alert('Please enter a valid email address — that’s where we send your quote.');
+      $('email').focus();
       return;
     }
 
@@ -987,7 +1015,25 @@
           sealing: { requested: state.sealChecked, surfaces: Array.from(state.sealSurfaces) },
           rustRemoval: { requested: state.rustChecked, area: state.rustArea },
           timeframe: state.selectedWeek.value,
-          notes: form.notes, otherServices: form.otherServices
+          notes: form.notes, otherServices: form.otherServices,
+          // leadSource: optional. Structured to match pure_cleaning_quote.html's shape
+          // AND new_customer.html's buildLeadSource() output — same `primary` keys, same
+          // top-level fields. Consumer (incoming card + Person conversion) sees one shape.
+          leadSource: (function(){
+            if (!form.leadSource) return null;
+            var labels = {
+              google:'Google Search', nextdoor:'Nextdoor', social:'Facebook / Instagram',
+              referral:'Friend or Neighbor', truck_sign:'Saw Our Crew Working',
+              repeat:'Repeat Customer', other:'Other'
+            };
+            return {
+              primary:    form.leadSource,
+              label:      labels[form.leadSource] || form.leadSource,
+              detail:     '',
+              capturedAt: new Date().toISOString(),
+              capturedBy: 'form'
+            };
+          })()
         }
       })
     }).catch(function(e){ try { console.warn('[incoming]', e && e.message); } catch(_){} });
@@ -1003,6 +1049,7 @@
     fd.append('Sealing Surfaces', Array.from(state.sealSurfaces).join(', ') || 'Not requested');
     fd.append('Preferred Timeframe', state.selectedWeek.value);
     fd.append('Notes', form.notes || 'None');
+    fd.append('Lead Source', form.leadSource || 'Not specified');
     fd.append('🔗 Open Quote Builder', qbLink);
     if (form.email) fd.append('_replyto', form.email);
 
@@ -1013,6 +1060,7 @@
       address: form.address + ', ' + form.city + ' ' + form.zip,
       services: allServices.join(', '), dates: state.selectedWeek.value,
       notes: form.notes || 'None', source: 'homepage',
+      lead_source: form.leadSource || '',
       quote_builder_link: qbLink,
     };
 

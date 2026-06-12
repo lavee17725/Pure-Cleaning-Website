@@ -1482,6 +1482,10 @@ setTimeout(function() {
     }
     if (services.length) { renderChips(); renderAddons(); }
     if (d.reqId) incomingReqId = d.reqId;
+    // Stash leadSource primary so downstream Person-creation flows (e.g. new_customer.html
+    // via ?fromOnline=) can read it. We hold it on a global rather than rewriting the
+    // converter — this builder's job is to ship the quote, not create the Person.
+    if (d.ls) { try { window.__pcpcIncomingLeadSource = d.ls; } catch(_){} }
     updatePreview();
     updatePropLink();
     if (d.p) checkCustomerAlerts(d.p.replace(/\D/g,''));

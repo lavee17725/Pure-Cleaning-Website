@@ -79,6 +79,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .chip-svc{background:rgba(45,125,210,.12);border:1px solid rgba(45,125,210,.25);color:var(--sky);}
 .chip-seal{background:rgba(244,166,32,.12);border:1px solid rgba(244,166,32,.3);color:var(--gold);}
 .chip-rust{background:rgba(229,62,62,.12);border:1px solid rgba(229,62,62,.3);color:#fc8181;}
+/* leadSource chip — neutral lavender so it doesn't compete visually with services */
+.chip-lead{background:rgba(167,139,250,.13);border:1px solid rgba(167,139,250,.32);color:#c4b5fd;}
+/* "✓ intro texted" pill — sits next to action buttons */
+.intro-pill{font-size:11px;color:var(--green);font-family:'DM Mono',monospace;background:rgba(29,158,117,.1);border:1px solid rgba(29,158,117,.25);border-radius:6px;padding:4px 9px;white-space:nowrap;}
 
 .req-note{font-size:12px;color:var(--muted);background:rgba(255,255,255,.035);border-radius:8px;padding:7px 10px;margin-bottom:.5rem;line-height:1.55;}
 
@@ -518,6 +522,15 @@ function buildCard(req) {
   if (d.rustRemoval && d.rustRemoval.requested && d.rustRemoval.area) {
     chips += `<span class="chip chip-rust">Rust: ${esc(d.rustRemoval.area)}</span>`;
   }
+  // Lead source chip — captured optionally on both quote forms (public + rich).
+  // Shape is the structured object from buildLeadSource() / the form's structured emit;
+  // bare strings tolerated for legacy entries.
+  const leadObj   = d.leadSource;
+  const leadLabel = leadObj && typeof leadObj === 'object' ? (leadObj.label || leadObj.primary || '') : (typeof leadObj === 'string' ? leadObj : '');
+  const leadDetail = leadObj && typeof leadObj === 'object' && leadObj.detail ? ` (${leadObj.detail})` : '';
+  if (leadLabel) {
+    chips += `<span class="chip chip-lead">📣 Heard via: ${esc(leadLabel)}${esc(leadDetail)}</span>`;
+  }
 
   // Notes
   let notes = '';
@@ -561,10 +574,18 @@ function buildCard(req) {
   if (req.status === 'new') {
     const qUrl = buildQuoteUrl(req);
     const name = esc(((d.firstName||'') + ' ' + (d.lastName||'')).trim() || req.customer_name || '');
+    // "💬 Text intro" — the post-quote-sent intro message. Distinct from the existing
+    // "💬 Text" (exploratory chat). Click opens Tyler's Messages app prefilled, then
+    // PATCHes the record's introTextedAt via persistRequests (server-side persistence,
+    // not localStorage — survives reloads and devices).
+    const introBtn = req.introTextedAt
+      ? `<span class="intro-pill">✓ intro texted ${new Date(req.introTextedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>`
+      : `<button class="btn-build" style="background:#a78bfa;color:#1a1f2e;" onclick="initIntroText('${req.id}','${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}','${esc(address || city || '')}',this)">💬 Text intro</button>`;
     actions = `
       <a href="${qUrl}" class="btn-build">✨ Build Quote</a>
       <button class="btn-build" style="background:#1d9e75;" onclick="initCall('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">📞 Call</button>
       <button class="btn-build" style="background:#1d9e75;" onclick="initText('${phone}','${esc(d.firstName || (req.customer_name||'').split(' ')[0] || '')}')">💬 Text</button>
+      ${introBtn}
       <button class="btn-ignore" onclick="confirmDismiss('${req.id}','${name}',this)">🔇 Dismiss</button>
       ${delBtn}
       ${viewCxBtn(phone)}`;
@@ -622,6 +643,12 @@ function buildCard(req) {
 function buildQuoteUrl(req) {
   const d    = req.customerData || {};
   const svcs = (d.services || []).map(mapSvc).filter((s,i,a) => a.indexOf(s) === i).join(', ');
+  // leadSource carries through to quote_builder_v2 → eventual Person record.
+  // Shape: object {primary, label, detail, ...} from buildLeadSource() — emit
+  // just the `primary` key in the URL payload (compact, matches new_customer.html's
+  // fromOnline `data.ls` field name; the rest can be re-derived from labels).
+  const ls = (d.leadSource && typeof d.leadSource === 'object') ? (d.leadSource.primary || '')
+           : (typeof d.leadSource === 'string' ? d.leadSource : '');
   try {
     const payload = JSON.stringify({
       n:     (`${d.firstName||''} ${d.lastName||''}`).trim(),
@@ -631,6 +658,7 @@ function buildQuoteUrl(req) {
       s:     svcs,
       notes:     d.notes     || '',
       timeframe: d.timeframe || '',
+      ls:    ls || '',
       reqId: req.id
     });
     const encoded = btoa(unescape(encodeURIComponent(payload)));
@@ -648,6 +676,40 @@ function initText(phone, firstName) {
   const body = `Hi ${firstName || 'there'}! This is Pure Cleaning Pressure Cleaning calling about your quote request. Got a minute to chat about what you're looking for?`;
   window.location.href = `sms:+1${phone.replace(/\D/g, '')}&body=${encodeURIComponent(body)}`;
   auditLog('request_text_initiated', { phone, firstName, textedAt: new Date().toISOString(), textedBy: 'operator' });
+}
+
+// "💬 Text intro" — opens Tyler's Messages app prefilled with the post-quote-sent intro
+// (after a quote has been built + emailed). Also PATCHes introTextedAt onto the
+// incoming record via persistRequests so the green "✓ intro texted" pill replaces
+// the button on next render and survives reloads (server-persisted).
+//
+// Tyler personally sends every customer text from his iPhone (954-389-2642).
+// NO automated/Twilio customer messaging — the worker is never in the loop here.
+async function initIntroText(reqId, phone, firstName, address, btn) {
+  if (!phone || phone.length < 10) {
+    alert('Missing or invalid phone number on this request.');
+    return;
+  }
+  const intro = `Hi ${firstName || 'there'}, it's Tyler from Pure Cleaning Pressure Cleaning — got your quote request for ${address || 'your home'}. Your full quote is on its way to your email right now. If you'd also like it by text, just reply TEXT ME and I'll send the link right here. Either way, you're all set!`;
+  // 1. Open the SMS deep link FIRST so the Messages app launches synchronously
+  //    (browsers gate sms: behind user-gesture; persistence below is best-effort).
+  window.location.href = `sms:+1${phone.replace(/\D/g, '')}&body=${encodeURIComponent(intro)}`;
+
+  // 2. Stamp the record + persist via existing bulk PUT (same pattern as changeStatus).
+  const req = allRequests.find(r => r.id === reqId);
+  if (!req) return;
+  req.introTextedAt = new Date().toISOString();
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    await persistRequests();
+    auditLog('intro_text_initiated', { phone, firstName, reqId, introTextedAt: req.introTextedAt, textedBy: 'operator' });
+    renderTab();
+  } catch (e) {
+    // Roll back the in-memory stamp if the persist failed — keep the card honest.
+    delete req.introTextedAt;
+    if (btn) { btn.disabled = false; btn.textContent = '💬 Text intro'; }
+    alert('Intro SMS opened in Messages, but we could not record it in the system. Try again or check the network.');
+  }
 }
 
 // ── Status updates ─────────────────────────────────────────────────
