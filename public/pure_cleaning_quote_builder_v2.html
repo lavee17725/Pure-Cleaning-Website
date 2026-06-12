@@ -572,13 +572,57 @@ let quotes = JSON.parse(localStorage.getItem('pureCleaningQuotesV2') || '[]');
 // Set synchronously on click so the guard catches any async that resolves afterward.
 let _userSetStories = false;
 
-function getLastKnownRoofStories(cust) {
-  if (!cust || !Array.isArray(cust.jobHistory)) return null;
-  const roofJobs = cust.jobHistory
-    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
+// ── Roof-stories source ladder (DL-01 / T2.11 root fix, 2026-06-12) ─────────
+//
+// THE BUG THIS REPLACES: previous getLastKnownRoofStories() only read jobHistory[].
+// For in-flight customers (quote sent, not completed) jobHistory was empty, so
+// reopen always defaulted radios to "Unknown". Compounded by the builder's
+// hard-assign at quote-generate which then nulled the stored value back out.
+// Three prior fixes (commits 5908627, 0a8a45b, 40d2103) patched async/write/partner
+// slices but never added the missing sources to this read.
+//
+// PRIORITY ORDER (highest wins):
+//   1. cust.scheduledStatus.roofStories   — this session's most recent active intent
+//   2. cust.quoteStatus.roofStories       — quoted intent
+//   3. c.properties[*].stories            — DL-01 MASTER (property record is canonical)
+//                                           Read from any linked property; prefer the
+//                                           primary first, then any other property with
+//                                           a value. The worker carries this via the
+//                                           patched mappers (was T1.21 drop #7).
+//   4. jobHistory[*].roofStories          — historical, completed jobs (last resort).
+//                                           Kept as a final fallback for the legacy
+//                                           data shape; DL-01 says this rung is
+//                                           "temporary, to be retired" once Property
+//                                           backfill is universal.
+function _inferRoofStories(cust) {
+  if (!cust) return null;
+  // Rung 1 — active in-flight intent.
+  if (cust.scheduledStatus && cust.scheduledStatus.roofStories) {
+    return cust.scheduledStatus.roofStories;
+  }
+  // Rung 2 — quoted intent.
+  if (cust.quoteStatus && cust.quoteStatus.roofStories) {
+    return cust.quoteStatus.roofStories;
+  }
+  // Rung 3 — DL-01 canonical Property.stories. Primary first, then any.
+  if (Array.isArray(cust.properties)) {
+    const primary = cust.properties.find(p => p && p.primaryContact);
+    if (primary && primary.stories) return primary.stories;
+    const anyWithStories = cust.properties.find(p => p && p.stories);
+    if (anyWithStories) return anyWithStories.stories;
+  }
+  // Rung 4 — legacy fallback parse of jobHistory.
+  if (Array.isArray(cust.jobHistory)) {
+    const roofJobs = cust.jobHistory
+      .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    if (roofJobs.length > 0) return roofJobs[0].roofStories;
+  }
+  return null;
 }
+// Back-compat alias — preserve the old name for any callers we haven't found yet.
+// Safe to delete once a grep confirms no other usage in public/.
+const getLastKnownRoofStories = _inferRoofStories;
 let pendingRequest = JSON.parse(localStorage.getItem('pendingQuoteRequest') || 'null');
 let generatedUrl = '';
 let incomingReqId = null; // set when opened from Incoming Requests inbox
@@ -818,6 +862,32 @@ function _tagToSizeData(tag) {
   if (tag.type === 'driveway' && tag.size) sz.drivewaySize = tag.size;
   if (['patio','pool_deck','screen_enclosure','balcony','deck'].includes(tag.type) && tag.size) sz.groundSize = tag.size;
   return sz;
+}
+
+// Item 5 (2026-06-12) — case-insensitive service dedupe + Rinse-walls subset rule.
+// (1) Drop exact-string case-insensitive duplicates, keeping the first-seen casing.
+// (2) When "Rinse walls & windows" is in the list, drop standalone "Rinse walls" /
+//     "Rinse wall" as a subset (the combined string is the canonical form auto-added
+//     by the public form when roof is checked).
+// Used at the builder's ?customer= ingest. The customer-facing renderer at
+// agreement.html applies the same rule via _normalizeDisplayServices — both sides
+// defensive so a regression on either side doesn't surface to the customer.
+function _qbDedupeServices(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const s of list) {
+    if (!s) continue;
+    const k = String(s).trim().toLowerCase();
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  const hasCombined = out.some(s => /rinse\s*walls?\s*&\s*window/i.test(s));
+  if (hasCombined) {
+    return out.filter(s => !/^rinse\s*walls?$/i.test(String(s).trim()));
+  }
+  return out;
 }
 
 function addService() {
@@ -1393,8 +1463,61 @@ async function generateQuote() {
             (db.customers = db.customers || []).push(cust);
           }
           cust.quoteStatus    = { state: 'phone_quoted_mini_quote_sent', mainAmount: priceNum, mainServices: serviceStr, sentAt: now, miniQuoteCode: mqCode, miniQuoteCustomData: miniData };
-          cust.scheduledStatus = { state: 'needs_scheduling', approvedAmount: priceNum, jobNotes: serviceStr, roofStories: v2RoofStories || null };
+          // ── scheduledStatus: EXPLICIT-FIELD construction (T2.11 amendment 2, 2026-06-12) ──
+          // Do NOT spread the prior scheduledStatus — that bleeds ghost fields from a
+          // previous completed cycle into this fresh needs_scheduling state
+          // (the phantom-completion bug class). Build only the fields THIS flow owns,
+          // then explicitly forward the one field we want to preserve across edits:
+          // roofStories — when the user didn't reselect this session, keep the prior value.
+          //
+          // DELIBERATELY DROPPED from any prior scheduledStatus:
+          //   completedAt, confirmedAt, confirmedByCustomer, confirmedDate,
+          //   scheduledDate, rig, _lastJobId, jobId,
+          //   dateChangeRequested, changesRequested, requestedAt,
+          //   paymentMethod, paymentReceived,
+          //   serviceTags (re-derived by handleAgreementConfirm from the quote KV record).
+          //
+          // None of those belong in a freshly-generated quote/scheduling intent;
+          // each would mislead Mom's scheduling UI or trigger a duplicate-job guard.
+          const _priorSched = cust.scheduledStatus || {};
+          cust.scheduledStatus = {
+            state: 'needs_scheduling',
+            approvedAmount: priceNum,
+            jobNotes: serviceStr,
+            roofStories: v2RoofStories !== null
+              ? v2RoofStories
+              : (_priorSched.roofStories ?? null),
+          };
           await fetch(`${PCPC_API}/customers`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(db) });
+
+          // ── DL-01 architectural write (2026-06-12) ─────────────────────────
+          // Write the stories selection to Property.stories (the DL-01 master).
+          // Without this, the in-flight reopen case has nowhere to read the value
+          // on subsequent /customers GETs: T1.20 forbids scheduledStatus dual-write
+          // through the bulk PUT path, so D1-derived scheduledStatus.roofStories
+          // stays null until the customer confirms a date. By writing the master
+          // here, the prefill ladder's rung 3 (properties[].stories) fires on
+          // reopen and Tyler never sees Unknown when he already picked 1/2.
+          //
+          // propertyId derivation MUST match the worker's _d1PropId(street, city)
+          // (cloudflare-worker/src/index.js:6705) so existing customers' Property
+          // rows are addressed correctly. Replicated inline rather than imported.
+          //
+          // Fire-and-forget: idempotent UPDATE on D1; failure is non-fatal (next
+          // generate will retry); the worker also resists writing if the row
+          // doesn't exist yet (returns rowsAffected=0). For brand-new customers
+          // the next reopen will trigger another POST and catch the row by then.
+          if (v2RoofStories !== null && (address || cust.address)) {
+            const _addr = address || cust.address;
+            const _city = extractCityFromAddr(_addr) || cust.city || '';
+            const _norm = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
+            const _propId = 'prop_' + (_norm(_addr) + '|' + _norm(_city)).replace(/[^\w]/g,'_').slice(0,40);
+            fetch(`${PCPC_API}/admin/property/${_propId}/stories`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ stories: v2RoofStories }),
+            }).catch(() => {}); // truly fire-and-forget — log nothing, fail nothing
+          }
         } catch(e) { console.warn('[quote_builder_v2] customer DB update:', e.message); }
       })();
     }
@@ -1509,12 +1632,11 @@ function updatePropLink() {
   // &style=b = Bird's Eye (oblique) — available in most South FL suburbs but not all.
   const bingUrl   = 'https://www.bing.com/maps?q=' + enc + '&style=a';
 
-  // ── Property appraiser (BCPA / county PA — click-to-open, no address param) ──
-  let apprUrl, apprLabel;
-  if      (county === 'broward')    { apprUrl = 'https://web.bcpa.net/BcpaClient/#/Record-Search';     apprLabel = '📍 BCPA'; }
-  else if (county === 'miami-dade') { apprUrl = 'https://www.miamidade.gov/Apps/PA/PropertySearch/';   apprLabel = '📍 Miami-Dade PA'; }
-  else if (county === 'palm-beach') { apprUrl = 'https://pbcpao.gov/AdvSearch/AdvanceSearch';           apprLabel = '📍 PBC PAO'; }
-  else                              { apprUrl = 'https://www.google.com/search?q=' + enc + '+property+appraiser'; apprLabel = '📍 Appraiser'; }
+  // ── Property appraiser button removed 2026-06-12 ─────────────────────────
+  // The BCPA / Miami-Dade / Palm Beach sq-ft lookup links directly below the
+  // address row (the "Look up sq ft:" line) are the canonical path for Tyler
+  // when sizing a quote. The 📍 Appraiser button here was redundant and added
+  // visual noise to the satellite/aerial row.
 
   // ── County GIS (parcel/flood/aerial overlay — click-to-open, no address param) ──
   let gisUrl = null, gisLabel = null;
@@ -1529,7 +1651,6 @@ function updatePropLink() {
     `<div class="prop-link-row">` +
       _lnk(googleUrl, '🛰 Google',    'Open in Google Maps — satellite view') +
       _lnk(bingUrl,   '🦅 Bing',      'Open in Bing Maps — aerial view') +
-      _lnk(apprUrl,   apprLabel,      'Open county property appraiser (paste address)') +
       (gisUrl ? _lnk(gisUrl, gisLabel, 'Open county GIS viewer (paste address)') : '') +
     `</div>`;
 
@@ -1583,11 +1704,23 @@ setTimeout(function() {
     if (d.timeframe) setTimeframeBadge(d.timeframe);
     // Part 1d (T1.22): if pre-fill includes saved serviceTags, restore structured state.
     // Fall back to splitting flat string (from quote.html _slim) — structure is rebuilt via chipToTag.
+    //
+    // Item 5 (2026-06-12) — defensive case-insensitive dedupe at this ingest point.
+    // The public form's submit-time dedupe is exact-case (`s === 'Rinse walls'`) and
+    // misses casing variants. Tyler's test quote rendered "Rinse walls & windows,
+    // Rinse Walls" because the capital-W variant slipped through. Defense in depth:
+    // also dedupe here so the builder never accepts both forms even if the form
+    // upstream regresses. The customer-facing renderer at agreement.html applies
+    // the same normalization (_normalizeDisplayServices) — both sides defensive.
     if (Array.isArray(d.tags) && d.tags.length) {
       services    = d.tags.map(_tagToChipLabel).filter(Boolean);
       serviceSize = d.tags.map(_tagToSizeData);
+      services    = _qbDedupeServices(services);
+      // Keep serviceSize aligned with the deduped services length.
+      serviceSize = serviceSize.slice(0, services.length);
     } else if (d.s) {
-      services    = d.s.split(',').map(s => s.trim()).filter(Boolean);
+      const raw = d.s.split(',').map(s => s.trim()).filter(Boolean);
+      services    = _qbDedupeServices(raw);
       serviceSize = services.map(() => ({}));
     }
     if (services.length) { renderChips(); renderAddons(); }

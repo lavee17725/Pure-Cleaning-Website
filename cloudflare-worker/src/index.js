@@ -1764,6 +1764,22 @@ export default {
         return jsonResponse({ error: 'method not allowed' }, corsHeaders, 405);
       }
 
+      // ── DL-01 architectural complement (2026-06-12) ───────────────────────────
+      // POST /admin/property/{propertyId}/stories — write to Property.stories (the
+      // DL-01 master roofStories field). Called by the builder at quote-generate
+      // time so the in-flight reopen case prefills from rung 3 of
+      // _inferRoofStories. Without this the prefill ladder is dead for in-flight
+      // quotes (T1.20 forbids scheduledStatus sync via the bulk PUT /customers
+      // path, so D1-derived scheduledStatus.roofStories stays null until the
+      // customer confirms the date).
+      //
+      // Schema: Property.stories INTEGER (Day 1 schema 0001:54).
+      if (path.startsWith('admin/property/') && path.endsWith('/stories')) {
+        const propertyId = path.slice('admin/property/'.length, -'/stories'.length);
+        if (request.method === 'POST') return await handlePropertyStoriesUpdate(request, env, propertyId, corsHeaders);
+        return jsonResponse({ error: 'method not allowed' }, corsHeaders, 405);
+      }
+
       // ── Person duplicate review endpoints ────────────────────────────────────
       if (path === 'admin/person-merge-candidates' && request.method === 'GET') {
         return await handlePersonMergeCandidates(env, corsHeaders);
@@ -3025,6 +3041,38 @@ async function handlePropertyMeasurementsGet(env, propertyId, corsHeaders) {
     catch { measurements = []; }
   }
   return jsonResponse({ propertyId, measurements, count: measurements.length }, corsHeaders);
+}
+
+// ── DL-01 architectural complement (2026-06-12) ─────────────────────────────
+// Update Property.stories. Used by the quote builder at quote-generate time:
+// when Tyler picks 1-Story or 2-Story, the value lands on Property.stories
+// (the DL-01 master roofStories field) so the next /customers GET surfaces it
+// for the prefill ladder.
+//
+// Idempotent UPDATE. Returns success even if propertyId doesn't exist YET
+// (the row may not be in D1 if the customer was JUST created in the same PUT
+// /customers call — caller should retry once after a short delay, or rely on
+// the next builder reopen to write again).
+async function handlePropertyStoriesUpdate(request, env, propertyId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const stories = parseInt(body.stories);
+  if (![1, 2].includes(stories)) {
+    return jsonResponse({ error: 'stories must be 1 or 2' }, corsHeaders, 400);
+  }
+  try {
+    const now = new Date().toISOString();
+    const r = await env.DB.prepare(
+      'UPDATE Property SET stories = ?, modifiedAt = ? WHERE propertyId = ?'
+    ).bind(stories, now, propertyId).run();
+    const changes = r.meta?.changes ?? null;
+    return jsonResponse({ success: true, propertyId, stories, rowsAffected: changes }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'property_stories_update', e.message).catch(() => {});
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
 }
 
 async function handleQuoteLeadsStats(env, corsHeaders, includeKeys = false) {
@@ -4529,6 +4577,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
     gateCode:               primaryProp.gateCode     || null,
     roofType:               primaryProp.roofType     || null,
     sqFt:                   primaryProp.sqft         || null,
+    stories:                primaryProp.stories      || null,   // DL-01 master roofStories rung (was T1.21 drop)
     accessNotes:            primaryProp.accessNotes  || null,
     customerType:           p.customerType   || 'residential',
     partnerNotes:           p.partnerNotes   || null,
@@ -4561,6 +4610,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
         gateCode:           pp.gateCode            || null,
         roofType:           pp.roofType            || null,
         sqFt:               pp.sqft                || null,
+        stories:            pp.stories             || null,   // DL-01 master roofStories rung (was T1.21 drop)
         accessNotes:        pp.accessNotes         || null,
         satelliteImageKey:  pp.satelliteImageKey   || null,  // Phase 3: R2 key
         frontImageKey:      pp.frontImageKey       || null,  // Phase 3: R2 key
@@ -4581,7 +4631,7 @@ async function d1AllCustomersToKvShape(env) {
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType,' +
       'p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
-      'p.roofType, p.sqft,' +
+      'p.roofType, p.sqft, p.stories,' +                    // Property.stories (DL-01 master): carry it forward (T1.21 drop #7 sealed)
       'p.satelliteImageKey, p.frontImageKey, ' +            // Phase 3: property images
       'p.measurements, '                                     // Build B: ground-truth vault
       + 'p.photoKeys '                                       // Customer photo upload: lead-captured R2 keys
@@ -4690,7 +4740,7 @@ async function d1CustomerToKvShape(phone, env) {
       'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType, p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
       'p.googlePlaceId, p.formattedAddress, p.googleVerified,' +
-      'p.roofType, p.sqft,' +
+      'p.roofType, p.sqft, p.stories,' +                    // Property.stories (DL-01 master): carry it forward (T1.21 drop #7 sealed)
       'p.satelliteImageKey, p.frontImageKey, ' +            // Phase 3: property images
       'p.measurements, '                                     // Build B: ground-truth vault
       + 'p.photoKeys '                                       // Customer photo upload: lead-captured R2 keys
@@ -4754,6 +4804,7 @@ async function d1CustomerToKvShape(phone, env) {
     gateCode:         pp.gateCode         || null,
     roofType:         pp.roofType         || null,
     sqFt:             pp.sqft             || null,
+    stories:          pp.stories          || null,   // DL-01 master roofStories rung (was T1.21 drop)
     accessNotes:      pp.accessNotes      || null,
     googlePlaceId:     pp.googlePlaceId    || null,
     formattedAddress:  pp.formattedAddress || null,

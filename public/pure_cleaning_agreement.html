@@ -211,6 +211,49 @@ summary.terms-expand-btn { font-size: 12px; font-weight: 700; color: var(--navy)
 summary.terms-expand-btn::-webkit-details-marker { display: none; }
 .terms-expand-arrow { font-size: 12px; display: inline-block; transition: transform .2s; }
 details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
+
+/* ── Item 3 (2026-06-12): sealing-not-included note (gold-tint, seal brand) ─ */
+.sealing-note-card{display:flex;align-items:flex-start;gap:.625rem;background:#fff8ed;border:1.5px solid #f4a620;border-left:4px solid #f4a620;border-radius:12px;padding:.875rem 1rem;margin:-.25rem 0 1.5rem 0;font-size:13.5px;line-height:1.55;color:#7a4a08;}
+.sealing-note-icon{font-size:18px;line-height:1;flex-shrink:0;color:#c47f00;}
+.sealing-note-text{flex:1;}
+.sealing-note-text strong{color:#5a3506;font-weight:700;}
+
+/* ── Item 4 (2026-06-12): confirmed-state full view swap ────────────────── */
+body.is-confirmed #total-card-new,
+body.is-confirmed #included-section,
+body.is-confirmed #sealing-note-section,
+body.is-confirmed #addons-section,
+body.is-confirmed #sealing-offering-section,
+body.is-confirmed #rust-offering-section,
+body.is-confirmed #date-section,
+body.is-confirmed #update-banner,
+body.is-confirmed .terms-section{display:none !important;}
+
+.celebration-hero{background:linear-gradient(135deg,#f0fdf4 0%,#dcfce7 100%);border:2px solid #86efac;border-radius:18px;padding:2rem 1.25rem 1.75rem 1.25rem;text-align:center;margin-bottom:1.5rem;box-shadow:0 4px 24px rgba(29,158,117,.10);}
+.celebration-checkmark{display:inline-flex;align-items:center;justify-content:center;width:80px;height:80px;border-radius:50%;background:var(--green);color:#fff;font-size:48px;line-height:1;font-weight:700;margin-bottom:.875rem;box-shadow:0 4px 16px rgba(29,158,117,.30);}
+.celebration-headline{font-size:28px;font-weight:800;color:var(--navy);margin-bottom:.5rem;letter-spacing:-.5px;line-height:1.15;}
+.celebration-date{font-size:18px;font-weight:700;color:var(--green);margin-bottom:.75rem;}
+.celebration-sub{font-size:14px;color:#4b5563;line-height:1.55;max-width:380px;margin:0 auto;}
+
+.celebration-actions{display:grid;grid-template-columns:1fr;gap:.5rem;margin-bottom:1.5rem;}
+@media(min-width:540px){.celebration-actions{grid-template-columns:1fr 1fr 1fr;gap:.625rem;}}
+.celebration-action-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:.875rem .625rem;background:var(--white);border:1.5px solid var(--border);border-radius:12px;font-family:'DM Sans',sans-serif;font-size:13.5px;font-weight:600;color:var(--text);cursor:pointer;transition:border-color .15s,background .15s;width:100%;text-align:center;}
+.celebration-action-btn:hover{border-color:var(--navy);background:#fafbfc;}
+
+.cnf-expander{background:#f8f9fb;border:1.5px solid var(--border);border-radius:12px;margin-bottom:.875rem;overflow:hidden;}
+.cnf-expander summary{padding:1rem 1.25rem;font-size:14px;font-weight:700;color:var(--navy);cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:.75rem;-webkit-tap-highlight-color:transparent;}
+.cnf-expander summary::-webkit-details-marker{display:none;}
+.cnf-expander summary::after{content:'›';font-size:20px;color:var(--muted);transition:transform .2s;line-height:1;}
+.cnf-expander[open] summary::after{transform:rotate(90deg);}
+.cnf-expander-body{padding:0 1.25rem 1.25rem 1.25rem;font-size:13.5px;color:var(--text);line-height:1.65;}
+.cnf-expander-body .cnf-co{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--navy);margin-bottom:.25rem;}
+.cnf-expander-body .cnf-tag{font-size:11.5px;color:var(--muted);margin-bottom:1rem;}
+.cnf-expander-body ol{padding-left:1.25rem;margin:.5rem 0 0 0;}
+.cnf-expander-body ol li{margin-bottom:.625rem;}
+.cnf-expander-body ul{padding-left:1.25rem;margin:.375rem 0;}
+.cnf-quote-line{display:flex;justify-content:space-between;align-items:baseline;padding:.5rem 0;border-bottom:1px dashed var(--border);font-size:13.5px;}
+.cnf-quote-line:last-child{border-bottom:none;}
+.cnf-quote-line.cnf-quote-total{font-weight:800;color:var(--navy);font-size:15px;border-top:1.5px solid var(--border);margin-top:.5rem;padding-top:.75rem;border-bottom:none;}
 .terms-full-body { margin-top: .875rem; padding-top: .875rem; border-top: 1px solid var(--border); }
 .terms-full-body h2 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--navy); margin-bottom: .625rem; }
 .terms-full-body ol { padding-left: 1.25rem; }
@@ -298,6 +341,9 @@ details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
     <!-- WHAT'S INCLUDED -->
     <div id="included-section" style="display:none;"></div>
 
+    <!-- Sealing-not-included note (Item 3 — only renders when sealing was requested) -->
+    <div id="sealing-note-section" style="display:none;"></div>
+
     <!-- WANT TO ADD ANYTHING — toggle rows -->
     <div id="addons-section" style="display:none;margin-bottom:1.5rem;"></div>
 
@@ -325,7 +371,10 @@ details.terms-expand[open] .terms-expand-arrow { transform: rotate(90deg); }
       <div class="info-card-body">We accept: <span class="pay-method">Zelle</span><span class="pay-method">Cash</span><span class="pay-method">Check</span><span class="pay-method">Venmo</span><br><br>Payment is due day of service.</div>
     </div>
 
-    <!-- Terms & Conditions (untouched) -->
+    <!-- Confirmed-state tail (Item 4) — terms + quote-details expanders. Hidden by default; populated when pageState='confirmed'. -->
+    <div id="confirmed-tail" style="display:none;"></div>
+
+    <!-- Terms & Conditions (pre-confirmation view — hidden by body.is-confirmed CSS rule) -->
     <div class="terms-section">
       <div class="terms-company">Pure Cleaning Pressure Cleaning, LLC</div>
       <div class="terms-tagline">Family-owned · South Florida · Since 1995 · Licensed &amp; Insured · 954-389-2642</div>
@@ -535,14 +584,20 @@ function renderPage() {
     bannerEl.style.display = 'none';
   }
 
+  // Item 4 (2026-06-12): body-class toggle drives the confirmed-state CSS
+  // (hides pre-confirmation sections so the celebration view stands alone).
+  document.body.classList.toggle('is-confirmed', pageState === 'confirmed');
+
   renderHero();
   renderNewTotalCard();
   renderIncluded();
+  renderSealingNote();       // Item 3 — gold-tint note under WHAT'S INCLUDED
   renderAvailableAddons();
   renderSealingSection();
   renderRustSection();
   renderDateSection(); // auto-selects Best Fit if no date chosen
   renderActionSection();
+  renderConfirmedTail();     // Item 4 — terms + quote-details expanders (confirmed only)
 }
 
 function renderHero() {
@@ -560,14 +615,48 @@ function renderHero() {
     </div>`;
 }
 
+// ── Item 3 (2026-06-12): customer-facing display normalizers ──────────────
+// "Sealing quote requested" is a SIGNAL on Tyler's side, not a service the
+// customer is paying for in this number. Strip it from display surfaces
+// (YOUR TOTAL subtitle + WHAT'S INCLUDED list). Data payload still carries
+// the flag — this is purely cosmetic on the customer surface.
+//
+// Also defensive case-insensitive dedupe + Rinse-walls subset rule
+// (Item 5 — customer-facing render side): when both 'Rinse walls' and
+// 'Rinse walls & windows' are present (or any case-variant), the standalone
+// is dropped as a subset of the combined string.
+function _isSealingQuoteOnlyTag(s){ return /sealing\s*quote\s*requested/i.test(s||''); }
+function _normalizeDisplayServices(rawServices){
+  if (!rawServices) return [];
+  // Split on common service-separators emitted by the builder/form.
+  const parts = String(rawServices).split(/[,·•\n]+/).map(s => s.trim()).filter(Boolean);
+  // Pass 1: drop "Sealing quote requested" (cosmetic — flag is preserved on the data side).
+  const noSealReq = parts.filter(s => !_isSealingQuoteOnlyTag(s));
+  // Pass 2: case-insensitive exact-string dedupe (preserves first-seen casing).
+  const seen = new Set();
+  const deduped = [];
+  for (const s of noSealReq) {
+    const k = s.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); deduped.push(s); }
+  }
+  // Pass 3: Rinse-walls subset rule — if "Rinse walls & windows" (any case) is present,
+  // drop standalone "Rinse walls" / "Rinse wall" / etc.
+  const hasCombined = deduped.some(s => /rinse\s*walls?\s*&\s*window/i.test(s));
+  if (hasCombined) {
+    return deduped.filter(s => !/^rinse\s*walls?$/i.test(s.trim()));
+  }
+  return deduped;
+}
+
 function renderNewTotalCard() {
   const el = document.getElementById('total-card-new');
   if (!el) return;
   const base    = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
   const total   = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
-  const services = quoteData.mainServices || quoteData.services || '';
+  const rawServices = quoteData.mainServices || quoteData.services || '';
+  const servicesDisplay = _normalizeDisplayServices(rawServices).join(' · ');
   const addOnNames = addedAddons.map(a => a.name).join(' · ');
-  const svcLine = [services, addOnNames].filter(Boolean).join(' · ');
+  const svcLine = [servicesDisplay, addOnNames].filter(Boolean).join(' · ');
   const created = quoteData.created ? new Date(quoteData.created) : new Date();
   const expiry  = new Date(created.getTime() + 30 * 86400000);
   const expiryStr = expiry.toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
@@ -585,7 +674,8 @@ function renderIncluded() {
   const el = document.getElementById('included-section');
   if (!el) return;
   const services = quoteData.mainServices || quoteData.services || '';
-  const baseItems = services ? services.split(/[,·•\n]+/).map(s => s.trim()).filter(Boolean) : [];
+  // Apply Item 3 + 5 normalization: drop "Sealing quote requested", dedupe, Rinse-walls subset rule.
+  const baseItems = _normalizeDisplayServices(services);
   const addOnItems = addedAddons.map(a => a.name);
   const allItems = [...baseItems, ...addOnItems];
   if (!allItems.length) { el.style.display = 'none'; return; }
@@ -608,9 +698,10 @@ function refreshTotal() {
     amtEl.style.color = 'var(--green)';
     setTimeout(() => { if (amtEl) amtEl.style.color = 'var(--navy)'; }, 500);
   }
-  const services   = quoteData.mainServices || quoteData.services || '';
-  const addOnNames = addedAddons.map(a => a.name).join(' · ');
-  const svcLine    = [services, addOnNames].filter(Boolean).join(' · ');
+  const rawServices    = quoteData.mainServices || quoteData.services || '';
+  const servicesDisplay = _normalizeDisplayServices(rawServices).join(' · ');
+  const addOnNames     = addedAddons.map(a => a.name).join(' · ');
+  const svcLine        = [servicesDisplay, addOnNames].filter(Boolean).join(' · ');
   const svcEl = document.getElementById('ntc-services');
   if (svcEl) svcEl.textContent = svcLine;
 }
@@ -968,22 +1059,51 @@ function setDateStage(stage) {
   }
 }
 
+// ── Item 3 (2026-06-12): sealing-not-included note ────────────────────────
+// Renders the gold-tinted reassurance card directly under WHAT'S INCLUDED
+// when sealing was requested. Detects either the legacy-style "Sealing quote
+// requested" entry in services OR a structured sealing flag. Note disappears
+// once the customer confirms (CSS hides the section via body.is-confirmed).
+function renderSealingNote() {
+  const el = document.getElementById('sealing-note-section');
+  if (!el) return;
+  const rawServices = quoteData.mainServices || quoteData.services || '';
+  const fromString = rawServices.split(/[,·•\n]+/).some(s => _isSealingQuoteOnlyTag(s.trim()));
+  const fromFlag = !!(quoteData.sealing?.requested || quoteData.sealingInterest);
+  if (!fromString && !fromFlag) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="sealing-note-card">
+      <div class="sealing-note-icon">🔒</div>
+      <div class="sealing-note-text"><strong>Sealing isn't included in this price</strong> — we'll assess your pavers and quote sealing in person.</div>
+    </div>`;
+}
+
+// ── Item 4 (2026-06-12): celebratory booking-confirmed view ───────────────
+// Replaces the old "green box injected mid-page" with a full-width hero +
+// clean action-button row. The rest of the pre-confirmation quote layout
+// (total, included, addons, sealing/rust offerings, date picker, terms)
+// is hidden by the body.is-confirmed CSS rule. Arrival/Payment cards remain
+// visible above the confirmed-tail expanders, which carry Service Agreement
+// & Terms + a "View your quote details" rollup.
 function renderActionSection() {
   const el = document.getElementById('action-section');
   if (!el) return;
 
   if (pageState === 'confirmed') {
+    const fn = (quoteData.fn || (typeof customer !== 'undefined' && customer?.firstName) || 'there').trim() || 'there';
+    const dateDisplay = selectedDate?.display || quoteData.confirmedDateDisplay || '';
     el.innerHTML = `
-      <div class="confirmed-banner">
-        <div class="confirmed-icon">✓</div>
-        <div class="confirmed-headline">Booking Confirmed!</div>
-        <div class="confirmed-date">${escHtml(selectedDate?.display || '')}</div>
-        <div class="confirmed-sub">We'll text or call you the night before with your arrival window.</div>
+      <div class="celebration-hero">
+        <div class="celebration-checkmark">✓</div>
+        <div class="celebration-headline">You're Booked, ${escHtml(fn)}!</div>
+        <div class="celebration-date">${escHtml(dateDisplay)}</div>
+        <div class="celebration-sub">We'll text or call you the night before with your arrival window.</div>
       </div>
-      <div class="action-btns">
-        <button class="action-btn" onclick="onPdfClick()">📥 Download as PDF</button>
-        <button class="action-btn" onclick="onPrintClick()">🖨️ Print Agreement</button>
-        <button class="action-btn" onclick="onEmailClick()">✉️ Email me a copy</button>
+      <div class="celebration-actions">
+        <button class="celebration-action-btn" onclick="onPdfClick()">📥 Download PDF</button>
+        <button class="celebration-action-btn" onclick="onPrintClick()">🖨️ Print Agreement</button>
+        <button class="celebration-action-btn" onclick="onEmailClick()">✉️ Email me a copy</button>
       </div>`;
     return;
   }
@@ -995,6 +1115,60 @@ function renderActionSection() {
       ${dateChosen ? `APPROVE QUOTE — ${escHtml(selectedDate.display)} →` : 'SELECT A DATE TO APPROVE'}
     </button>
     <div class="confirm-legal">By confirming, you agree to the services and price above. We'll text you the night before with your arrival window.</div>`;
+}
+
+// ── Item 4 (2026-06-12): confirmed-state tail ──────────────────────────────
+// Renders the Service Agreement & Terms expander + the "View your quote
+// details" rollup at the bottom of the confirmed page. Both collapsed by
+// default. Hidden entirely in pre-confirmation state.
+function renderConfirmedTail() {
+  const el = document.getElementById('confirmed-tail');
+  if (!el) return;
+  if (pageState !== 'confirmed') { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const base  = quoteData._baseAmount || quoteData.mainAmount || quoteData.approvedAmount || 0;
+  const total = base + addedAddons.reduce((s, ao) => s + (ao.bundle||0), 0);
+  const rawServices = quoteData.mainServices || quoteData.services || '';
+  const services = _normalizeDisplayServices(rawServices);
+  const addOnNames = addedAddons.map(a => a.name);
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <details class="cnf-expander">
+      <summary>Service Agreement &amp; Terms</summary>
+      <div class="cnf-expander-body">
+        <div class="cnf-co">Pure Cleaning Pressure Cleaning, LLC</div>
+        <div class="cnf-tag">Family-owned · South Florida · Since 1995 · Licensed &amp; Insured · 954-389-2642</div>
+        <ol>
+          <li><strong>Service Agreement.</strong> By confirming services, customer agrees to allow Pure Cleaning Pressure Cleaning, LLC and its employees on the property for the purposes specified in this agreement.</li>
+          <li><strong>Quote Validity.</strong> This quote is valid for 30 days from the quoted date. Pricing is subject to change after this period.</li>
+          <li><strong>Payment Terms.</strong> Payment is due upon completion of services. We accept Zelle, check, cash, and Venmo. Returned checks are subject to a $50 processing fee.</li>
+          <li><strong>Property Access.</strong> Customer agrees to provide outdoor water spigot access on the day of service and to move outdoor furniture, secure pets, and close windows prior to service.</li>
+          <li><strong>Liability Limitations.</strong> Pure Cleaning Pressure Cleaning, LLC is not responsible for damage to:
+            <ul>
+              <li>Loose siding, paint, wood trim, or fascia</li>
+              <li>Pre-existing structural conditions, cracks, or wear</li>
+              <li>Loose roof tiles or already-damaged shingles</li>
+              <li>Plants or landscaping where customer was warned of risk</li>
+            </ul>
+            Liability for damages caused by gross negligence is limited to the total cost of the service. Damages must be reported in writing within 30 days of service completion.
+          </li>
+          <li><strong>Weather Policy.</strong> Service may be rescheduled due to thunderstorms, sustained rain, or unsafe temperatures. Pure Cleaning will text or call to coordinate the next available date.</li>
+          <li><strong>Photo Documentation.</strong> Pure Cleaning may take before-and-after photographs for documentation, quality assurance, and marketing purposes. Customer may opt out by notifying Pure Cleaning in writing prior to the service date.</li>
+          <li><strong>Metal Roofs.</strong> Pure Cleaning does not service metal roofs.</li>
+          <li><strong>Insurance &amp; Licensing.</strong> Pure Cleaning Pressure Cleaning, LLC is fully licensed and insured for residential and commercial pressure washing services in South Florida.</li>
+          <li><strong>Contact.</strong> Pure Cleaning Pressure Cleaning, LLC · South Florida · 954-389-2642. Customer accepts these terms by confirming the service agreement.</li>
+        </ol>
+      </div>
+    </details>
+    <details class="cnf-expander">
+      <summary>View your quote details</summary>
+      <div class="cnf-expander-body">
+        ${services.map(s => `<div class="cnf-quote-line"><span>${escHtml(s)}</span></div>`).join('')}
+        ${addOnNames.map(a => `<div class="cnf-quote-line"><span>+ ${escHtml(a)}</span></div>`).join('')}
+        <div class="cnf-quote-line cnf-quote-total"><span>Total</span><span>$${total}</span></div>
+      </div>
+    </details>`;
 }
 
 // ── Date selection ────────────────────────────────────────────────────────────
