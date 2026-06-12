@@ -1029,6 +1029,16 @@ function extractCityFromAddr(addr) {
 
 let _qbSatelliteKey = null;   // R2 key after upload, or null if not uploaded
 let _qbFrontKey     = null;
+// Phase A (June 6): one quote code per builder session, shared between the
+// auto-sat call and generateQuote so the satellite key writes to and reads from
+// the same KV slot (quote_{code}). Lazy — only minted when first needed.
+let _qbQuoteCode    = null;
+function _qbGetQuoteCode() {
+  return _qbQuoteCode || (_qbQuoteCode = generateShortCode());
+}
+// Guard so the auto-fetch fires at most once per quote session — Tyler's cost
+// control. Manual drop still overwrites cleanly via _qbUploadPhoto.
+let _qbAutoSatTried = false;
 
 // Compressor — identical to customer_profile.html _profileCompressPhoto
 // (1920px/80% JPEG full + 300px/70% thumb). No shared module yet; duplicated here.
@@ -1146,6 +1156,104 @@ async function _qbUploadPhoto(type, file) {
   }
 }
 
+// ── Phase A: server-side satellite auto-fetch on address blur ─────────────────
+// Detects address completeness, fires once per quote session, fire-and-forget.
+// On success: sets _qbSatelliteKey and renders the inline thumbnail exactly the
+// same way a manual drop would. On failure: silent — the manual drop zone is
+// untouched and Tyler-side workflow continues. NEVER blocks generateQuote.
+function _qbAddressLooksComplete(s) {
+  if (!s || typeof s !== 'string') return false;
+  const trimmed = s.trim();
+  if (trimmed.length < 8) return false;
+  // Must contain at least one digit (the house number) and at least 3 letter chars
+  // (some piece of the street name). Conservative — avoids firing on "1234".
+  return /\d/.test(trimmed) && /[A-Za-z]{3,}/.test(trimmed);
+}
+
+async function _qbTryAutoSatellite() {
+  if (_qbAutoSatTried || _qbSatelliteKey) return;   // single-fire guard
+  const addrEl = document.getElementById('custAddr');
+  const address = (addrEl?.value || '').trim();
+  if (!_qbAddressLooksComplete(address)) return;
+
+  const propId = _qbPropId();
+  if (!propId) return;
+  const quoteCode = _qbGetQuoteCode();
+  _qbAutoSatTried = true;   // mark BEFORE the await so a second blur doesn't double-fire
+
+  const statusEl  = document.getElementById('qbPhotoStatus');
+  const zoneEl    = document.getElementById('qbSatZone');
+  const contentEl = document.getElementById('qbSatContent');
+  if (statusEl) statusEl.textContent = '🛰 fetching satellite…';
+
+  const params = new URLSearchParams({ propertyId: propId, quoteCode });
+  let data;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/photos/auto-satellite?${params}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ address }),
+    });
+    data = await res.json();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '';   // silent — manual drop still works
+    console.warn('[auto-sat] network failed:', e.message);
+    return;
+  }
+
+  if (!data || !data.success) {
+    if (statusEl) statusEl.textContent = '';
+    console.warn('[auto-sat] reason:', data && data.reason);
+    return;
+  }
+
+  // Success — populate state and render thumbnail. Bare <img src> would 401 against
+  // /admin/photos/key/* (browser image loader bypasses the page-level fetch
+  // interceptor), so we use the same auth'd-fetch → blob → objectURL pattern that
+  // customer_profile.html's _loadPropImgThumb uses.
+  _qbSatelliteKey = data.key;
+  if (contentEl) {
+    // Render immediately with a placeholder so the user sees something even before
+    // the blob fetch completes.
+    contentEl.innerHTML = `
+      <div class="qb-pz-done">
+        <div class="qb-pz-saved" id="qbSatThumbBox">🛰 Auto-fetched · click to replace</div>
+      </div>`;
+    try {
+      const blobRes = await fetch(`${PCPC_API}/admin/photos/key/${data.key}`);
+      if (blobRes.ok) {
+        const blob = await blobRes.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const img = document.createElement('img');
+        img.alt = 'Satellite photo (auto-fetched)';
+        img.src = objUrl;
+        const box = document.getElementById('qbSatThumbBox');
+        if (box) box.parentNode.insertBefore(img, box);
+      }
+    } catch (e) {
+      console.warn('[auto-sat] thumb fetch failed:', e.message);
+    }
+  }
+  if (zoneEl) zoneEl.classList.add('qb-done');
+  if (statusEl) {
+    statusEl.textContent = '✓ Satellite auto-fetched';
+    setTimeout(() => { if (statusEl.textContent === '✓ Satellite auto-fetched') statusEl.textContent = ''; }, 3000);
+  }
+}
+
+// Wire the blur trigger after DOM ready (the field exists from page load,
+// but addEventListener at module scope risks running before DOMContentLoaded
+// on slow renders).
+(function _wireAutoSatBlur(){
+  function attach() {
+    const el = document.getElementById('custAddr');
+    if (!el) return;
+    el.addEventListener('blur', _qbTryAutoSatellite);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach);
+  else attach();
+})();
+
 // ── Event handlers ─────────────────────────────────────────────────────────────
 function _qbHandleSelect(files, type) {
   const f = Array.from(files || []).find(f => f.type.startsWith('image/'));
@@ -1204,7 +1312,9 @@ async function generateQuote() {
   const address  = document.getElementById('custAddr').value.trim();
   const priceNum = Number(price);
   const now      = new Date().toISOString();
-  const mqCode   = generateShortCode();
+  // Phase A: reuse the auto-sat session code if one was minted on address-blur,
+  // otherwise mint now. Same behavior as before for the no-auto-sat path.
+  const mqCode   = _qbGetQuoteCode();
   const serviceStr = Array.isArray(services) ? services.join(', ') : services;
 
   // Convert primaryDate + backupDates → dateSuggestions array (agreement.html format)

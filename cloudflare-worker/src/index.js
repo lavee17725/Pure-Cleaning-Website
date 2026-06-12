@@ -1289,6 +1289,17 @@ export default {
       if (path === 'admin/photos/upload' && request.method === 'POST') {
         return await handlePhotoR2Upload(request, env, url, corsHeaders);
       }
+      // Phase A: server-side satellite fetch on new quotes — keeps the Maps key off
+      // the client, fires once per quote on address-blur. Never 5xx's (T1.11) so the
+      // builder's fire-and-forget call never produces a stack trace in console.
+      if (path === 'admin/photos/auto-satellite' && request.method === 'POST') {
+        return await handleAutoSatellite(request, env, url, corsHeaders);
+      }
+      // Phase B: one-time backfill of historical Property rows that have coords but
+      // no satellite image. Admin-triggered (NOT a cron), batched, resumable.
+      if (path === 'admin/satellite-backfill' && request.method === 'POST') {
+        return await handleSatelliteBackfill(request, env, url, corsHeaders);
+      }
       if (path.startsWith('admin/photos/job/') && request.method === 'GET') {
         const r2JobId = path.slice('admin/photos/job/'.length);
         return await handlePhotoR2GetJob(r2JobId, env, corsHeaders);
@@ -2434,6 +2445,216 @@ async function handlePhotoR2Upload(request, env, url, corsHeaders) {
   }
 
   return jsonResponse({ success: true, key }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PHASE A — Server-side satellite auto-fetch (June 6 build, gated cleared).
+// POST /admin/photos/auto-satellite?propertyId=...&quoteCode=...
+//   body: { address: "..." }
+// Geocodes server-side → fetches Google Static Maps with the server-side key
+// (T1.14) → writes property/{propertyId}/satellite.jpg to R2 → if quoteCode
+// supplied, stamps the key onto quote_{code} KV so handleAgreementConfirm
+// carries it to the Property row even if the row doesn't exist yet.
+//
+// T1.11 contract: ALWAYS returns 200 with { success, reason? }. Never 5xx's.
+// Reasons: geocode_failed | no_imagery | maps_fetch_failed | maps_key_not_configured
+//          | r2_write_failed | missing_address | missing_propertyId.
+// NEVER blocks the quote — client is fire-and-forget.
+async function handleAutoSatellite(request, env, url, corsHeaders) {
+  // Always-200 response shape — T1.11 requirement.
+  const fail = async (reason, detail) => {
+    if (detail) await _logD1Failure(env, `auto_satellite:${reason}`, detail).catch(()=>{});
+    return jsonResponse({ success: false, reason, ...(detail ? { detail } : {}) }, corsHeaders);
+  };
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const address    = (body.address || '').trim();
+  const propertyId = url.searchParams.get('propertyId') || '';
+  const quoteCode  = url.searchParams.get('quoteCode')  || '';
+
+  if (!address)    return await fail('missing_address');
+  if (!propertyId) return await fail('missing_propertyId');
+  if (!env.PHOTOS) return await fail('maps_key_not_configured', 'env.PHOTOS R2 bucket binding missing');
+
+  const apiKey = env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey)     return await fail('maps_key_not_configured');
+
+  // 1. Geocode (Google preferred, Census + Nominatim fallback — existing helper)
+  const geo = await geocodeAddress(address, env);
+  if (!geo || typeof geo.lat !== 'number' || typeof geo.lng !== 'number') {
+    return await fail('geocode_failed', `address="${address.slice(0,80)}"`);
+  }
+
+  // 2. Static Maps fetch — maptype=satellite zoom=20 size=640x640 scale=2 format=jpg.
+  //    Total billable image dimensions: 1280×1280 (scale=2). Free tier: 10k loads/mo.
+  const mapsUrl =
+    `https://maps.googleapis.com/maps/api/staticmap?` +
+    `center=${geo.lat},${geo.lng}` +
+    `&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg` +
+    `&key=${encodeURIComponent(apiKey)}`;
+
+  let mapsRes;
+  try {
+    mapsRes = await fetch(mapsUrl);
+  } catch (e) {
+    return await fail('maps_fetch_failed', e.message);
+  }
+  if (!mapsRes.ok) {
+    return await fail('maps_fetch_failed', `HTTP ${mapsRes.status}`);
+  }
+
+  // 3. No-imagery detection: Google returns 200 with a non-JPEG placeholder
+  //    (typically image/png with the "Sorry, no imagery" text) when satellite
+  //    isn't available at zoom=20. Real imagery is always image/jpeg here.
+  const contentType = (mapsRes.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType !== 'image/jpeg' && contentType !== 'image/jpg') {
+    return await fail('no_imagery', `content-type=${contentType || 'unknown'}`);
+  }
+
+  // 4. R2 write — same key convention as handlePhotoR2Upload (overwrite on
+  //    re-fetch is intended; same property = same key).
+  const key = `property/${propertyId}/satellite.jpg`;
+  try {
+    const blob = await mapsRes.arrayBuffer();
+    await env.PHOTOS.put(key, blob, { httpMetadata: { contentType: 'image/jpeg' } });
+  } catch (e) {
+    return await fail('r2_write_failed', e.message);
+  }
+
+  // 5. If quoteCode supplied, stamp the satellite key onto quote_{code} KV via
+  //    read-modify-write so handleAgreementConfirm picks it up even when the
+  //    builder's generateQuote PUT hasn't fired yet (or fires after this).
+  //    Property row may not exist at this point — that's why this is KV not D1.
+  let quoteKvStamped = false;
+  if (quoteCode) {
+    try {
+      const kvKey = `quote_${quoteCode}`;
+      const existing = (await env.DATA.get(kvKey, 'json')) || {};
+      await env.DATA.put(kvKey, JSON.stringify({ ...existing, satelliteImageKey: key }));
+      quoteKvStamped = true;
+    } catch (e) {
+      // Non-fatal — R2 blob is safe, the client still gets the key in the response
+      // and can pass it through the quotePayload as a backup carry path.
+      await _logD1Failure(env, 'auto_satellite:quote_kv_stamp', e.message).catch(()=>{});
+    }
+  }
+
+  return jsonResponse({
+    success: true,
+    key,
+    source: 'static_maps_auto',
+    geocodeSource: geo.source,
+    quoteKvStamped,
+  }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PHASE B — Existing-property backfill (one-time, free-tier-sized).
+// POST /admin/satellite-backfill?batch=200
+// Iterates Properties with latitude/longitude set AND satelliteImageKey null,
+// fetches Static Maps per coords (skip geocoding — coords already in D1),
+// writes property/{propertyId}/satellite.jpg + sets Property.satelliteImageKey
+// + Property.modifiedAt. Sequential with 150ms delay per call (rate-respect).
+// Resumable: the WHERE clause skips populated rows so re-running the endpoint
+// continues from where the prior batch left off.
+//
+// Returns per-run report: { fetched, no_imagery, failed, total_remaining,
+//   no_coords_count, batch_size, duration_ms }.
+//
+// Snapshot before first run is Tyler's responsibility (POST /import/snapshot).
+async function handleSatelliteBackfill(request, env, url, corsHeaders) {
+  if (!env.PHOTOS) return jsonResponse({ error: 'env.PHOTOS R2 bucket binding missing' }, corsHeaders, 503);
+  if (!env.DB)     return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  const apiKey = env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey)     return jsonResponse({ error: 'GOOGLE_MAPS_API_KEY not configured' }, corsHeaders, 503);
+
+  const batchParam = parseInt(url.searchParams.get('batch') || '200', 10);
+  const batchSize  = Math.max(1, Math.min(500, batchParam));
+  const startedAt  = Date.now();
+
+  // Pull batch + the two counters used in the report
+  let rows = [];
+  let noCoordsCount = 0;
+  let totalRemaining = 0;
+  try {
+    const sel = await env.DB.prepare(
+      `SELECT propertyId, latitude, longitude FROM Property
+       WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND satelliteImageKey IS NULL
+       ORDER BY propertyId
+       LIMIT ?`
+    ).bind(batchSize).all();
+    rows = sel.results || [];
+
+    const remRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM Property
+       WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND satelliteImageKey IS NULL`
+    ).first();
+    totalRemaining = Number(remRow?.n || 0);
+
+    const nocRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM Property
+       WHERE (latitude IS NULL OR longitude IS NULL) AND satelliteImageKey IS NULL`
+    ).first();
+    noCoordsCount = Number(nocRow?.n || 0);
+  } catch (e) {
+    await _logD1Failure(env, 'satellite_backfill:select', e.message).catch(()=>{});
+    return jsonResponse({ error: 'D1 SELECT failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  let fetched = 0, noImagery = 0, failed = 0;
+  const failures = [];
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  for (const row of rows) {
+    const { propertyId, latitude, longitude } = row;
+    const mapsUrl =
+      `https://maps.googleapis.com/maps/api/staticmap?` +
+      `center=${latitude},${longitude}` +
+      `&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg` +
+      `&key=${encodeURIComponent(apiKey)}`;
+
+    try {
+      const res = await fetch(mapsUrl);
+      if (!res.ok) {
+        failed++;
+        failures.push({ propertyId, reason: `HTTP ${res.status}` });
+        continue;
+      }
+      const ct = (res.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+      if (ct !== 'image/jpeg' && ct !== 'image/jpg') {
+        noImagery++;
+        continue;
+      }
+      const blob = await res.arrayBuffer();
+      const key  = `property/${propertyId}/satellite.jpg`;
+      await env.PHOTOS.put(key, blob, { httpMetadata: { contentType: 'image/jpeg' } });
+      await env.DB.prepare(
+        `UPDATE Property SET satelliteImageKey = ?, modifiedAt = ? WHERE propertyId = ?`
+      ).bind(key, new Date().toISOString(), propertyId).run();
+      fetched++;
+    } catch (e) {
+      failed++;
+      failures.push({ propertyId, reason: e.message.slice(0, 120) });
+      await _logD1Failure(env, `satellite_backfill:${propertyId}`, e.message).catch(()=>{});
+    }
+    // Rate-respect — Google's Static Maps QPS is generous but a small delay
+    // smooths bursts at the free-tier 10k/mo budget.
+    await sleep(150);
+  }
+
+  return jsonResponse({
+    success: true,
+    batch_size: batchSize,
+    processed: rows.length,
+    fetched,
+    no_imagery: noImagery,
+    failed,
+    failures: failures.slice(0, 20),   // truncate for response size
+    total_remaining: Math.max(0, totalRemaining - fetched - noImagery - failed),
+    no_coords_count: noCoordsCount,
+    duration_ms: Date.now() - startedAt,
+  }, corsHeaders);
 }
 
 // GET /admin/photos/job/:jobId
