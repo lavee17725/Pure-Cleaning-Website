@@ -636,13 +636,19 @@ export default {
       // closest real page rather than the auth-gate 401. Belt-and-suspenders for
       // Tyler's "NO existing inbound URL may 404 after this ships" rule. Added
       // 2026-06-11 with Website Phase 1.
+      // '/reviews' deliberately OMITTED — it's a worker API endpoint (admin review
+      // count widget). Marketing reviews live as a hash anchor on the homepage,
+      // not a top-level URL. A redirect here would shadow the API and 301 every
+      // GET/PUT before reaching the handler.
+      // When adding new public API paths with short names (e.g. /links, /events),
+      // also leave them out of this dict — and trust the redirect-shadowing
+      // tripwire in verify-deploy.js to catch any future regression.
       const legacyRedirects = {
         '/quote': '/quote.html',
         '/get-a-quote': '/quote.html',
         '/free-quote': '/quote.html',
         '/services': '/',
         '/service': '/',
-        '/reviews': '/',
         '/contact': '/',
         '/about': '/',
         '/home': '/',
@@ -653,9 +659,11 @@ export default {
       };
       const _redirTarget = legacyRedirects[url.pathname] || legacyRedirects[url.pathname.toLowerCase()];
       if (_redirTarget) {
+        // 1-hour edge TTL (down from 24h). A day of edge-cached wrongness is how
+        // the /reviews collision hid; an hour is plenty for vanity SPA redirects.
         return new Response(null, {
           status: 301,
-          headers: { Location: _redirTarget, 'Cache-Control': 'public, max-age=86400' },
+          headers: { Location: _redirTarget, 'Cache-Control': 'public, max-age=3600' },
         });
       }
 

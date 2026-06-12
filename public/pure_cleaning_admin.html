@@ -579,7 +579,11 @@ async function sendReviewFromAdmin(phone, firstName) {
 // ── GOOGLE REVIEWS ─────────────────────────────────────────────────────────────
 async function loadReviewCount() {
   try {
-    const res = await fetch(`${PCPC_API}/reviews`);
+    // cache:'no-store' — defeats any browser-side cached 301 from the legacy
+    // SPA-redirect collision (2026-06-11 → 2026-06-12). Worker side is fixed
+    // and edge cache purged; this is belt-and-suspenders for admin devices
+    // whose HTTP cache may still hold the stale 301 → / for up to 24h.
+    const res = await fetch(`${PCPC_API}/reviews`, { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     const count = data.count || 101;
@@ -605,7 +609,8 @@ async function saveReviewCount() {
     const res = await fetch(`${PCPC_API}/reviews`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ count })
+      body: JSON.stringify({ count }),
+      cache: 'no-store',  // same rationale as loadReviewCount above
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();

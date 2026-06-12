@@ -173,6 +173,18 @@ const API_ENDPOINTS = [
   { path: '/incoming',            expect401: true },   // protected — no token in verify script
   { path: '/customers',           expect401: true },   // protected
   { path: '/admin/reviews-hub',   expect401: true },   // protected
+  // ── Rule 10 tripwire: redirect-shadowing ───────────────────────────────────
+  // /reviews is a public worker API (admin review-count widget). On 2026-06-11
+  // a `/reviews → /` entry was added to the worker's legacyRedirects dict,
+  // shadowing the API and 301-redirecting every GET/PUT before the handler ran.
+  // The bug hid behind a 24h edge cache.
+  //
+  // This check goes red if /reviews ever returns 3xx (no JSON) again.
+  // ANY future public API endpoint with a short single-segment name (e.g.
+  // /links, /events) that ALSO appears in legacyRedirects should be added below
+  // — the cost of one extra HTTP check is trivial compared to another silent
+  // collision incident.
+  { path: '/reviews',             expectKey: 'count', expectPublic: true },
 ];
 
 // ── CSS variable resolution ────────────────────────────────────────────────
