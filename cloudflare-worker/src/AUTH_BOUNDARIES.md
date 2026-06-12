@@ -26,6 +26,9 @@ These endpoints are in the `isPublic` check in `index.js`.
 | `/appointment/{phone}/*` | POST | customer_quote.html | Customer requests date change |
 | `/receipt/{phone}` | GET | receipt.html (?phone path) | Returns that customer's receipt |
 | `/invoice/{invoiceId}` | GET | pure_cleaning_invoice.html (?id path) | Returns ONE invoice's render data — bill-to, line items, total, status. Tracks viewedAt on first call. Rate limited 30/IP/min. **Rule 13: this is the only endpoint pure_cleaning_invoice.html may call.** |
+| `/public/review-count` | GET | public homepage (index.html), future customer-facing pages | Returns `{count, rating, lastUpdated}` from KV `reviews_data` — same store as legacy `/reviews` (admin home writes via `POST /admin/reviews/actual-count`). Rate limited 30/IP/min. 5-min browser cache. |
+| `/public/google-reviews` | GET | public homepage (index.html) | Returns up to 5 5-star reviews `{author, rating, text, time, relativeTime}` from Google Places place-details + a `placeMeta` object so the resolved listing is visible on every response. Worker calls Places API with server-side `GOOGLE_PLACES_API_KEY` (T1.14). 24h KV cache (`pcpc_google_reviews`), 1h browser cache. Place ID is resolved via Find Place on each cache miss (~1/day) — **never written to KV as a permanent cache**, to prevent a wrong-listing-cached-forever footgun. Once Tyler confirms the resolved listing from `placeMeta`, the `PURE_CLEANING_PLACE_ID` constant in the worker is set and lookups stop entirely. Homepage has static 4-quote fallback if endpoint 5xx's. Rate limited 30/IP/min. |
+| `/reviews` | GET | LEGACY — receipt.html + pure_cleaning_quote.html (older customer-facing pages) | Returns `{count, lastUpdated}`. **Deprecated in favor of `/public/review-count`** but kept alive — new pages must use `/public/review-count`. |
 | `/receipt/{phone}/track` | PATCH | receipt.html | Tracks receipt open event |
 | `/dates/suggest` | GET | quote form | Returns suggested available dates |
 | `/service-frequency` | GET | quote form | Returns service frequency config |
@@ -90,7 +93,7 @@ These customer-facing operations currently fail silently because they haven't be
 |---------|-------------|--------|
 | Sealing/rust interest (agreement.html) | `GET+PUT /customers` | Silenced — `TODO: POST /customer/{phone}/interest` |
 | View tracking (quote.html) | `GET+PUT /customers` | Silenced — `TODO: POST /customer/{phone}/mark-viewed` |
-| Review count display (receipt.html) | `GET /reviews` | Currently 401 — low priority (cosmetic badge) |
+| ~~Review count display (receipt.html)~~ | ~~`GET /reviews`~~ | **RESOLVED (2026-06-11):** `/reviews` is public; new `/public/review-count` lives alongside it for new pages. Receipt + legacy quote continue to use `/reviews` (still public). |
 
 ---
 

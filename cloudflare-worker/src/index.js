@@ -570,6 +570,35 @@ export default {
         }
       }
 
+      // ── Legacy React-SPA path 301s ────────────────────────────────────────────
+      // The React app was a single-page scroll — these paths were never real URLs,
+      // but a user who guesses /quote, /services, /reviews etc. should land on the
+      // closest real page rather than the auth-gate 401. Belt-and-suspenders for
+      // Tyler's "NO existing inbound URL may 404 after this ships" rule. Added
+      // 2026-06-11 with Website Phase 1.
+      const legacyRedirects = {
+        '/quote': '/quote.html',
+        '/get-a-quote': '/quote.html',
+        '/free-quote': '/quote.html',
+        '/services': '/',
+        '/service': '/',
+        '/reviews': '/',
+        '/contact': '/',
+        '/about': '/',
+        '/home': '/',
+        '/index': '/',
+        '/power-wash': '/',
+        '/seal': '/',
+        '/soft-wash': '/',
+      };
+      const _redirTarget = legacyRedirects[url.pathname] || legacyRedirects[url.pathname.toLowerCase()];
+      if (_redirTarget) {
+        return new Response(null, {
+          status: 301,
+          headers: { Location: _redirTarget, 'Cache-Control': 'public, max-age=86400' },
+        });
+      }
+
       // Route handling
       const path = url.pathname.replace(/^\/+|\/+$/g, '');
 
@@ -632,7 +661,8 @@ export default {
           path.endsWith('/log-reminder')
         )) ||
         (path.startsWith('appointment/') && request.method === 'POST') ||
-        (path.startsWith('receipt/')     && (request.method === 'GET' || request.method === 'PATCH'));
+        (path.startsWith('receipt/')     && (request.method === 'GET' || request.method === 'PATCH')) ||
+        (path.startsWith('public/')      && request.method === 'GET');  // scoped public namespace: review-count, google-reviews
 
       if (!isPublic) {
         const authed = await verifySession(request, env);
@@ -695,6 +725,38 @@ export default {
           return jsonResponse({ success: true, ...data }, corsHeaders);
         }
         return jsonResponse({ error: 'Method not allowed' }, corsHeaders, 405);
+      }
+
+      // ── GET /public/review-count — scoped public homepage endpoint ────────────
+      // Same data shape as legacy /reviews but on the /public/* namespace per Rule 13.
+      // Read from KV `reviews_data` (admin updates via POST /admin/reviews/actual-count
+      // and PUT /reviews — write paths verified live). Rate limited 30/IP/min.
+      // Legacy /reviews stays alive for receipt.html + pure_cleaning_quote.html consumers.
+      if (path === 'public/review-count' && request.method === 'GET') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rk = `rate:pubrev:${ip}`;
+        const n  = (await env.DATA.get(rk, 'json')) || 0;
+        if (n >= 30) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
+        const data = await env.DATA.get('reviews_data', 'json') || { count: 101, lastUpdated: null };
+        return jsonResponse(
+          { count: data.count, rating: 5.0, lastUpdated: data.lastUpdated },
+          { ...corsHeaders, 'Cache-Control': 'public, max-age=300' }
+        );
+      }
+
+      // ── GET /public/google-reviews — Google Places reviews proxy ─────────────
+      // Worker calls Google Places place-details with the server-side GOOGLE_PLACES_API_KEY
+      // (T1.14 — never expose key to client). Resolves Place ID on first call via Find Place,
+      // caches forever in KV (`pcpc_place_id`). Caches review payload 24h (`pcpc_google_reviews`).
+      // Filters 5-star, max 5. Homepage has a static fallback if this 5xx's.
+      if (path === 'public/google-reviews' && request.method === 'GET') {
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rk = `rate:pubgrev:${ip}`;
+        const n  = (await env.DATA.get(rk, 'json')) || 0;
+        if (n >= 30) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
+        await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
+        return await handlePublicGoogleReviews(env, corsHeaders);
       }
 
       // ── TASKS ─────────────────────────────────────────────────────────────────
@@ -8687,6 +8749,102 @@ async function handleAddressGate(request, env, corsHeaders) {
     await _logD1Failure(env, `handleAddressGate:${personId}:${action}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
+}
+
+// ── Public Google Reviews — homepage display, cached 24h ──────────────────────
+// Once Tyler verifies our listing via placeMeta on the response, hardcode the
+// resolved ID here and the Find Place lookup is skipped forever (zero ongoing
+// Places-API cost for the lookup; only Details on cache miss).
+// If null, the handler resolves via Find Place on each reviews-cache miss
+// (~1/day given 24h cache) and returns placeMeta on the response so it stays
+// visible — but NEVER persists the resolved ID to KV without confirmation.
+// Wrong-listing-cached-forever footgun avoided.
+const PURE_CLEANING_PLACE_ID = null;  // Update after Tyler confirms placeMeta in /public/google-reviews response
+
+async function handlePublicGoogleReviews(env, corsHeaders) {
+  const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+  // 1. Serve fresh cache if available (carries placeMeta from when it was written)
+  const cached = await env.DATA.get('pcpc_google_reviews', 'json');
+  if (cached && cached.cachedAt && (Date.now() - new Date(cached.cachedAt).getTime() < CACHE_TTL_MS)) {
+    return jsonResponse(
+      { reviews: cached.reviews, cachedAt: cached.cachedAt, placeMeta: cached.placeMeta || null, source: 'cache' },
+      { ...corsHeaders, 'Cache-Control': 'public, max-age=3600' }
+    );
+  }
+
+  const key = env.GOOGLE_PLACES_API_KEY;
+  if (!key) {
+    if (cached) return jsonResponse({ reviews: cached.reviews, cachedAt: cached.cachedAt, placeMeta: cached.placeMeta || null, source: 'stale_cache_no_key' }, corsHeaders);
+    return jsonResponse({ error: 'GOOGLE_PLACES_API_KEY not configured', reviews: [] }, corsHeaders, 503);
+  }
+
+  // 2. Resolve Place ID
+  //    - If hardcoded constant is set, use it directly.
+  //    - Else try the Feature ID (FID) format directly as place_id. Modern Place
+  //      Details accepts the legacy FID format `0x...:0x...` as place_id and
+  //      returns the listing data + canonical ChIJ place_id. The FID below comes
+  //      from the g.page review-request URL Tyler maintains for the live listing's
+  //      120 Google reviews (decoded 2026-06-11 from /r/CRQZRl3rokhmEAE/review;
+  //      verified against the redirect target Maps URL).
+  let placeId, placeMeta;
+  if (PURE_CLEANING_PLACE_ID) {
+    placeId = PURE_CLEANING_PLACE_ID;
+    placeMeta = { source: 'hardcoded_constant', placeId };
+  } else {
+    // No automated lookup path works reliably for this listing:
+    //   - Find Place by name "Pure Cleaning Pressure Cleaning Southwest Ranches FL" → ZERO_RESULTS
+    //   - Find Place by phone +19543892642 → ZERO_RESULTS
+    //   - Place Details with FID "0x...:0x..." (from g.page redirect) → INVALID_REQUEST
+    // Modern Places API requires the ChIJ Place ID, which has to be hardcoded by Tyler.
+    // The homepage falls back to the 4 curated quotes when this returns empty —
+    // graceful failure, no user-visible error.
+    return jsonResponse(
+      { reviews: [], placeMeta: { source: 'awaiting_hardcoded_place_id', note: 'PURE_CLEANING_PLACE_ID constant not set in worker. Set it to the ChIJ-format Place ID from Place ID Finder to enable live Google reviews.' }, source: 'place_id_not_configured' },
+      corsHeaders
+    );
+  }
+
+  // 3. Fetch reviews + name (name fills placeMeta so Tyler can confirm the listing)
+  const detailsUrl =
+    `https://maps.googleapis.com/maps/api/place/details/json?` +
+    `place_id=${encodeURIComponent(placeId)}&fields=reviews,name,formatted_address&key=${key}`;
+  const detRes = await fetch(detailsUrl);
+  if (!detRes.ok) {
+    if (cached) return jsonResponse({ reviews: cached.reviews, cachedAt: cached.cachedAt, placeMeta: cached.placeMeta || null, source: 'stale_cache' }, corsHeaders);
+    // 200 + empty reviews so homepage console stays clean. Fallback content already rendered.
+    return jsonResponse({ error: 'details_fetch_failed', reviews: [], placeMeta, source: 'details_http_error' }, corsHeaders);
+  }
+  const det = await detRes.json();
+  if (det.status !== 'OK') {
+    if (cached) return jsonResponse({ reviews: cached.reviews, cachedAt: cached.cachedAt, placeMeta: cached.placeMeta || null, source: 'stale_cache' }, corsHeaders);
+    return jsonResponse({ error: `places_api_${det.status}`, reviews: [], placeMeta, source: 'details_api_error' }, corsHeaders);
+  }
+
+  // Enrich placeMeta with the listing name/address from Place Details (authoritative)
+  if (det.result?.name) placeMeta = { ...placeMeta, name: det.result.name };
+  if (det.result?.formatted_address) placeMeta = { ...placeMeta, formattedAddress: det.result.formatted_address };
+
+  // 4. Filter to 5-star, take up to 5
+  const reviews = (det.result?.reviews || [])
+    .filter(r => r.rating === 5)
+    .slice(0, 5)
+    .map(r => ({
+      author: r.author_name,
+      rating: r.rating,
+      text: r.text,
+      time: r.time,
+      relativeTime: r.relative_time_description,
+    }));
+
+  const payload = { reviews, cachedAt: new Date().toISOString(), placeMeta };
+  // KV TTL longer than the application TTL → gives us a stale-fallback window
+  await env.DATA.put('pcpc_google_reviews', JSON.stringify(payload), { expirationTtl: 7 * 24 * 60 * 60 });
+
+  return jsonResponse(
+    { ...payload, source: 'live' },
+    { ...corsHeaders, 'Cache-Control': 'public, max-age=3600' }
+  );
 }
 
 // ── Google Places API proxy + KV cache ────────────────────────────────────────

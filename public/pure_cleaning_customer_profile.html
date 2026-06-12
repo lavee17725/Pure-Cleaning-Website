@@ -348,6 +348,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .gal-thumb-inner img{width:100%;height:100%;object-fit:cover;display:block;}
 .gal-thumb-loading{display:flex;align-items:center;justify-content:center;height:100%;font-size:18px;color:var(--muted);}
 
+/* ── Job Photos section (R2-backed, Batch 4 read surface) ──────────────────
+   Groups by job (date + service). Thumbs auth'd via fetch → objectURL.
+   Before/after tag overlay matches the calendar #jobModal convention. */
+.jp-group { margin-bottom: 14px; }
+.jp-group:last-child { margin-bottom: 0; }
+.jp-group-hdr { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.jp-group-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.jp-group-date { color: var(--muted); font-weight: 600; margin-right: 6px; }
+.jp-group-svc { font-weight: 500; color: var(--muted); font-size: 12px; }
+.jp-group-count { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.jp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 6px; }
+.jp-thumb { position: relative; aspect-ratio: 1/1; border-radius: 7px; overflow: hidden; background: var(--border); cursor: pointer; transition: filter .15s; }
+.jp-thumb:hover { filter: brightness(.88); }
+.jp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.jp-tag { position: absolute; bottom: 0; left: 0; right: 0; font-size: 9px; font-weight: 700; text-align: center; padding: 2px 0; letter-spacing: .5px; text-transform: uppercase; color: #fff; }
+.jp-thumb.before .jp-tag { background: rgba(29,78,216,.85); }
+.jp-thumb.after  .jp-tag { background: rgba(13,105,64,.85); }
+.jp-thumb.unknown .jp-tag { background: rgba(75,85,99,.85); }
+.jp-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 14px 8px; border: 1px dashed var(--border); border-radius: 8px; }
+.jp-error { font-size: 12px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px 12px; }
+
 /* ── Property image cards (Phase 3) ─────────────────────────────────────────
    Two labeled cards: 🛰 Satellite  |  🏠 Front/BCPA
    Pinned above the existing KV job-photo gallery.
@@ -1667,7 +1688,29 @@ function renderExtendedSections(c, events) {
   }
   // ── end Property Images ────────────────────────────────────────────────────
 
-  // Photo gallery — collect IDs from scheduledStatus.photos + jobHistory[].photos
+  // ── Job Photos (R2 / Batch 4 read surface) ────────────────────────────────
+  // Job.photoKeys is NOT carried on the customer payload (T1.21 audit confirmed:
+  // _d1JobToJhEntry omits it intentionally — adding it would bloat every jh entry
+  // across every surface). So we iterate the customer's jobs with real jobIds and
+  // call GET /admin/photos/job/:id in parallel. Read-only on the profile per Tyler;
+  // uploads stay in the calendar #jobModal where the job context is unambiguous.
+  // Separate from the legacy KV "Add Photos" gallery below — different system,
+  // two sources, no collision (mirrors the Property Images precedent above).
+  const _jpPhone = (c.phone || '').replace(/\D/g,'').slice(-10);
+  const _jpCandidates = (c.jobHistory || [])
+    .filter(j => j && j.jobId && j.source !== 'csv_backfill' && j.source !== 'rig_segment' && j.source !== 'day_segment')
+    .slice()
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));   // newest first
+  if (_jpCandidates.length) {
+    const _jpHostId = `job-photos-host-${esc(_jpPhone)}`;
+    sections.push(makeXSec('job-photos', '📷', 'Job Photos', '…', `
+      <div id="${_jpHostId}">
+        <div style="font-size:12px;color:var(--muted);padding:6px 2px;">Loading photos…</div>
+      </div>`, true));
+    requestAnimationFrame(() => _loadJobPhotosSection(_jpHostId, _jpCandidates));
+  }
+
+  // Photo gallery (legacy KV system, untouched) — collect IDs from scheduledStatus.photos + jobHistory[].photos
   const photoIds = [];
   (c.scheduledStatus?.photos || []).forEach(id => photoIds.includes(id) || photoIds.push(id));
   (c.jobHistory || []).forEach(j => (j.photos || []).forEach(id => photoIds.includes(id) || photoIds.push(id)));
@@ -1894,6 +1937,141 @@ async function _loadPropImgThumb(key, containerId) {
     const url  = URL.createObjectURL(blob);
     el.innerHTML = `<img src="${url}" alt="Property photo" loading="eager">`;
   } catch(e) { el.innerHTML = ''; }  // network failure → silent (no broken icon)
+}
+
+// ── Job Photos (R2 / Batch 4 read surface) ──────────────────────────────────
+// Iterates candidate jobs (jh entries with real jobId, not csv_backfill / rig_segment /
+// day_segment) and fetches /admin/photos/job/:id in parallel. Builds one group per
+// job that has ≥1 photo, hides the section entirely if none has any. Thumbs lazy-load
+// via auth'd fetch → objectURL (same pattern as _loadPropImgThumb above).
+function _jpKeyType(key) {
+  if (/\/before_/.test(key)) return 'before';
+  if (/\/after_/.test(key))  return 'after';
+  return 'unknown';
+}
+
+function _jpFmtDate(iso) {
+  if (!iso) return '—';
+  // Accepts both YYYY-MM-DD and full ISO timestamps; render as 'Mon, Jun 9'.
+  const s = (typeof iso === 'string' && iso.length >= 10) ? iso.slice(0, 10) : null;
+  if (!s) return '—';
+  const dt = new Date(s + 'T12:00:00');
+  return dt.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+}
+
+async function _loadJobPhotosSection(hostId, candidates) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+
+  // Cap parallelism at a sane number — Mom's profiles typically have 1-20 jobs,
+  // but a hypothetical 100-job customer shouldn't spawn 100 concurrent fetches.
+  const CONCURRENCY = 8;
+  const buckets = [];
+  for (let i = 0; i < candidates.length; i += CONCURRENCY) {
+    buckets.push(candidates.slice(i, i + CONCURRENCY));
+  }
+
+  let totalPhotos = 0;
+  let anyError = false;
+  const groups = [];   // { jh, keys[] } — only jobs with ≥1 photo
+
+  for (const bucket of buckets) {
+    const results = await Promise.all(bucket.map(jh =>
+      fetch(`${API}/admin/photos/job/${encodeURIComponent(jh.jobId)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => ({ jh, keys: (d && d.keys) || [], ok: !!d }))
+        .catch(() => ({ jh, keys: [], ok: false }))
+    ));
+    for (const r of results) {
+      if (!r.ok) anyError = true;
+      if (r.keys.length) {
+        groups.push({ jh: r.jh, keys: r.keys });
+        totalPhotos += r.keys.length;
+      }
+    }
+  }
+
+  // No photos found — hide the section entirely (Tyler: "compact or hidden, no errors").
+  // We hide by removing the .xsec ancestor since renderCustomerProfile already pushed it.
+  if (!groups.length) {
+    const sec = host.closest('.xsec') || host.parentElement;
+    if (sec && sec.classList && sec.classList.contains('xsec')) {
+      sec.style.display = 'none';
+    } else {
+      host.innerHTML = `<div class="jp-empty">${anyError ? 'Could not load job photos.' : 'No job photos yet.'}</div>`;
+    }
+    return;
+  }
+
+  // Patch the badge in the section header (was "…") to the real count.
+  const sec = host.closest('.xsec');
+  if (sec) {
+    const badge = sec.querySelector('.xsec-badge');
+    if (badge) badge.textContent = String(totalPhotos);
+  }
+
+  // Render groups (one per job, newest first — candidates already sorted DESC by date)
+  host.innerHTML = groups.map((g, gi) => {
+    const _gid = `jp-group-${gi}`;
+    const svc  = (g.jh.services || g.jh.jobNotes || '').trim();
+    const thumbs = g.keys.map((k, i) => {
+      const t = _jpKeyType(k);
+      const label = t === 'before' ? '📷 Before photo' : t === 'after' ? '📷 After photo' : '📷 Photo';
+      return `<div class="jp-thumb ${t}" data-key="${esc(k)}" data-label="${esc(label)}"
+                onclick="_openJobPhotoLb(this.dataset.key, this.dataset.label)"
+                id="${_gid}-t-${i}"><div class="jp-tag">${t}</div></div>`;
+    }).join('');
+    return `<div class="jp-group">
+      <div class="jp-group-hdr">
+        <div class="jp-group-title">
+          <span class="jp-group-date">${esc(_jpFmtDate(g.jh.date))}</span>
+          ${svc ? `<span class="jp-group-svc">· ${esc(svc.length > 64 ? svc.slice(0,64)+'…' : svc)}</span>` : ''}
+        </div>
+        <div class="jp-group-count">${g.keys.length} photo${g.keys.length===1?'':'s'}</div>
+      </div>
+      <div class="jp-grid">${thumbs}</div>
+    </div>`;
+  }).join('');
+
+  // Lazy-load each thumb. Mirrors the calendar's _loadCalPropThumb / Batch 4 pattern.
+  // Auth handled by the page's fetch interceptor at lines 16-22.
+  Array.from(host.querySelectorAll('.jp-thumb')).forEach(el => {
+    const key = el.dataset.key; if (!key) return;
+    fetch(`${API}/admin/photos/key/${key}`)
+      .then(r => r.ok ? r.blob() : null)
+      .then(b => {
+        if (!b) return;
+        const img = document.createElement('img');
+        img.alt = 'Job photo';
+        img.src = URL.createObjectURL(b);
+        el.insertBefore(img, el.firstChild);
+      })
+      .catch(() => {});
+  });
+}
+
+// Reuses the existing #photoLightbox (same one as Property Images), disables KV
+// gallery navigation arrows for the duration of the view.
+function _openJobPhotoLb(key, label) {
+  const lb   = document.getElementById('photoLightbox');
+  const img  = document.getElementById('lbImg');
+  const meta = document.getElementById('lbMeta');
+  const dl   = document.getElementById('lbDownload');
+  if (!lb || !img) return;
+  img.src = '';
+  if (meta) meta.textContent = label + ' — loading…';
+  window._galPhotoIds = [];   // disable ‹/› navigation (legacy KV gallery only)
+  lb.style.display = 'flex';
+  fetch(`${API}/admin/photos/key/${key}`)
+    .then(r => r.ok ? r.blob() : null)
+    .then(blob => {
+      if (!blob) { if (meta) meta.textContent = label + ' — not found'; return; }
+      const url = URL.createObjectURL(blob);
+      img.src = url;
+      if (meta) meta.textContent = label;
+      if (dl) { dl.href = url; dl.download = key.split('/').pop() || 'job-photo.jpg'; }
+    })
+    .catch(() => { if (meta) meta.textContent = label + ' — failed to load'; });
 }
 
 function _openPropImgLb(key, label) {

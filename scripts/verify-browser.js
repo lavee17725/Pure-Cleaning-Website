@@ -101,33 +101,57 @@ async function main() {
 
       await page.waitForLoadState('networkidle', { timeout: 20000 }).catch(() => {});
 
-      // ── Regression: React bundle returns 200 (not 404) ──
-      const bundleUrl = await page.evaluate(() => {
-        const s = document.querySelector('script[src*="/static/js/main."]');
-        return s ? s.src : null;
-      });
-      if (bundleUrl) {
-        const bundleRes = await page.evaluate(async url => {
-          try { const r = await fetch(url); return r.status; } catch { return 0; }
-        }, bundleUrl);
-        if (bundleRes === 200) {
-          pass('Homepage — React bundle 200', bundleUrl.split('/').pop());
-        } else {
-          fail('Homepage — React bundle 200', `${bundleUrl.split('/').pop()} returned HTTP ${bundleRes} — [assets] directory may be wrong`);
-        }
+      // ── Static homepage assertions (Phase 1, 2026-06-11) ──
+      // The React app no longer mounts. Replaced with a static page that wires the
+      // review-count + Google-reviews endpoints client-side with hardcoded fallbacks.
+      // Old assertions removed: "React bundle 200" and "React mounted (#root populated)".
+
+      // 1. Hero rotation present — five .slide elements
+      const slideCount = await page.evaluate(() =>
+        document.querySelectorAll('.hero-media .slide').length
+      );
+      if (slideCount === 5) {
+        pass('Homepage — hero rotation (5 slides present)');
       } else {
-        fail('Homepage — React bundle tag present', 'No <script src="/static/js/main.*"> in page — serving bare template (public/index.html) not compiled build');
+        fail('Homepage — hero rotation', `Expected 5 .hero-media .slide elements, got ${slideCount}`);
       }
 
-      // ── Regression: React mounted (#root not empty) ──
-      const rootEmpty = await page.evaluate(() => {
-        const el = document.getElementById('root');
-        return !el || el.innerHTML.trim() === '';
-      });
-      if (!rootEmpty) {
-        pass('Homepage — React mounted (#root populated)');
+      // 2. Every CTA points to a working destination — either /q.html (when the
+      // public quote form exists) or tel:+19543892642 (stopgap while the form is
+      // being built). Never mailto, never an in-page #anchor — those were the bug
+      // classes we replaced.
+      const ctaTargets = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('a.big-cta, a.hd-cta')).map(a => a.getAttribute('href'))
+      );
+      const validCta = h => h === '/q.html' || h === '/quote.html' || /^tel:/.test(h);
+      const badCta = ctaTargets.find(h => !validCta(h));
+      if (ctaTargets.length >= 4 && !badCta) {
+        const targetSet = Array.from(new Set(ctaTargets)).join(', ');
+        pass('Homepage — CTAs route to working target', `${ctaTargets.length} CTAs → ${targetSet}`);
       } else {
-        fail('Homepage — React mounted (#root populated)', '#root is empty — JS bundle did not execute or bundle 404');
+        fail('Homepage — CTAs route to working target', `bad target: ${badCta || 'no CTAs found'}`);
+      }
+
+      // 3. Zero imgur references — all images served from our domain
+      const hasImgur = await page.evaluate(() =>
+        document.documentElement.outerHTML.includes('imgur.com')
+      );
+      if (!hasImgur) {
+        pass('Homepage — zero imgur references');
+      } else {
+        fail('Homepage — zero imgur references', 'imgur URL found in page HTML — should be /images/...');
+      }
+
+      // 4. At least one image actually loaded from /images/
+      const imageOk = await page.evaluate(() => {
+        // Trust the first hero slide's background-image
+        const slide = document.querySelector('.hero-media .slide');
+        return slide && /\/images\//.test(getComputedStyle(slide).backgroundImage || '');
+      });
+      if (imageOk) {
+        pass('Homepage — hero image served from /images/');
+      } else {
+        fail('Homepage — hero image served from /images/', 'First hero slide has no /images/ background — image broken or wrong path');
       }
 
       // ── Regression: visible brand text rendered ──
