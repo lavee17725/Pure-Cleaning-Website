@@ -603,6 +603,90 @@ export default {
         persistTruckEventsNightly(today, env)
           .catch(e => console.error('truckevent cron error:', e.message))
       );
+    } else if (event.cron === '0 7 * * *') {
+      // ── Satellite backfill — 7 AM UTC daily (≈3 AM ET) ─────────────────────
+      // Previously ran as an external Cowork sandbox task that POSTed
+      // /admin/satellite-backfill. The sandbox is network-allowlisted and
+      // CANNOT reach the production domain — it failed every day. Moved
+      // inside the worker so it runs without an external caller, no auth,
+      // no network block.
+      //
+      // Self-terminating: when total_remaining === 0 we write a one-time
+      // satellite:backfill_complete marker; subsequent cron firings see it
+      // and no-op (cheap KV read, no D1 work). The ~21 properties with NULL
+      // coords are excluded by the SQL WHERE clause — they need geocoding
+      // first and stay untouched (correct as-is).
+      //
+      // Heartbeat at satellite:last_backfill_run (mirrors bouncie:last_cron_run).
+      // failed > 20 in a batch → loud event written to KV_KEYS.events with
+      // eventType='satellite_backfill_alert' (the calendar's _ALERT_TYPES
+      // allowlist intentionally doesn't carry this type yet — heartbeat is
+      // the admin-visible record per scope).
+      ctx.waitUntil((async () => {
+        const startedAt = Date.now();
+        const ranAt = new Date().toISOString();
+        try {
+          // Cheap skip if we've already finished — no D1 queries, no Static Maps fetches.
+          const completeMarker = await env.DATA.get('satellite:backfill_complete');
+          if (completeMarker) {
+            console.log('[satellite cron] backfill already complete — skipping');
+            return;
+          }
+
+          const result = await runSatelliteBackfillBatch(env, 200);
+
+          const heartbeat = {
+            ranAt,
+            success:         result.success === true,
+            fetched:         result.fetched         ?? 0,
+            no_imagery:      result.no_imagery      ?? 0,
+            failed:          result.failed          ?? 0,
+            processed:       result.processed       ?? 0,
+            total_remaining: result.total_remaining ?? null,
+            no_coords_count: result.no_coords_count ?? null,
+            error:           result.error || null,
+            duration_ms:     result.duration_ms ?? (Date.now() - startedAt),
+          };
+          await env.DATA.put('satellite:last_backfill_run', JSON.stringify(heartbeat));
+
+          // Completion: total_remaining === 0 means every coord-having property
+          // has a satellite. Write the one-time marker so future crons no-op.
+          if (result.success && result.total_remaining === 0) {
+            await env.DATA.put('satellite:backfill_complete', JSON.stringify({
+              completedAt: ranAt,
+              final_no_coords_count: result.no_coords_count,
+            }));
+            console.log('[satellite cron] backfill complete — no more coord-having properties');
+          }
+
+          // Loud alert if many failures in a single run — same KV_KEYS.events
+          // shape as bouncie_cron_alert. Doesn't retry within the run.
+          if (result.success && (result.failed || 0) > 20) {
+            try {
+              const eventsData = await env.DATA.get(KV_KEYS.events, 'json') || { events: [] };
+              eventsData.events = eventsData.events || [];
+              eventsData.events.push({
+                id:        `satellite_alert_${ranAt}`,
+                eventType: 'satellite_backfill_alert',
+                status:    'high_failure_rate',
+                message:   `Satellite backfill: ${result.failed} failures in one batch of ${result.processed}. ` +
+                           `Fetched ${result.fetched}, no-imagery ${result.no_imagery}, remaining ${result.total_remaining}. ` +
+                           `Check Static Maps quota or API key.`,
+                createdAt: ranAt,
+              });
+              if (eventsData.events.length > 200) eventsData.events = eventsData.events.slice(-200);
+              await env.DATA.put(KV_KEYS.events, JSON.stringify(eventsData));
+            } catch (e) {
+              console.error('[satellite cron] alert write failed:', e.message);
+            }
+          }
+        } catch (e) {
+          console.error('[satellite cron] unhandled error:', e.message);
+          await env.DATA.put('satellite:last_backfill_run', JSON.stringify({
+            ranAt, success: false, error: e.message, duration_ms: Date.now() - startedAt,
+          })).catch(() => {});
+        }
+      })());
     }
   },
 
@@ -2679,15 +2763,40 @@ function _normalizeGeocodePrecision(geo) {
 //   no_coords_count, batch_size, duration_ms }.
 //
 // Snapshot before first run is Tyler's responsibility (POST /import/snapshot).
+//
+// 2026-06-14 backfill-cron batch — the core batch logic is extracted into
+// runSatelliteBackfillBatch so the new internal Cron Trigger (scheduled()
+// "0 7 * * *" branch) and the existing HTTP path can share it. DRY,
+// no behavior change for the HTTP caller. batch=200 unchanged.
 async function handleSatelliteBackfill(request, env, url, corsHeaders) {
-  if (!env.PHOTOS) return jsonResponse({ error: 'env.PHOTOS R2 bucket binding missing' }, corsHeaders, 503);
-  if (!env.DB)     return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
-  const apiKey = env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey)     return jsonResponse({ error: 'GOOGLE_MAPS_API_KEY not configured' }, corsHeaders, 503);
-
   const batchParam = parseInt(url.searchParams.get('batch') || '200', 10);
-  const batchSize  = Math.max(1, Math.min(500, batchParam));
-  const startedAt  = Date.now();
+  const result = await runSatelliteBackfillBatch(env, batchParam);
+  if (result.success === false) {
+    const sc = result.statusCode || 500;
+    const { statusCode, ...body } = result;
+    return jsonResponse(body, corsHeaders, sc);
+  }
+  return jsonResponse(result, corsHeaders);
+}
+
+// Core satellite-backfill batch runner — shared by the HTTP wrapper above
+// AND the internal Cron Trigger. NEVER throws; returns a result object the
+// caller decides how to surface (HTTP statusCode for the wrapper, KV
+// heartbeat + alert for the cron).
+//
+// Return shape on success (mirror of the prior handler):
+//   { success: true, batch_size, processed, fetched, no_imagery, failed,
+//     failures[], total_remaining, no_coords_count, duration_ms }
+// Return shape on early-fail:
+//   { success: false, error, detail?, statusCode }
+async function runSatelliteBackfillBatch(env, batchSize) {
+  if (!env.PHOTOS) return { success: false, error: 'env.PHOTOS R2 bucket binding missing',     statusCode: 503 };
+  if (!env.DB)     return { success: false, error: 'env.DB binding missing',                    statusCode: 503 };
+  const apiKey = env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey)     return { success: false, error: 'GOOGLE_MAPS_API_KEY not configured',        statusCode: 503 };
+
+  batchSize = Math.max(1, Math.min(500, Number(batchSize) || 200));
+  const startedAt = Date.now();
 
   // Pull batch + the two counters used in the report
   let rows = [];
@@ -2715,7 +2824,7 @@ async function handleSatelliteBackfill(request, env, url, corsHeaders) {
     noCoordsCount = Number(nocRow?.n || 0);
   } catch (e) {
     await _logD1Failure(env, 'satellite_backfill:select', e.message).catch(()=>{});
-    return jsonResponse({ error: 'D1 SELECT failed', detail: e.message }, corsHeaders, 500);
+    return { success: false, error: 'D1 SELECT failed', detail: e.message, statusCode: 500 };
   }
 
   let fetched = 0, noImagery = 0, failed = 0;
@@ -2766,7 +2875,7 @@ async function handleSatelliteBackfill(request, env, url, corsHeaders) {
     await sleep(150);
   }
 
-  return jsonResponse({
+  return {
     success: true,
     batch_size: batchSize,
     processed: rows.length,
@@ -2777,7 +2886,7 @@ async function handleSatelliteBackfill(request, env, url, corsHeaders) {
     total_remaining: Math.max(0, totalRemaining - fetched - noImagery - failed),
     no_coords_count: noCoordsCount,
     duration_ms: Date.now() - startedAt,
-  }, corsHeaders);
+  };
 }
 
 // GET /admin/photos/job/:jobId
