@@ -126,6 +126,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .job-meta{display:flex;flex-wrap:wrap;gap:.45rem;padding-top:.625rem;border-top:1px solid var(--border);}
 .job-meta-chip{font-size:11.5px;color:var(--muted);background:var(--white);border:1px solid var(--border);border-radius:5px;padding:2px 8px;display:inline-flex;align-items:center;gap:.3rem;}
 .chip-label{color:#9ca3af;font-weight:500;}
+/* Fix C (2026-06-14): unified GPS row — mirrors the calendar's .js-gps-time so
+   GPS data feels like the same field on both surfaces. Flex-wraps natively on
+   narrow viewports (the "10:29 AM – 12:02 PM (1h 33m)" content wraps cleanly). */
+.job-gps-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:.5rem;font-size:13px;font-weight:700;color:#059669;line-height:1.4;}
+.job-gps-row.gps-conf-soft{color:#0d9488;}
+@media(max-width:480px){.job-gps-row{font-size:12.5px;}}
 .job-card-upcoming{border-top:3px solid var(--sky);background:var(--white);}
 .job-card-canceled{opacity:.65;}
 .show-all-btn{width:100%;margin-top:.75rem;background:var(--white);border:1.5px solid var(--border);border-radius:9px;color:var(--sky);font-size:13px;font-weight:700;padding:.625rem 1rem;cursor:pointer;text-align:center;transition:all .15s;font-family:'DM Sans',sans-serif;}
@@ -1016,21 +1022,38 @@ function _buildJobCard(e) {
   if (e.crew && e.crew.length) {
     chips.push(`<span class="job-meta-chip"><span class="chip-label">Crew</span> ${esc(e.crew.map(id => id.charAt(0).toUpperCase() + id.slice(1)).join(', '))}</span>`);
   }
-  if (e.arrFmt) {
-    const window = e.arrFmt + (e.depFmt ? ` – ${e.depFmt}` : '') + (e.durFmt ? ` (${e.durFmt})` : '');
-    chips.push(`<span class="job-meta-chip"><span class="chip-label">On-site</span> ${esc(window)}</span>`);
-  } else if (e.durFmt) {
-    chips.push(`<span class="job-meta-chip"><span class="chip-label">On-site</span> ${esc(e.durFmt)}</span>`);
-  }
-  if (e.durationConfidence && e.durationConfidence.toLowerCase() !== 'high') {
-    chips.push(`<span class="job-meta-chip" style="color:#9ca3af;"><span class="chip-label">GPS</span> ${esc(e.durationConfidence)}</span>`);
-  }
+  // Fix C (2026-06-14): GPS data is now rendered as a prominent ⏱ row ABOVE
+  // the chip strip (see gpsRowHtml below), matching the calendar's .js-gps-time
+  // visual language. The two former chips ("On-site" + conditional "GPS confidence")
+  // were easy to miss on mobile because they blended into the chip mass and the
+  // confidence chip silently omitted itself when high. The unified row keeps the
+  // confidence indicator always-visible (✓ high · ~ medium · low text).
   if (e.payment) chips.push(`<span class="job-meta-chip"><span class="chip-label">Paid</span> ${esc(e.payment)}</span>`);
   if (e.tipped)  chips.push(`<span class="job-meta-chip" style="color:#16a34a;background:#f0fdf4;border-color:#bbf7d0;">💚 Tip${e.tipAmount ? ' $' + Number(e.tipAmount).toFixed(0) : ''}</span>`);
   if (e.address) chips.push(`<span class="job-meta-chip"><span class="chip-label">Addr</span> ${esc(e.address)}</span>`);
   if (e.notes) chips.push(`<span class="job-meta-chip" style="font-style:italic;"><span class="chip-label">Note</span> ${esc(e.notes.length > 60 ? e.notes.slice(0,57) + '…' : e.notes)}</span>`);
 
   const metaHtml = chips.length ? `<div class="job-meta">${chips.join('')}</div>` : '';
+
+  // Fix C (2026-06-14) — unified GPS row matching calendar's .js-gps-time pattern.
+  // Always-on confidence symbol so high-confidence matches no longer render silently.
+  //   ⏱ 10:29 AM – 12:02 PM (1h 33m) · ✓     (high)
+  //   ⏱ 10:29 AM – 12:02 PM (1h 33m) · ~     (medium)
+  //   ⏱ 10:29 AM – 12:02 PM (1h 33m) · low   (low)
+  // CSS at narrow widths flex-wraps the row naturally — no shortening needed.
+  let gpsRowHtml = '';
+  if (e.arrFmt || e.durFmt) {
+    const _conf = (e.durationConfidence || '').toLowerCase();
+    const _confSym = (_conf === 'matched_high'   || _conf === 'high')   ? '✓'
+                   : (_conf === 'matched_medium' || _conf === 'medium') ? '~'
+                   : (_conf === 'matched_low'    || _conf === 'low')    ? 'low'
+                   : '';
+    const _confCls = (_conf === 'matched_high' || _conf === 'high') ? '' : ' gps-conf-soft';
+    const _line = e.arrFmt
+      ? e.arrFmt + (e.depFmt ? ` – ${e.depFmt}` : '') + (e.durFmt ? ` (${e.durFmt})` : '')
+      : e.durFmt; // duration-only fallback when no arrival timestamp
+    gpsRowHtml = `<div class="job-gps-row${_confCls}">⏱ ${esc(_line)}${_confSym ? ' · ' + _confSym : ''}</div>`;
+  }
 
   const isUpcoming = e.status === 'scheduled' || e.status === 'needs_scheduling';
   const cardClass = isUpcoming ? ' job-card-upcoming' : (e.status === 'canceled' || e.status === 'no_show') ? ' job-card-canceled' : '';
@@ -1041,6 +1064,7 @@ function _buildJobCard(e) {
       <div class="job-amount">${e.amount || ''}</div>
     </div>
     <div class="job-services">${svcHtml}</div>
+    ${gpsRowHtml}
     ${metaHtml}
   </div>`;
 }

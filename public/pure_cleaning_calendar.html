@@ -3038,9 +3038,21 @@ function renderCalGrid(dates) {
     const dayTotal = calculateDayTotal(date);
     const dayCollected = calculateDayCollected(date);
     // Exclude canceled/no_show from the header count (includes unassigned)
+    // STATE-AXIS FIX (June 12): jh-extra cards (completed rig-group billing entries,
+    // day_segment slices, multi-property extras) render as real cards but were never
+    // counted — so a day whose ONLY cards are extras (e.g. a completed rig-group day
+    // like Carlos June 4) showed totalJobCount=0 and the `totalJobCount > 0` gate hid
+    // a CORRECT $ total. Count extras too, EXCLUDING rig_segment rows ($0 per-rig
+    // attribution markers — Carlos is 1 job, not 3). Revenue flow stays single-count:
+    // scheduled rig-group parents enter dayTotal via rigGroupTotal (calendarJobs);
+    // completed ones enter via the billing jh entry inside extraTotal — never both,
+    // because completed jobs leave calendarJobs and rigGroupTotal filters to
+    // scheduled/in_progress (that filter is CORRECT — do not "fix" it to completed).
     const totalJobCount = RIGS.reduce((s,rig) => s + getScheduledForRig(date,rig)
       .filter(c => { const st = c.scheduledStatus?.state; return st !== 'canceled' && st !== 'no_show'; }).length, 0)
-      + getUnassignedJobs(date).length;
+      + getUnassignedJobs(date).length
+      + RIGS.reduce((s,rig) => s + getExtraCompletedJobsForRig(date,rig)
+          .filter(({jhEntry}) => jhEntry && jhEntry.source !== 'rig_segment').length, 0);
 
     // ── 3-segment capacity bars (active jobs only) ──
     const capBarsHtml = RIGS.map(rig => {
@@ -3440,6 +3452,10 @@ function jobCardScheduled(c) {
     </div>
     <div class="js-meta">${metaParts.join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
+    ${gpsHtml /* Fix B (2026-06-14): GPS lifted ABOVE the expand fold so completed
+                  cards show ⏱ arrival-departure-duration without requiring a tap on phone.
+                  When state is scheduled/in_progress with no actualArrival, gpsHtml === ''
+                  so no DOM is emitted. */}
     <div class="jc-detail">
     ${(() => {
         // Prefer per-job workSiteAddress first (partner_referral jobs, secondary properties),
@@ -3465,7 +3481,7 @@ function jobCardScheduled(c) {
         return `<div class="js-home-dist${cls?' '+cls:''}">🚗 ~${hd.toFixed(1)} mi from home</div>`;
       })()}
     ${(() => { const et = _estTimeMap.get(phone); return et && !gpsHtml && (state === 'scheduled' || state === 'in_progress') ? `<div class="js-est-time">est. ${minsToTime(et.startMin)} – ${minsToTime(et.endMin)}</div>` : ''; })()}
-    ${gpsHtml}
+    ${/* Fix B: gpsHtml moved above .jc-detail — was here, now above */ ''}
     ${crewQeHtml}
     ${roofInfoHtml}
     ${printBtnHtml}
@@ -3571,9 +3587,10 @@ function jobCardHistoryExtra(c, jhEntry) {
     <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}</span><span>${amtHtml}</span></div>
     <div class="js-meta">${[city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
+    ${gpsHtml /* Fix B (2026-06-14): GPS lifted above the expand fold on completed cards. */}
     <div class="jc-detail">
     ${addr ? `<div class="js-addr">📍 ${addr}${_paBtn}</div>` : ''}
-    ${gpsHtml}
+    ${/* Fix B: gpsHtml moved above .jc-detail — was here, now above */ ''}
     ${printBtnHtml}
     ${complaintLink}
     ${tipLink}
@@ -3978,6 +3995,13 @@ function initSortables() {
       ghostClass:'sortable-ghost',
       chosenClass:'sortable-chosen',
       filter: '.dist-marker,.route-summary,.route-warn,.route-missing,.win-lane-hdr,.win-section-hdr,.rig-empty-label,.drag-ignore',
+      // Fix A (2026-06-14): touchStartThreshold lets finger-drift on iPhone
+      // tap (up to 8px) NOT trigger drag-start → click fires normally → card
+      // expands. We tried `delay:250` first but SortableJS preventDefault's
+      // during the delay window, which suppresses the synthesized click.
+      // touchStartThreshold has no such side-effect — pure cancel-drag-on-move
+      // semantics, click path untouched.
+      touchStartThreshold: 8,
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false, 100); },
       onAdd: evt => handleDropToRig(evt.item.dataset.jobId||'', evt.item.dataset.phone, evt.to.dataset.date, evt.to.dataset.rig),
@@ -8714,6 +8738,8 @@ function renderDayRigGrid(date) {
       animation:150, ghostClass:'sortable-ghost', chosenClass:'sortable-chosen',
       dragoverBubble: false,
       filter:'.win-lane-hdr,.dist-marker,.route-summary,.route-warn,.route-missing,.job-card-extra',
+      // Fix A (2026-06-14): see comment on first Sortable above.
+      touchStartThreshold: 8,
       onStart:()=>{ wasDragging=true; },
       onEnd:()=>{ setTimeout(()=>wasDragging=false,100); },
       onAdd: evt => handleDropToWindow(
@@ -8764,6 +8790,8 @@ function renderDayPool(date) {
       group: { name: 'jobs', pull: true, put: () => true },
       animation: 150, ghostClass: 'sortable-ghost', chosenClass: 'sortable-chosen',
       filter: '.dist-marker,.route-summary',
+      // Fix A (2026-06-14): see comment on first Sortable above.
+      touchStartThreshold: 8,
       onStart: () => { wasDragging = true; },
       onEnd:   () => { setTimeout(() => wasDragging = false, 100); },
       onAdd: evt => handleDropToPool(evt.item.dataset.phone, date, evt.item.dataset.jobId || null),
