@@ -106,6 +106,36 @@
   .status{font-size:12px;color:var(--mut);margin-top:8px;min-height:16px}
   .status.ok{color:var(--green)}
   .status.err{color:#b91c1c}
+
+  /* 2026-06-14 pin batch — precision warning + fix-pin mode + tracer guard */
+  .pin-warn{display:none;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;color:#78350f;line-height:1.5;}
+  .pin-warn.shown{display:flex;align-items:flex-start;gap:8px;}
+  .pin-warn .ico{font-size:18px;flex-shrink:0;}
+  .pin-warn b{color:#451a03;}
+  .pin-warn .why{font-size:11.5px;color:#92400e;margin-top:2px;}
+  .pin-tools{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;}
+  .pin-tools button{background:#fff;border:1.5px solid var(--border);border-radius:6px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--ink);}
+  .pin-tools button.active{background:#f59e0b;color:#fff;border-color:#f59e0b;}
+  .pin-tools button.refetch{background:#0ea5e9;color:#fff;border-color:#0ea5e9;}
+  .pin-tools .precision-chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;display:inline-flex;align-items:center;align-self:center;letter-spacing:.3px;}
+  .precision-chip.precision-rooftop{background:#d1fae5;color:#065f46;}
+  .precision-chip.precision-manual{background:#dbeafe;color:#1e40af;}
+  .precision-chip.precision-soft{background:#fef3c7;color:#92400e;}
+
+  /* Tracer guard modal */
+  .guard-modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;z-index:9000;padding:1rem;}
+  .guard-modal.shown{display:flex;}
+  .guard-modal .card{background:#fff;border-radius:14px;padding:1.5rem 1.25rem 1.25rem;max-width:420px;width:100%;box-shadow:0 24px 64px rgba(15,23,42,.25);}
+  .guard-modal h3{margin-bottom:8px;color:var(--navy);font-size:17px;}
+  .guard-modal p{font-size:13.5px;color:var(--mut);line-height:1.55;margin-bottom:14px;}
+  .guard-modal .actions{display:flex;gap:.625rem;justify-content:flex-end;}
+  .guard-modal button{padding:.65rem 1rem;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;border:none;}
+  .guard-modal .btn-yes{background:var(--green);color:#fff;min-width:120px;}
+  .guard-modal .btn-no{background:#f1f5f9;color:var(--ink);}
+
+  /* Fix-pin click-mode hint */
+  .canvas-wrap.fix-pin-mode{outline:3px solid #f59e0b;outline-offset:-3px;}
+  .canvas-wrap.fix-pin-mode::before{content:'📍 Click the true house — releases on click';position:absolute;top:8px;left:8px;background:#f59e0b;color:#fff;font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;z-index:10;pointer-events:none;}
 </style>
 </head>
 <body>
@@ -142,7 +172,20 @@
 <div class="stage">
 
   <div class="card" style="padding:10px">
-    <div class="canvas-wrap">
+    <!-- 2026-06-14 pin batch — precision warning + fix-pin + re-fetch tools -->
+    <div class="pin-warn" id="pinWarn">
+      <span class="ico">⚠️</span>
+      <div>
+        <b>Pin may be approximate — verify before tracing.</b>
+        <div class="why" id="pinWarnWhy"></div>
+      </div>
+    </div>
+    <div class="pin-tools" id="pinTools" style="display:none">
+      <button id="btnFixPin" onclick="toggleFixPinMode()">📍 Fix pin</button>
+      <button class="refetch" onclick="refetchSatelliteWithPin()" title="Re-fetch the satellite image with a fresh pin at the current coords (for the ~1,250 pre-pin backfill images)">🛰 Re-fetch with pin</button>
+      <span id="precisionChip" class="precision-chip" style="display:none"></span>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
       <div class="placeholder" id="canvasPlaceholder">
         <div>Pick a property above to load its satellite image.</div>
       </div>
@@ -221,6 +264,18 @@
 
 </div>
 
+<!-- Tracer guard modal (2026-06-14 pin batch) — pre-save confirmation -->
+<div class="guard-modal" id="guardModal" onclick="if(event.target===this)closeGuardModal()">
+  <div class="card">
+    <h3>📍 Pin on the right house?</h3>
+    <p id="guardModalBody">Looking at the satellite image — is the red pin on the property you traced? Ground-truth measurements rely on this being correct.</p>
+    <div class="actions">
+      <button class="btn-no" onclick="guardSayNo()">No — fix pin</button>
+      <button class="btn-yes" id="guardYesBtn" onclick="guardSayYes()">Yes — save ✓</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
@@ -230,6 +285,11 @@ let activeCustomer = null;
 let activePropertyId = null;
 let activeLat = null, activeLng = null;
 let activeAddress = '';
+// 2026-06-14 pin batch — geocode-precision state + fix-pin mode
+let activePrecision = null;       // 'ROOFTOP' | 'RANGE_INTERPOLATED' | ... | 'manual_override' | null
+let activeGeocodeSource = null;   // raw source (e.g. 'google_maps', 'manual_override')
+let _fixPinMode = false;
+let _pendingSaveFn = null;        // closure stashed by guard modal while waiting for user yes/no
 
 async function loadDb() {
   const status = document.getElementById('pickerStatus');
@@ -291,6 +351,9 @@ function pickProperty(arg) {
   activeLat = prop.latitude || null;
   activeLng = prop.longitude || null;
   activeAddress = `${c.address || ''}, ${c.city || ''}`;
+  // 2026-06-14 pin batch — precision state from carry-through (geo_precision blob)
+  activePrecision     = prop.geocodePrecision || null;
+  activeGeocodeSource = prop.geocodeSource || c.geocodeSource || null;
   document.getElementById('activeName').textContent = `${c.firstName || ''} ${c.lastName || ''}`.trim();
   document.getElementById('activeAddr').textContent = `${activeAddress} · ${activePropertyId}`;
   document.getElementById('activeBar').classList.add('shown');
@@ -298,16 +361,184 @@ function pickProperty(arg) {
   document.getElementById('searchInput').value = '';
   loadSatellite(prop);
   loadMeasurements();
+  renderPrecisionState();
+}
+
+// 2026-06-14 pin batch — render the precision warning + tools above the canvas.
+// Warn whenever the pin is NOT verified at ROOFTOP precision and not a manual
+// override (which means the operator picked it deliberately on a prior visit).
+function renderPrecisionState() {
+  const warn   = document.getElementById('pinWarn');
+  const why    = document.getElementById('pinWarnWhy');
+  const tools  = document.getElementById('pinTools');
+  const chip   = document.getElementById('precisionChip');
+  tools.style.display = activePropertyId ? 'flex' : 'none';
+  const p = activePrecision;
+  const isManual   = p === 'manual_override' || activeGeocodeSource === 'manual_override';
+  const isRooftop  = p === 'ROOFTOP';
+  if (isRooftop)      { chip.textContent = '✓ ROOFTOP';        chip.className = 'precision-chip precision-rooftop'; chip.style.display = 'inline-flex'; }
+  else if (isManual)  { chip.textContent = '✓ MANUAL OVERRIDE'; chip.className = 'precision-chip precision-manual';  chip.style.display = 'inline-flex'; }
+  else                { chip.textContent = '⚠ ' + (p || 'UNKNOWN'); chip.className = 'precision-chip precision-soft'; chip.style.display = 'inline-flex'; }
+  if (isRooftop || isManual) {
+    warn.classList.remove('shown');
+  } else {
+    warn.classList.add('shown');
+    why.textContent = p
+      ? `Geocode precision: ${p}. Click "Fix pin" to drop a manual one if it's the wrong roof.`
+      : `Pin precision unknown — this image may pre-date the pin/precision capture (June 14). Re-fetch or fix pin to confirm.`;
+  }
 }
 
 function clearProperty() {
   activeCustomer = null; activePropertyId = null; activeLat = activeLng = null;
+  activePrecision = null; activeGeocodeSource = null;
   document.getElementById('activeBar').classList.remove('shown');
   document.getElementById('canvasPlaceholder').style.display = '';
   document.getElementById('satCanvas').style.display = 'none';
   document.getElementById('scaleBar').style.display = 'none';
   document.getElementById('vaultCard').style.display = 'none';
+  document.getElementById('pinWarn').classList.remove('shown');
+  document.getElementById('pinTools').style.display = 'none';
+  document.getElementById('canvasWrap').classList.remove('fix-pin-mode');
+  _fixPinMode = false;
+  document.getElementById('btnFixPin').classList.remove('active');
   resetPolygon();
+}
+
+// ─── 2026-06-14 pin batch — Fix-Pin mode + inverse-Mercator pixel→lat/lng ───
+// When fix-pin is active, the next canvas click captures the pixel coord, maps
+// it back to lat/lng using the same Static-Maps Mercator math the tracer uses
+// forward (centerLat/centerLng + metersPerPixel at zoom 20 scale 2), PATCHes
+// /admin/property/{propertyId}/coordinates, then re-fires the auto-satellite
+// fetch to overwrite the R2 image with one pinned at the corrected coords.
+function toggleFixPinMode() {
+  if (!activePropertyId || !satImgEl) { alert('Pick a property and load its satellite first.'); return; }
+  _fixPinMode = !_fixPinMode;
+  document.getElementById('canvasWrap').classList.toggle('fix-pin-mode', _fixPinMode);
+  document.getElementById('btnFixPin').classList.toggle('active', _fixPinMode);
+  document.getElementById('canvasStatus').textContent = _fixPinMode
+    ? 'Fix-pin mode active — click the actual house on the satellite.'
+    : '';
+}
+
+// Pixel offset from image center → lat/lng delta. Image is centered on
+// (activeLat, activeLng) at zoom 20 scale 2. metersPerPixel is computed from
+// the original cosine-latitude formula. From there, lat delta is meters / 111320,
+// lng delta divides by cos(lat) (degree-lng shrinks toward the poles).
+function pixelToLatLng(px, py) {
+  if (!satImgEl || activeLat == null || activeLng == null) return null;
+  const mpp = metersPerPixel();
+  if (!mpp) return null;
+  const dxPx = px - satImgEl.width  / 2;
+  const dyPx = py - satImgEl.height / 2;
+  const dxM = dxPx * mpp;
+  const dyM = dyPx * mpp;
+  const dLat = -dyM / 111320;                          // y axis is inverted in image coords
+  const dLng =  dxM / (111320 * Math.cos(activeLat * Math.PI / 180));
+  return { lat: activeLat + dLat, lng: activeLng + dLng };
+}
+
+async function applyFixPinClick(px, py) {
+  const ll = pixelToLatLng(px, py);
+  if (!ll) return;
+  const st = document.getElementById('canvasStatus');
+  st.textContent = `Saving manual pin at ${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}…`;
+  try {
+    const r1 = await fetch(`${API}/admin/property/${encodeURIComponent(activePropertyId)}/coordinates`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ latitude: ll.lat, longitude: ll.lng }),
+    });
+    const d1 = await r1.json().catch(() => ({}));
+    if (!r1.ok || d1.success !== true) {
+      st.textContent = `Coords update failed: ${d1.error || r1.status}`; st.className = 'status err'; return;
+    }
+    // Local state catches up immediately
+    activeLat = ll.lat;
+    activeLng = ll.lng;
+    activePrecision = 'manual_override';
+    activeGeocodeSource = 'manual_override';
+    if (activeCustomer && activeCustomer.properties && activeCustomer.properties[0]) {
+      activeCustomer.properties[0].latitude = ll.lat;
+      activeCustomer.properties[0].longitude = ll.lng;
+      activeCustomer.properties[0].geocodePrecision = 'manual_override';
+      activeCustomer.properties[0].geocodeSource = 'manual_override';
+    }
+    // Re-fetch the satellite with the new pin
+    st.textContent = 'Re-fetching satellite with corrected pin…';
+    const r2 = await fetch(`${API}/admin/photos/auto-satellite?propertyId=${encodeURIComponent(activePropertyId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ address: activeAddress }),
+    });
+    const d2 = await r2.json().catch(() => ({}));
+    if (!d2 || !d2.success) {
+      st.textContent = `Satellite re-fetch failed: ${(d2 && d2.reason) || r2.status}`; st.className = 'status err'; return;
+    }
+    if (activeCustomer.properties[0]) activeCustomer.properties[0].satelliteImageKey = d2.key;
+    await renderSatelliteByKey(d2.key);
+    renderPrecisionState();
+    st.className = 'status ok';
+    st.textContent = '✓ Pin fixed + satellite re-fetched.';
+  } catch (e) {
+    st.textContent = 'Network error: ' + e.message; st.className = 'status err';
+  } finally {
+    _fixPinMode = false;
+    document.getElementById('canvasWrap').classList.remove('fix-pin-mode');
+    document.getElementById('btnFixPin').classList.remove('active');
+  }
+}
+
+// Re-fetch with pin (no coord change) — for the ~1,250 pre-pin backfill images.
+// Triggers handleAutoSatellite which re-geocodes the address AND now adds markers=
+// to the Static Maps URL. After this call the image carries a self-documenting pin
+// and the precision blob gets a fresh entry.
+async function refetchSatelliteWithPin() {
+  if (!activePropertyId || !activeCustomer) return;
+  const st = document.getElementById('canvasStatus');
+  st.textContent = 'Re-fetching satellite with pin…';
+  try {
+    const r = await fetch(`${API}/admin/photos/auto-satellite?propertyId=${encodeURIComponent(activePropertyId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ address: activeAddress }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!d.success) { st.textContent = `Re-fetch failed: ${d.reason || r.status}`; st.className = 'status err'; return; }
+    if (activeCustomer.properties[0]) activeCustomer.properties[0].satelliteImageKey = d.key;
+    // Server returns the precision it captured — surface it immediately so the
+    // chip and warning reflect the fresh state without a full /customers reload.
+    if (d.geocodePrecision) {
+      activePrecision = d.geocodePrecision;
+      if (activeCustomer.properties[0]) activeCustomer.properties[0].geocodePrecision = d.geocodePrecision;
+    }
+    await renderSatelliteByKey(d.key);
+    renderPrecisionState();
+    st.className = 'status ok';
+    st.textContent = '✓ Satellite re-fetched with pin.';
+  } catch (e) { st.textContent = 'Network error: ' + e.message; st.className = 'status err'; }
+}
+
+// ─── 2026-06-14 pin batch — tracer guard modal (pin-on-right-house confirm) ──
+function openGuardModal(saveFn) {
+  _pendingSaveFn = saveFn;
+  document.getElementById('guardYesBtn').focus = () => {};
+  document.getElementById('guardModal').classList.add('shown');
+  setTimeout(() => { try { document.getElementById('guardYesBtn').focus(); } catch {} }, 50);
+}
+function closeGuardModal() {
+  document.getElementById('guardModal').classList.remove('shown');
+  _pendingSaveFn = null;
+}
+async function guardSayYes() {
+  const fn = _pendingSaveFn;
+  closeGuardModal();
+  if (fn) await fn();
+}
+function guardSayNo() {
+  closeGuardModal();
+  // Suggest fix-pin if the user said no
+  if (!_fixPinMode) toggleFixPinMode();
 }
 
 // ─── Satellite load (auth'd fetch → blob → image) ────────────────────────────
@@ -440,6 +671,12 @@ document.getElementById('satCanvas').addEventListener('pointerdown', ev => {
   if (!satImgEl) return;
   const cv = ev.currentTarget;
   const [x, y] = getCanvasClickPos(ev, cv);
+  // 2026-06-14 pin batch — Fix-Pin mode intercepts the click BEFORE polygon append.
+  // Click captures the true house at (x, y), PATCHes coords, re-fetches satellite.
+  if (_fixPinMode) {
+    applyFixPinClick(x, y);
+    return;
+  }
   if (polygonClosed) {
     // Clicking after close → start fresh polygon for the next surface
     polygon = [];
@@ -539,30 +776,41 @@ function resetPolygon() {
 }
 
 // ─── Save handlers ───────────────────────────────────────────────────────────
+// 2026-06-14 pin batch — every save routes through the guard modal so the
+// measurement record stamps `pinVerified: true` and `pinPrecision`. The accuracy
+// vault is only as good as ground-truth integrity: knowing which images had a
+// verified pin lets us purge or re-trace any contaminated entries later.
+
 async function saveTracedMeasurement() {
   if (!activePropertyId || !polygonClosed || polygon.length < 3) return;
-  const sqft = pixelsToSqft(polygonAreaPx2(polygon));
-  if (sqft == null) { alert('No coords — cannot save traced measurement.'); return; }
-  const surface = document.getElementById('traceSurface').value;
-  const payload = {
-    surface,
-    sqft: Math.round(sqft / 10) * 10,
-    source: 'traced_satellite',
-    detail: `${polygon.length} vertices · zoom ${ZOOM} scale ${SCALE} · ${metersPerPixel().toFixed(4)} m/px @ lat ${activeLat}`,
-    polygon: {
-      points: polygon,
-      zoom: ZOOM, scale: SCALE,
-      centerLat: activeLat, centerLng: activeLng,
-      imgSize: [satImgEl.width, satImgEl.height],
-    },
-    measuredBy: 'tracer',
-  };
-  await postMeasurement(payload, 'btnSaveTrace', '✓ Traced measurement saved');
-  resetPolygon();
+  openGuardModal(async () => {
+    const sqft = pixelsToSqft(polygonAreaPx2(polygon));
+    if (sqft == null) { alert('No coords — cannot save traced measurement.'); return; }
+    const surface = document.getElementById('traceSurface').value;
+    const payload = {
+      surface,
+      sqft: Math.round(sqft / 10) * 10,
+      source: 'traced_satellite',
+      detail: `${polygon.length} vertices · zoom ${ZOOM} scale ${SCALE} · ${metersPerPixel().toFixed(4)} m/px @ lat ${activeLat}`,
+      polygon: {
+        points: polygon,
+        zoom: ZOOM, scale: SCALE,
+        centerLat: activeLat, centerLng: activeLng,
+        imgSize: [satImgEl.width, satImgEl.height],
+      },
+      measuredBy: 'tracer',
+      pinVerified:  true,
+      pinPrecision: activePrecision || (activeGeocodeSource === 'manual_override' ? 'manual_override' : 'unknown'),
+    };
+    await postMeasurement(payload, 'btnSaveTrace', '✓ Traced measurement saved');
+    resetPolygon();
+  });
 }
 
 async function saveManualMeasurement() {
   if (!activePropertyId) { alert('Pick a property first.'); return; }
+  // Manual on-site tape measurements don't depend on the pin (they're tape-not-trace)
+  // — guard skipped for these.
   const surface = document.getElementById('mSurface').value;
   const sqft    = Number(document.getElementById('mSqft').value);
   const detail  = document.getElementById('mDetail').value.trim();
@@ -573,6 +821,8 @@ async function saveManualMeasurement() {
     source: 'tyler_measured_onsite',
     detail: detail || 'measured',
     measuredBy: 'tyler',
+    pinVerified:  false,  // tape measurement — pin not exercised
+    pinPrecision: activePrecision || (activeGeocodeSource === 'manual_override' ? 'manual_override' : 'unknown'),
   };
   await postMeasurement(payload, 'btnSaveManual', '✓ Ground-truth saved');
   document.getElementById('mSqft').value = '';

@@ -22,6 +22,13 @@ const KV_KEYS = {
   events: 'quote_events',
   links: 'short_links',
   blockedWeeks: 'blocked_weeks',
+  // Singleton blob { [propertyId]: 'ROOFTOP'|'RANGE_INTERPOLATED'|'GEOMETRIC_CENTER'
+  // |'APPROXIMATE'|'manual_override' }. Written by handleAutoSatellite and the new
+  // handlePropertyCoordinatesUpdate (Fix-Pin path). Read once per /customers call
+  // by the d1 → kv mappers to attach geocodePrecision to each property in the
+  // payload. Ships as KV-side capture per owner — a Property.geocodePrecision
+  // column lands in the next Rule-15 window and backfills from this blob.
+  geoPrecision: 'geo_precision',
 };
 
 const DEFAULT_SERVICE_FREQUENCY = {
@@ -1780,6 +1787,19 @@ export default {
         return jsonResponse({ error: 'method not allowed' }, corsHeaders, 405);
       }
 
+      // ── Fix-Pin endpoint (2026-06-14) ──────────────────────────────────────
+      // PATCH /admin/property/{propertyId}/coordinates → manual override.
+      // Body: { latitude, longitude }. Sets geocodeSource='manual_override' and
+      // stamps 'manual_override' into the geo_precision blob so the ⚠️ warning
+      // clears on the tracer + thumbnail. Caller is expected to re-fire
+      // /admin/photos/auto-satellite next to overwrite the R2 image with one
+      // pinned at the new coords.
+      if (path.startsWith('admin/property/') && path.endsWith('/coordinates')) {
+        const propertyId = path.slice('admin/property/'.length, -'/coordinates'.length);
+        if (request.method === 'PATCH') return await handlePropertyCoordinatesUpdate(request, env, propertyId, corsHeaders);
+        return jsonResponse({ error: 'method not allowed' }, corsHeaders, 405);
+      }
+
       // ── Person duplicate review endpoints ────────────────────────────────────
       if (path === 'admin/person-merge-candidates' && request.method === 'GET') {
         return await handlePersonMergeCandidates(env, corsHeaders);
@@ -2544,10 +2564,16 @@ async function handleAutoSatellite(request, env, url, corsHeaders) {
 
   // 2. Static Maps fetch — maptype=satellite zoom=20 size=640x640 scale=2 format=jpg.
   //    Total billable image dimensions: 1280×1280 (scale=2). Free tier: 10k loads/mo.
+  //
+  //    `markers=color:red|lat,lng` (2026-06-14 pin batch) — drops a red pin at the
+  //    geocoded coords so every saved image is self-documenting. Without it, an
+  //    imprecise geocode put the image one house off and there was no way to tell
+  //    which roof was the subject (Ivan-class poisoning risk for the tracer).
   const mapsUrl =
     `https://maps.googleapis.com/maps/api/staticmap?` +
     `center=${geo.lat},${geo.lng}` +
     `&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg` +
+    `&markers=${encodeURIComponent('color:red|' + geo.lat + ',' + geo.lng)}` +
     `&key=${encodeURIComponent(apiKey)}`;
 
   let mapsRes;
@@ -2596,13 +2622,47 @@ async function handleAutoSatellite(request, env, url, corsHeaders) {
     }
   }
 
+  // 6. Precision capture (2026-06-14) — stash the geocode precision in the
+  //    geo_precision KV blob, keyed by propertyId. Below-ROOFTOP precisions
+  //    drive the ⚠️ "pin may be approximate" warning on the tracer + quote-builder
+  //    thumbnail. Read-modify-write the blob; tolerate failure (the R2 satellite
+  //    and quote-KV stamp are already done — precision is enrichment).
+  const _precision = _normalizeGeocodePrecision(geo);
+  if (_precision) {
+    try {
+      const _gpKey = KV_KEYS.geoPrecision;
+      const _gp   = (await env.DATA.get(_gpKey, 'json')) || {};
+      _gp[propertyId] = _precision;
+      await env.DATA.put(_gpKey, JSON.stringify(_gp));
+    } catch (e) {
+      await _logD1Failure(env, 'auto_satellite:precision_stash', e.message).catch(()=>{});
+    }
+  }
+
   return jsonResponse({
     success: true,
     key,
     source: 'static_maps_auto',
-    geocodeSource: geo.source,
+    geocodeSource:    geo.source,
+    geocodePrecision: _precision || null,
     quoteKvStamped,
   }, corsHeaders);
+}
+
+// Normalize the precision signal across geocoders. Google's locationType is the
+// strongest signal we get; Census + Nominatim don't expose an equivalent at the
+// level we're capturing, so they map to null and the surfaces treat null as
+// "unknown" (which warns, per the Ivan-class default). 'manual_override' is the
+// special marker set by handlePropertyCoordinatesUpdate when the operator
+// clicks the true house on the tracer — treated as ROOFTOP-equivalent for
+// warning purposes (i.e., no warning).
+function _normalizeGeocodePrecision(geo) {
+  if (!geo) return null;
+  const lt = (geo.locationType || '').toUpperCase();
+  if (lt === 'ROOFTOP' || lt === 'RANGE_INTERPOLATED' || lt === 'GEOMETRIC_CENTER' || lt === 'APPROXIMATE') {
+    return lt;
+  }
+  return null; // Census / Nominatim / unknown — caller treats null as 'unknown'
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -2664,10 +2724,17 @@ async function handleSatelliteBackfill(request, env, url, corsHeaders) {
 
   for (const row of rows) {
     const { propertyId, latitude, longitude } = row;
+    // markers= added 2026-06-14 — same self-documenting pin as handleAutoSatellite.
+    // No fresh geocode here (we're using the already-stored Property.latitude/longitude
+    // from the migration backfill), so precision is not captured on this path. The
+    // ~1,250 pre-pin images can be re-fetched one at a time via the tracer's
+    // "Re-fetch with pin" affordance (calls /admin/photos/auto-satellite, which
+    // both re-pins AND captures precision via geocodeAddress).
     const mapsUrl =
       `https://maps.googleapis.com/maps/api/staticmap?` +
       `center=${latitude},${longitude}` +
       `&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg` +
+      `&markers=${encodeURIComponent('color:red|' + latitude + ',' + longitude)}` +
       `&key=${encodeURIComponent(apiKey)}`;
 
     try {
@@ -2994,7 +3061,16 @@ async function handlePropertyMeasurementAdd(request, env, propertyId, corsHeader
     };
   }
 
-  const measurement = { surface, sqft: Math.round(sqft / 10) * 10, source, detail, polygon, measuredAt, measuredBy };
+  // 2026-06-14 pin batch — record pin-state at trace time so ground-truth
+  // integrity is auditable: was the pin verified before the user saved? what
+  // precision did the property have at that moment? Tracer guard always sends
+  // pinVerified=true (the confirm modal is required before save).
+  const pinVerified  = body.pinVerified === true;
+  const pinPrecision = body.pinPrecision ? String(body.pinPrecision).slice(0, 40) : null;
+
+  const measurement = { surface, sqft: Math.round(sqft / 10) * 10, source, detail, polygon, measuredAt, measuredBy,
+                        ...(pinVerified  ? { pinVerified: true }       : {}),
+                        ...(pinPrecision ? { pinPrecision }            : {}) };
 
   // Read-modify-write the JSON array. Append, never replace.
   let row;
@@ -3071,6 +3147,67 @@ async function handlePropertyStoriesUpdate(request, env, propertyId, corsHeaders
     return jsonResponse({ success: true, propertyId, stories, rowsAffected: changes }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'property_stories_update', e.message).catch(() => {});
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── Fix-Pin / Property coordinates manual override (2026-06-14) ─────────────
+// Lets the operator click the true house on the tracer's satellite when the
+// auto-geocode landed on the wrong roof. Updates D1 coords + geocodeSource
+// AND stamps 'manual_override' into the geo_precision blob so subsequent
+// reads stop showing the ⚠️ warning. After this, the caller is expected to
+// re-fire POST /admin/photos/auto-satellite to overwrite the R2 satellite
+// image with one pinned at the corrected coords.
+//
+// Body: { latitude: number, longitude: number }
+// Validates that values are realistic floats; rejects out-of-South-Florida
+// guard belt (24.0 .. 27.5 lat, -82.0 .. -79.5 lng) so a fat-fingered click
+// outside the map area can't silently corrupt a record.
+async function handlePropertyCoordinatesUpdate(request, env, propertyId, corsHeaders) {
+  if (!env.DB)     return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const lat = Number(body.latitude);
+  const lng = Number(body.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return jsonResponse({ error: 'latitude and longitude must be numbers' }, corsHeaders, 400);
+  }
+  if (lat < 24.0 || lat > 27.5 || lng < -82.0 || lng > -79.5) {
+    return jsonResponse({
+      error: 'coordinates outside South Florida service area',
+      detail: `lat=${lat} lng=${lng}; expected lat 24.0..27.5, lng -82.0..-79.5`,
+    }, corsHeaders, 400);
+  }
+  try {
+    const now = new Date().toISOString();
+    const r = await env.DB.prepare(
+      'UPDATE Property SET latitude = ?, longitude = ?, geocodeSource = ?, modifiedAt = ? WHERE propertyId = ?'
+    ).bind(lat, lng, 'manual_override', now, propertyId).run();
+    const changes = r.meta?.changes ?? null;
+    if (!changes) {
+      return jsonResponse({ error: 'property not found', propertyId }, corsHeaders, 404);
+    }
+    // Stamp manual_override into the precision blob so the warning clears.
+    try {
+      const gpKey = KV_KEYS.geoPrecision;
+      const gp    = (await env.DATA.get(gpKey, 'json')) || {};
+      gp[propertyId] = 'manual_override';
+      await env.DATA.put(gpKey, JSON.stringify(gp));
+    } catch (e) {
+      await _logD1Failure(env, 'property_coordinates_update:precision_stash', e.message).catch(()=>{});
+    }
+    return jsonResponse({
+      success: true,
+      propertyId,
+      latitude: lat,
+      longitude: lng,
+      geocodeSource:    'manual_override',
+      geocodePrecision: 'manual_override',
+      rowsAffected:     changes,
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'property_coordinates_update', e.message).catch(()=>{});
     return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
   }
 }
@@ -4409,7 +4546,8 @@ function _d1BuildScheduledStatus(personJobs) {
   };
 }
 
-function _d1PersonToKv(p, props, pjobs, propById) {
+function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
+  const _gp = geoPrecisionMap || {};
   const primaryProp = props.find(pp => pp.primaryContact === 1) || props[0] || {};
   const city = primaryProp.city || '';
   const addr = primaryProp.streetAddress || '';
@@ -4578,6 +4716,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
     roofType:               primaryProp.roofType     || null,
     sqFt:                   primaryProp.sqft         || null,
     stories:                primaryProp.stories      || null,   // DL-01 master roofStories rung (was T1.21 drop)
+    geocodePrecision:       _gp[primaryProp.propertyId] || null, // 2026-06-14 pin batch — null = "unknown" → ⚠️ warning fires on tracer + thumbnail
     accessNotes:            primaryProp.accessNotes  || null,
     customerType:           p.customerType   || 'residential',
     partnerNotes:           p.partnerNotes   || null,
@@ -4611,6 +4750,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
         roofType:           pp.roofType            || null,
         sqFt:               pp.sqft                || null,
         stories:            pp.stories             || null,   // DL-01 master roofStories rung (was T1.21 drop)
+        geocodePrecision:   _gp[pp.propertyId]     || null,   // 2026-06-14 pin batch (see customer-root comment)
         accessNotes:        pp.accessNotes         || null,
         satelliteImageKey:  pp.satelliteImageKey   || null,  // Phase 3: R2 key
         frontImageKey:      pp.frontImageKey       || null,  // Phase 3: R2 key
@@ -4625,7 +4765,7 @@ function _d1PersonToKv(p, props, pjobs, propById) {
 }
 
 async function d1AllCustomersToKvShape(env) {
-  const [persons, propLinks, jobs, reviewStates, truckDriveTimes, kvDb] = await Promise.all([
+  const [persons, propLinks, jobs, reviewStates, truckDriveTimes, kvDb, geoPrecisionMap] = await Promise.all([
     env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType,' +
@@ -4665,6 +4805,9 @@ async function d1AllCustomersToKvShape(env) {
     // TEMP KV bridge: alternateContacts + altPhone live in KV only (no D1 column yet).
     // Remove this fetch once Person.alternateContactsJson column is added.
     env.DATA.get('customer_db', 'json').then(d => d || { customers: [] }),
+    // Geocode-precision blob (2026-06-14 pin batch) — { [propertyId]: precision }.
+    // Small map (~1,250 entries × ~25 bytes ≈ 30 KB). One read per /customers call.
+    env.DATA.get(KV_KEYS.geoPrecision, 'json').then(d => d || {}),
   ]);
 
   // Index by personId + propertyId
@@ -4702,7 +4845,7 @@ async function d1AllCustomersToKvShape(env) {
     const ph = (p.primaryPhone||'').replace(/\D/g,'').slice(-10);
     if (!ph || ph.length !== 10) continue; // skip REFERRAL_* + no-phone records
     const pjobs = jobsByPayer[p.personId] || [];
-    const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs, propById);
+    const customer = _d1PersonToKv(p, propsByPerson[p.personId] || [], pjobs, propById, geoPrecisionMap);
     computeBouncieMetrics(customer);
     computeWorkerHoursStats(customer);
     customer.googleReview = reviewStates[ph] || null;
@@ -4776,7 +4919,9 @@ async function d1CustomerToKvShape(phone, env) {
   if (!personRow) return null;
   const singlePropById = {};
   for (const pp of propLinks) { if (pp.propertyId) singlePropById[pp.propertyId] = pp; }
-  const customer = _d1PersonToKv(personRow, propLinks, pjobs, singlePropById);
+  // 2026-06-14 pin batch — one extra KV read for the precision blob (small map).
+  const geoPrecisionMap = (await env.DATA.get(KV_KEYS.geoPrecision, 'json').catch(() => null)) || {};
+  const customer = _d1PersonToKv(personRow, propLinks, pjobs, singlePropById, geoPrecisionMap);
   computeBouncieMetrics(customer);
   computeWorkerHoursStats(customer);
   const reviewStates = await env.DATA.get('review_states', 'json').then(d => d || {});
@@ -4805,6 +4950,7 @@ async function d1CustomerToKvShape(phone, env) {
     roofType:         pp.roofType         || null,
     sqFt:             pp.sqft             || null,
     stories:          pp.stories          || null,   // DL-01 master roofStories rung (was T1.21 drop)
+    geocodePrecision: geoPrecisionMap[pp.propertyId] || null,   // 2026-06-14 pin batch
     accessNotes:      pp.accessNotes      || null,
     googlePlaceId:     pp.googlePlaceId    || null,
     formattedAddress:  pp.formattedAddress || null,

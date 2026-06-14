@@ -1309,6 +1309,21 @@ async function _qbTryAutoSatellite() {
     statusEl.textContent = '✓ Satellite auto-fetched';
     setTimeout(() => { if (statusEl.textContent === '✓ Satellite auto-fetched') statusEl.textContent = ''; }, 3000);
   }
+
+  // 2026-06-14 pin batch — surface the precision so the operator knows whether
+  // to trust the pin before quoting from this image. Worker now returns
+  // `geocodePrecision` ('ROOFTOP' | 'RANGE_INTERPOLATED' | 'GEOMETRIC_CENTER'
+  // | 'APPROXIMATE' | null). Anything not ROOFTOP/manual_override → ⚠️ chip.
+  const _p = (data.geocodePrecision || '').toUpperCase();
+  const _src = (data.geocodeSource || '').toLowerCase();
+  const _trusted = _p === 'ROOFTOP' || _src === 'manual_override';
+  if (contentEl && !_trusted) {
+    const warn = document.createElement('div');
+    warn.className = 'qb-pz-sub';
+    warn.style.cssText = 'margin-top:4px;color:#92400e;background:#fef3c7;border:1px solid #f59e0b;border-radius:5px;padding:3px 7px;font-size:10.5px;font-weight:700;text-align:left;';
+    warn.textContent = '⚠️ pin may be approximate' + (_p ? ' (' + _p + ')' : '') + ' — verify in tracer';
+    contentEl.appendChild(warn);
+  }
 }
 
 // Wire the blur trigger after DOM ready (the field exists from page load,
