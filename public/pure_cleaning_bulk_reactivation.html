@@ -2103,12 +2103,86 @@ function renderAlertIcons(alerts) {
   return `<span class="alert-badge-wrap">${icons}${more}</span>`;
 }
 
-// ─── CONTACT TRACKING ────────────────────────────────────────────────────────
-function loadContacts() {
-  try { return JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}'); } catch { return {}; }
+// ─── CONTACT TRACKING — server-side (2026-06-15) ─────────────────────────────
+// Was localStorage-only and per-device, which let Tyler re-text already-contacted
+// customers from a different browser (4-5 dups in 40 sends). Source of truth is
+// now the worker's reactivation_contacts KV blob; localStorage is a read-cache
+// only, populated AFTER successful server fetches. Never written as truth.
+//
+// Single constant lives on the server (REACTIVATION_COOLDOWN_DAYS = 120 in worker).
+// The page never computes cooldownUntil itself — it reads what the server stored.
+let _reactContactsServer = {};
+let _reactContactsLoaded = false;
+const REACT_CACHE_KEY = 'pcpc_reactivation_contacts_cache';
+const REACT_LEGACY_KEY = 'pcpc_reactivation_contacts';
+
+async function fetchServerContacts() {
+  try {
+    const r = await fetch(`${PCPC_API_BR}/reactivation/contacts`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    _reactContactsServer = d.records || {};
+    _reactContactsLoaded = true;
+    try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+    return { ok: true };
+  } catch (e) {
+    // Read fallback: cache → legacy key → empty. We DO NOT mark loaded=true here
+    // so a subsequent successful fetch overrides any stale local-only state.
+    console.warn('[reactivation] server fetch failed, falling back to local cache:', e.message);
+    try {
+      const cached = JSON.parse(localStorage.getItem(REACT_CACHE_KEY) || localStorage.getItem(REACT_LEGACY_KEY) || '{}');
+      _reactContactsServer = cached || {};
+    } catch { _reactContactsServer = {}; }
+    return { ok: false, error: e.message };
+  }
 }
+
+// One-time migration of legacy localStorage entries to server. Newest wins per
+// phone. Tyler's ~40 sends + STOPs from before this batch land on the server.
+async function migrateLegacyContactsToServer() {
+  let legacy = {};
+  try { legacy = JSON.parse(localStorage.getItem(REACT_LEGACY_KEY) || '{}'); } catch {}
+  const phones = Object.keys(legacy);
+  if (!phones.length) return { migrated: 0, total: 0 };
+  let migrated = 0, skipped = 0;
+  for (const rawPhone of phones) {
+    const phone = String(rawPhone).replace(/\D/g,'').slice(-10);
+    if (phone.length !== 10) continue;
+    const rec = legacy[rawPhone];
+    const localAt = typeof rec === 'string' ? rec : (rec && rec.contactedAt);
+    if (!localAt) continue;
+    const serverRec = _reactContactsServer[phone];
+    // Newest wins — if server already has a same-or-newer record, skip
+    if (serverRec && serverRec.contactedAt && new Date(serverRec.contactedAt) >= new Date(localAt)) {
+      skipped++;
+      continue;
+    }
+    try {
+      const r = await fetch(`${PCPC_API_BR}/reactivation/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, at: localAt }),
+      });
+      if (!r.ok) continue;
+      const d = await r.json();
+      if (d && d.success) {
+        _reactContactsServer[phone] = { contactedAt: d.contactedAt, cooldownUntil: d.cooldownUntil };
+        migrated++;
+      }
+    } catch (e) { console.warn('[reactivation migrate]', phone, e.message); }
+  }
+  try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+  return { migrated, skipped, total: phones.length };
+}
+
+// Legacy compat shims — kept for any path I don't refactor explicitly.
+// loadContacts returns the in-memory server map (no localStorage source).
+function loadContacts() { return _reactContactsServer || {}; }
+// saveContacts is now an in-memory cache update + best-effort cache write.
+// The actual server write must happen via the explicit /reactivation/* endpoints.
 function saveContacts(c) {
-  localStorage.setItem('pcpc_reactivation_contacts', JSON.stringify(c));
+  _reactContactsServer = c || {};
+  try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
 }
 function formatContactDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -2453,9 +2527,26 @@ function isInCooldown(phone) {
   const r = loadContactRecord(phone);
   return !!(r && r.cooldownUntil && new Date(r.cooldownUntil) > new Date());
 }
-function undoContact(phone) {
-  const c = loadContacts(); delete c[phone]; saveContacts(c);
-  applyFilters();
+// 2026-06-15: awaits the server delete, only updates UI on confirm. Preserves
+// optOut flag if present (TCPA — a cooldown undo never clears an opt-out).
+async function undoContact(phone) {
+  try {
+    const r = await fetch(`${PCPC_API_BR}/reactivation/undo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'undo failed');
+    // Mirror server state — keep optOut if server kept it
+    if (d.remaining) _reactContactsServer[phone] = d.remaining;
+    else             delete _reactContactsServer[phone];
+    try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+    applyFilters();
+  } catch (e) {
+    alert('Could not undo on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
+  }
 }
 function setPoolTab(tab) {
   poolTab = tab;
@@ -2581,18 +2672,39 @@ async function executeTextNow(phone) {
   const shortLink = shortenUrl(linkWithVariant);
   const body = buildVariantBody(variant, c, shortLink);
 
+  // 2026-06-15 server-first cooldown record — MUST land before the sms: navigation,
+  // because navigation aborts any in-flight fetch (page unloads). If the server
+  // write fails, abort the whole send — better to make Tyler retry than to text
+  // someone, have the cooldown be missing, and re-text them tomorrow.
+  const now = new Date();
+  let serverRec;
+  try {
+    const r = await fetch(`${PCPC_API_BR}/reactivation/contact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: c.phone, at: now.toISOString() }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    serverRec = await r.json();
+    if (!serverRec.success) throw new Error(serverRec.error || 'server rejected');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Text Now'; btn.className = 'text-now-btn'; }
+    alert('Could not record cooldown on server: ' + e.message +
+          '\n\nSMS was NOT sent. Try again or check network. Refusing to text without server-side dup-protection.');
+    return;
+  }
+
+  // Mirror local cache to server's truth, then navigate to Messages.
+  _reactContactsServer[c.phone] = { contactedAt: serverRec.contactedAt, cooldownUntil: serverRec.cooldownUntil };
+  try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
   trackQuoteEvent('reactivation_sent', c.phone, variant.label, {
-    tier: c.tier, sentBy: 'tyler', sentAt: new Date().toISOString()
+    tier: c.tier, sentBy: 'tyler', sentAt: now.toISOString()
   });
   showVariantToast(variant.label);
 
-  const now = new Date();
-  const sixMonths = new Date(now.getTime() + 6 * 30 * 24 * 60 * 60 * 1000);
-  const contacts = loadContacts();
-  contacts[c.phone] = { contactedAt: now.toISOString(), cooldownUntil: sixMonths.toISOString() };
-  saveContacts(contacts);
   applyFilters();
   updateContactStats();
 }
@@ -2939,13 +3051,45 @@ function closeExclModal() {
   _exclPhones = [];
 }
 
-function confirmExclusion() {
+async function confirmExclusion() {
   const selected = document.querySelector('input[name="exclReason"]:checked');
   if (!selected) return;
   const reason = selected.value;
   const notes = document.getElementById('exclNotes').value.trim();
   const now = new Date().toISOString();
   let firstName = null;
+
+  // 2026-06-15 — when the reason is opted_out (STOP), every phone gets a
+  // server-side opt-out write FIRST. Local mutation only happens on confirm.
+  // If any phone fails, abort the whole batch and tell Tyler — no half-applied
+  // STOP, no client-only state pretending it persisted.
+  if (reason === 'opted_out') {
+    const failures = [];
+    for (const phone of _exclPhones) {
+      try {
+        const r = await fetch(`${PCPC_API_BR}/reactivation/optout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone, reason: 'customer_request', at: now }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'server rejected');
+        // Mirror the server's opt-out record into the contact map
+        if (d.contactRecord) _reactContactsServer[phone] = d.contactRecord;
+      } catch (e) {
+        failures.push(`${phone}: ${e.message}`);
+      }
+    }
+    if (failures.length) {
+      alert(`Could not record opt-out on server for ${failures.length} phone${failures.length > 1 ? 's' : ''}:\n` +
+            failures.slice(0,3).join('\n') +
+            (failures.length > 3 ? `\n…and ${failures.length - 3} more` : '') +
+            `\n\nNothing was excluded. Refresh and try again.`);
+      return;
+    }
+    try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+  }
 
   for (const phone of _exclPhones) {
     const c = allCustomers.find(x => x.phone === phone);
@@ -3494,7 +3638,20 @@ function closeUploadSummary() {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  tryLoadDatabase();
+  // 2026-06-15 — server-side contact/cooldown is source of truth now.
+  // Fetch first, migrate any legacy localStorage entries Tyler had on this device,
+  // THEN load the customer DB so applyFilters can read the server records during
+  // first render. Errors are non-fatal — page falls back to read-only cache.
+  (async () => {
+    await fetchServerContacts();
+    try {
+      const m = await migrateLegacyContactsToServer();
+      if (m && m.migrated > 0) {
+        console.log(`[reactivation] migrated ${m.migrated}/${m.total} legacy localStorage entries to server (skipped ${m.skipped || 0} — server had newer)`);
+      }
+    } catch (e) { console.warn('[reactivation] migration failed:', e.message); }
+    tryLoadDatabase();
+  })();
   initTooltips();
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); closeExclModal(); closeRestoreModal(); }

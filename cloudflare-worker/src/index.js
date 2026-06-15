@@ -29,7 +29,19 @@ const KV_KEYS = {
   // payload. Ships as KV-side capture per owner — a Property.geocodePrecision
   // column lands in the next Rule-15 window and backfills from this blob.
   geoPrecision: 'geo_precision',
+  // 2026-06-15 — bulk-reactivation contact/cooldown/opt-out source of truth.
+  // KV-side stash (Rule 15: no D1 schema change tonight). Singleton JSON map:
+  //   { [phone10]: { contactedAt, cooldownUntil, optOut?: true, optOutAt? } }
+  // Read by every bulk-reactivation page load (server truth, not localStorage).
+  // D1-canonical follow-up is Forward Work Queue 1.4 — Saturday morning Rule-15 window.
+  reactivationContacts: 'reactivation_contacts',
 };
+
+// Bulk-reactivation cooldown window. Server is source of truth; the page never
+// computes cooldownUntil itself — it just reads what handleReactivationContact
+// stored. Single constant; if it ever changes, server writes carry the new value
+// forward on the next text-send.
+const REACTIVATION_COOLDOWN_DAYS = 120;
 
 const DEFAULT_SERVICE_FREQUENCY = {
   primary: [
@@ -1947,6 +1959,23 @@ export default {
         return jsonResponse({ error: 'method not allowed' }, corsHeaders, 405);
       }
 
+      // ── Bulk-reactivation contact/cooldown/opt-out (2026-06-15) ──────────────
+      // KV-side persistence — kills the per-device localStorage drift that was
+      // letting Tyler re-text already-contacted customers (4-5 dups in 40 sends).
+      // T1.22 (no orphan capture), T1.20 (verify before declaring success).
+      if (path === 'reactivation/contacts' && request.method === 'GET') {
+        return await handleReactivationContactsGet(env, corsHeaders);
+      }
+      if (path === 'reactivation/contact'  && request.method === 'POST') {
+        return await handleReactivationContact(request, env, corsHeaders);
+      }
+      if (path === 'reactivation/optout'   && request.method === 'POST') {
+        return await handleReactivationOptout(request, env, corsHeaders);
+      }
+      if (path === 'reactivation/undo'     && request.method === 'POST') {
+        return await handleReactivationUndo(request, env, corsHeaders);
+      }
+
       // ── Person duplicate review endpoints ────────────────────────────────────
       if (path === 'admin/person-merge-candidates' && request.method === 'GET') {
         return await handlePersonMergeCandidates(env, corsHeaders);
@@ -3380,6 +3409,123 @@ async function handlePropertyCoordinatesUpdate(request, env, propertyId, corsHea
     }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'property_coordinates_update', e.message).catch(()=>{});
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── Bulk-reactivation: contact / cooldown / opt-out (2026-06-15) ────────────
+// KV singleton blob keyed by phone10. T1.20 verify-before-return on every
+// write so the page only marks state after the server confirms.
+
+function _norm10(p)         { return String(p || '').replace(/\D/g,'').slice(-10); }
+
+async function handleReactivationContactsGet(env, corsHeaders) {
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+  return jsonResponse({
+    records:      map,
+    cooldownDays: REACTIVATION_COOLDOWN_DAYS,
+  }, corsHeaders);
+}
+
+// POST /reactivation/contact  body { phone, at? }
+// Records a text-send → computes cooldownUntil = at + COOLDOWN_DAYS → verifies → returns
+// the saved record. Last write wins (single Tyler operator → no conflict scenario worth
+// solving for tonight).
+async function handleReactivationContact(request, env, corsHeaders) {
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const phone = _norm10(body.phone);
+  if (phone.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const atIso = body.at && typeof body.at === 'string' ? body.at : new Date().toISOString();
+  const atMs  = new Date(atIso).getTime();
+  if (!Number.isFinite(atMs)) return jsonResponse({ error: 'invalid at timestamp' }, corsHeaders, 400);
+  const cooldownUntilMs = atMs + REACTIVATION_COOLDOWN_DAYS * 86400000;
+  const record = {
+    contactedAt:   new Date(atMs).toISOString(),
+    cooldownUntil: new Date(cooldownUntilMs).toISOString(),
+  };
+  try {
+    const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    map[phone] = { ...(map[phone] || {}), ...record };
+    await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
+    // T1.20 verify-before-return
+    const verify = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    if (!verify[phone] || verify[phone].cooldownUntil !== record.cooldownUntil) {
+      return jsonResponse({ success: false, error: 'verify_failed' }, corsHeaders, 500);
+    }
+    return jsonResponse({ success: true, phone, ...verify[phone] }, corsHeaders);
+  } catch (e) {
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /reactivation/optout  body { phone, reason?, at? }
+// Sets customer.optOut on KV `customer_db` (canonical store for owner-mutated
+// flags) AND flags the phone in reactivation_contacts so the bulk page reads
+// it without crossing to /customers. Verifies BOTH writes before returning success.
+async function handleReactivationOptout(request, env, corsHeaders) {
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const phone  = _norm10(body.phone);
+  if (phone.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const atIso  = body.at && typeof body.at === 'string' ? body.at : new Date().toISOString();
+  const reason = body.reason && typeof body.reason === 'string' ? body.reason : 'customer_request';
+  try {
+    // 1. Mutate customer.optOut in /customers KV
+    const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    const cust = (db.customers || []).find(c => _norm10(c.phone) === phone);
+    if (!cust) return jsonResponse({ success: false, error: 'customer_not_found', phone }, corsHeaders, 404);
+    cust.optOut = { reason, at: atIso };
+    await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+    // 2. Flag in reactivation_contacts
+    const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    map[phone] = { ...(map[phone] || {}), optOut: true, optOutAt: atIso, optOutReason: reason };
+    await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
+    // 3. Verify BOTH writes
+    const verifyDb = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    const verifyC  = (verifyDb.customers || []).find(c => _norm10(c.phone) === phone);
+    const verifyMap = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    if (!verifyC || !verifyC.optOut || !verifyMap[phone] || verifyMap[phone].optOut !== true) {
+      return jsonResponse({ success: false, error: 'optout_verify_failed' }, corsHeaders, 500);
+    }
+    return jsonResponse({
+      success: true,
+      phone,
+      optOut: verifyC.optOut,
+      contactRecord: verifyMap[phone],
+    }, corsHeaders);
+  } catch (e) {
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /reactivation/undo  body { phone }
+// Deletes the contact/cooldown record. Does NOT clear an opt-out (that's TCPA-permanent
+// — separate restore flow for that, intentionally not in this endpoint).
+async function handleReactivationUndo(request, env, corsHeaders) {
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const phone = _norm10(body.phone);
+  if (phone.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  try {
+    const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    // Preserve any opt-out flag — only clear cooldown fields
+    if (map[phone]) {
+      const { contactedAt, cooldownUntil, ...rest } = map[phone];
+      if (rest.optOut) map[phone] = rest;
+      else             delete map[phone];
+    }
+    await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
+    const verify = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    if (verify[phone] && verify[phone].cooldownUntil) {
+      return jsonResponse({ success: false, error: 'undo_verify_failed' }, corsHeaders, 500);
+    }
+    return jsonResponse({ success: true, phone, remaining: verify[phone] || null }, corsHeaders);
+  } catch (e) {
     return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
   }
 }
