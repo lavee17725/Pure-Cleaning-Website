@@ -267,42 +267,54 @@ async function sendSms(env, to, body) {
   }
 }
 
-// sendPush: instant push to ntfy.sh, reaches Tyler + Mom + business phone via the
-// ntfy app subscribed to env.NTFY_TOPIC. Replaces the Twilio owner-text path for
-// new-lead and quote-confirmed alerts — the toll-free number is unverified, so those
-// Twilio messages were billed but carrier-blocked. ntfy is free, no SMS, no carrier
-// involvement, push lands in <2s on any device subscribed to the topic.
+// sendPush: instant push via Pushover. Reaches Tyler + Mom + business phone via
+// the Pushover app subscribed to env.PUSHOVER_USER_KEY (use a Group key for fan-out).
+//
+// Previously routed through ntfy.sh, but the free tier rate-limits per source IP
+// and Cloudflare Workers share IPs with millions of other tenants — daily quota
+// was burned by the time Tyler's first real lead came in. Pushover is $5
+// one-time per platform with 10k msgs/mo per app token — orders of magnitude
+// more headroom than this volume needs.
+//
+// Pushover API: POST https://api.pushover.net/1/messages.json
+//   form fields: token (app), user (user/group key), title, message, priority
+//   priority: -2..2 (0 normal, 1 high — bypasses quiet hours, 2 emergency w/ retry)
+// We map our internal 'urgent' → Pushover 1, anything else → 0.
 //
 // Never-throws, same {ok, error} contract as sendSms; failures logged via
 // appendErrorLog so the lead/confirm save flow is never affected (Law T1.11).
 async function sendPush(env, title, message, priority) {
-  const topic = env.NTFY_TOPIC;
-  if (!topic) {
+  const userKey  = env.PUSHOVER_USER_KEY;
+  const appToken = env.PUSHOVER_APP_TOKEN;
+  if (!userKey || !appToken) {
     await appendErrorLog(env, {
       id: crypto.randomUUID(), timestamp: new Date().toISOString(),
       source: 'worker', page: 'sendPush',
-      errorType: 'NTFY_CONFIG_MISSING',
-      message: 'sendPush called but env.NTFY_TOPIC is unset',
+      errorType: 'PUSHOVER_CONFIG_MISSING',
+      message: `sendPush called but config incomplete. user=${!!userKey} token=${!!appToken}`,
     }).catch(() => {});
     return { ok: false, error: 'config_missing' };
   }
   try {
-    const res = await fetch('https://ntfy.sh/' + topic, {
+    const params = new URLSearchParams({
+      token:    appToken,
+      user:     userKey,
+      title:    title,
+      message:  message,
+      priority: priority === 'urgent' ? '1' : '0',
+    });
+    const res = await fetch('https://api.pushover.net/1/messages.json', {
       method:  'POST',
-      headers: {
-        Title:    title,
-        Priority: priority || 'high',
-        Tags:     'moneybag,bell',
-      },
-      body: message,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    params.toString(),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '(unreadable)');
       await appendErrorLog(env, {
         id: crypto.randomUUID(), timestamp: new Date().toISOString(),
         source: 'worker', page: 'sendPush',
-        errorType: 'NTFY_SEND_FAILED',
-        message: `ntfy ${res.status}: ${errText.slice(0, 300)}`,
+        errorType: 'PUSHOVER_SEND_FAILED',
+        message: `Pushover ${res.status}: ${errText.slice(0, 300)}`,
       }).catch(() => {});
       return { ok: false, error: 'HTTP ' + res.status };
     }
@@ -311,7 +323,7 @@ async function sendPush(env, title, message, priority) {
     await appendErrorLog(env, {
       id: crypto.randomUUID(), timestamp: new Date().toISOString(),
       source: 'worker', page: 'sendPush',
-      errorType: 'NTFY_FETCH_ERROR',
+      errorType: 'PUSHOVER_FETCH_ERROR',
       message: (e.message || String(e)).slice(0, 300),
     }).catch(() => {});
     return { ok: false, error: String(e) };
