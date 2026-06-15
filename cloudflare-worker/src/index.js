@@ -267,6 +267,57 @@ async function sendSms(env, to, body) {
   }
 }
 
+// sendPush: instant push to ntfy.sh, reaches Tyler + Mom + business phone via the
+// ntfy app subscribed to env.NTFY_TOPIC. Replaces the Twilio owner-text path for
+// new-lead and quote-confirmed alerts — the toll-free number is unverified, so those
+// Twilio messages were billed but carrier-blocked. ntfy is free, no SMS, no carrier
+// involvement, push lands in <2s on any device subscribed to the topic.
+//
+// Never-throws, same {ok, error} contract as sendSms; failures logged via
+// appendErrorLog so the lead/confirm save flow is never affected (Law T1.11).
+async function sendPush(env, title, message, priority) {
+  const topic = env.NTFY_TOPIC;
+  if (!topic) {
+    await appendErrorLog(env, {
+      id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+      source: 'worker', page: 'sendPush',
+      errorType: 'NTFY_CONFIG_MISSING',
+      message: 'sendPush called but env.NTFY_TOPIC is unset',
+    }).catch(() => {});
+    return { ok: false, error: 'config_missing' };
+  }
+  try {
+    const res = await fetch('https://ntfy.sh/' + topic, {
+      method:  'POST',
+      headers: {
+        Title:    title,
+        Priority: priority || 'high',
+        Tags:     'moneybag,bell',
+      },
+      body: message,
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '(unreadable)');
+      await appendErrorLog(env, {
+        id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+        source: 'worker', page: 'sendPush',
+        errorType: 'NTFY_SEND_FAILED',
+        message: `ntfy ${res.status}: ${errText.slice(0, 300)}`,
+      }).catch(() => {});
+      return { ok: false, error: 'HTTP ' + res.status };
+    }
+    return { ok: true };
+  } catch (e) {
+    await appendErrorLog(env, {
+      id: crypto.randomUUID(), timestamp: new Date().toISOString(),
+      source: 'worker', page: 'sendPush',
+      errorType: 'NTFY_FETCH_ERROR',
+      message: (e.message || String(e)).slice(0, 300),
+    }).catch(() => {});
+    return { ok: false, error: String(e) };
+  }
+}
+
 // UTF-8-safe base64 (TextEncoder → bytes → bin string → btoa). Mirrors the client's
 // `btoa(unescape(encodeURIComponent(JSON.stringify(slim))))` so Tyler's tapped link
 // decodes identically to one built by the form's submit handler.
@@ -1081,7 +1132,7 @@ export default {
         const _appDate = selectedDate
           ? new Date(selectedDate + 'T12:00:00Z').toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
           : '';
-        await sendSms(env, env.TYLER_CELL, _smsConfirmedBody(_appName, c.city || body.city || '', approvedAmount, _appDate, svcStr, normPhone));
+        await sendPush(env, '✅ Quote Confirmed', _smsConfirmedBody(_appName, c.city || body.city || '', approvedAmount, _appDate, svcStr, normPhone), 'high');
 
         return jsonResponse({ success: true, scheduled: selectedDate || null }, corsHeaders);
       }
@@ -3549,7 +3600,7 @@ async function handleIncomingSubmit(request, env, corsHeaders) {
   await env.DATA.put(KV_KEYS.incoming, JSON.stringify(existing));
   // Text 1: alert Tyler on every real new quote lead (not reschedule/waitlist noise)
   if (!skipValidation) {
-    await sendSms(env, env.TYLER_CELL, _smsLeadBody(firstName, lastName, city, cd));
+    await sendPush(env, '🚨 New Quote — Pure Cleaning', _smsLeadBody(firstName, lastName, city, cd), 'urgent');
   }
   return jsonResponse({ success: true, entry: body }, corsHeaders);
 }
@@ -3860,7 +3911,7 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
 
   // Text 2: alert Tyler — full service text including add-ons + upsell signals
   const _confName = `${cust.firstName || ''} ${cust.lastName || ''}`.trim() || phone;
-  await sendSms(env, env.TYLER_CELL, _smsConfirmedBody(_confName, cust.city || city || '', approvedAmount, display, _fullJobNotes, phone));
+  await sendPush(env, '✅ Quote Confirmed', _smsConfirmedBody(_confName, cust.city || city || '', approvedAmount, display, _fullJobNotes, phone), 'high');
 
   return jsonResponse({ success: true, confirmedDate: date, confirmedDateDisplay: display }, corsHeaders);
 }
