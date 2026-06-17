@@ -6942,14 +6942,18 @@ async function handleCreatePartner(request, env, corsHeaders) {
 // ────────────────────────────────────────────────────────────────────────────
 // GET /admin/partners-ranked
 //
-// Returns partner_referral persons ranked by COUNT(Job WHERE payerId = personId)
-// DESC, all-time. Used by new_customer.html's partner dropdown so Nelson / Anna
-// / Richard / Carlos / Harts surface above one-off names. LEFT JOIN so partners
-// with zero jobs (just created) still appear at the bottom.
+// Returns partner_referral persons ranked by real-job count, where "real" means:
+//   - parentJobId IS NULL       (drop multi-day children — one parent = one job)
+//   - isRigSegment = 0          (drop rig-segment tracking children)
+//   - scheduledDate >= '2026-04-01' (drop pre-system CSV-backfill history;
+//                                    inception cutoff per Tyler 2026-06-17)
+//
+// Subquery-per-row keeps partners-with-zero-jobs visible (a LEFT JOIN with the
+// same predicates would collapse to NULL counts; this stays simple). Used by
+// new_customer.html so the most-active partners surface first.
 //
 // Job.referredById is dead (0 of 1,922 jobs); payerId is the authoritative
-// link. Excludes Person.doNotContact = 1 (deleted/suppressed partners stay
-// out of the picker).
+// link. Excludes Person.doNotContact = 1.
 async function handlePartnersRanked(env, corsHeaders) {
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   try {
@@ -6960,12 +6964,16 @@ async function handlePartnersRanked(env, corsHeaders) {
               p.businessName,
               p.primaryPhone,
               p.email,
-              COUNT(j.jobId) AS jobCount
+              (SELECT COUNT(*)
+                 FROM Job j
+                WHERE j.payerId = p.personId
+                  AND j.parentJobId IS NULL
+                  AND COALESCE(j.isRigSegment, 0) = 0
+                  AND j.scheduledDate >= '2026-04-01'
+              ) AS jobCount
          FROM Person p
-         LEFT JOIN Job j ON j.payerId = p.personId
         WHERE p.customerType = 'partner_referral'
           AND (p.doNotContact IS NULL OR p.doNotContact = 0)
-        GROUP BY p.personId
         ORDER BY jobCount DESC,
                  COALESCE(p.businessName, p.lastName, p.firstName) ASC`
     ).all())?.results || [];
