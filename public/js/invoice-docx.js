@@ -82,7 +82,7 @@
   // All in a single section with margins 0.4" matching the print rule (Rule 23).
   function _buildDocument(inv, logoBytes, d) {
     const {
-      AlignmentType, BorderStyle, Document, HeadingLevel, ImageRun,
+      AlignmentType, BorderStyle, Document, Footer, HeadingLevel, ImageRun,
       Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType,
       VerticalAlign, HeightRule,
     } = d;
@@ -93,8 +93,8 @@
     const _run = (text, opts = {}) =>
       new TextRun({ text: text == null ? '' : String(text), bold: !!opts.bold, color: opts.color, size: opts.size, font: 'Calibri' });
 
-    const _label = (text) => _run(text, { bold: true, color: COLORS.muted, size: 18 });
-    const _value = (text, opts = {}) => _run(text, { color: COLORS.text, size: opts.size || 22, bold: opts.bold });
+    const _label = (text) => _run(text, { bold: true, color: COLORS.muted, size: 22 });
+    const _value = (text, opts = {}) => _run(text, { color: COLORS.text, size: opts.size || 26, bold: opts.bold });
 
     // Letterhead: a 2-column table with logo on left, business meta right-aligned.
     // Table is the most reliable way to align an image + text horizontally in Word.
@@ -119,8 +119,8 @@
               children: [
                 new Paragraph({
                   children: logoBytes ? [
-                    new ImageRun({ data: logoBytes, transformation: { width: 170, height: 114 } }),
-                  ] : [_run('PURE CLEANING', { bold: true, size: 36, color: COLORS.navy })],
+                    new ImageRun({ data: logoBytes, transformation: { width: 200, height: 134 } }),
+                  ] : [_run('PURE CLEANING', { bold: true, size: 44, color: COLORS.navy })],
                 }),
               ],
             }),
@@ -128,10 +128,10 @@
               width: { size: 70, type: WidthType.PERCENTAGE },
               verticalAlign: VerticalAlign.CENTER,
               children: [
-                _para([_run('PURE CLEANING PRESSURE CLEANING, LLC', { bold: true, size: 28, color: COLORS.navy })], { alignment: AlignmentType.RIGHT }),
-                _para([_run('Family-owned · South Florida · Since 1995', { size: 20, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
-                _para([_run('954-389-2642 · pure_cleaning@live.com', { size: 20, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
-                _para([_run('purecleaningpressurecleaning.com', { size: 20, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('PURE CLEANING PRESSURE CLEANING, LLC', { bold: true, size: 36, color: COLORS.navy })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('Family-owned · South Florida · Since 1995', { size: 24, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('954-389-2642 · pure_cleaning@live.com', { size: 24, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('purecleaningpressurecleaning.com', { size: 24, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
               ],
             }),
           ],
@@ -147,16 +147,16 @@
 
     const titleBlock = [
       new Paragraph({
-        spacing: { before: 360, after: 100 },
+        spacing: { before: 480, after: 160 },
         children: [
-          _run('INVOICE', { bold: true, size: 48, color: COLORS.navy }),
-          _run('     ', { size: 48 }),
-          _run(inv.invoiceNumber || inv.invoiceId || '—', { bold: true, size: 28, color: COLORS.muted }),
+          _run('INVOICE', { bold: true, size: 64, color: COLORS.navy }),
+          _run('     ', { size: 64 }),
+          _run(inv.invoiceNumber || inv.invoiceId || '—', { bold: true, size: 36, color: COLORS.muted }),
         ],
       }),
       new Paragraph({
-        spacing: { after: 320 },
-        children: [_run(statusText, { bold: true, size: 24, color: statusColor })],
+        spacing: { after: 480 },
+        children: [_run(statusText, { bold: true, size: 32, color: statusColor })],
       }),
     ];
 
@@ -167,21 +167,21 @@
     const _bizName = bt.companyName || bt.businessName;
     const _contact = bt.contactName || `${(bt.firstName||'') + ' ' + (bt.lastName||'')}`.trim();
     if (_bizName) {
-      _billLines.push([_run(_bizName, { bold: true, size: 26, color: COLORS.navy })]);
-      if (_contact && _contact !== _bizName) _billLines.push([_run('Attn: ' + _contact, { size: 22, color: COLORS.text })]);
+      _billLines.push([_run(_bizName, { bold: true, size: 34, color: COLORS.navy })]);
+      if (_contact && _contact !== _bizName) _billLines.push([_run('Attn: ' + _contact, { size: 28, color: COLORS.text })]);
     } else if (_contact) {
-      _billLines.push([_run(_contact, { bold: true, size: 26, color: COLORS.navy })]);
+      _billLines.push([_run(_contact, { bold: true, size: 34, color: COLORS.navy })]);
     } else {
-      _billLines.push([_run('Customer', { bold: true, size: 26, color: COLORS.navy })]);
+      _billLines.push([_run('Customer', { bold: true, size: 34, color: COLORS.navy })]);
     }
-    if (bt.phone) _billLines.push([_run(bt.phone, { size: 20, color: COLORS.muted })]);
-    if (bt.email) _billLines.push([_run(bt.email, { size: 20, color: COLORS.muted })]);
+    if (bt.phone) _billLines.push([_run(bt.phone, { size: 26, color: COLORS.muted })]);
+    if (bt.email) _billLines.push([_run(bt.email, { size: 26, color: COLORS.muted })]);
 
     const _saLines = [];
-    if (sa.address) _saLines.push([_run(sa.address, { size: 22, color: COLORS.text })]);
+    if (sa.address) _saLines.push([_run(sa.address, { size: 28, color: COLORS.text })]);
     const _cityZip = [sa.city, sa.state || 'FL', sa.zip].filter(Boolean).join(' ');
-    if (_cityZip) _saLines.push([_run(_cityZip, { size: 22, color: COLORS.text })]);
-    if (!_saLines.length) _saLines.push([_run('Address on file', { size: 20, color: COLORS.muted })]);
+    if (_cityZip) _saLines.push([_run(_cityZip, { size: 28, color: COLORS.text })]);
+    if (!_saLines.length) _saLines.push([_run('Address on file', { size: 26, color: COLORS.muted })]);
 
     const addrTable = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
@@ -224,11 +224,11 @@
     if (!inv.paidAt && inv.dueDate) metaCells.push({ label: 'DUE DATE', value: _fmtDate(inv.dueDate) });
 
     const metaRow = new Paragraph({
-      spacing: { before: 320, after: 320 },
+      spacing: { before: 480, after: 480 },
       children: metaCells.flatMap((c, i) => [
-        ...(i > 0 ? [_run('     ', { size: 18 })] : []),
-        _run(c.label + ': ', { bold: true, size: 18, color: COLORS.muted }),
-        _run(c.value, { size: 20, color: COLORS.text }),
+        ...(i > 0 ? [_run('     ', { size: 22 })] : []),
+        _run(c.label + ': ', { bold: true, size: 22, color: COLORS.muted }),
+        _run(c.value, { size: 26, color: COLORS.text }),
       ]),
     });
 
@@ -239,16 +239,16 @@
       shading: { type: ShadingType.CLEAR, fill: COLORS.navy, color: 'auto' },
       children: [new Paragraph({
         alignment: opts.alignment || AlignmentType.LEFT,
-        spacing: { before: 60, after: 60 },
-        children: [_run(text, { bold: true, size: 20, color: 'ffffff' })],
+        spacing: { before: 120, after: 120 },
+        children: [_run(text, { bold: true, size: 26, color: 'ffffff' })],
       })],
       width: { size: opts.width, type: WidthType.PERCENTAGE },
     });
     const bodyCell = (children, opts = {}) => new TableCell({
       children: Array.isArray(children) ? children : [new Paragraph({
         alignment: opts.alignment || AlignmentType.LEFT,
-        spacing: { before: 80, after: 80 },
-        children: [_value(children, { size: 22 })],
+        spacing: { before: 140, after: 140 },
+        children: [_value(children, { size: 26 })],
       })],
       width: { size: opts.width, type: WidthType.PERCENTAGE },
       verticalAlign: VerticalAlign.CENTER,
@@ -331,55 +331,71 @@
           new TableCell({
             children: [new Paragraph({
               alignment: AlignmentType.RIGHT,
-              spacing: { before: 80, after: 80 },
-              children: [_run(label, { bold: isGrand, size: isGrand ? 28 : 22, color: isGrand ? COLORS.navy : COLORS.muted })],
+              spacing: { before: 120, after: 120 },
+              children: [_run(label, { bold: isGrand, size: isGrand ? 34 : 26, color: isGrand ? COLORS.navy : COLORS.muted })],
             })],
           }),
           new TableCell({
             children: [new Paragraph({
               alignment: AlignmentType.RIGHT,
-              spacing: { before: 80, after: 80 },
-              children: [_run(value, { bold: isGrand, size: isGrand ? 34 : 22, color: isGrand ? COLORS.navy : COLORS.text })],
+              spacing: { before: 120, after: 120 },
+              children: [_run(value, { bold: isGrand, size: isGrand ? 44 : 26, color: isGrand ? COLORS.navy : COLORS.text })],
             })],
           }),
         ],
       })),
     });
 
-    // Footer blocks: intro text, notes, payment terms, methods.
-    const footerBlocks = [];
-
+    // BODY EXTRAS — subject / intro / notes stay in the body flow (these are
+    // customer-visible message content, not footer chrome). Live between the
+    // totals table and the bottom of the page.
+    const bodyExtras = [];
     if (inv.subject) {
-      footerBlocks.push(new Paragraph({
-        spacing: { before: 320 },
-        children: [_run('Subject: ', { bold: true, size: 20, color: COLORS.muted }), _run(inv.subject, { size: 22, color: COLORS.text })],
+      bodyExtras.push(new Paragraph({
+        spacing: { before: 480 },
+        children: [_run('Subject: ', { bold: true, size: 24, color: COLORS.muted }), _run(inv.subject, { size: 26, color: COLORS.text })],
       }));
     }
     if (inv.introText) {
-      footerBlocks.push(new Paragraph({
-        spacing: { before: 160 },
-        children: [_run(inv.introText, { size: 22, color: COLORS.text })],
+      bodyExtras.push(new Paragraph({
+        spacing: { before: 200 },
+        children: [_run(inv.introText, { size: 26, color: COLORS.text })],
       }));
     }
     if (inv.notes) {
-      footerBlocks.push(new Paragraph({
-        spacing: { before: 240 },
-        children: [_run('Notes:  ', { bold: true, size: 18, color: COLORS.muted }), _run(inv.notes, { size: 22, color: COLORS.text })],
+      bodyExtras.push(new Paragraph({
+        spacing: { before: 320 },
+        children: [_run('Notes:  ', { bold: true, size: 22, color: COLORS.muted }), _run(inv.notes, { size: 26, color: COLORS.text })],
       }));
     }
-    footerBlocks.push(new Paragraph({
-      spacing: { before: 360 },
-      children: [
-        _run('Payment methods accepted: ', { bold: true, size: 18, color: COLORS.muted }),
-        _run('Zelle · Check · Cash · Venmo', { size: 22, color: COLORS.text }),
-      ],
-    }));
+
+    // PAGE FOOTER — payment methods + terms + brand footer line. Lives in the
+    // Section.footers slot so Word pins it to the bottom of the page regardless
+    // of how short or long the body content is. That's what makes the layout
+    // "fill the page": body floats from the top, footer anchors at the bottom,
+    // empty space distributes between (R2-2/R2-3 round 3, 2026-06-17).
+    const pageFooterChildren = [
+      new Paragraph({
+        children: [
+          _run('Payment methods accepted: ', { bold: true, size: 22, color: COLORS.muted }),
+          _run('Zelle · Check · Cash · Venmo', { size: 26, color: COLORS.text }),
+        ],
+      }),
+    ];
     if (inv.paymentTerms && !_paid) {
-      footerBlocks.push(new Paragraph({
+      pageFooterChildren.push(new Paragraph({
         spacing: { before: 120 },
-        children: [_run('Payment terms:  ', { bold: true, size: 18, color: COLORS.muted }), _run(inv.paymentTerms, { size: 22, color: COLORS.text })],
+        children: [_run('Payment terms:  ', { bold: true, size: 22, color: COLORS.muted }), _run(inv.paymentTerms, { size: 26, color: COLORS.text })],
       }));
     }
+    pageFooterChildren.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 240 },
+      children: [_run(
+        'Pure Cleaning Pressure Cleaning, LLC  ·  Licensed & Insured  ·  954-389-2642  ·  pure_cleaning@live.com',
+        { size: 18, color: '888888' },
+      )],
+    }));
 
     return new Document({
       creator: 'Pure Cleaning Pressure Cleaning',
@@ -387,7 +403,7 @@
       styles: {
         default: {
           document: {
-            run: { font: 'Calibri', size: 22 },
+            run: { font: 'Calibri', size: 26 },
           },
         },
       },
@@ -399,16 +415,18 @@
             margin: { top: 576, right: 576, bottom: 576, left: 576 },
           },
         },
+        footers: {
+          default: new Footer({ children: pageFooterChildren }),
+        },
         children: [
           letterhead,
           ...titleBlock,
           addrTable,
           metaRow,
           itemsTable,
-          new Paragraph({ spacing: { before: 160 }, children: [_run('', { size: 8 })] }),
           new Paragraph({ spacing: { before: 240 }, children: [_run('', { size: 8 })] }),
           totalsTable,
-          ...footerBlocks,
+          ...bodyExtras,
         ],
       }],
     });

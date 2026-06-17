@@ -105,58 +105,113 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
    duplicate branding twice. Logo embedded; business info pulled from the
    _PRINT_* constants in the worker shape, but rendered statically here. */
 .print-letterhead { display: none; }
+.print-footer-line { display: none; }
 
-/* Print — rescaled UP 2026-06-17 (R2-2). Round 1 over-shrunk and the invoice
-   filled ~30% of the page; round 2 uses generous fonts + spacing that occupy
-   a full US-letter sheet while still honoring Rule 23 (one page). */
+/* Print bands — display:contents on screen so the wrappers don't affect
+   layout (zero visual change vs the old single-card structure). In print
+   they become real flex children of #state-main for vertical band
+   distribution (R2-2 refactor). */
+.print-band { display: contents; }
+
+/* Print — R2-2/R2-3 (2026-06-17 round 3): three-band flex distribution.
+   #state-main is a flex column at min-height ≈ 10.2in (letter 11" − 0.4"×2
+   margins) with justify-content:space-between. The three print-bands push
+   to top / middle / bottom regardless of content length, so a sparse 1-item
+   invoice fills the page AND a heavy ~8-item one still fits on ONE page
+   (Rule 23 stays satisfied because flex shrinking happens automatically
+   when content grows). Type scaled 1.3-1.5× over round 2 so it reads as a
+   substantial document. */
 @media print {
   @page { size: letter; margin: 0.4in; }
   .site-header, .site-footer, .toast, .action-section { display: none !important; }
-  body { background: #fff; font-size: 13pt; }
+  html, body { background: #fff; height: auto; }
+  body { font-size: 13pt; }
   .wrap { max-width: 100%; padding: 0; }
-  /* Branded letterhead — shows only on print */
+
+  /* The three-band flex column — Band 1 anchored top, Band 3 anchored
+     bottom (via space-between), Band 2 floats in the middle. For sparse
+     invoices the middle band is small and the top/bottom gaps fill the
+     page; for dense invoices the middle band grows and the gaps shrink.
+     min-height = letter 11" minus 0.4" margins ×2 = 10.2in.
+     !important because the JS _showState() sets style="display: block"
+     inline once the invoice loads, which would otherwise beat this rule. */
+  #state-main {
+    display: flex !important;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 10.2in;
+    gap: 0;
+  }
+  .print-band { display: block; }
+  .print-band-mid { display: flex; flex-direction: column; justify-content: center; }
+
+  /* Sizing budget — calibrated so an 8-item invoice fits in 10.2in:
+       letterhead (~110px) + inv-top (~50) + bill-to/meta (~140) +
+       items (~50px × 8 = 400) + total-card (~75) + methods (~75) +
+       footer-line (~25) + flex gaps (~50) ≈ 925px ≤ 979px. */
   .print-letterhead {
     display: flex !important;
     align-items: center;
-    gap: 22pt;
-    padding: 0 0 14pt;
-    margin-bottom: 22pt;
+    gap: 18pt;
+    padding: 0 0 9pt;
+    margin-bottom: 12pt;
     border-bottom: 2pt solid #0a1628;
   }
-  .print-letterhead-logo { width: 2in; height: auto; flex-shrink: 0; }
-  .print-letterhead-meta { flex: 1; text-align: right; line-height: 1.45; }
-  .print-letterhead-meta .pl-name { font-size: 16pt; font-weight: 700; color: #0a1628; letter-spacing: 0.4pt; }
-  .print-letterhead-meta .pl-sub  { font-size: 10.5pt; color: #555; margin-top: 3pt; }
-  /* Invoice card */
-  .inv-card { box-shadow: none; border: 1px solid #cbd5e1; border-radius: 10pt; page-break-inside: avoid; }
-  .inv-top  { background: #fff !important; color: #000 !important; border-bottom: 1.5pt solid #0a1628; padding: 12pt 16pt; }
+  .print-letterhead-logo { width: 1.4in; height: auto; flex-shrink: 0; }
+  .print-letterhead-meta { flex: 1; text-align: right; line-height: 1.4; }
+  .print-letterhead-meta .pl-name { font-size: 15pt; font-weight: 700; color: #0a1628; letter-spacing: 0.4pt; }
+  .print-letterhead-meta .pl-sub  { font-size: 10pt; color: #555; margin-top: 2pt; }
+
+  /* Invoice cards — band 1 has the headers, band 2 has the items. */
+  .inv-card { box-shadow: none; border: 1pt solid #cbd5e1; border-radius: 8pt; page-break-inside: avoid; margin-bottom: 0; }
+  .inv-top  { background: #fff !important; color: #000 !important; border-bottom: 1.5pt solid #0a1628; padding: 9pt 16pt; }
   .inv-label { color: #0a1628 !important; font-size: 9pt; letter-spacing: 2.5pt; }
-  .inv-number { color: #333 !important; font-size: 13pt; }
-  .paid-badge, .due-badge { color: #0a1628 !important; background: #f5f5f0 !important; border-color: #0a1628 !important; font-size: 10.5pt; padding: 5pt 12pt; }
-  .inv-body { padding: 18pt 20pt; }
-  .dual-cols { gap: 22pt; margin-bottom: 18pt; }
-  .dual-val  { font-size: 12pt; line-height: 1.55; }
-  .dual-val strong { font-size: 13pt; margin-bottom: 4pt; }
-  .dual-lbl, .meta-lbl { font-size: 9pt; letter-spacing: 1.5pt; margin-bottom: 6pt; }
-  .meta-row { padding: 12pt 0; margin-bottom: 18pt; }
-  .meta-val { font-size: 12pt; }
-  .line-list { background: #fff !important; border: 1pt solid #cbd5e1; border-radius: 8pt; margin-bottom: 18pt; page-break-inside: avoid; }
-  .line-row { padding: 11pt 14pt; gap: 14pt; }
-  .line-name { font-size: 13pt; }
-  .line-sub  { font-size: 11pt; margin-top: 3pt; }
-  .line-amt  { font-size: 13.5pt; }
-  .line-check { background: #fff !important; border: 1pt solid #0a1628 !important; color: #0a1628 !important; width: 22px; height: 22px; }
-  .total-card { background: #f5f5f0 !important; border: 1pt solid #0a1628; padding: 14pt 18pt; }
-  .total-lbl { color: #555 !important; font-size: 10.5pt; letter-spacing: 2pt; }
-  .total-amt { color: #0a1628 !important; font-size: 28pt; }
-  .pay-detail-row { padding: 5pt 0; }
-  .pay-detail-lbl { color: #555 !important; font-size: 11pt; }
-  .pay-detail-val { color: #0a1628 !important; font-size: 11pt; }
-  .pay-detail-row.first { border-top: 1pt solid #999; margin-top: 8pt; padding-top: 8pt; }
-  .methods-card { border: 1pt solid #cbd5e1; padding: 14pt 18pt; margin-top: 22pt; page-break-inside: avoid; }
-  .methods-title { font-size: 10pt; letter-spacing: 1.5pt; margin-bottom: 8pt; }
-  .methods-body  { font-size: 12pt; line-height: 1.65; }
-  .terms-block   { font-size: 11pt; margin-top: 8pt; line-height: 1.55; }
+  .inv-number { color: #333 !important; font-size: 13pt; margin-top: 2pt; }
+  .paid-badge, .due-badge { color: #0a1628 !important; background: #f5f5f0 !important; border-color: #0a1628 !important; font-size: 11pt; padding: 4pt 11pt; }
+  .inv-body { padding: 11pt 16pt; }
+
+  .dual-cols { gap: 18pt; margin-bottom: 10pt; }
+  .dual-val  { font-size: 12.5pt; line-height: 1.45; }
+  .dual-val strong { font-size: 13pt; margin-bottom: 3pt; }
+  .dual-lbl, .meta-lbl { font-size: 9pt; letter-spacing: 1.5pt; margin-bottom: 4pt; }
+  .meta-row { padding: 8pt 0 0; margin-bottom: 0; gap: 18pt; }
+  .meta-val { font-size: 12.5pt; margin-top: 2pt; }
+
+  /* Line items — tightest so 8 fit cleanly. Each row ~38px. */
+  .line-list { background: #fff !important; border: 1pt solid #cbd5e1; border-radius: 6pt; margin-bottom: 11pt; page-break-inside: avoid; }
+  .line-row { padding: 6pt 14pt; gap: 12pt; }
+  .line-row + .line-row { border-top: 1pt solid #f0ede6; }
+  .line-name { font-size: 12.5pt; line-height: 1.2; }
+  .line-sub  { font-size: 10pt; margin-top: 2pt; line-height: 1.2; }
+  .line-amt  { font-size: 13pt; line-height: 1.2; }
+  .line-check { background: #fff !important; border: 1pt solid #0a1628 !important; color: #0a1628 !important; width: 18px; height: 18px; font-size: 10px; }
+
+  /* Total card — keep the total amount prominent (still feels substantial). */
+  .total-card { background: #f5f5f0 !important; border: 1.5pt solid #0a1628; padding: 10pt 18pt; }
+  .total-lbl { color: #555 !important; font-size: 10pt; letter-spacing: 2pt; }
+  .total-amt { color: #0a1628 !important; font-size: 28pt; letter-spacing: -0.5pt; line-height: 1.05; }
+  .pay-detail-row { padding: 3pt 0; }
+  .pay-detail-lbl { color: #555 !important; font-size: 10.5pt; }
+  .pay-detail-val { color: #0a1628 !important; font-size: 10.5pt; }
+  .pay-detail-row.first { border-top: 1pt solid #999; margin-top: 5pt; padding-top: 5pt; }
+
+  .methods-card { border: 1pt solid #cbd5e1; padding: 9pt 16pt; margin-top: 0; page-break-inside: avoid; }
+  .methods-title { font-size: 9.5pt; letter-spacing: 1.5pt; margin-bottom: 5pt; }
+  .methods-body  { font-size: 12pt; line-height: 1.5; }
+  .terms-block   { font-size: 10.5pt; margin-top: 5pt; line-height: 1.45; }
+
+  /* Print footer line — rides the bottom edge of the page below the
+     methods card, completing band 3. */
+  .print-footer-line {
+    display: block !important;
+    text-align: center;
+    font-size: 9pt;
+    color: #888;
+    margin-top: 10pt;
+    padding-top: 7pt;
+    border-top: 1pt solid #cbd5e1;
+    letter-spacing: 0.5pt;
+  }
 }
 </style>
 </head>
@@ -186,63 +241,85 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   </div>
 
   <div id="state-main">
-    <!-- Print-only branded letterhead — hidden on screen, fills the top of the
-         printed page so an at-rest invoice looks like real letterhead. -->
-    <div class="print-letterhead">
-      <img class="print-letterhead-logo" src="/images/logo-pure-cleaning.png" alt="Pure Cleaning Pressure Cleaning">
-      <div class="print-letterhead-meta">
-        <div class="pl-name">PURE CLEANING PRESSURE CLEANING, LLC</div>
-        <div class="pl-sub">Family-owned · South Florida · Since 1995</div>
-        <div class="pl-sub">954-389-2642 · pure_cleaning@live.com · purecleaningpressurecleaning.com</div>
+    <!-- Three print bands. On screen the .print-band wrappers are
+         display:contents (no own box, no visual change). In print they become
+         flex children of #state-main with justify-content:space-between, which
+         pushes Band 1 to the top and Band 3 to the bottom — Band 2 floats in
+         the middle. That's what makes a sparse 1-item invoice fill the page
+         while a heavy 8-item invoice still fits on one page (Rule 23). -->
+
+    <!-- Band 1 — letterhead + invoice header + bill-to + meta -->
+    <div class="print-band print-band-top">
+      <div class="print-letterhead">
+        <img class="print-letterhead-logo" src="/images/logo-pure-cleaning.png" alt="Pure Cleaning Pressure Cleaning">
+        <div class="print-letterhead-meta">
+          <div class="pl-name">PURE CLEANING PRESSURE CLEANING, LLC</div>
+          <div class="pl-sub">Family-owned · South Florida · Since 1995</div>
+          <div class="pl-sub">954-389-2642 · pure_cleaning@live.com · purecleaningpressurecleaning.com</div>
+        </div>
       </div>
-    </div>
-    <div class="inv-card">
-      <div class="inv-top">
-        <div>
-          <div class="inv-label">Invoice</div>
-          <div class="inv-number" id="inv-number">—</div>
-        </div>
-        <div id="inv-status-badge"></div>
-      </div>
-      <div class="inv-body">
-        <div class="dual-cols">
-          <div class="dual-col">
-            <div class="dual-lbl">Bill To</div>
-            <div class="dual-val" id="bill-to">—</div>
+      <div class="inv-card">
+        <div class="inv-top">
+          <div>
+            <div class="inv-label">Invoice</div>
+            <div class="inv-number" id="inv-number">—</div>
           </div>
-          <div class="dual-col">
-            <div class="dual-lbl">Service Address</div>
-            <div class="dual-val" id="service-addr">—</div>
+          <div id="inv-status-badge"></div>
+        </div>
+        <div class="inv-body">
+          <div class="dual-cols">
+            <div class="dual-col">
+              <div class="dual-lbl">Bill To</div>
+              <div class="dual-val" id="bill-to">—</div>
+            </div>
+            <div class="dual-col">
+              <div class="dual-lbl">Service Address</div>
+              <div class="dual-val" id="service-addr">—</div>
+            </div>
           </div>
-        </div>
 
-        <div class="meta-row">
-          <div class="meta-item"><span class="meta-lbl">Invoice Date</span><span class="meta-val" id="inv-date">—</span></div>
-          <div class="meta-item" id="paid-meta-wrap" style="display:none;"><span class="meta-lbl">Paid On</span><span class="meta-val" id="paid-date">—</span></div>
-          <div class="meta-item" id="method-meta-wrap" style="display:none;"><span class="meta-lbl">Method</span><span class="meta-val" id="pay-method">—</span></div>
-        </div>
-
-        <div class="line-list" id="line-list">
-          <!-- line items injected here -->
-        </div>
-
-        <div class="total-card">
-          <div class="total-row">
-            <span class="total-lbl">Total</span>
-            <span class="total-amt" id="total-amt">$0</span>
-          </div>
-          <div id="paid-detail-block" style="display:none;">
-            <div class="pay-detail-row first"><span class="pay-detail-lbl">Amount Paid</span><span class="pay-detail-val" id="amount-paid">$0</span></div>
-            <div class="pay-detail-row"><span class="pay-detail-lbl">Status</span><span class="pay-detail-val">✓ Paid in Full</span></div>
+          <div class="meta-row">
+            <div class="meta-item"><span class="meta-lbl">Invoice Date</span><span class="meta-val" id="inv-date">—</span></div>
+            <div class="meta-item" id="paid-meta-wrap" style="display:none;"><span class="meta-lbl">Paid On</span><span class="meta-val" id="paid-date">—</span></div>
+            <div class="meta-item" id="method-meta-wrap" style="display:none;"><span class="meta-lbl">Method</span><span class="meta-val" id="pay-method">—</span></div>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="methods-card">
-      <div class="methods-title">Payment Methods Accepted</div>
-      <div class="methods-body"><strong>Zelle</strong> · <strong>Check</strong> · <strong>Cash</strong> · <strong>Venmo</strong></div>
-      <div class="terms-block" id="terms-block" style="display:none;"></div>
+    <!-- Band 2 — line items + total -->
+    <div class="print-band print-band-mid">
+      <div class="inv-card">
+        <div class="inv-body">
+          <div class="line-list" id="line-list">
+            <!-- line items injected here -->
+          </div>
+
+          <div class="total-card">
+            <div class="total-row">
+              <span class="total-lbl">Total</span>
+              <span class="total-amt" id="total-amt">$0</span>
+            </div>
+            <div id="paid-detail-block" style="display:none;">
+              <div class="pay-detail-row first"><span class="pay-detail-lbl">Amount Paid</span><span class="pay-detail-val" id="amount-paid">$0</span></div>
+              <div class="pay-detail-row"><span class="pay-detail-lbl">Status</span><span class="pay-detail-val">✓ Paid in Full</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Band 3 — payment methods + terms + footer line -->
+    <div class="print-band print-band-bottom">
+      <div class="methods-card">
+        <div class="methods-title">Payment Methods Accepted</div>
+        <div class="methods-body"><strong>Zelle</strong> · <strong>Check</strong> · <strong>Cash</strong> · <strong>Venmo</strong></div>
+        <div class="terms-block" id="terms-block" style="display:none;"></div>
+      </div>
+      <!-- Print-only footer line — rides the bottom edge of the page. -->
+      <div class="print-footer-line">
+        Pure Cleaning Pressure Cleaning, LLC &nbsp;·&nbsp; Licensed &amp; Insured &nbsp;·&nbsp; 954-389-2642 &nbsp;·&nbsp; pure_cleaning@live.com
+      </div>
     </div>
 
     <div class="action-section">
