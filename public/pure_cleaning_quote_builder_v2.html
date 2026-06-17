@@ -158,6 +158,11 @@ select option{background:var(--white);}
 .copy-btn{background:var(--green);color:white;border:none;border-radius:7px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;margin-right:6px;font-family:'DM Sans',sans-serif;}
 .send-sms-btn{width:100%;padding:13px;background:var(--terra);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;transition:background .15s;}
 .send-sms-btn:active,.send-sms-btn:hover{background:var(--terra-d);}
+.send-email-btn{width:100%;padding:13px;background:var(--sky);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;transition:background .15s;}
+.send-email-btn:active,.send-email-btn:hover{background:var(--blue);}
+.send-email-btn:disabled{background:#9ca3af;cursor:not-allowed;opacity:.6;}
+.heads-up-btn{width:100%;padding:11px;background:transparent;color:var(--navy);border:1.5px solid var(--navy);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;font-family:'DM Sans',sans-serif;-webkit-tap-highlight-color:transparent;transition:all .15s;}
+.heads-up-btn:active,.heads-up-btn:hover{background:var(--navy);color:#fff;}
 
 /* PREVIEW */
 .preview-card{border:1.5px solid var(--border);border-radius:16px;padding:1.375rem;margin-bottom:1.25rem;background:var(--card);}
@@ -495,6 +500,8 @@ select option{background:var(--white);}
     <div class="quote-link-label">✅ Quote link ready — share via SMS below</div>
     <div class="quote-link-url" id="quoteLinkUrl"></div>
     <button class="send-sms-btn" onclick="sendQuoteText()">📱 Send Quote Text to <span id="smsNameSpan">Customer</span></button>
+    <button class="send-email-btn" id="sendEmailBtn" onclick="sendQuoteEmail()">📧 Send Quote Email</button>
+    <button class="heads-up-btn" onclick="sendHeadsUp()">🔔 Heads-up text (save my contact)</button>
     <button class="copy-btn" onclick="copyLink()">📋 Copy Link</button>
   </div>
 
@@ -1575,6 +1582,28 @@ function sendQuoteText() {
   const phone = (document.getElementById('custPhone').value||'').replace(/\D/g,'');
   const first = document.getElementById('custFirst').value.trim() || 'there';
   const body = `Hey ${first}!\n\nHere's your quote — tap to review, pick a day, and confirm to lock it in:\n\n${generatedUrl}\n\nWe'll see you on service day.\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`;
+  const smsPhone = phone.length === 10 ? '+1' + phone : phone;
+  window.location.href = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
+}
+
+function sendQuoteEmail() {
+  const email = (document.getElementById('custEmail').value||'').trim();
+  if (!email) { alert('Add a customer email first.'); return; }
+  const first = document.getElementById('custFirst').value.trim() || 'there';
+  const svcStr = Array.isArray(services) && services.length ? services.join(', ') : 'your services';
+  const subject = `Your Pure Cleaning quote — ${svcStr}`;
+  // Reuse the SMS preview body verbatim — it already has the live quote link
+  // substituted in by generateQuote() at line 1555.
+  const previewBody = (document.getElementById('textPreview').textContent || '').trim();
+  const body = previewBody || `Hey ${first}!\n\nHere's your quote — tap to review, pick a day, and confirm to lock it in:\n\n${generatedUrl}\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642`;
+  window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function sendHeadsUp() {
+  const phone = (document.getElementById('custPhone').value||'').replace(/\D/g,'');
+  if (!phone) { alert('Add a customer phone first.'); return; }
+  const first = document.getElementById('custFirst').value.trim() || 'there';
+  const body = `Hey ${first}! Tyler with Pure Cleaning Pressure Cleaning here 👋\n\nSending your quote from this number in a sec — tap to save my contact so it doesn't land in spam:\nhttps://purecleaningpressurecleaning.com/pure-cleaning.vcf\n\n954-389-2642\nReply STOP to opt out.`;
   const smsPhone = phone.length === 10 ? '+1' + phone : phone;
   window.location.href = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
 }
