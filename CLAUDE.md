@@ -46,7 +46,7 @@ When in doubt, follow this file. The other two are reference.
 
 **14.** All dates stored and compared as `YYYY-MM-DD`. Accepted input: `5/6/26`, `5/6/2026`, `YYYY-MM-DD`. Any of those parses to canonical form. All other formats rejected — never silently coerced.
 
-**15.** Migration and schema changes: Saturday morning OR weekday after 8 PM ET only. Never Tuesday–Thursday AM — those are Mom's heaviest call hours.
+**15.** **Ship the moment it's done — no time-of-day or day-of-week deferrals.** When something is finished or decided, it gets committed and pushed immediately — schema changes and migrations included. (The former "schema/migrations only Saturday AM or weekday after 8 PM ET" rule is VOID as of 2026-06-16, by Tyler's direct call: deferring finished work to a calendar slot broke his mental model of what's actually shipped and wasted hours of his effort. Production safety comes from Rule 6 snapshot-before-destructive, the Rule 2 verify-deploy gate, and dual-write — never from the clock. Never defer a commit by time again.)
 
 **16.** KV access: all reads/writes via worker admin API endpoints (`GET /customers`, `PUT /customers`, `POST /import/snapshot`). `wrangler kv key get/put` accesses a different edge state and writes silently fail to reach production. (Full story: `docs/HISTORY.md` → May 14.)
 
