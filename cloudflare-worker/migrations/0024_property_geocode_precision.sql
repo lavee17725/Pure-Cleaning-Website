@@ -1,0 +1,24 @@
+-- Migration 0024: Geocode precision per Property row
+--
+-- Until now, Google's geometry.location_type (ROOFTOP | RANGE_INTERPOLATED |
+-- GEOMETRIC_CENTER | APPROXIMATE) was stashed only in the geo_precision KV
+-- blob (one giant JSON keyed by propertyId). That blob works for the tracer's
+-- ⚠️ warning but is opaque to SQL — there's no way to ask "how many of our
+-- coords are ROOFTOP-accurate?" without loading the entire blob into JS.
+--
+-- This column makes precision queryable per row and lets the satellite
+-- backfill + geocode backfill writes round-trip it as plain D1 data.
+--
+-- Naming separation:
+--   geocodeSource    — provider that produced the coord
+--                      (google_maps | census | nominatim | manual_override)
+--   geocodePrecision — Google's location_type tag for the coord, when known
+--                      (ROOFTOP | RANGE_INTERPOLATED | GEOMETRIC_CENTER | APPROXIMATE
+--                       | manual_override). NULL for census/nominatim (no equivalent).
+--
+-- ADDITIVE ONLY. Zero behavior change on deploy. Writes added by the geocode
+-- backfill endpoint + the existing geocodeAddress callers in the same release.
+--
+-- Date: 2026-06-16
+
+ALTER TABLE Property ADD COLUMN geocodePrecision TEXT DEFAULT NULL;

@@ -1476,6 +1476,18 @@ export default {
       if (path === 'admin/satellite-backfill' && request.method === 'POST') {
         return await handleSatelliteBackfill(request, env, url, corsHeaders);
       }
+      // Phase B cron resume: clears the satellite:backfill_complete KV marker so
+      // the daily 7am UTC cron resumes scanning for net-new properties. Used after
+      // a bulk geocode pass that introduces previously-no-coords rows.
+      if (path === 'admin/satellite-backfill/clear-marker' && request.method === 'POST') {
+        return await handleSatelliteClearMarker(request, env, corsHeaders);
+      }
+      // Phase C: geocode-precision backfill. Tags every row with Google's
+      // location_type so the tracer warning + future calibration logic can
+      // trust "this coord is ROOFTOP-precise vs. APPROXIMATE."
+      if (path === 'admin/geocode-backfill' && request.method === 'POST') {
+        return await handleGeocodeBackfill(request, env, url, corsHeaders);
+      }
       // Public quote-form lead photo upload — rate-limited, magic-byte sniffed,
       // 4MB cap, quarantined R2 prefix. Returns the R2 key for the client to
       // attach to /incoming.customerData.photos[].
@@ -1648,12 +1660,28 @@ export default {
                            geocodedAt: geo.geocodedAt };
             if (geo.confidence === 'low') c.needsAddressVerification = true;
             await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
-            // D1 Property dual-write: update lat/lng/geocodeSource
+            // D1 Property dual-write — 2026-06-16 locked rule: NEVER overwrite a
+            // non-null lat/lng from an auto-geocode. Only fill when missing. Always
+            // refresh the precision/source tags (cheap signal, no pin movement).
+            // Manual_override via PATCH /admin/property/:id/coordinates is the only
+            // path that moves an existing coord.
             try {
               const ph10 = norm(phone);
               await env.DB.prepare(
-                `UPDATE Property SET latitude=?, longitude=?, geocodeSource=?, modifiedAt=? WHERE propertyId IN (SELECT propertyId FROM PersonProperty WHERE personId=?)`
-              ).bind(geo.lat, geo.lng, geo.source||null, new Date().toISOString(), 'person_1'+ph10).run();
+                `UPDATE Property
+                    SET latitude         = COALESCE(latitude,  ?),
+                        longitude        = COALESCE(longitude, ?),
+                        geocodeSource    = COALESCE(NULLIF(geocodeSource, ''), ?),
+                        geocodePrecision = COALESCE(geocodePrecision, ?),
+                        modifiedAt       = ?
+                  WHERE propertyId IN (SELECT propertyId FROM PersonProperty WHERE personId=?)`
+              ).bind(
+                geo.lat, geo.lng,
+                geo.source || null,
+                geo.locationType || null,
+                new Date().toISOString(),
+                'person_1' + ph10,
+              ).run();
             } catch(e) { await _logD1Failure(env, 'geocode_property_update', e.message); }
           }
         }
@@ -1663,6 +1691,35 @@ export default {
       // ── Geocode test ─────────────────────────────────────────────────────────
       if (path === 'api/debug/geocode' && request.method === 'GET') {
         const addr = url.searchParams.get('addr') || '1255 Fairfax Court, Weston, FL';
+        const raw  = url.searchParams.get('raw') === '1';
+        const _gkey = env.GOOGLE_GEOCODING_API_KEY || env.GOOGLE_MAPS_API_KEY;
+        const _keyDiag = {
+          geocodingKeySet: !!env.GOOGLE_GEOCODING_API_KEY,
+          mapsKeySet:      !!env.GOOGLE_MAPS_API_KEY,
+          usingKeyName:    env.GOOGLE_GEOCODING_API_KEY ? 'GEOCODING' : (env.GOOGLE_MAPS_API_KEY ? 'MAPS' : 'NONE'),
+          usingKeyTail:    _gkey ? _gkey.slice(-6) : null,
+        };
+        if (raw && _gkey) {
+          // Bypass the multi-provider chain — show exactly what Google returns
+          // so we can diagnose why it's falling through to census.
+          const gUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&components=country:US&key=${_gkey}`;
+          const r = await fetch(gUrl);
+          const data = await r.json();
+          return jsonResponse({
+            addr,
+            keyDiag: _keyDiag,
+            httpStatus: r.status,
+            googleStatus: data.status,
+            errorMessage: data.error_message || null,
+            resultCount: data.results?.length || 0,
+            firstResult: data.results?.[0] ? {
+              formatted: data.results[0].formatted_address,
+              location:  data.results[0].geometry?.location,
+              locationType: data.results[0].geometry?.location_type,
+              placeId:   data.results[0].place_id,
+            } : null,
+          }, corsHeaders);
+        }
         const geo = await geocodeAddress(addr, env);
         return jsonResponse({ addr, result: geo, keySet: !!env.GOOGLE_MAPS_API_KEY }, corsHeaders);
       }
@@ -2738,17 +2795,24 @@ async function handleAutoSatellite(request, env, url, corsHeaders) {
     return await fail('geocode_failed', `address="${address.slice(0,80)}"`);
   }
 
-  // 2. Static Maps fetch — maptype=satellite zoom=20 size=640x640 scale=2 format=jpg.
+  // 2. Static Maps fetch — maptype=satellite zoom=19 size=640x640 scale=2 format=jpg.
   //    Total billable image dimensions: 1280×1280 (scale=2). Free tier: 10k loads/mo.
+  //
+  //    2026-06-15: zoom dropped from 20 → 19 for calibration-batch consistency
+  //    with runSatelliteBackfillBatch. At Florida latitude (~26°N) zoom 19 covers
+  //    ~172m square — wide enough for any residential lot. zoom is persisted with
+  //    every saved image (D1 + KV) so meters_per_pixel = 156543·cos(lat)/2^zoom
+  //    is always derivable per image.
   //
   //    `markers=color:red|lat,lng` (2026-06-14 pin batch) — drops a red pin at the
   //    geocoded coords so every saved image is self-documenting. Without it, an
   //    imprecise geocode put the image one house off and there was no way to tell
   //    which roof was the subject (Ivan-class poisoning risk for the tracer).
+  const ZOOM = 19;
   const mapsUrl =
     `https://maps.googleapis.com/maps/api/staticmap?` +
     `center=${geo.lat},${geo.lng}` +
-    `&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg` +
+    `&zoom=${ZOOM}&size=640x640&scale=2&maptype=satellite&format=jpg` +
     `&markers=${encodeURIComponent('color:red|' + geo.lat + ',' + geo.lng)}` +
     `&key=${encodeURIComponent(apiKey)}`;
 
@@ -2773,6 +2837,7 @@ async function handleAutoSatellite(request, env, url, corsHeaders) {
   // 4. R2 write — same key convention as handlePhotoR2Upload (overwrite on
   //    re-fetch is intended; same property = same key).
   const key = `property/${propertyId}/satellite.jpg`;
+  const capturedAt = new Date().toISOString();
   try {
     const blob = await mapsRes.arrayBuffer();
     await env.PHOTOS.put(key, blob, { httpMetadata: { contentType: 'image/jpeg' } });
@@ -2780,21 +2845,59 @@ async function handleAutoSatellite(request, env, url, corsHeaders) {
     return await fail('r2_write_failed', e.message);
   }
 
-  // 5. If quoteCode supplied, stamp the satellite key onto quote_{code} KV via
-  //    read-modify-write so handleAgreementConfirm picks it up even when the
-  //    builder's generateQuote PUT hasn't fired yet (or fires after this).
-  //    Property row may not exist at this point — that's why this is KV not D1.
+  // 5. If quoteCode supplied, stamp the satellite key + calibration onto
+  //    quote_{code} KV via read-modify-write so handleAgreementConfirm picks
+  //    them up even when the builder's generateQuote PUT hasn't fired yet (or
+  //    fires after this). Property row may not exist at this point — that's
+  //    why this is KV not D1.
   let quoteKvStamped = false;
   if (quoteCode) {
     try {
       const kvKey = `quote_${quoteCode}`;
       const existing = (await env.DATA.get(kvKey, 'json')) || {};
-      await env.DATA.put(kvKey, JSON.stringify({ ...existing, satelliteImageKey: key }));
+      await env.DATA.put(kvKey, JSON.stringify({
+        ...existing,
+        satelliteImageKey:    key,
+        satelliteZoom:        ZOOM,
+        satelliteCapturedLat: geo.lat,
+        satelliteCapturedLng: geo.lng,
+        satelliteCapturedAt:  capturedAt,
+      }));
       quoteKvStamped = true;
     } catch (e) {
       // Non-fatal — R2 blob is safe, the client still gets the key in the response
       // and can pass it through the quotePayload as a backup carry path.
       await _logD1Failure(env, 'auto_satellite:quote_kv_stamp', e.message).catch(()=>{});
+    }
+  }
+
+  // 5b. Best-effort D1 stamp — if the Property row exists already, write the
+  //     calibration fields directly AND the geocode source/precision (so the
+  //     "Is this coord ROOFTOP?" question is answerable per-row, not just from
+  //     the geo_precision KV blob). For brand-new quotes the row won't exist
+  //     yet; handleAgreementConfirm will propagate from the KV blob above.
+  if (env.DB) {
+    try {
+      await env.DB.prepare(
+        `UPDATE Property
+            SET satelliteImageKey    = ?,
+                satelliteZoom        = ?,
+                satelliteCapturedLat = ?,
+                satelliteCapturedLng = ?,
+                satelliteCapturedAt  = ?,
+                geocodeSource        = COALESCE(NULLIF(geocodeSource, ''), ?),
+                geocodePrecision     = COALESCE(?, geocodePrecision),
+                modifiedAt           = ?
+          WHERE propertyId = ?`
+      ).bind(
+        key, ZOOM, geo.lat, geo.lng, capturedAt,
+        geo.source || null,
+        geo.locationType || null,
+        capturedAt,
+        propertyId,
+      ).run();
+    } catch (e) {
+      await _logD1Failure(env, 'auto_satellite:d1_stamp', e.message).catch(()=>{});
     }
   }
 
@@ -2861,6 +2964,20 @@ function _normalizeGeocodePrecision(geo) {
 // "0 7 * * *" branch) and the existing HTTP path can share it. DRY,
 // no behavior change for the HTTP caller. batch=200 unchanged.
 async function handleSatelliteBackfill(request, env, url, corsHeaders) {
+  // ?propertyId=X mode (2026-06-16): targeted single-row re-pull at the row's
+  // CURRENT stored coords. Bypasses the WHERE filter — used after a manual
+  // pin fix to re-center the satellite without going through a geocode round
+  // trip that might land somewhere else.
+  const targetId = url.searchParams.get('propertyId');
+  if (targetId) {
+    const result = await runSatelliteBackfillBatch(env, 1, { propertyId: targetId });
+    if (result.success === false) {
+      const sc = result.statusCode || 500;
+      const { statusCode, ...body } = result;
+      return jsonResponse(body, corsHeaders, sc);
+    }
+    return jsonResponse(result, corsHeaders);
+  }
   const batchParam = parseInt(url.searchParams.get('batch') || '200', 10);
   const result = await runSatelliteBackfillBatch(env, batchParam);
   if (result.success === false) {
@@ -2881,7 +2998,7 @@ async function handleSatelliteBackfill(request, env, url, corsHeaders) {
 //     failures[], total_remaining, no_coords_count, duration_ms }
 // Return shape on early-fail:
 //   { success: false, error, detail?, statusCode }
-async function runSatelliteBackfillBatch(env, batchSize) {
+async function runSatelliteBackfillBatch(env, batchSize, opts = {}) {
   if (!env.PHOTOS) return { success: false, error: 'env.PHOTOS R2 bucket binding missing',     statusCode: 503 };
   if (!env.DB)     return { success: false, error: 'env.DB binding missing',                    statusCode: 503 };
   const apiKey = env.GOOGLE_MAPS_API_KEY;
@@ -2890,22 +3007,45 @@ async function runSatelliteBackfillBatch(env, batchSize) {
   batchSize = Math.max(1, Math.min(500, Number(batchSize) || 200));
   const startedAt = Date.now();
 
+  // 2026-06-15 calibration sweep — the WHERE now also pulls rows that have an
+  // image but are missing satelliteZoom. That covers the ~413 properties that
+  // were backfilled before this migration landed; re-pulling them stamps the
+  // zoom + capturedLat/Lng so meters_per_pixel can be derived for every saved
+  // image. Once every row has both, this clause naturally returns 0.
+  const SAT_NEEDS_PULL =
+    `latitude IS NOT NULL AND longitude IS NOT NULL
+     AND (satelliteImageKey IS NULL OR satelliteZoom IS NULL)`;
+
   // Pull batch + the two counters used in the report
   let rows = [];
   let noCoordsCount = 0;
   let totalRemaining = 0;
   try {
+    if (opts.propertyId) {
+      // Targeted single-row re-pull at the row's CURRENT stored coords.
+      // Bypasses SAT_NEEDS_PULL so a re-pull after a manual pin fix works
+      // even when the row already has image + zoom.
+      const sel = await env.DB.prepare(
+        `SELECT propertyId, latitude, longitude FROM Property
+          WHERE propertyId = ? AND latitude IS NOT NULL AND longitude IS NOT NULL
+          LIMIT 1`
+      ).bind(opts.propertyId).all();
+      rows = sel.results || [];
+      if (!rows.length) {
+        return { success: false, error: 'property not found or has null coords', detail: opts.propertyId, statusCode: 404 };
+      }
+    } else {
     const sel = await env.DB.prepare(
       `SELECT propertyId, latitude, longitude FROM Property
-       WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND satelliteImageKey IS NULL
+       WHERE ${SAT_NEEDS_PULL}
        ORDER BY propertyId
        LIMIT ?`
     ).bind(batchSize).all();
     rows = sel.results || [];
+    }
 
     const remRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM Property
-       WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND satelliteImageKey IS NULL`
+      `SELECT COUNT(*) AS n FROM Property WHERE ${SAT_NEEDS_PULL}`
     ).first();
     totalRemaining = Number(remRow?.n || 0);
 
@@ -2923,6 +3063,15 @@ async function runSatelliteBackfillBatch(env, batchSize) {
   const failures = [];
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+  // 2026-06-15: zoom dropped from 20 → 19. At Florida latitude (~26°N) zoom 19
+  // gives ~0.27 m/px, so a 640×640 (scale=2 → 1280×1280 px) image covers ~172m
+  // square. That fits virtually every residential parcel including large
+  // estates; the old zoom=20 covered only ~86m and was cropping bigger homes
+  // (notably the Tom Shelton failure that triggered this batch). zoom is now
+  // persisted with the image so meters_per_pixel can be derived at quote time
+  // regardless of what zoom future fetches use.
+  const ZOOM = 19;
+
   for (const row of rows) {
     const { propertyId, latitude, longitude } = row;
     // markers= added 2026-06-14 — same self-documenting pin as handleAutoSatellite.
@@ -2934,7 +3083,7 @@ async function runSatelliteBackfillBatch(env, batchSize) {
     const mapsUrl =
       `https://maps.googleapis.com/maps/api/staticmap?` +
       `center=${latitude},${longitude}` +
-      `&zoom=20&size=640x640&scale=2&maptype=satellite&format=jpg` +
+      `&zoom=${ZOOM}&size=640x640&scale=2&maptype=satellite&format=jpg` +
       `&markers=${encodeURIComponent('color:red|' + latitude + ',' + longitude)}` +
       `&key=${encodeURIComponent(apiKey)}`;
 
@@ -2953,9 +3102,17 @@ async function runSatelliteBackfillBatch(env, batchSize) {
       const blob = await res.arrayBuffer();
       const key  = `property/${propertyId}/satellite.jpg`;
       await env.PHOTOS.put(key, blob, { httpMetadata: { contentType: 'image/jpeg' } });
+      const capturedAt = new Date().toISOString();
       await env.DB.prepare(
-        `UPDATE Property SET satelliteImageKey = ?, modifiedAt = ? WHERE propertyId = ?`
-      ).bind(key, new Date().toISOString(), propertyId).run();
+        `UPDATE Property
+            SET satelliteImageKey    = ?,
+                satelliteZoom        = ?,
+                satelliteCapturedLat = ?,
+                satelliteCapturedLng = ?,
+                satelliteCapturedAt  = ?,
+                modifiedAt           = ?
+          WHERE propertyId = ?`
+      ).bind(key, ZOOM, latitude, longitude, capturedAt, capturedAt, propertyId).run();
       fetched++;
     } catch (e) {
       failed++;
@@ -2979,6 +3136,256 @@ async function runSatelliteBackfillBatch(env, batchSize) {
     no_coords_count: noCoordsCount,
     duration_ms: Date.now() - startedAt,
   };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PHASE C — Geocode precision backfill (2026-06-16).
+// POST /admin/geocode-backfill?batch=200
+//
+// Re-geocodes every Property where geocodeSource IS NULL/'' OR latitude IS NULL.
+// (Excludes manual_override — operator already pinned those by hand.)
+// Per row:
+//   1. Build address from streetAddress + city + state + zip and call
+//      geocodeAddress(). Always persist geocodeSource + geocodePrecision
+//      regardless of drift.
+//   2. If the property already had stored coords AND Google returned a ROOFTOP
+//      precision AND the new coord is >15m off the stored coord, update
+//      lat/lng AND immediately re-pull the satellite image at the new
+//      center (writing the full calibration columns). This is the "Is the
+//      image centered on the right roof?" close-the-gap step.
+//   3. If the property had no stored coords, always write the new coord and
+//      fetch a satellite image (any precision — coarse is better than missing).
+//
+// Cost: ~$0.005 per geocode (Google), $0.002 per satellite re-pull. The full
+// 1,206-property sweep is ~$6 against the $200/mo Static Maps credit.
+//
+// Return shape:
+//   { success, processed, geocoded, persisted, moved, satellite_pulled,
+//     failures[], total_remaining, precision_distribution, duration_ms }
+async function handleGeocodeBackfill(request, env, url, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  const apiKey = env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return jsonResponse({ error: 'GOOGLE_MAPS_API_KEY not configured' }, corsHeaders, 503);
+
+  const batchSize = Math.max(1, Math.min(500, parseInt(url.searchParams.get('batch') || '200', 10)));
+  const startedAt = Date.now();
+
+  // manual_override carries the operator's clicked-on-the-true-house intent —
+  // we must never re-geocode over it. Empty-string and NULL both mean
+  // "provider not tracked yet" (the migration backfill case).
+  const NEEDS_GEOCODE =
+    `((geocodeSource IS NULL OR geocodeSource = '') OR latitude IS NULL)
+       AND (geocodeSource IS NULL OR geocodeSource != 'manual_override')`;
+
+  let rows = [];
+  let totalRemaining = 0;
+  try {
+    const sel = await env.DB.prepare(
+      `SELECT propertyId, streetAddress, unit, city, state, zip, latitude, longitude
+         FROM Property
+        WHERE ${NEEDS_GEOCODE}
+        ORDER BY propertyId
+        LIMIT ?`
+    ).bind(batchSize).all();
+    rows = sel.results || [];
+
+    const remRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM Property WHERE ${NEEDS_GEOCODE}`
+    ).first();
+    totalRemaining = Number(remRow?.n || 0);
+  } catch (e) {
+    await _logD1Failure(env, 'geocode_backfill:select', e.message).catch(()=>{});
+    return jsonResponse({ success: false, error: 'D1 SELECT failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  const SAT_ZOOM = 19;
+
+  let geocoded = 0;       // got any result back
+  let persisted = 0;      // wrote source+precision
+  let moved = 0;          // updated lat/lng (drift or no prior coord)
+  let satellitePulled = 0;
+  const failures = [];
+  const precisionDist = {};
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  for (const row of rows) {
+    const { propertyId, streetAddress, unit, city, state, zip, latitude: oldLat, longitude: oldLng } = row;
+    const addr = [
+      [streetAddress, unit].filter(Boolean).join(' '),
+      city,
+      [state || 'FL', zip].filter(Boolean).join(' '),
+    ].filter(Boolean).join(', ');
+    if (!addr) {
+      failures.push({ propertyId, reason: 'empty address' });
+      continue;
+    }
+
+    let geo;
+    try {
+      geo = await geocodeAddress(addr, env);
+    } catch (e) {
+      failures.push({ propertyId, reason: `geocode threw: ${e.message.slice(0, 80)}` });
+      continue;
+    }
+    if (!geo || typeof geo.lat !== 'number' || typeof geo.lng !== 'number') {
+      failures.push({ propertyId, reason: 'no_result' });
+      continue;
+    }
+    geocoded++;
+
+    const precision = geo.locationType || null;  // null for census/nominatim
+    const source    = geo.source || null;
+    const precKey = precision || `_${source || 'unknown'}`;
+    precisionDist[precKey] = (precisionDist[precKey] || 0) + 1;
+
+    // 2026-06-16: drift-based move REMOVED. Hard-learned from the Tom Shelton
+    // regression — Google's ROOFTOP precision is parcel-level, not "literal on
+    // the building." Trusting a ROOFTOP+drift signal to override a coord that
+    // was actually centered on a roof can land the pin in the cul-de-sac.
+    //
+    // The locked rule (per Tyler 2026-06-16):
+    //   A pin position only changes when (a) the prior coord was null/missing,
+    //   or (b) a manual_override is applied via the fix-pin path
+    //   (handlePropertyCoordinatesUpdate, PATCH /admin/property/:id/coordinates).
+    //
+    // Below-ROOFTOP precisions are now surfaced via the geocodePrecision column
+    // + the existing tracer warning — operator decides per-property whether to
+    // move the pin manually.
+    let shouldMove = (oldLat == null || oldLng == null);
+    let driftMeters = (oldLat != null && oldLng != null)
+      ? haversineMeters(oldLat, oldLng, geo.lat, geo.lng)
+      : null;
+
+    const now = new Date().toISOString();
+    try {
+      if (shouldMove) {
+        await env.DB.prepare(
+          `UPDATE Property
+              SET latitude         = ?,
+                  longitude        = ?,
+                  geocodeSource    = ?,
+                  geocodePrecision = ?,
+                  modifiedAt       = ?
+            WHERE propertyId = ?`
+        ).bind(geo.lat, geo.lng, source, precision, now, propertyId).run();
+        moved++;
+      } else {
+        await env.DB.prepare(
+          `UPDATE Property
+              SET geocodeSource    = COALESCE(NULLIF(geocodeSource, ''), ?),
+                  geocodePrecision = COALESCE(geocodePrecision, ?),
+                  modifiedAt       = ?
+            WHERE propertyId = ?`
+        ).bind(source, precision, now, propertyId).run();
+      }
+      persisted++;
+    } catch (e) {
+      failures.push({ propertyId, reason: `d1 update: ${e.message.slice(0, 80)}` });
+      await _logD1Failure(env, `geocode_backfill:${propertyId}`, e.message).catch(()=>{});
+      continue;
+    }
+
+    // Mirror the precision into the existing geo_precision KV blob so the
+    // tracer warning logic stays consistent. (Currently the tracer reads
+    // from KV, not the new D1 column. Future consolidation, but right now
+    // both must agree.)
+    if (precision) {
+      try {
+        const gpKey = KV_KEYS.geoPrecision;
+        const gp = (await env.DATA.get(gpKey, 'json')) || {};
+        gp[propertyId] = precision;
+        await env.DATA.put(gpKey, JSON.stringify(gp));
+      } catch (e) {
+        await _logD1Failure(env, `geocode_backfill:kv_precision:${propertyId}`, e.message).catch(()=>{});
+      }
+    }
+
+    // Re-pull satellite if we moved the coord. Without this step the saved
+    // satellite would still be centered on the old (wrong) roof — the whole
+    // point of this backfill is to close that gap.
+    if (shouldMove && env.PHOTOS) {
+      const mapsUrl =
+        `https://maps.googleapis.com/maps/api/staticmap?` +
+        `center=${geo.lat},${geo.lng}` +
+        `&zoom=${SAT_ZOOM}&size=640x640&scale=2&maptype=satellite&format=jpg` +
+        `&markers=${encodeURIComponent('color:red|' + geo.lat + ',' + geo.lng)}` +
+        `&key=${encodeURIComponent(apiKey)}`;
+      try {
+        const res = await fetch(mapsUrl);
+        const ct = (res.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+        if (res.ok && (ct === 'image/jpeg' || ct === 'image/jpg')) {
+          const blob = await res.arrayBuffer();
+          const key  = `property/${propertyId}/satellite.jpg`;
+          await env.PHOTOS.put(key, blob, { httpMetadata: { contentType: 'image/jpeg' } });
+          await env.DB.prepare(
+            `UPDATE Property
+                SET satelliteImageKey    = ?,
+                    satelliteZoom        = ?,
+                    satelliteCapturedLat = ?,
+                    satelliteCapturedLng = ?,
+                    satelliteCapturedAt  = ?,
+                    modifiedAt           = ?
+              WHERE propertyId = ?`
+          ).bind(key, SAT_ZOOM, geo.lat, geo.lng, now, now, propertyId).run();
+          satellitePulled++;
+        }
+      } catch (e) {
+        // Non-fatal — coord is already updated; tracer's re-fetch button
+        // can fill in the image later.
+        await _logD1Failure(env, `geocode_backfill:satellite:${propertyId}`, e.message).catch(()=>{});
+      }
+    }
+
+    // Rate-respect: Google Geocoding free tier handles 50 QPS easily but we
+    // smooth it for politeness. ~7 rows/sec → 200-row batch ~30s.
+    await sleep(120);
+  }
+
+  return jsonResponse({
+    success: true,
+    batch_size: batchSize,
+    processed: rows.length,
+    geocoded,
+    persisted,
+    moved,
+    satellite_pulled: satellitePulled,
+    failures: failures.slice(0, 20),
+    failure_count: failures.length,
+    total_remaining: Math.max(0, totalRemaining - persisted - failures.length),
+    precision_distribution: precisionDist,
+    duration_ms: Date.now() - startedAt,
+  }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// POST /admin/satellite-backfill/clear-marker
+// Deletes the satellite:backfill_complete KV marker so the daily cron resumes
+// scanning for net-new properties. Used after a geocode backfill flips some
+// previously-no-coords rows into having-coords (they now match the cron's
+// WHERE clause and need pulling).
+async function handleSatelliteClearMarker(request, env, corsHeaders) {
+  if (!env.DATA) return jsonResponse({ error: 'env.DATA binding missing' }, corsHeaders, 503);
+  try {
+    const had = await env.DATA.get('satellite:backfill_complete');
+    await env.DATA.delete('satellite:backfill_complete');
+    return jsonResponse({ success: true, had_marker: !!had, cleared: true }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'satellite_clear_marker', e.message).catch(()=>{});
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
+}
+
+// Haversine distance in meters between two (lat, lng) pairs. Pure JS — used
+// by the geocode backfill drift check. Earth radius 6371008.8m (mean).
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371008.8;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLng/2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // GET /admin/photos/job/:jobId
@@ -3382,9 +3789,17 @@ async function handlePropertyCoordinatesUpdate(request, env, propertyId, corsHea
   }
   try {
     const now = new Date().toISOString();
+    // Stamp manual_override into BOTH the source (provider) and precision
+    // (quality) columns so D1 reads agree with the geo_precision KV blob.
     const r = await env.DB.prepare(
-      'UPDATE Property SET latitude = ?, longitude = ?, geocodeSource = ?, modifiedAt = ? WHERE propertyId = ?'
-    ).bind(lat, lng, 'manual_override', now, propertyId).run();
+      `UPDATE Property
+          SET latitude         = ?,
+              longitude        = ?,
+              geocodeSource    = ?,
+              geocodePrecision = ?,
+              modifiedAt       = ?
+        WHERE propertyId = ?`
+    ).bind(lat, lng, 'manual_override', 'manual_override', now, propertyId).run();
     const changes = r.meta?.changes ?? null;
     if (!changes) {
       return jsonResponse({ error: 'property not found', propertyId }, corsHeaders, 404);
@@ -4049,9 +4464,28 @@ async function handleAgreementConfirm(request, env, phone, corsHeaders) {
           const _imgPropId = cust.address ? _d1PropId(cust.address, cust.city||'') : null;
           if (_imgPropId) {
             if (existing.satelliteImageKey) {
+              // 2026-06-15: carry the calibration fields too when present in KV.
+              // satelliteZoom/Lat/Lng/CapturedAt are stamped by handleAutoSatellite
+              // (see step 5) — propagating here keeps Property authoritative for
+              // meters_per_pixel derivation.
               await env.DB.prepare(
-                `UPDATE Property SET satelliteImageKey=?,modifiedAt=? WHERE propertyId=?`
-              ).bind(existing.satelliteImageKey, now, _imgPropId).run();
+                `UPDATE Property
+                    SET satelliteImageKey    = ?,
+                        satelliteZoom        = COALESCE(?, satelliteZoom),
+                        satelliteCapturedLat = COALESCE(?, satelliteCapturedLat),
+                        satelliteCapturedLng = COALESCE(?, satelliteCapturedLng),
+                        satelliteCapturedAt  = COALESCE(?, satelliteCapturedAt),
+                        modifiedAt           = ?
+                  WHERE propertyId = ?`
+              ).bind(
+                existing.satelliteImageKey,
+                existing.satelliteZoom        ?? null,
+                existing.satelliteCapturedLat ?? null,
+                existing.satelliteCapturedLng ?? null,
+                existing.satelliteCapturedAt  ?? null,
+                now,
+                _imgPropId,
+              ).run();
             }
             if (existing.frontImageKey) {
               await env.DB.prepare(
@@ -8404,8 +8838,12 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 async function geocodeAddress(address, env = null) {
   if (!address) return null;
 
-  // ── Google Maps Geocoding (preferred — requires GOOGLE_MAPS_API_KEY secret) ──
-  const apiKey = env?.GOOGLE_MAPS_API_KEY;
+  // ── Google Maps Geocoding (preferred — requires Geocoding API enabled) ──
+  // 2026-06-16: separated keys. GOOGLE_GEOCODING_API_KEY is the Geocoding-API-
+  // authorized key; GOOGLE_MAPS_API_KEY is Static-Maps-only. Prefer the
+  // dedicated key; fall back to the Maps key for backward compat (older deploys
+  // where one key covered both APIs).
+  const apiKey = env?.GOOGLE_GEOCODING_API_KEY || env?.GOOGLE_MAPS_API_KEY;
   if (apiKey) {
     try {
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&components=country:US&key=${apiKey}`;
@@ -8779,11 +9217,25 @@ async function bouncieJobDurationMatcher(date, env) {
         const geo = await geocodeAddress(fullAddr, env);
         if (geo) {
           jobLat = geo.lat; jobLon = geo.lon || geo.lng; geocodeSource = geo.source;
-          // Cache coords back to Property — best-effort, non-fatal
+          // Cache coords back to Property — best-effort, non-fatal.
+          // Also persist locationType so the geo_precision tracker stays
+          // accurate for any property the matcher fills in on demand.
           try {
             await env.DB.prepare(
-              'UPDATE Property SET latitude=?, longitude=?, geocodeSource=?, modifiedAt=? WHERE propertyId=?'
-            ).bind(jobLat, jobLon, geocodeSource, new Date().toISOString(), row.propertyId).run();
+              `UPDATE Property
+                  SET latitude         = ?,
+                      longitude        = ?,
+                      geocodeSource    = ?,
+                      geocodePrecision = COALESCE(?, geocodePrecision),
+                      modifiedAt       = ?
+                WHERE propertyId = ?`
+            ).bind(
+              jobLat, jobLon,
+              geocodeSource,
+              geo.locationType || null,
+              new Date().toISOString(),
+              row.propertyId,
+            ).run();
           } catch(_) { /* non-fatal */ }
           coordsGeocoded++;
         }
