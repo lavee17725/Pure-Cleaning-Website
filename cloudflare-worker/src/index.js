@@ -10374,7 +10374,9 @@ async function handlePatchInvoice(request, invoiceId, env, corsHeaders) {
     return jsonResponse({
       error: 'invoice is locked',
       status: existing.status,
-      hint: 'Toggle paid OFF (paidInFull:false) before editing content.',
+      hint: existing.status === 'paid'
+        ? 'Toggle paid OFF (paidInFull:false) before editing content.'
+        : 'Voided invoices cannot be edited — restore the invoice first.',
     }, corsHeaders, 409);
   }
 
