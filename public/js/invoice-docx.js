@@ -15,7 +15,11 @@
 // both call window.PCPC_InvoiceDocx.download(invoice) once this file is loaded.
 
 (() => {
-  const DOCX_CDN = 'https://cdn.jsdelivr.net/npm/docx@9.5.0/build/index.umd.min.js';
+  // docx@8.5.0 ships a real UMD build (368 KB minified). v9.x went pure ESM
+  // with no UMD — would require <script type="module"> + import maps which
+  // doesn't degrade gracefully on older browsers. v8.5.0's API is identical
+  // for everything we use (Document, Paragraph, Table, ImageRun, Packer).
+  const DOCX_CDN = 'https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js';
   const LOGO_URL = '/images/logo-pure-cleaning.png';
 
   let _docxPromise = null;  // cache so successive clicks don't re-load
@@ -89,11 +93,13 @@
     const _run = (text, opts = {}) =>
       new TextRun({ text: text == null ? '' : String(text), bold: !!opts.bold, color: opts.color, size: opts.size, font: 'Calibri' });
 
-    const _label = (text) => _run(text, { bold: true, color: COLORS.muted, size: 14 });
-    const _value = (text, opts = {}) => _run(text, { color: COLORS.text, size: opts.size || 20, bold: opts.bold });
+    const _label = (text) => _run(text, { bold: true, color: COLORS.muted, size: 18 });
+    const _value = (text, opts = {}) => _run(text, { color: COLORS.text, size: opts.size || 22, bold: opts.bold });
 
     // Letterhead: a 2-column table with logo on left, business meta right-aligned.
     // Table is the most reliable way to align an image + text horizontally in Word.
+    // Sizing rescaled UP 2026-06-17 (R2-3) — round 1 was too tight; this version
+    // fills a full letter-size page while still holding one page (Rule 23).
     const letterhead = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       borders: {
@@ -113,8 +119,8 @@
               children: [
                 new Paragraph({
                   children: logoBytes ? [
-                    new ImageRun({ data: logoBytes, transformation: { width: 130, height: 87 } }),
-                  ] : [_run('PURE CLEANING', { bold: true, size: 28, color: COLORS.navy })],
+                    new ImageRun({ data: logoBytes, transformation: { width: 170, height: 114 } }),
+                  ] : [_run('PURE CLEANING', { bold: true, size: 36, color: COLORS.navy })],
                 }),
               ],
             }),
@@ -122,10 +128,10 @@
               width: { size: 70, type: WidthType.PERCENTAGE },
               verticalAlign: VerticalAlign.CENTER,
               children: [
-                _para([_run('PURE CLEANING PRESSURE CLEANING, LLC', { bold: true, size: 22, color: COLORS.navy })], { alignment: AlignmentType.RIGHT }),
-                _para([_run('Family-owned · South Florida · Since 1995', { size: 16, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
-                _para([_run('954-389-2642 · pure_cleaning@live.com', { size: 16, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
-                _para([_run('purecleaningpressurecleaning.com', { size: 16, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('PURE CLEANING PRESSURE CLEANING, LLC', { bold: true, size: 28, color: COLORS.navy })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('Family-owned · South Florida · Since 1995', { size: 20, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('954-389-2642 · pure_cleaning@live.com', { size: 20, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
+                _para([_run('purecleaningpressurecleaning.com', { size: 20, color: COLORS.muted })], { alignment: AlignmentType.RIGHT }),
               ],
             }),
           ],
@@ -141,16 +147,16 @@
 
     const titleBlock = [
       new Paragraph({
-        spacing: { before: 240, after: 60 },
+        spacing: { before: 360, after: 100 },
         children: [
-          _run('INVOICE', { bold: true, size: 36, color: COLORS.navy }),
-          _run('     ', { size: 36 }),
-          _run(inv.invoiceNumber || inv.invoiceId || '—', { bold: true, size: 22, color: COLORS.muted }),
+          _run('INVOICE', { bold: true, size: 48, color: COLORS.navy }),
+          _run('     ', { size: 48 }),
+          _run(inv.invoiceNumber || inv.invoiceId || '—', { bold: true, size: 28, color: COLORS.muted }),
         ],
       }),
       new Paragraph({
-        spacing: { after: 200 },
-        children: [_run(statusText, { bold: true, size: 18, color: statusColor })],
+        spacing: { after: 320 },
+        children: [_run(statusText, { bold: true, size: 24, color: statusColor })],
       }),
     ];
 
@@ -161,21 +167,21 @@
     const _bizName = bt.companyName || bt.businessName;
     const _contact = bt.contactName || `${(bt.firstName||'') + ' ' + (bt.lastName||'')}`.trim();
     if (_bizName) {
-      _billLines.push([_run(_bizName, { bold: true, size: 20, color: COLORS.navy })]);
-      if (_contact && _contact !== _bizName) _billLines.push([_run('Attn: ' + _contact, { size: 18, color: COLORS.text })]);
+      _billLines.push([_run(_bizName, { bold: true, size: 26, color: COLORS.navy })]);
+      if (_contact && _contact !== _bizName) _billLines.push([_run('Attn: ' + _contact, { size: 22, color: COLORS.text })]);
     } else if (_contact) {
-      _billLines.push([_run(_contact, { bold: true, size: 20, color: COLORS.navy })]);
+      _billLines.push([_run(_contact, { bold: true, size: 26, color: COLORS.navy })]);
     } else {
-      _billLines.push([_run('Customer', { bold: true, size: 20, color: COLORS.navy })]);
+      _billLines.push([_run('Customer', { bold: true, size: 26, color: COLORS.navy })]);
     }
-    if (bt.phone) _billLines.push([_run(bt.phone, { size: 16, color: COLORS.muted })]);
-    if (bt.email) _billLines.push([_run(bt.email, { size: 16, color: COLORS.muted })]);
+    if (bt.phone) _billLines.push([_run(bt.phone, { size: 20, color: COLORS.muted })]);
+    if (bt.email) _billLines.push([_run(bt.email, { size: 20, color: COLORS.muted })]);
 
     const _saLines = [];
-    if (sa.address) _saLines.push([_run(sa.address, { size: 18, color: COLORS.text })]);
+    if (sa.address) _saLines.push([_run(sa.address, { size: 22, color: COLORS.text })]);
     const _cityZip = [sa.city, sa.state || 'FL', sa.zip].filter(Boolean).join(' ');
-    if (_cityZip) _saLines.push([_run(_cityZip, { size: 18, color: COLORS.text })]);
-    if (!_saLines.length) _saLines.push([_run('Address on file', { size: 16, color: COLORS.muted })]);
+    if (_cityZip) _saLines.push([_run(_cityZip, { size: 22, color: COLORS.text })]);
+    if (!_saLines.length) _saLines.push([_run('Address on file', { size: 20, color: COLORS.muted })]);
 
     const addrTable = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
@@ -218,11 +224,11 @@
     if (!inv.paidAt && inv.dueDate) metaCells.push({ label: 'DUE DATE', value: _fmtDate(inv.dueDate) });
 
     const metaRow = new Paragraph({
-      spacing: { before: 200, after: 200 },
+      spacing: { before: 320, after: 320 },
       children: metaCells.flatMap((c, i) => [
-        ...(i > 0 ? [_run('     ', { size: 14 })] : []),
-        _run(c.label + ': ', { bold: true, size: 14, color: COLORS.muted }),
-        _run(c.value, { size: 16, color: COLORS.text }),
+        ...(i > 0 ? [_run('     ', { size: 18 })] : []),
+        _run(c.label + ': ', { bold: true, size: 18, color: COLORS.muted }),
+        _run(c.value, { size: 20, color: COLORS.text }),
       ]),
     });
 
@@ -233,14 +239,16 @@
       shading: { type: ShadingType.CLEAR, fill: COLORS.navy, color: 'auto' },
       children: [new Paragraph({
         alignment: opts.alignment || AlignmentType.LEFT,
-        children: [_run(text, { bold: true, size: 16, color: 'ffffff' })],
+        spacing: { before: 60, after: 60 },
+        children: [_run(text, { bold: true, size: 20, color: 'ffffff' })],
       })],
       width: { size: opts.width, type: WidthType.PERCENTAGE },
     });
     const bodyCell = (children, opts = {}) => new TableCell({
       children: Array.isArray(children) ? children : [new Paragraph({
         alignment: opts.alignment || AlignmentType.LEFT,
-        children: [_value(children, { size: 18 })],
+        spacing: { before: 80, after: 80 },
+        children: [_value(children, { size: 22 })],
       })],
       width: { size: opts.width, type: WidthType.PERCENTAGE },
       verticalAlign: VerticalAlign.CENTER,
@@ -323,13 +331,15 @@
           new TableCell({
             children: [new Paragraph({
               alignment: AlignmentType.RIGHT,
-              children: [_run(label, { bold: isGrand, size: isGrand ? 22 : 18, color: isGrand ? COLORS.navy : COLORS.muted })],
+              spacing: { before: 80, after: 80 },
+              children: [_run(label, { bold: isGrand, size: isGrand ? 28 : 22, color: isGrand ? COLORS.navy : COLORS.muted })],
             })],
           }),
           new TableCell({
             children: [new Paragraph({
               alignment: AlignmentType.RIGHT,
-              children: [_run(value, { bold: isGrand, size: isGrand ? 26 : 18, color: isGrand ? COLORS.navy : COLORS.text })],
+              spacing: { before: 80, after: 80 },
+              children: [_run(value, { bold: isGrand, size: isGrand ? 34 : 22, color: isGrand ? COLORS.navy : COLORS.text })],
             })],
           }),
         ],
@@ -341,33 +351,33 @@
 
     if (inv.subject) {
       footerBlocks.push(new Paragraph({
-        spacing: { before: 200 },
-        children: [_run('Subject: ', { bold: true, size: 16, color: COLORS.muted }), _run(inv.subject, { size: 18, color: COLORS.text })],
+        spacing: { before: 320 },
+        children: [_run('Subject: ', { bold: true, size: 20, color: COLORS.muted }), _run(inv.subject, { size: 22, color: COLORS.text })],
       }));
     }
     if (inv.introText) {
       footerBlocks.push(new Paragraph({
-        spacing: { before: 120 },
-        children: [_run(inv.introText, { size: 18, color: COLORS.text })],
+        spacing: { before: 160 },
+        children: [_run(inv.introText, { size: 22, color: COLORS.text })],
       }));
     }
     if (inv.notes) {
       footerBlocks.push(new Paragraph({
-        spacing: { before: 160 },
-        children: [_run('Notes:  ', { bold: true, size: 14, color: COLORS.muted }), _run(inv.notes, { size: 18, color: COLORS.text })],
+        spacing: { before: 240 },
+        children: [_run('Notes:  ', { bold: true, size: 18, color: COLORS.muted }), _run(inv.notes, { size: 22, color: COLORS.text })],
       }));
     }
     footerBlocks.push(new Paragraph({
-      spacing: { before: 240 },
+      spacing: { before: 360 },
       children: [
-        _run('Payment methods accepted: ', { bold: true, size: 14, color: COLORS.muted }),
-        _run('Zelle · Check · Cash · Venmo', { size: 18, color: COLORS.text }),
+        _run('Payment methods accepted: ', { bold: true, size: 18, color: COLORS.muted }),
+        _run('Zelle · Check · Cash · Venmo', { size: 22, color: COLORS.text }),
       ],
     }));
     if (inv.paymentTerms && !_paid) {
       footerBlocks.push(new Paragraph({
-        spacing: { before: 80 },
-        children: [_run('Payment terms:  ', { bold: true, size: 14, color: COLORS.muted }), _run(inv.paymentTerms, { size: 18, color: COLORS.text })],
+        spacing: { before: 120 },
+        children: [_run('Payment terms:  ', { bold: true, size: 18, color: COLORS.muted }), _run(inv.paymentTerms, { size: 22, color: COLORS.text })],
       }));
     }
 
@@ -377,7 +387,7 @@
       styles: {
         default: {
           document: {
-            run: { font: 'Calibri', size: 20 },
+            run: { font: 'Calibri', size: 22 },
           },
         },
       },
@@ -396,6 +406,7 @@
           metaRow,
           itemsTable,
           new Paragraph({ spacing: { before: 160 }, children: [_run('', { size: 8 })] }),
+          new Paragraph({ spacing: { before: 240 }, children: [_run('', { size: 8 })] }),
           totalsTable,
           ...footerBlocks,
         ],

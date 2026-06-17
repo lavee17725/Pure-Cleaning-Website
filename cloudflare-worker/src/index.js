@@ -6830,27 +6830,9 @@ async function handleGetInvoicePublic(env, invoiceId, corsHeaders) {
      ORDER BY sortOrder`
   ).bind(invoiceId).all();
 
-  // Service address: resolved from first referenced jobId (jobIds[0])
-  let serviceAddress = { address: '', city: '', zip: '' };
-  try {
-    const jobIds = JSON.parse(inv.jobIds || '[]');
-    if (jobIds[0]) {
-      const jobRow = await env.DB.prepare(
-        `SELECT j.workSiteAddress, j.workSiteCity, j.workSiteZip,
-                prop.streetAddress, prop.city, prop.zip
-         FROM Job j
-         LEFT JOIN Property prop ON prop.propertyId = j.propertyId
-         WHERE j.jobId = ?`
-      ).bind(jobIds[0]).first();
-      if (jobRow) {
-        serviceAddress = {
-          address: jobRow.workSiteAddress || jobRow.streetAddress || '',
-          city:    jobRow.workSiteCity    || jobRow.city          || '',
-          zip:     jobRow.workSiteZip     || jobRow.zip           || '',
-        };
-      }
-    }
-  } catch(_) {}
+  // Service address resolved via the shared helper so both this customer GET
+  // and handleAdminGetInvoice agree on one source — DL-07: one helper, no drift.
+  const serviceAddress = await resolveServiceAddress(inv.jobIds, env);
 
   const isCommercial = inv.customerType === 'commercial';
   const isPartner    = inv.customerType === 'partner_referral';
@@ -10430,6 +10412,53 @@ async function handlePatchProposal(request, proposalId, env, corsHeaders) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Shared invoice service-address resolver — DL-07: one helper, no drift.
+//
+// Returns { address, city, state, zip } resolved from the FIRST jobId on the
+// invoice. Worksite columns (Job.workSiteAddress/City/Zip) take precedence
+// over the Property fallback so partner/commercial jobs render the
+// where-the-work-happened address, not the billing address.
+//
+// state is sourced from Property.state (DEFAULT 'FL' per the initial schema).
+// Job has no workSiteState column today (migration 0007 only added
+// workSiteAddress/City/Zip), so the property's state is authoritative.
+//
+// Accepts the raw jobIds JSON string (as stored on Invoice.jobIds) or a
+// pre-parsed array; tolerates malformed JSON by returning empty values.
+//
+// Earned 2026-06-17: the customer GET /invoice/:id resolved this correctly
+// for months, but handleAdminGetInvoice was never given the block, so the
+// admin shape — and the Word export reading it — fell back to state-only
+// ("Florida"). Both endpoints now route through the same path.
+async function resolveServiceAddress(jobIdsRaw, env) {
+  const empty = { address: '', city: '', state: '', zip: '' };
+  if (!env?.DB) return empty;
+  let jobIds;
+  try {
+    jobIds = Array.isArray(jobIdsRaw) ? jobIdsRaw : JSON.parse(jobIdsRaw || '[]');
+  } catch { return empty; }
+  if (!jobIds[0]) return empty;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT j.workSiteAddress, j.workSiteCity, j.workSiteZip,
+              prop.streetAddress, prop.city, prop.state, prop.zip
+         FROM Job j
+         LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+        WHERE j.jobId = ?`
+    ).bind(jobIds[0]).first();
+    if (!row) return empty;
+    return {
+      address: row.workSiteAddress || row.streetAddress || '',
+      city:    row.workSiteCity    || row.city          || '',
+      state:   row.state           || 'FL',
+      zip:     row.workSiteZip     || row.zip           || '',
+    };
+  } catch {
+    return empty;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // GET /admin/invoice/{invoiceId}
 // Admin-scoped: returns the full editable shape (includes internalNotes, which
 // the public GET /invoice/:id intentionally omits). Used by the new invoice
@@ -10459,6 +10488,12 @@ async function handleAdminGetInvoice(invoiceId, env, corsHeaders) {
       ORDER BY sortOrder ASC`
   ).bind(invoiceId).all())?.results || [];
 
+  // Service address resolved via the shared helper — same path the public GET
+  // /invoice/:id uses. DL-07: one helper, no drift. Without this the admin
+  // shape was returning nothing here and the Word export was filling in
+  // "Florida" only (R2-1, 2026-06-17).
+  const serviceAddress = await resolveServiceAddress(inv.jobIds, env);
+
   return jsonResponse({
     invoiceId:     inv.invoiceId,
     invoiceNumber: inv.invoiceId,  // human-readable = the id itself per existing convention
@@ -10481,6 +10516,7 @@ async function handleAdminGetInvoice(invoiceId, env, corsHeaders) {
     total:         Number(inv.total || 0),
     amountPaid:    Number(inv.amountPaid || 0),
     jobIds:        inv.jobIds ? JSON.parse(inv.jobIds) : [],
+    serviceAddress,
     customer: {
       firstName:    inv.firstName,
       lastName:     inv.lastName,

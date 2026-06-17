@@ -136,6 +136,7 @@ input:disabled,textarea:disabled{background:#f3f4f6;color:var(--muted);cursor:no
       <div class="summary-grid">
         <div class="summary-cell"><div class="lbl">Invoice number</div><div class="val" id="sInvNumber">—</div></div>
         <div class="summary-cell"><div class="lbl">Bill to</div><div class="val" id="sBillTo">—</div></div>
+        <div class="summary-cell"><div class="lbl">Service address</div><div class="val" id="sServiceAddr">—</div></div>
         <div class="summary-cell"><div class="lbl">Invoice date</div><div class="val" id="sInvDate">—</div></div>
         <div class="summary-cell"><div class="lbl">Total</div><div class="val big" id="sTotal">$0</div></div>
       </div>
@@ -346,6 +347,15 @@ function renderSummary(){
   document.getElementById('sBillTo').textContent    = name || '—';
   document.getElementById('sInvDate').textContent   = _fmtDate(_invoice.invoiceDate);
   document.getElementById('sTotal').textContent     = _money(_invoice.total);
+
+  // Service address — reads the SAME serviceAddress field the docx export and
+  // customer-facing render use (DL-07). Never a separate state lookup.
+  const sa = _invoice.serviceAddress || {};
+  const _cityZip = [sa.city, sa.state || 'FL', sa.zip].filter(Boolean).join(' ');
+  const _lines = [sa.address, _cityZip].filter(Boolean);
+  document.getElementById('sServiceAddr').innerHTML = _lines.length
+    ? _lines.map(_esc).join('<br>')
+    : '<span style="color:var(--muted);">Address on file</span>';
 }
 
 function renderForm(){
