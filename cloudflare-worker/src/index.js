@@ -1349,6 +1349,14 @@ export default {
         return await handleInvoiceFromJob(request, env, corsHeaders);
       }
 
+      // GET /admin/partners-ranked — partner_referral persons ordered by all-time
+      // COUNT(Job WHERE payerId = partner.personId) DESC. Powers the
+      // new_customer.html dropdown so the most-active partners surface first.
+      // (Job.referredById is dead — payerId is the only live source.)
+      if (path === 'admin/partners-ranked' && request.method === 'GET') {
+        return await handlePartnersRanked(env, corsHeaders);
+      }
+
       // GET  /admin/invoice/:id — full editor shape (admin-only; includes internalNotes).
       // PATCH /admin/invoice/:id — edit subject/introText/notes/paymentTerms/lineItems
       //                            (locked when status='paid' or 'voided');
@@ -6931,6 +6939,53 @@ async function handleCreatePartner(request, env, corsHeaders) {
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// GET /admin/partners-ranked
+//
+// Returns partner_referral persons ranked by COUNT(Job WHERE payerId = personId)
+// DESC, all-time. Used by new_customer.html's partner dropdown so Nelson / Anna
+// / Richard / Carlos / Harts surface above one-off names. LEFT JOIN so partners
+// with zero jobs (just created) still appear at the bottom.
+//
+// Job.referredById is dead (0 of 1,922 jobs); payerId is the authoritative
+// link. Excludes Person.doNotContact = 1 (deleted/suppressed partners stay
+// out of the picker).
+async function handlePartnersRanked(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT p.personId,
+              p.firstName,
+              p.lastName,
+              p.businessName,
+              p.primaryPhone,
+              p.email,
+              COUNT(j.jobId) AS jobCount
+         FROM Person p
+         LEFT JOIN Job j ON j.payerId = p.personId
+        WHERE p.customerType = 'partner_referral'
+          AND (p.doNotContact IS NULL OR p.doNotContact = 0)
+        GROUP BY p.personId
+        ORDER BY jobCount DESC,
+                 COALESCE(p.businessName, p.lastName, p.firstName) ASC`
+    ).all())?.results || [];
+    return jsonResponse({
+      partners: rows.map(r => ({
+        personId:     r.personId,
+        firstName:    r.firstName  || '',
+        lastName:     r.lastName   || '',
+        businessName: r.businessName || null,
+        phone:        (r.primaryPhone || '').replace(/\D/g, '').slice(-10),
+        email:        r.email || null,
+        jobCount:     Number(r.jobCount || 0),
+      })),
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handlePartnersRanked', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
 // ── POST /admin/scheduled-job ─────────────────────────────────────────────────
 // Law T1.18: CREATE paths dual-write KV + D1.
 // Called by submitScheduleNow() immediately after saveDb() (KV write).
@@ -10274,8 +10329,19 @@ async function handlePatchInvoice(request, invoiceId, env, corsHeaders) {
   const now = new Date().toISOString();
 
   // Flow A — paid toggle. Mutually exclusive with content edits (sent in
-  // separate calls by the client). Always honored.
+  // separate calls by the client).
   if (typeof body.paidInFull === 'boolean') {
+    // Guard: a voided invoice was discarded intentionally. Flipping its paid
+    // state silently un-voids it (paid → sent on revert), which would put a
+    // discarded invoice back into the customer's view. Operator must run an
+    // explicit un-void action first (out of scope for this toggle).
+    if (existing.status === 'voided') {
+      return jsonResponse({
+        error: 'invoice is voided',
+        status: existing.status,
+        hint: 'Voided invoices cannot be toggled paid. Restore the invoice first if this was a mistake.',
+      }, corsHeaders, 409);
+    }
     let nextStatus, nextAmountPaid, nextPaidAt;
     if (body.paidInFull) {
       nextStatus     = 'paid';

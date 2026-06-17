@@ -1709,10 +1709,26 @@ function setCustomerType(type) {
   checkReq();
 }
 
-function _populatePartnerDropdown() {
+async function _populatePartnerDropdown() {
   const sel = document.getElementById('partnerSelect');
   if (!sel) return;
-  const partners = (allCustomers||[]).filter(c => c.customerType === 'partner_referral' && !c.deleted);
+  // Prefer the ranked-by-jobCount list from /admin/partners-ranked so Nelson /
+  // Anna / Richard / Carlos / Harts surface above one-off names. Fall back to
+  // the unranked allCustomers filter if the endpoint fails or is offline so
+  // the dropdown always populates (Mom can't be left looking at an empty list).
+  let partners = null;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/partners-ranked`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.partners)) partners = data.partners;
+    }
+  } catch(_) { /* fall through to client-side filter */ }
+  if (!partners) {
+    partners = (allCustomers||[])
+      .filter(c => c.customerType === 'partner_referral' && !c.deleted)
+      .map(c => ({ firstName: c.firstName, lastName: c.lastName, businessName: c.businessName, phone: c.phone }));
+  }
   // Rebuild options preserving the current selection
   const cur = sel.value;
   sel.innerHTML = '<option value="">— Select existing partner or add new —</option><option value="__new__">+ Add new partner</option>';
