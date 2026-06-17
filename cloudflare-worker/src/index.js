@@ -10148,7 +10148,13 @@ async function handlePatchPerson(request, personId, env, corsHeaders) {
   if (!body || typeof body !== 'object')
     return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
-  const ALLOWED = ['email', 'firstName', 'lastName', 'businessName'];
+  // internalNotes added 2026-06-17 — surfaces on the customer profile via
+  // p.internalNotes → c.notes (line ~5488) → legacy "Team Notes" entry. Used
+  // for persistent admin reminders (pricing re-quote anchors, account quirks)
+  // that must resurface when Mom/Tyler open the profile. billingNotes added
+  // alongside — it's the only Person-level free-text field that feeds the
+  // invoice paymentTerms fallback (line ~6651) and proposal payment terms.
+  const ALLOWED = ['email', 'firstName', 'lastName', 'businessName', 'internalNotes', 'billingNotes'];
   const fields = {};
   for (const k of ALLOWED) {
     if (k in body) fields[k] = body[k] ?? null;
