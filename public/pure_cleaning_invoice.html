@@ -100,21 +100,60 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .footer-company { font-size: 12px; color: rgba(255,255,255,.45); margin-bottom: 12px; }
 .footer-since { font-size: 11px; color: rgba(255,255,255,.3); }
 
+/* Print-only letterhead — branded header for printed invoices. Hidden on
+   screen (the navy site-header serves the screen surface) so we don't
+   duplicate branding twice. Logo embedded; business info pulled from the
+   _PRINT_* constants in the worker shape, but rendered statically here. */
+.print-letterhead { display: none; }
+
 /* Print */
 @media print {
+  @page { size: letter; margin: 0.4in; }
   .site-header, .site-footer, .toast, .action-section { display: none !important; }
-  body { background: #fff; }
-  .wrap { max-width: 100%; padding: .5in; }
-  .inv-card { box-shadow: none; border: 1px solid #000; }
-  .inv-top { background: #fff !important; color: #000 !important; border-bottom: 2px solid #000; }
-  .inv-label { color: #000 !important; }
-  .inv-number { color: #333 !important; }
-  .total-card { background: #f5f5f0 !important; border: 1px solid #000; }
-  .total-amt { color: #000 !important; }
-  .total-lbl { color: #555 !important; }
-  .pay-detail-lbl { color: #555 !important; }
-  .pay-detail-val { color: #000 !important; }
-  .pay-detail-row.first { border-top: 1px solid #999; }
+  body { background: #fff; font-size: 11pt; }
+  .wrap { max-width: 100%; padding: 0; }
+  /* Branded letterhead — shows only on print */
+  .print-letterhead {
+    display: flex !important;
+    align-items: center;
+    gap: 18px;
+    padding: 0 0 10pt;
+    margin-bottom: 12pt;
+    border-bottom: 2pt solid #0a1628;
+  }
+  .print-letterhead-logo { width: 1.6in; height: auto; flex-shrink: 0; }
+  .print-letterhead-meta { flex: 1; text-align: right; line-height: 1.4; }
+  .print-letterhead-meta .pl-name { font-size: 13pt; font-weight: 700; color: #0a1628; letter-spacing: 0.3pt; }
+  .print-letterhead-meta .pl-sub  { font-size: 9pt; color: #555; margin-top: 2pt; }
+  /* Invoice card — flatten box-shadow & padding, keep visual structure */
+  .inv-card { box-shadow: none; border: 1px solid #cbd5e1; border-radius: 8pt; page-break-inside: avoid; }
+  .inv-top  { background: #fff !important; color: #000 !important; border-bottom: 1.5pt solid #0a1628; padding: 7pt 10pt; }
+  .inv-label { color: #0a1628 !important; font-size: 8pt; }
+  .inv-number { color: #333 !important; font-size: 11pt; }
+  .paid-badge, .due-badge { color: #0a1628 !important; background: #f5f5f0 !important; border-color: #0a1628 !important; font-size: 9pt; }
+  .inv-body { padding: 10pt 12pt; }
+  .dual-cols { gap: 12pt; margin-bottom: 8pt; }
+  .dual-val  { font-size: 10.5pt; line-height: 1.4; }
+  .dual-val strong { font-size: 11pt; }
+  .dual-lbl, .meta-lbl { font-size: 7.5pt; }
+  .meta-row { padding: 7pt 0; margin-bottom: 8pt; }
+  .meta-val { font-size: 10pt; }
+  .line-list { background: #fff !important; border: 1pt solid #cbd5e1; border-radius: 6pt; margin-bottom: 8pt; page-break-inside: avoid; }
+  .line-row { padding: 6pt 10pt; }
+  .line-name { font-size: 10.5pt; }
+  .line-sub  { font-size: 9pt; }
+  .line-amt  { font-size: 11pt; }
+  .line-check { background: #fff !important; border: 1pt solid #0a1628 !important; color: #0a1628 !important; width: 18px; height: 18px; }
+  .total-card { background: #f5f5f0 !important; border: 1pt solid #0a1628; padding: 8pt 12pt; }
+  .total-lbl { color: #555 !important; font-size: 9pt; }
+  .total-amt { color: #0a1628 !important; font-size: 22pt; }
+  .pay-detail-lbl { color: #555 !important; font-size: 9pt; }
+  .pay-detail-val { color: #0a1628 !important; font-size: 9pt; }
+  .pay-detail-row.first { border-top: 1pt solid #999; margin-top: 4pt; padding-top: 4pt; }
+  .methods-card { border: 1pt solid #cbd5e1; padding: 8pt 12pt; margin-top: 10pt; page-break-inside: avoid; }
+  .methods-title { font-size: 8pt; }
+  .methods-body  { font-size: 10pt; line-height: 1.5; }
+  .terms-block   { font-size: 9.5pt; margin-top: 4pt; }
 }
 </style>
 </head>
@@ -144,6 +183,16 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
   </div>
 
   <div id="state-main">
+    <!-- Print-only branded letterhead — hidden on screen, fills the top of the
+         printed page so an at-rest invoice looks like real letterhead. -->
+    <div class="print-letterhead">
+      <img class="print-letterhead-logo" src="/images/logo-pure-cleaning.png" alt="Pure Cleaning Pressure Cleaning">
+      <div class="print-letterhead-meta">
+        <div class="pl-name">PURE CLEANING PRESSURE CLEANING, LLC</div>
+        <div class="pl-sub">Family-owned · South Florida · Since 1995</div>
+        <div class="pl-sub">954-389-2642 · pure_cleaning@live.com · purecleaningpressurecleaning.com</div>
+      </div>
+    </div>
     <div class="inv-card">
       <div class="inv-top">
         <div>

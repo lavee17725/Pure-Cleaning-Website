@@ -6253,6 +6253,7 @@ function _showInvoiceLinkModal(d, phone) {
           <button class="inv-link-btn open" id="_invOpenBtn">🔗 Open</button>
           <button class="inv-link-btn close" id="_invCloseBtn">Close</button>
         </div>
+        <button class="inv-link-btn" id="_invDocxBtn" style="width:100%;background:#1d9e75;color:#fff;margin-top:.5rem;padding:11px;font-size:13.5px;">📄 Download as Word</button>
         <div style="margin-top:.5rem;text-align:center;">
           <a href="/pure_cleaning_invoice_admin.html?id=${encodeURIComponent(d.invoiceId)}" style="color:#0a1628;text-decoration:none;font-size:12px;font-weight:700;">✏️ Edit invoice details →</a>
         </div>
@@ -6270,6 +6271,46 @@ function _showInvoiceLinkModal(d, phone) {
     };
     overlay.querySelector('#_invOpenBtn').onclick = () => { window.open(url, '_blank'); };
     overlay.querySelector('#_invCloseBtn').onclick = () => overlay.remove();
+
+    // Word export — lazy-loads /js/invoice-docx.js (which then lazy-loads the
+    // docx UMD bundle on first click). Re-fetches the FULL admin shape so the
+    // download includes notes/introText/internalNotes that the calendar's
+    // /admin/invoice/from-job response doesn't carry by default.
+    const _docxBtn = overlay.querySelector('#_invDocxBtn');
+    if (_docxBtn) _docxBtn.onclick = async () => {
+      _docxBtn.disabled = true;
+      const orig = _docxBtn.textContent;
+      _docxBtn.textContent = 'Preparing…';
+      try {
+        // Inject the helper script lazily — only when the operator actually wants it.
+        if (!window.PCPC_InvoiceDocx) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = '/js/invoice-docx.js';
+            s.onload  = resolve;
+            s.onerror = () => reject(new Error('failed to load docx helper'));
+            document.head.appendChild(s);
+          });
+        }
+        // Pull the admin shape so the download reflects all editable fields,
+        // not just the lean modal payload.
+        const fullRes = await fetch(`${PCPC_API}/admin/invoice/${encodeURIComponent(d.invoiceId)}`);
+        if (!fullRes.ok) throw new Error(`HTTP ${fullRes.status}`);
+        const full = await fullRes.json();
+        const filename = await window.PCPC_InvoiceDocx.download(full);
+        showToast('✓ Downloaded ' + filename);
+        pcpcApi.logEvent({
+          eventType: 'invoice_docx_downloaded',
+          phone, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
+          at: new Date().toISOString(),
+        });
+      } catch(e) {
+        showToast('Download failed: ' + e.message);
+      } finally {
+        _docxBtn.disabled = false;
+        _docxBtn.textContent = orig;
+      }
+    };
 
     // Paid-in-Full toggle — round-trips through PATCH /admin/invoice/:id with
     // verify-before-success per T1.20. The PATCH response IS the verified read

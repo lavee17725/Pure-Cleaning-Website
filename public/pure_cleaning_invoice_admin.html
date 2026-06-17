@@ -120,7 +120,10 @@ input:disabled,textarea:disabled{background:#f3f4f6;color:var(--muted);cursor:no
     <button class="back-btn" onclick="goBack()">← Back</button>
     <div class="title">PURE <span>CLEANING</span> · Invoice Editor</div>
   </div>
-  <span id="statusPill" class="status-pill draft" style="display:none;">draft</span>
+  <div style="display:flex;align-items:center;gap:.625rem;">
+    <button class="back-btn" id="downloadDocxBtn" onclick="onDownloadDocx()" style="background:#1d9e75;border-color:#1d9e75;display:none;">📄 Download as Word</button>
+    <span id="statusPill" class="status-pill draft" style="display:none;">draft</span>
+  </div>
 </div>
 
 <div class="wrap">
@@ -228,6 +231,9 @@ input:disabled,textarea:disabled{background:#f3f4f6;color:var(--muted);cursor:no
 
 <div class="toast" id="toast"></div>
 
+<!-- docx export helper (lazy-loads the docx UMD bundle on first click) -->
+<script src="/js/invoice-docx.js"></script>
+
 <script>
 const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 const _params  = new URLSearchParams(location.search);
@@ -303,6 +309,32 @@ function renderHeader(){
   pill.textContent = _invoice.status;
   pill.className = 'status-pill ' + _invoice.status;
   pill.style.display = 'inline-flex';
+  // Show the Download Word button once the invoice is loaded — needs the data.
+  const dl = document.getElementById('downloadDocxBtn');
+  if (dl) dl.style.display = 'inline-flex';
+}
+
+// Triggers the client-side docx export. Uses the locally cached _invoice
+// (which we keep in sync with the server's authoritative shape after every
+// PATCH), so the downloaded file always reflects what's saved — not what's
+// being edited but unsaved.
+async function onDownloadDocx(){
+  if (!_invoice) { toast('Invoice not loaded yet', true); return; }
+  if (_dirty) {
+    if (!confirm('You have unsaved changes. Download the SAVED version anyway?')) return;
+  }
+  const btn = document.getElementById('downloadDocxBtn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Preparing…';
+  try {
+    if (!window.PCPC_InvoiceDocx) throw new Error('docx helper not loaded');
+    const filename = await window.PCPC_InvoiceDocx.download(_invoice);
+    toast('✓ Downloaded ' + filename);
+  } catch(e) {
+    toast('Download failed: ' + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
 }
 
 function renderSummary(){

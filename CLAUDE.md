@@ -62,6 +62,8 @@ When in doubt, follow this file. The other two are reference.
 
 **22.** (T1.22) **No Orphan Capture (Capture ⟹ Persist ⟹ Connect).** Any UI that captures data MUST in the same build: (1) persist to the canonical server store (D1 first, KV as cache only), never localStorage-only when the data has any downstream consumer; (2) connect it to every surface that reads/displays/computes from it; (3) verify end-to-end (capture→store→read→display→compute) on a real record before 'done'. localStorage/sessionStorage ONLY for ephemeral UI state with zero server-side/cross-device consumers. Before building any capture UI, name its persistence target (D1 table/column) and its read consumers; if either is undefined, close that gap first. Root: three repeats in one week — multi-property (address captured, not bound), quote pipeline (selections captured, not flowing), crew roster (localStorage, never persisted).
 
+**23.** **One-page printable rule.** Any printable output (invoices, crew sheets, receipts, agreements, work orders, future printables) must fit on a single US-letter page at 0.4" margins by default. Tune `@media print` (margins, font size, section padding, `page-break-inside: avoid`) until a typical record fits — overflow is a layout bug, not "the customer will deal with it." If a record genuinely cannot fit (e.g. 30+ line items), surface the overflow explicitly: a continuation marker on page 1 and the operator's awareness, never a silent multi-page sprawl. *Earned 2026-06-17: pure_cleaning_invoice.html shipped at 2 pages + unbranded — Tyler caught it before a customer did.*
+
 ---
 
 ## Data Integrity Laws
