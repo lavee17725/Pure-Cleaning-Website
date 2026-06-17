@@ -1888,6 +1888,31 @@ export default {
         return jsonResponse({ active: !!alert, alert: alert || null }, corsHeaders);
       }
 
+      // ── Manual follow-up reminders (protected) ────────────────────────────────
+      // POST  /admin/reminder              — create a manual_follow_up reminder
+      //   body: { personId, followUpMonth: 'YYYY-MM', note?, type? }
+      // GET   /admin/reminders-active      — bell feeder (due AND active)
+      // POST  /admin/reminder/:id/status   — server-side dismiss/done/active
+      //   body: { status: 'done' | 'dismissed' | 'active' }
+      if (path === 'admin/reminder' && request.method === 'POST') {
+        return await handleCreateReminder(request, env, corsHeaders);
+      }
+      if (path === 'admin/reminders-active' && request.method === 'GET') {
+        return await handleRemindersActive(env, corsHeaders);
+      }
+      if (path.startsWith('admin/reminder/') && path.endsWith('/status') && request.method === 'POST') {
+        const rid = path.slice('admin/reminder/'.length, -'/status'.length);
+        return await handleReminderStatus(request, env, rid, corsHeaders);
+      }
+      // GET /admin/person/:personId/reminders — per-person history (all
+      // statuses, most-recent-first). Powers the customer profile panel.
+      // Distinct from /admin/reminders-active which is the bell's due+active
+      // feed across all persons.
+      if (path.startsWith('admin/person/') && path.endsWith('/reminders') && request.method === 'GET') {
+        const pid = path.slice('admin/person/'.length, -'/reminders'.length);
+        return await handlePersonReminders(env, pid, corsHeaders);
+      }
+
       // ── Worker hours: date range summary (protected) ──────────────────────────
       if (path === 'admin/worker-hours' && request.method === 'GET') {
         const today   = new Date().toISOString().slice(0, 10);
@@ -6990,6 +7015,174 @@ async function handlePartnersRanked(env, corsHeaders) {
     }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handlePartnersRanked', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Manual follow-up reminders — server-side state for the notification bell.
+//
+// Why this is separate infrastructure:
+//   - The bell's existing dismiss (localStorage 'pcpc_notif_dismissed' in
+//     pure_cleaning_admin.html:405) is per-device — fine for transient
+//     event alerts that re-evaluate from the live event log every minute.
+//     For a follow-up reminder, that would mean dismissing on Mom's phone
+//     leaves the card visible on Tyler's desktop, then re-appears on a
+//     fresh device — a reactivation-class footgun (T1.22 / Rule 22).
+//   - Reactivation already uses KV 'reactivation_contacts' + a computed
+//     dormant pool. Reminders live in D1 (Reminder table, migration 0025)
+//     and never touch that KV blob, so the two systems can't collide.
+//
+// Type is an open container (column DEFAULTs 'manual_follow_up'); future
+// types ('rebook_reminder', 'estimate_followup', etc.) ship by inserting
+// rows + adding a render branch in the bell — no schema change.
+
+// POST /admin/reminder  { personId, followUpMonth, note?, type? }
+async function handleCreateReminder(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { personId, followUpMonth, note, type } = body;
+  if (!personId)        return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+  if (!followUpMonth)   return jsonResponse({ error: 'followUpMonth required (YYYY-MM)' }, corsHeaders, 400);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(followUpMonth))
+    return jsonResponse({ error: 'followUpMonth must be YYYY-MM' }, corsHeaders, 400);
+
+  // Verify the Person exists — friendly 404 instead of a SQL FK error,
+  // and it confirms the link target before we write.
+  const person = await env.DB.prepare(
+    'SELECT personId FROM Person WHERE personId = ?'
+  ).bind(personId).first();
+  if (!person) return jsonResponse({ error: 'person not found', personId }, corsHeaders, 404);
+
+  const now = new Date().toISOString();
+  const reminderId = `rem_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+  const safeType = (typeof type === 'string' && type.trim()) ? type.trim() : 'manual_follow_up';
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO Reminder
+         (reminderId, type, personId, followUpMonth, note, status, createdAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`
+    ).bind(reminderId, safeType, personId, followUpMonth, (note || '').trim() || null, now, now).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleCreateReminder', e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success: true,
+    reminderId,
+    type:          safeType,
+    personId,
+    followUpMonth,
+    note:          (note || '').trim() || null,
+    status:        'active',
+    createdAt:     now,
+    modifiedAt:    now,
+  }, corsHeaders);
+}
+
+// GET /admin/reminders-active
+//
+// Returns reminders that are BOTH due AND active. "Due" = the current month
+// has reached the followUpMonth (so a Sept-2026 reminder appears starting
+// Oct 1 — month granularity intentional). "Active" excludes done/dismissed
+// rows. JOIN to Person so the bell card has the customer name + phone in one
+// request — no second fetch per reminder.
+async function handleRemindersActive(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT r.reminderId,
+              r.type,
+              r.followUpMonth,
+              r.note,
+              r.createdAt,
+              p.personId,
+              p.firstName,
+              p.lastName,
+              p.businessName,
+              p.primaryPhone
+         FROM Reminder r
+         JOIN Person   p ON p.personId = r.personId
+        WHERE r.status = 'active'
+          AND strftime('%Y-%m', 'now') >= r.followUpMonth
+        ORDER BY r.followUpMonth ASC, r.createdAt ASC`
+    ).all())?.results || [];
+
+    return jsonResponse({
+      reminders: rows.map(r => ({
+        reminderId:    r.reminderId,
+        type:          r.type,
+        followUpMonth: r.followUpMonth,
+        note:          r.note,
+        createdAt:     r.createdAt,
+        person: {
+          personId:     r.personId,
+          firstName:    r.firstName    || '',
+          lastName:     r.lastName     || '',
+          businessName: r.businessName || null,
+          phone:        (r.primaryPhone || '').replace(/\D/g, '').slice(-10),
+        },
+      })),
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleRemindersActive', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /admin/reminder/:reminderId/status  { status }
+//
+// Server-side dismiss (the whole reason this isn't localStorage). 'done' is
+// the normal "I handled it" path; 'dismissed' is "this no longer matters
+// without me acting on it"; 'active' is the un-do for either. Operationally
+// only 'done' is wired in the bell card today — the others exist for future
+// surfaces (a reminders index, batch dismiss, etc.) without endpoint churn.
+async function handleReminderStatus(request, env, reminderId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!reminderId) return jsonResponse({ error: 'reminderId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const status = (body.status || '').toString().trim();
+  const ALLOWED = new Set(['active', 'done', 'dismissed']);
+  if (!ALLOWED.has(status))
+    return jsonResponse({ error: 'status must be active | done | dismissed' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  try {
+    const r = await env.DB.prepare(
+      'UPDATE Reminder SET status = ?, modifiedAt = ? WHERE reminderId = ?'
+    ).bind(status, now, reminderId).run();
+    const changes = r.meta?.changes ?? 0;
+    if (!changes) return jsonResponse({ error: 'reminder not found', reminderId }, corsHeaders, 404);
+  } catch (e) {
+    await _logD1Failure(env, 'handleReminderStatus', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({ success: true, reminderId, status, modifiedAt: now }, corsHeaders);
+}
+
+// GET /admin/person/:personId/reminders — per-person history (all statuses).
+async function handlePersonReminders(env, personId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!personId) return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT reminderId, type, followUpMonth, note, status, createdAt, modifiedAt
+         FROM Reminder
+        WHERE personId = ?
+        ORDER BY followUpMonth DESC, createdAt DESC`
+    ).bind(personId).all())?.results || [];
+    return jsonResponse({ personId, reminders: rows }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handlePersonReminders', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }

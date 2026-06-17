@@ -468,6 +468,30 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
   </div>
 
+  <!-- Follow-Up Reminders panel — surfaces in the admin bell at/after followUpMonth -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">📅 Follow-Up Reminders</div>
+    </div>
+    <div class="panel-body">
+      <div id="followUpList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:.625rem;"></div>
+      <div id="followUpArea" class="add-note-area" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:140px;">
+            Follow-up month
+            <input type="month" id="followUpMonthInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
+          </label>
+        </div>
+        <textarea id="followUpNoteInput" placeholder="Note (e.g. 'Contact Peter about re-doing the service — discussed in person')"></textarea>
+        <div class="add-note-actions">
+          <button class="btn-cancel-note" onclick="cancelFollowUp()">Cancel</button>
+          <button class="btn-save-note" onclick="saveFollowUp()">Save Follow-Up</button>
+        </div>
+      </div>
+      <button class="btn-add-note" id="addFollowUpBtn" onclick="showAddFollowUp()">+ Set Follow-Up</button>
+    </div>
+  </div>
+
   <!-- ═══ ZONE 3 — Secondary info (individual cards) ═════════════════════════ -->
 
   <!-- Stats bar — hidden, renderProfile still writes to it -->
@@ -1377,6 +1401,9 @@ function renderProfile(customer, events){
   // ── Notes ──
   renderNotes(c);
 
+  // ── Follow-Up Reminders ──
+  loadFollowUps();   // fires async; renders into #followUpList when complete
+
   // ── Extended collapsible sections ──
   renderExtendedSections(c, events);
   // Init lazy-load for photo gallery if present
@@ -1535,6 +1562,122 @@ async function saveNote(){
     alert('Failed to save note: '+err.message);
   } finally{
     btn.disabled=false; btn.textContent='Save Note';
+  }
+}
+
+// ── Follow-Up Reminders ───────────────────────────────────────────────────────
+// Server-side reminder state (D1 Reminder table). Bell surfaces these on/after
+// followUpMonth. Dismiss writes status='done' through the server so it stays
+// dismissed cross-device — never the localStorage path the event-alert bell uses.
+let _followUps = [];
+
+async function loadFollowUps(){
+  const ph10 = (_customer?.phone||'').replace(/\D/g,'').slice(-10);
+  if (!ph10) { _followUps = []; renderFollowUps(); return; }
+  const personId = 'person_1' + ph10;
+  try {
+    const res = await fetch(`${API}/admin/person/${encodeURIComponent(personId)}/reminders`);
+    if (res.ok) {
+      const data = await res.json();
+      _followUps = Array.isArray(data?.reminders) ? data.reminders : [];
+    } else {
+      _followUps = [];
+    }
+  } catch(_) { _followUps = []; }
+  renderFollowUps();
+}
+
+function renderFollowUps(){
+  const list = document.getElementById('followUpList');
+  if (!list) return;
+  if (!_followUps.length){
+    list.innerHTML = `<div style="color:var(--muted);font-size:14px;padding:4px 0 0;">No follow-up reminders set.</div>`;
+    return;
+  }
+  const _monthLabel = ym => {
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || '';
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('en-US', { month:'long', year:'numeric' });
+  };
+  list.innerHTML = _followUps.map(r => {
+    const _due = (new Date().toISOString().slice(0,7) >= r.followUpMonth);
+    const _status = r.status || 'active';
+    return `<div style="background:${_status==='active' && _due ? '#fff7ed':'#fafafa'};border:1.5px solid ${_status==='active' && _due ? '#fed7aa':'var(--border)'};border-radius:10px;padding:10px 12px;">
+      <div style="font-size:11px;font-weight:700;color:${_status==='active' && _due ? '#9a3412':'var(--muted)'};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">
+        📅 ${esc(_monthLabel(r.followUpMonth))}${_status==='active' && _due ? ' · DUE' : ''}${_status!=='active' ? ' · '+esc(_status.toUpperCase()) : ''}
+      </div>
+      ${r.note ? `<div style="font-size:13.5px;color:var(--text);line-height:1.45;">${esc(r.note)}</div>` : ''}
+      ${_status === 'active' ? `<div style="margin-top:8px;"><button onclick="dismissFollowUp('${esc(r.reminderId)}')" style="background:#f3f4f6;border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer;">Mark done</button></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function showAddFollowUp(){
+  document.getElementById('followUpArea').style.display = 'block';
+  document.getElementById('addFollowUpBtn').style.display = 'none';
+  // Default the picker to next month so it doesn't appear in the bell immediately.
+  const d = new Date(); d.setMonth(d.getMonth() + 1);
+  const ym = d.toISOString().slice(0,7);
+  document.getElementById('followUpMonthInput').value = ym;
+  document.getElementById('followUpNoteInput').focus();
+}
+
+function cancelFollowUp(){
+  document.getElementById('followUpArea').style.display = 'none';
+  document.getElementById('addFollowUpBtn').style.display = '';
+  document.getElementById('followUpNoteInput').value = '';
+}
+
+async function saveFollowUp(){
+  const ym = (document.getElementById('followUpMonthInput').value || '').trim();
+  const note = (document.getElementById('followUpNoteInput').value || '').trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { alert('Pick a follow-up month (YYYY-MM).'); return; }
+  const ph10 = (_customer?.phone||'').replace(/\D/g,'').slice(-10);
+  if (!ph10) { alert('No phone on this customer record.'); return; }
+  const personId = 'person_1' + ph10;
+  const btn = document.querySelector('#followUpArea .btn-save-note');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${API}/admin/reminder`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ personId, followUpMonth: ym, note: note || null }),
+    });
+    if (!res.ok) {
+      const det = await res.json().catch(() => ({}));
+      throw new Error(det.error || `HTTP ${res.status}`);
+    }
+    const created = await res.json();
+    // Verify-before-success: server returned a reminderId for the same person.
+    if (!created?.reminderId || created.personId !== personId) {
+      throw new Error('server did not confirm the reminder');
+    }
+    // Re-fetch so we see authoritative state (status, modifiedAt, etc.).
+    await loadFollowUps();
+    cancelFollowUp();
+  } catch(e) {
+    alert('Failed to save follow-up: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Follow-Up';
+  }
+}
+
+async function dismissFollowUp(reminderId){
+  if (!reminderId) return;
+  if (!confirm('Mark this follow-up done?')) return;
+  try {
+    const res = await fetch(`${API}/admin/reminder/${encodeURIComponent(reminderId)}/status`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status: 'done' }),
+    });
+    if (!res.ok) {
+      const det = await res.json().catch(() => ({}));
+      throw new Error(det.error || `HTTP ${res.status}`);
+    }
+    await loadFollowUps();
+  } catch(e) {
+    alert('Failed to mark done: ' + e.message);
   }
 }
 

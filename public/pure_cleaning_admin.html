@@ -405,8 +405,9 @@ const _NOTIF_READ_KEY  = 'pcpc_notif_read_at';   // ISO timestamp of last panel 
 const _NOTIF_DISMISSED = 'pcpc_notif_dismissed';  // JSON array of dismissed event IDs
 const _NOTIF_TYPES     = ['addon_confirmed', 'sealing_interest_confirmed'];
 
-let _allAlerts    = [];
-let _reviewAlerts = []; // review queue items (4+ days after completion)
+let _allAlerts       = [];
+let _reviewAlerts    = []; // review queue items (4+ days after completion)
+let _reminderAlerts  = []; // manual follow-up reminders (D1 Reminder table) — server-side state
 
 function _getDismissed() {
   try { return new Set(JSON.parse(localStorage.getItem(_NOTIF_DISMISSED) || '[]')); } catch { return new Set(); }
@@ -425,8 +426,21 @@ async function checkAlerts() {
     _allAlerts = events.filter(e => _NOTIF_TYPES.includes(e.eventType) && !dismissed.has(e.id || e.loggedAt));
     _updateBellDot();
   } catch {}
-  // Also check review queue (separate from event log)
+  // Also check review queue (separate from event log) + manual follow-up
+  // reminders (server-side D1 state, cross-device — distinct from the
+  // localStorage dismiss path used by event alerts).
   checkReviewQueue().catch(() => {});
+  checkReminders().catch(() => {});
+}
+
+async function checkReminders() {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reminders-active`);
+    if (!res.ok) return;
+    const { reminders = [] } = await res.json();
+    _reminderAlerts = reminders;
+    _updateBellDot();
+  } catch {}
 }
 
 async function checkReviewQueue() {
@@ -453,8 +467,11 @@ async function checkReviewQueue() {
 
 function _updateBellDot() {
   const readAt  = localStorage.getItem(_NOTIF_READ_KEY) || '';
-  const allItems = [..._allAlerts, ..._reviewAlerts];
-  const hasNew   = allItems.some(e => (e.loggedAt || '') > readAt);
+  // Manual reminders are persistent server-side — count them in "has items" but
+  // treat new only when createdAt is past the last read time (so a long-standing
+  // reminder doesn't pulse forever).
+  const allItems = [..._allAlerts, ..._reviewAlerts, ..._reminderAlerts];
+  const hasNew   = allItems.some(e => ((e.loggedAt || e.createdAt) || '') > readAt);
   const dot = document.getElementById('notifDot');
   if (dot) dot.classList.toggle('show', hasNew && allItems.length > 0);
 }
@@ -490,15 +507,74 @@ function dismissAlert(evtId) {
   _renderNotifPanel();
 }
 
+// Manual reminder dismiss — POSTs status='done' so it's cross-device + stays
+// dismissed across browsers (never the localStorage path). Optimistically
+// drops the card from the in-memory list; on server failure we re-fetch so
+// the UI re-syncs with truth (T1.20).
+async function dismissReminder(reminderId) {
+  if (!reminderId) return;
+  const _prev = _reminderAlerts.slice();
+  _reminderAlerts = _reminderAlerts.filter(r => r.reminderId !== reminderId);
+  _updateBellDot();
+  _renderNotifPanel();
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reminder/${encodeURIComponent(reminderId)}/status`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:'done' }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch(e) {
+    // Re-fetch authoritative state — if the server didn't accept the dismiss,
+    // the card should come back.
+    _reminderAlerts = _prev;
+    _updateBellDot();
+    _renderNotifPanel();
+    checkReminders().catch(() => {});
+    alert('Failed to dismiss reminder: ' + e.message);
+  }
+}
+
 function _renderNotifPanel() {
   const list = document.getElementById('notifList');
   if (!list) return;
-  const allItems = [..._reviewAlerts, ..._allAlerts];
+  const allItems = [..._reviewAlerts, ..._allAlerts, ..._reminderAlerts];
   if (!allItems.length) {
     list.innerHTML = `<div class="notif-empty"><span class="notif-empty-icon">🔔</span>No new alerts</div>`;
     return;
   }
-  // Review queue cards first
+
+  // Manual follow-up reminders — typed FOLLOW-UP cards. Click-to-text uses the
+  // Person.primaryPhone (greyed out when missing). Dismiss POSTs status='done'
+  // to the server so it's cross-device + never re-surfaces.
+  const _monthLabel = ym => {
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || '';
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleDateString('en-US', { month:'short', year:'numeric' });
+  };
+  const reminderHtml = _reminderAlerts.map(r => {
+    const p   = r.person || {};
+    const name = p.businessName
+      ? `${p.businessName}${(p.firstName||p.lastName) ? ' — '+((p.firstName||'')+' '+(p.lastName||'')).trim() : ''}`
+      : `${(p.firstName||'') + ' ' + (p.lastName||'')}`.trim() || 'Customer';
+    const ph   = p.phone || '';
+    const smsHref = ph ? `sms:+1${ph}` : '#';
+    const noteHtml = r.note ? `<br>${_ea(r.note)}` : '';
+    const profileUrl = ph ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}` : '';
+    return `<div class="notif-card" style="border-left:3px solid var(--terra);">
+      <div class="notif-card-type" style="color:var(--terra);">📅 FOLLOW-UP · ${_ea(_monthLabel(r.followUpMonth))}</div>
+      <div class="notif-card-body"><strong>${_ea(name)}</strong>${noteHtml}</div>
+      <div class="notif-card-actions">
+        ${ph
+          ? `<a class="nc-view-btn" href="${smsHref}" style="text-decoration:none;display:inline-block;">💬 Text</a>`
+          : `<button class="nc-view-btn" disabled style="opacity:.4;cursor:not-allowed;" title="No phone on file">💬 Text</button>`}
+        ${profileUrl ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View</button>` : ''}
+        <button class="nc-dismiss-btn" onclick="dismissReminder('${_ea(r.reminderId)}')">Done</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Review queue cards next
   const reviewHtml = _reviewAlerts.map(evt => {
     const name = `${evt.firstName||''} ${evt.lastName||''}`.trim() || 'Customer';
     const profileUrl = evt.phone ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(evt.phone)}` : '';
@@ -512,7 +588,7 @@ function _renderNotifPanel() {
       </div>
     </div>`;
   }).join('');
-  list.innerHTML = reviewHtml + _allAlerts.map(evt => {
+  list.innerHTML = reminderHtml + reviewHtml + _allAlerts.map(evt => {
     const evtId  = evt.id || evt.loggedAt || String(Date.now());
     const isAddon = evt.eventType === 'addon_confirmed';
     const cust   = evt.customer || {};
