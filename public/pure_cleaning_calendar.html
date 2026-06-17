@@ -250,6 +250,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .inv-link-btn.email-primary{display:block;width:100%;background:#1d9e75;color:#fff;padding:13px;font-size:14.5px;margin-bottom:.875rem;letter-spacing:.2px;}
 .inv-link-btn.email-primary:hover{filter:brightness(1.05);}
 .inv-link-btn.save{flex:0 0 auto;background:#0a1628;color:#fff;padding:9px 18px;}
+/* Paid-in-Full toggle (slider) — green=on, gray=off. Round-trips through
+   PATCH /admin/invoice/:id; success toast waits for the verified read (T1.20). */
+.inv-paid-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:.875rem;}
+.inv-paid-row .inv-paid-lbl{font-size:13px;font-weight:700;color:#0a1628;}
+.inv-paid-row .inv-paid-sub{font-size:11px;color:#6b7280;margin-top:2px;}
+.inv-paid-switch{position:relative;width:46px;height:26px;border-radius:999px;background:#cbd5e1;cursor:pointer;transition:background .15s;flex-shrink:0;border:none;padding:0;}
+.inv-paid-switch::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .15s;}
+.inv-paid-switch.on{background:#1d9e75;}
+.inv-paid-switch.on::after{transform:translateX(20px);}
+.inv-paid-switch:disabled{opacity:.55;cursor:wait;}
 .inv-link-email-add{margin-bottom:.875rem;padding:.75rem;background:#fafaf7;border:1px solid #e5e7eb;border-radius:8px;}
 .inv-link-email-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin-bottom:6px;}
 .inv-link-email-row{display:flex;gap:6px;}
@@ -6212,11 +6222,19 @@ function _showInvoiceLinkModal(d, phone) {
   const render = () => {
     const email = (c.email || '').trim();
     const _hasEmail = !!email;
+    const _paid = d.status === 'paid';
     overlay.innerHTML = `
       <div class="inv-link-card" onclick="event.stopPropagation()">
         <div class="inv-link-title">${d.idempotent ? 'Existing invoice' : 'New invoice'}</div>
         <div class="inv-link-num">${esc(d.invoiceNumber || d.invoiceId)}</div>
-        <div class="inv-link-meta">${d.status === 'paid' ? '<b>✓ Paid in Full</b> · ' : ''}Total $${Number(d.total || 0).toLocaleString()}${d.sector ? ' · ' + esc(d.sector) : ''}</div>
+        <div class="inv-link-meta">${_paid ? '<b>✓ Paid in Full</b> · ' : ''}Total $${Number(d.total || 0).toLocaleString()}${d.sector ? ' · ' + esc(d.sector) : ''}</div>
+        <div class="inv-paid-row">
+          <div>
+            <div class="inv-paid-lbl">Paid in Full</div>
+            <div class="inv-paid-sub">${_paid ? 'Stamped paid — toggle off to revise' : 'Flip on once full payment is received'}</div>
+          </div>
+          <button class="inv-paid-switch${_paid ? ' on' : ''}" id="_invPaidSwitch" aria-pressed="${_paid}" title="Toggle Paid in Full"></button>
+        </div>
         ${_hasEmail
           ? `<button class="inv-link-btn email-primary" id="_invEmailBtn" title="Open your mail client with this invoice prefilled">📧 Email invoice to ${esc(email)}</button>`
           : `<div class="inv-link-email-add">
@@ -6249,6 +6267,47 @@ function _showInvoiceLinkModal(d, phone) {
     };
     overlay.querySelector('#_invOpenBtn').onclick = () => { window.open(url, '_blank'); };
     overlay.querySelector('#_invCloseBtn').onclick = () => overlay.remove();
+
+    // Paid-in-Full toggle — round-trips through PATCH /admin/invoice/:id with
+    // verify-before-success per T1.20. The PATCH response IS the verified read
+    // (handleAdminGetInvoice returns the updated row), so no second GET needed.
+    // On failure, the switch visually reverts and Mom sees an explicit error
+    // toast — never a silent success on a failed write (T1.11).
+    const _switchEl = overlay.querySelector('#_invPaidSwitch');
+    _switchEl.onclick = async () => {
+      const _wantPaid = !_switchEl.classList.contains('on');
+      _switchEl.disabled = true;
+      // Optimistic UI flip so Mom sees instant feedback; we'll revert on failure.
+      _switchEl.classList.toggle('on', _wantPaid);
+      try {
+        const res = await fetch(`${PCPC_API}/admin/invoice/${encodeURIComponent(d.invoiceId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paidInFull: _wantPaid }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const updated = await res.json();
+        // Verify the round-trip: server's returned status must match intent.
+        if (_wantPaid && updated.status !== 'paid')              throw new Error('status did not flip to paid');
+        if (!_wantPaid && updated.status === 'paid')             throw new Error('status still paid');
+        // Mutate `d` so the next render reflects truth without a full reload,
+        // and update the meta line inline.
+        d.status     = updated.status;
+        d.amountPaid = updated.amountPaid;
+        d.paidAt     = updated.paidAt;
+        render();
+        showToast(_wantPaid ? '✓ Marked Paid in Full' : 'Paid-in-Full removed');
+        pcpcApi.logEvent({
+          eventType: 'invoice_paid_toggled',
+          phone, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
+          paid: _wantPaid, at: new Date().toISOString(),
+        });
+      } catch(e) {
+        _switchEl.classList.toggle('on', !_wantPaid);  // revert
+        _switchEl.disabled = false;
+        showToast(`Update failed: ${e.message}`);
+      }
+    };
 
     if (_hasEmail) {
       overlay.querySelector('#_invEmailBtn').onclick = () => {
@@ -6613,7 +6672,7 @@ table{width:auto;border-collapse:collapse;}
 .js-notes-row{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0;}
 .js-notes-block{border:2pt solid #194963;background:#f8fbfd;padding:8px 12px;flex:1;}
 .js-notes-label{font-family:Arial,sans-serif;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:2pt;color:#194963;margin-bottom:4px;}
-.js-notes-text{font-family:Arial,sans-serif;font-size:13pt;color:#111;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
+.js-notes-text{font-family:Arial,sans-serif;font-size:16pt;color:#111;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
 .js-notes-writelines{margin-top:8px;}
 .js-write-line{border-bottom:1pt solid #aaa;margin-bottom:6px;height:14px;}
 .js-bottom{position:absolute;bottom:0.35in;left:28px;right:28px;display:flex;align-items:stretch;justify-content:space-between;padding-top:8px;border-top:2pt solid #0a1628;}

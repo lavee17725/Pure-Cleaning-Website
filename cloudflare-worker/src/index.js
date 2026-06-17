@@ -1349,6 +1349,18 @@ export default {
         return await handleInvoiceFromJob(request, env, corsHeaders);
       }
 
+      // GET  /admin/invoice/:id — full editor shape (admin-only; includes internalNotes).
+      // PATCH /admin/invoice/:id — edit subject/introText/notes/paymentTerms/lineItems
+      //                            (locked when status='paid' or 'voided');
+      //                            OR flip the paid-in-full toggle (always allowed).
+      // PATCH-only-paid-toggle keeps Mom's calendar modal a true quick action; full edits
+      // happen on pure_cleaning_invoice_admin.html via the same route.
+      if (path.startsWith('admin/invoice/') && !path.endsWith('/from-job')) {
+        const invoiceId = path.slice('admin/invoice/'.length);
+        if (request.method === 'GET')   return await handleAdminGetInvoice(invoiceId, env, corsHeaders);
+        if (request.method === 'PATCH') return await handlePatchInvoice(request, invoiceId, env, corsHeaders);
+      }
+
       if (path.startsWith('admin/job/') && path.endsWith('/complete-group') && request.method === 'POST') {
         const jobId = path.slice('admin/job/'.length, -'/complete-group'.length);
         return await handleCompleteJobGroup(request, env, jobId, corsHeaders);
@@ -10153,6 +10165,215 @@ async function handlePatchProposal(request, proposalId, env, corsHeaders) {
 
   // 5. Return updated proposal
   return await handleGetProposal(proposalId, env, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// GET /admin/invoice/{invoiceId}
+// Admin-scoped: returns the full editable shape (includes internalNotes, which
+// the public GET /invoice/:id intentionally omits). Used by the new invoice
+// editor page (pure_cleaning_invoice_admin.html) and by the calendar modal
+// after a paid-toggle round-trip to verify the write (T1.20).
+async function handleAdminGetInvoice(invoiceId, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!invoiceId) return jsonResponse({ error: 'invoiceId required' }, corsHeaders, 400);
+
+  const inv = await env.DB.prepare(
+    `SELECT i.invoiceId, i.personId, i.sector, i.status, i.invoiceDate, i.dueDate,
+            i.subject, i.introText, i.subtotal, i.discountAmt, i.total, i.amountPaid,
+            i.paymentTerms, i.paymentMethod, i.paidAt, i.sentAt, i.notes, i.internalNotes,
+            i.jobIds, i.createdAt, i.modifiedAt,
+            p.firstName, p.lastName, p.businessName, p.primaryPhone, p.email, p.customerType
+       FROM Invoice i
+       JOIN Person  p ON p.personId = i.personId
+      WHERE i.invoiceId = ?`
+  ).bind(invoiceId).first();
+
+  if (!inv) return jsonResponse({ error: 'invoice not found' }, corsHeaders, 404);
+
+  const liRows = (await env.DB.prepare(
+    `SELECT lineItemId, sortOrder, description, quantity, unit, unitPrice, lineTotal, notes
+       FROM LineItem
+      WHERE documentType='invoice' AND documentId=?
+      ORDER BY sortOrder ASC`
+  ).bind(invoiceId).all())?.results || [];
+
+  return jsonResponse({
+    invoiceId:     inv.invoiceId,
+    invoiceNumber: inv.invoiceId,  // human-readable = the id itself per existing convention
+    personId:      inv.personId,
+    sector:        inv.sector,
+    status:        inv.status,
+    paidInFull:    inv.status === 'paid',
+    invoiceDate:   inv.invoiceDate,
+    dueDate:       inv.dueDate,
+    subject:       inv.subject,
+    introText:     inv.introText,
+    notes:         inv.notes,
+    internalNotes: inv.internalNotes,
+    paymentTerms:  inv.paymentTerms,
+    paymentMethod: inv.paymentMethod,
+    paidAt:        inv.paidAt,
+    sentAt:        inv.sentAt,
+    subtotal:      Number(inv.subtotal || 0),
+    discountAmt:   inv.discountAmt == null ? null : Number(inv.discountAmt),
+    total:         Number(inv.total || 0),
+    amountPaid:    Number(inv.amountPaid || 0),
+    jobIds:        inv.jobIds ? JSON.parse(inv.jobIds) : [],
+    customer: {
+      firstName:    inv.firstName,
+      lastName:     inv.lastName,
+      businessName: inv.businessName,
+      phone:        (inv.primaryPhone || '').replace(/\D/g,'').slice(-10),
+      email:        inv.email,
+      customerType: inv.customerType,
+    },
+    lineItems: liRows.map(li => ({
+      lineItemId:  li.lineItemId,
+      sortOrder:   Number(li.sortOrder || 0),
+      description: li.description,
+      quantity:    Number(li.quantity || 1),
+      unit:        li.unit,
+      unitPrice:   Number(li.unitPrice || 0),
+      lineTotal:   Number(li.lineTotal || 0),
+      notes:       li.notes,
+    })),
+    createdAt:  inv.createdAt,
+    modifiedAt: inv.modifiedAt,
+  }, corsHeaders);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PATCH /admin/invoice/{invoiceId}
+// Two distinct flows handled by the same route:
+//
+//   A) Paid-in-full TOGGLE — body has `paidInFull: boolean`. Always allowed,
+//      regardless of current status (operator may correct a wrong stamp).
+//        true  → status='paid',  amountPaid=total, paidAt=now
+//        false → status=(sentAt ? 'sent' : 'draft'), amountPaid=0, paidAt=null
+//
+//   B) Content EDIT — body has any of subject/introText/notes/internalNotes/
+//      paymentTerms/lineItems. Locked when status IN ('paid','voided'):
+//      returns 409 with the current status. Recomputes subtotal/total when
+//      lineItems provided. Mirrors handlePatchProposal exactly.
+//
+// Both flows return the updated invoice via handleAdminGetInvoice so the
+// client's "verify-before-success" check (T1.20) is a single read.
+async function handlePatchInvoice(request, invoiceId, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!invoiceId) return jsonResponse({ error: 'invoiceId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare(
+    `SELECT invoiceId, status, total, sentAt FROM Invoice WHERE invoiceId = ?`
+  ).bind(invoiceId).first();
+  if (!existing) return jsonResponse({ error: 'invoice not found' }, corsHeaders, 404);
+
+  const now = new Date().toISOString();
+
+  // Flow A — paid toggle. Mutually exclusive with content edits (sent in
+  // separate calls by the client). Always honored.
+  if (typeof body.paidInFull === 'boolean') {
+    let nextStatus, nextAmountPaid, nextPaidAt;
+    if (body.paidInFull) {
+      nextStatus     = 'paid';
+      nextAmountPaid = Number(existing.total || 0);
+      nextPaidAt     = now;
+    } else {
+      // Revert to the pre-paid state: 'sent' if it was ever sent, else 'draft'.
+      nextStatus     = existing.sentAt ? 'sent' : 'draft';
+      nextAmountPaid = 0;
+      nextPaidAt     = null;
+    }
+    try {
+      await env.DB.prepare(
+        `UPDATE Invoice
+            SET status     = ?,
+                amountPaid = ?,
+                paidAt     = ?,
+                modifiedAt = ?
+          WHERE invoiceId = ?`
+      ).bind(nextStatus, nextAmountPaid, nextPaidAt, now, invoiceId).run();
+    } catch (e) {
+      await _logD1Failure(env, `handlePatchInvoice:paid:${invoiceId}`, e.message);
+      return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+    }
+    return await handleAdminGetInvoice(invoiceId, env, corsHeaders);
+  }
+
+  // Flow B — content edit. Lock once finalized.
+  if (existing.status === 'paid' || existing.status === 'voided') {
+    return jsonResponse({
+      error: 'invoice is locked',
+      status: existing.status,
+      hint: 'Toggle paid OFF (paidInFull:false) before editing content.',
+    }, corsHeaders, 409);
+  }
+
+  const { lineItems, discountAmt, subject, introText, notes, internalNotes,
+          paymentTerms, dueDate } = body;
+
+  // Recompute totals when lineItems provided.
+  let subtotal = null, total = null;
+  if (Array.isArray(lineItems) && lineItems.length) {
+    subtotal = lineItems.reduce((s, li) => s + (Number(li.lineTotal) || 0), 0);
+    total    = Math.max(0, subtotal - (Number(discountAmt ?? body.discountAmt) || 0));
+  }
+
+  const fields = {};
+  if (subject       !== undefined) fields.subject       = subject;
+  if (introText     !== undefined) fields.introText     = introText;
+  if (notes         !== undefined) fields.notes         = notes;
+  if (internalNotes !== undefined) fields.internalNotes = internalNotes;
+  if (paymentTerms  !== undefined) fields.paymentTerms  = paymentTerms;
+  if (dueDate       !== undefined) fields.dueDate       = dueDate;
+  if (discountAmt   !== undefined) fields.discountAmt   = discountAmt ?? null;
+  if (subtotal      !== null)      fields.subtotal      = subtotal;
+  if (total         !== null)      fields.total         = total;
+  fields.modifiedAt = now;
+
+  const setClauses = Object.keys(fields).map(k => `${k}=?`).join(', ');
+  const setValues  = Object.values(fields);
+
+  const stmts = [
+    env.DB.prepare(`UPDATE Invoice SET ${setClauses} WHERE invoiceId=?`)
+      .bind(...setValues, invoiceId),
+  ];
+
+  if (Array.isArray(lineItems) && lineItems.length) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM LineItem WHERE documentType='invoice' AND documentId=?`
+      ).bind(invoiceId)
+    );
+    lineItems.forEach((li, i) => {
+      stmts.push(
+        env.DB.prepare(`
+          INSERT INTO LineItem
+            (lineItemId, documentType, documentId, sortOrder,
+             description, quantity, unit, unitPrice, lineTotal, notes, createdAt)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        `).bind(
+          `${invoiceId}-li-${now.replace(/\D/g,'').slice(0,14)}-${i}`,
+          'invoice', invoiceId, li.sortOrder ?? i,
+          li.description ?? '', Number(li.quantity) || 1,
+          li.unit ?? null, Number(li.unitPrice) || 0,
+          Number(li.lineTotal) || 0, li.notes ?? null, now
+        )
+      );
+    });
+  }
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handlePatchInvoice:edit:${invoiceId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return await handleAdminGetInvoice(invoiceId, env, corsHeaders);
 }
 
 // ── POST /admin/retype-customer ──────────────────────────────────────────────

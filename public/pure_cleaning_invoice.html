@@ -272,12 +272,15 @@ function renderInvoice(d) {
   document.getElementById('inv-number').textContent = d.invoiceNumber || d.invoiceId || '—';
   document.getElementById('inv-date').textContent   = _fmtDate(d.invoiceDate);
 
-  // Status badge
+  // Status badge — green PAID IN FULL when Invoice.status='paid' (T1.20 source of truth);
+  // amber BALANCE DUE — $X.XX (visible amount, intentionally not red — visual, not aggressive)
+  // when anything else. Amount due = total - amountPaid (covers partial-payment case).
   const badgeEl = document.getElementById('inv-status-badge');
   if (d.paidInFull) {
-    badgeEl.innerHTML = `<span class="paid-badge">✓ Paid in Full</span>`;
+    badgeEl.innerHTML = `<span class="paid-badge">✓ PAID IN FULL</span>`;
   } else {
-    badgeEl.innerHTML = `<span class="due-badge">Payment Due</span>`;
+    const _due = Math.max(0, Number(d.total || 0) - Number(d.amountPaid || 0));
+    badgeEl.innerHTML = `<span class="due-badge">BALANCE DUE — ${_fmtMoney(_due)}</span>`;
   }
 
   // Bill-To
