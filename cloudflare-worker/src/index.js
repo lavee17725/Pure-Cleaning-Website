@@ -1508,6 +1508,14 @@ export default {
       if (path === 'admin/geocode-backfill' && request.method === 'POST') {
         return await handleGeocodeBackfill(request, env, url, corsHeaders);
       }
+      // Phase 1 ROOFTOP sweep — targeted re-geocode of the ~90 properties that
+      // fell to nominatim/census/legacy 'google' (or NULL) with no precision
+      // tag. Address-normalized first ("Southwest"→"SW", "Street"→"St"...) since
+      // the verbose spellings are the likely reason Google missed them on the
+      // first pass. ONLY upgrade — never downgrade a pin (Tom-regression rule).
+      if (path === 'admin/geocode-rooftop-sweep' && request.method === 'POST') {
+        return await handleRooftopSweep(request, env, url, corsHeaders);
+      }
       // Public quote-form lead photo upload — rate-limited, magic-byte sniffed,
       // 4MB cap, quarantined R2 prefix. Returns the R2 key for the client to
       // attach to /incoming.customerData.photos[].
@@ -3403,6 +3411,208 @@ async function handleGeocodeBackfill(request, env, url, corsHeaders) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// Address normalizer used by the rooftop sweep. Turns verbose spellings into
+// USPS-style abbreviations on STREET FIELD ONLY (city stays literal — e.g.
+// "Southwest Ranches" must not collapse to "SW Ranches"). Word-boundary regex
+// so substrings inside other words aren't touched.
+//
+// Earned 2026-06-17 by 16621 Southwest 62nd Street: Google geocoded the
+// abbreviated form ("16621 SW 62nd St") to ROOFTOP but missed the spelled-out
+// version, dropping us to Nominatim with a pin sitting west of the lot.
+const _STREET_NORMALIZE = [
+  // Directionals — longer forms first so "Southwest" matches before "South".
+  [/\bSouthwest\b/gi, 'SW'],
+  [/\bNorthwest\b/gi, 'NW'],
+  [/\bSoutheast\b/gi, 'SE'],
+  [/\bNortheast\b/gi, 'NE'],
+  [/\bSouth\b/gi,     'S'],
+  [/\bNorth\b/gi,     'N'],
+  [/\bWest\b/gi,      'W'],
+  [/\bEast\b/gi,      'E'],
+  // Suffixes — common Florida residential set.
+  [/\bStreet\b/gi,    'St'],
+  [/\bAvenue\b/gi,    'Ave'],
+  [/\bBoulevard\b/gi, 'Blvd'],
+  [/\bRoad\b/gi,      'Rd'],
+  [/\bDrive\b/gi,     'Dr'],
+  [/\bCourt\b/gi,     'Ct'],
+  [/\bPlace\b/gi,     'Pl'],
+  [/\bLane\b/gi,      'Ln'],
+  [/\bCircle\b/gi,    'Cir'],
+  [/\bTerrace\b/gi,   'Ter'],
+  [/\bParkway\b/gi,   'Pkwy'],
+];
+function _normalizeStreetForGeocode(street) {
+  let s = (street || '').trim();
+  for (const [re, to] of _STREET_NORMALIZE) s = s.replace(re, to);
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+// POST /admin/geocode-rooftop-sweep
+//
+// Phase 1 targeted re-geocode of properties that fell to weaker geocoders
+// (nominatim / census / legacy 'google' / NULL). Excludes google_maps (whatever
+// precision Google returned is what Google has — re-geocoding can't improve
+// it) and manual_override (operator pinned by hand, never touch).
+//
+// For each target:
+//   1. Normalize the street ("Southwest 62nd Street" → "SW 62nd St").
+//   2. Geocode against Google via env.GOOGLE_GEOCODING_API_KEY.
+//   3. ONLY upgrade — never downgrade. ROOFTOP → write lat/lng/precision/
+//      source/googleVerified/formattedAddress + re-capture the zoom-19
+//      satellite tile so the stored image re-centers on the new pin. Non-
+//      ROOFTOP → leave row untouched, add to the deferred Phase-2 BCPA list.
+//      (Hard-learned from the Tom-Shelton regression: trusting ROOFTOP-but-
+//      drift to overwrite a hand-pinned coord landed his image on the
+//      cul-de-sac. Conservative: upgrade only, never swap one vague pin
+//      for another.)
+//
+// Returns { processed, upgraded, deferred, failed,
+//           upgraded_ids[], deferred[], failures[] } so the caller can build
+//   the Phase-2 BCPA worklist directly from the response.
+async function handleRooftopSweep(request, env, url, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'env.DB binding missing' }, corsHeaders, 503);
+  const apiKey = env.GOOGLE_GEOCODING_API_KEY || env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return jsonResponse({ error: 'GOOGLE_GEOCODING_API_KEY not configured' }, corsHeaders, 503);
+
+  const batchSize = Math.max(1, Math.min(500, parseInt(url.searchParams.get('batch') || '200', 10)));
+  const startedAt = Date.now();
+
+  let rows = [];
+  try {
+    const sel = await env.DB.prepare(
+      `SELECT propertyId, streetAddress, city, state, zip
+         FROM Property
+        WHERE latitude IS NOT NULL
+          AND (geocodeSource IS NULL
+               OR geocodeSource NOT IN ('google_maps','manual_override'))
+        ORDER BY propertyId
+        LIMIT ?`
+    ).bind(batchSize).all();
+    rows = sel.results || [];
+  } catch (e) {
+    await _logD1Failure(env, 'rooftop_sweep:select', e.message).catch(()=>{});
+    return jsonResponse({ success: false, error: 'D1 SELECT failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  let upgraded = 0;
+  let deferred = 0;
+  let failed = 0;
+  const upgradedIds = [];
+  const deferredList = [];
+  const failures = [];
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  for (const row of rows) {
+    const { propertyId, streetAddress, city, state, zip } = row;
+    const normStreet = _normalizeStreetForGeocode(streetAddress);
+    const addrForGeocode = [normStreet, city, [state || 'FL', zip].filter(Boolean).join(' ')]
+      .filter(Boolean).join(', ');
+
+    let geo;
+    try {
+      geo = await geocodeAddress(addrForGeocode, env);
+    } catch (e) {
+      failed++;
+      failures.push({ propertyId, reason: `geocode threw: ${e.message.slice(0, 80)}` });
+      continue;
+    }
+    if (!geo) {
+      deferred++;
+      deferredList.push({ propertyId, streetAddress, city, reason: 'no_result' });
+      continue;
+    }
+
+    // ONLY upgrade if Google returned ROOFTOP. Anything else (including a
+    // ROOFTOP-from-a-non-google fallback provider — Census/Nominatim never
+    // emit locationType) defers to Phase 2.
+    const isRooftop = geo.source === 'google_maps' && geo.locationType === 'ROOFTOP';
+    if (!isRooftop) {
+      deferred++;
+      deferredList.push({
+        propertyId, streetAddress, city,
+        reason: 'not_rooftop',
+        observedSource: geo.source,
+        observedPrecision: geo.locationType || null,
+      });
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    try {
+      await env.DB.prepare(
+        `UPDATE Property
+            SET latitude         = ?,
+                longitude        = ?,
+                geocodeSource    = 'google_maps',
+                geocodePrecision = 'ROOFTOP',
+                googleVerified   = 1,
+                formattedAddress = ?,
+                modifiedAt       = ?
+          WHERE propertyId = ?`
+      ).bind(geo.lat, geo.lng, geo.formattedAddress || null, now, propertyId).run();
+    } catch (e) {
+      failed++;
+      failures.push({ propertyId, reason: `d1 update: ${e.message.slice(0, 80)}` });
+      await _logD1Failure(env, `rooftop_sweep:update:${propertyId}`, e.message).catch(()=>{});
+      continue;
+    }
+
+    // Mirror precision into the existing geo_precision KV blob — the tracer
+    // warning logic reads from KV until consolidation lands.
+    try {
+      const gpKey = KV_KEYS.geoPrecision;
+      const gp = (await env.DATA.get(gpKey, 'json')) || {};
+      gp[propertyId] = 'ROOFTOP';
+      await env.DATA.put(gpKey, JSON.stringify(gp));
+    } catch (e) {
+      await _logD1Failure(env, `rooftop_sweep:kv:${propertyId}`, e.message).catch(()=>{});
+    }
+
+    // Re-capture the satellite tile at the new center via the shared backfill
+    // batch helper (single-row mode). Updates satelliteImageKey + zoom +
+    // capturedLat/Lng/At from the row's CURRENT lat/lng (which we just wrote).
+    let satResult = null;
+    if (env.PHOTOS) {
+      try {
+        satResult = await runSatelliteBackfillBatch(env, 1, { propertyId });
+      } catch (e) {
+        await _logD1Failure(env, `rooftop_sweep:sat:${propertyId}`, e.message).catch(()=>{});
+      }
+    }
+
+    upgraded++;
+    upgradedIds.push({
+      propertyId,
+      streetAddress,
+      city,
+      lat: geo.lat,
+      lng: geo.lng,
+      formattedAddress: geo.formattedAddress || null,
+      satellite_recaptured: !!(satResult?.success && satResult?.fetched > 0),
+    });
+
+    // Rate-respect — Google free tier handles this volume easily but stay
+    // polite (also avoids cumulative latency cliffs).
+    await sleep(120);
+  }
+
+  return jsonResponse({
+    success: true,
+    batch_size: batchSize,
+    processed: rows.length,
+    upgraded,
+    deferred,
+    failed,
+    upgraded_ids:  upgradedIds,
+    deferred_list: deferredList.slice(0, 200),
+    deferred_count: deferredList.length,
+    failures:      failures.slice(0, 50),
+    duration_ms:   Date.now() - startedAt,
+  }, corsHeaders);
+}
+
 // POST /admin/satellite-backfill/clear-marker
 // Deletes the satellite:backfill_complete KV marker so the daily cron resumes
 // scanning for net-new properties. Used after a geocode backfill flips some
