@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname+location.search));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>📐 Surface Measure — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0a1628;--sky:#2d7dd2;--gold:#f4a620;--green:#1d9e75;
+  --red:#dc2626;--orange:#d97706;
+  --bg:#fdf8f2;--card:#fff;--text:#1a1f2e;--muted:#6b7280;--border:#e8e2d8;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+.header{background:var(--navy);padding:.75rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;}
+.header-l{display:flex;align-items:center;gap:1rem;}
+.back-btn{background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;}
+.back-btn:hover{background:rgba(255,255,255,.1);}
+.title{font-size:15px;font-weight:700;color:#fff;letter-spacing:.3px;}
+.title span{color:var(--gold);}
+.prop-pill{font-size:12px;color:rgba(255,255,255,.85);background:rgba(255,255,255,.08);border-radius:8px;padding:5px 10px;}
+
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:1rem;padding:1rem;max-width:1600px;margin:0 auto;}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr;}}
+
+.canvas-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:.75rem;}
+.canvas-frame{position:relative;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:#0a1628;}
+canvas{display:block;width:100%;height:auto;cursor:crosshair;user-select:none;-webkit-user-select:none;}
+.canvas-overlay{position:absolute;top:8px;left:8px;background:rgba(10,22,40,.78);color:#fff;font-size:12px;font-weight:600;border-radius:8px;padding:6px 12px;line-height:1.4;pointer-events:none;}
+.scale-bar{position:absolute;bottom:10px;left:10px;background:rgba(255,255,255,.95);color:var(--navy);font-size:11px;font-weight:700;border-radius:6px;padding:4px 9px;line-height:1.2;font-family:'DM Sans',sans-serif;display:flex;align-items:center;gap:8px;}
+.scale-bar .bar{display:inline-block;height:3px;background:var(--navy);}
+
+.canvas-tools{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.75rem;font-size:13px;}
+.canvas-tools .lbl{font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-size:11px;}
+.btn{padding:8px 14px;border-radius:8px;border:none;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:filter .12s;}
+.btn:hover:not(:disabled){filter:brightness(1.06);}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.btn-prim{background:var(--navy);color:#fff;}
+.btn-acc{background:var(--green);color:#fff;}
+.btn-warn{background:var(--orange);color:#fff;}
+.btn-ghost{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
+
+.side{display:flex;flex-direction:column;gap:1rem;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.875rem 1rem;}
+.card h3{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:.625rem;}
+
+.trace-row{display:grid;grid-template-columns:1fr;gap:.5rem;}
+.trace-row .lblrow{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
+.trace-row select,.trace-row input{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-family:inherit;font-size:13.5px;background:#fff;color:var(--text);}
+.trace-row select:focus,.trace-row input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(45,125,210,.15);}
+.trace-row .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.live-readout{background:#f3f4f6;border-radius:8px;padding:8px 10px;display:flex;justify-content:space-between;align-items:baseline;font-size:13px;}
+.live-readout .sqft{font-family:'DM Mono',monospace;font-weight:700;color:var(--navy);font-size:15px;}
+
+.surfaces-list{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;}
+.surf-row{display:grid;grid-template-columns:1fr auto;gap:6px;padding:8px 10px;background:#faf8f3;border:1px solid var(--border);border-radius:8px;align-items:center;}
+.surf-row.unsaved{border-color:var(--orange);background:#fff7ed;}
+.surf-row .nm{font-size:13px;font-weight:600;color:var(--navy);}
+.surf-row .sub{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.surf-row .price{font-size:14px;font-weight:700;color:var(--navy);text-align:right;font-variant-numeric:tabular-nums;}
+.surf-row .del{background:transparent;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:2px 6px;line-height:1;}
+.surf-row .del:hover{background:#fee2e2;border-radius:5px;}
+
+.total-card{background:var(--navy);color:#fff;border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;align-items:baseline;}
+.total-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,.6);}
+.total-val{font-family:'DM Mono',monospace;font-size:22px;font-weight:700;color:var(--gold);}
+
+.toast{position:fixed;bottom:1.25rem;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;font-size:13.5px;font-weight:600;padding:10px 18px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none;z-index:100;}
+.toast.show{opacity:1;}
+.toast.err{background:#7f1d1d;}
+
+.loading{padding:2.5rem 1rem;text-align:center;color:var(--muted);}
+.err-box{background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:14px;color:#991b1b;font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-l">
+    <button class="back-btn" onclick="goBack()">← Back</button>
+    <div class="title">PURE <span>CLEANING</span> · Surface Measure</div>
+  </div>
+  <div id="propPill" class="prop-pill" style="display:none;"></div>
+</div>
+
+<div class="wrap">
+  <div>
+    <div id="loading" class="loading">Loading property…</div>
+    <div id="errBox"  class="err-box" style="display:none;"></div>
+
+    <div id="canvasArea" class="canvas-card" style="display:none;">
+      <div class="canvas-frame">
+        <canvas id="cv"></canvas>
+        <div class="canvas-overlay" id="cvOverlay">Click to start a polygon</div>
+        <div class="scale-bar" id="scaleBar" style="display:none;">
+          <span class="bar" id="scaleBarBar"></span>
+          <span id="scaleBarLbl">10 ft</span>
+        </div>
+      </div>
+
+      <div class="canvas-tools">
+        <span class="lbl">Tools:</span>
+        <button class="btn btn-prim" id="closeBtn"  onclick="closeActivePolygon()" disabled>✓ Close polygon</button>
+        <button class="btn btn-ghost" id="undoBtn"  onclick="undoVertex()" disabled>↺ Undo vertex</button>
+        <button class="btn btn-ghost" id="clearBtn" onclick="clearActivePolygon()" disabled>Clear</button>
+        <span style="flex:1;"></span>
+        <span class="lbl">Calibration:</span>
+        <span id="ftPerPxLbl" style="font-family:'DM Mono',monospace;font-size:12.5px;color:var(--muted);"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="side" id="sidePanel" style="display:none;">
+
+    <div class="card">
+      <h3>Current trace</h3>
+      <div class="trace-row">
+        <div>
+          <div class="lblrow">Surface</div>
+          <select id="curType">
+            <option value="driveway">Driveway</option>
+            <option value="patio">Patio</option>
+            <option value="sidewalk">Sidewalk</option>
+            <option value="pool_deck">Pool deck</option>
+            <option value="roof">Roof</option>
+            <option value="wall">Wall</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <div class="lblrow">Material</div>
+          <select id="curMaterial">
+            <option value="">— pick —</option>
+            <option value="concrete">Concrete</option>
+            <option value="paver">Paver</option>
+            <option value="rock">Rock</option>
+            <option value="tile_barrel">Tile — Barrel</option>
+            <option value="tile_flat">Tile — Flat</option>
+            <option value="shingle">Shingle</option>
+            <option value="metal">Metal</option>
+            <option value="stucco">Stucco</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="live-readout">
+          <span>Live sqft</span>
+          <span class="sqft" id="liveSqft">0</span>
+        </div>
+        <div class="grid2">
+          <div>
+            <div class="lblrow">$/sqft (rate card)</div>
+            <input type="number" step="0.01" min="0" id="curRate" placeholder="auto">
+          </div>
+          <div>
+            <div class="lblrow">Price</div>
+            <input type="number" step="0.01" min="0" id="curPrice" placeholder="0">
+          </div>
+        </div>
+        <div id="storyHint" style="font-size:11.5px;color:var(--orange);font-weight:600;display:none;">
+          ⚠ Wall + 2-story: storyModifier applied.
+        </div>
+        <button class="btn btn-acc" id="saveCurBtn" onclick="saveActiveSurface()" disabled>+ Add to list</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Surfaces (this property)</h3>
+      <div id="surfacesList" class="surfaces-list">
+        <div style="font-size:13px;color:var(--muted);padding:6px 0;">No surfaces saved yet.</div>
+      </div>
+      <div class="total-card" style="margin-top:.75rem;">
+        <span class="total-lbl">Total</span>
+        <span class="total-val" id="totalAmt">$0.00</span>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;color:var(--muted);line-height:1.55;padding:0 4px;">
+      Each polygon is its own row in the <strong>Surface</strong> D1 table — polygon
+      coords + tile center + zoom are stored so the trace is reprojectable later.
+      Rate card defaults pull from <strong>RateCard</strong>; override per-row as needed.
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const _params = new URLSearchParams(location.search);
+const PROP_ID = _params.get('propertyId') || _params.get('id') || '';
+
+let _prop = null;
+let _rateCard = [];
+let _savedSurfaces = [];   // existing rows from D1 + this-session adds
+let _activePoly = [];      // [{x,y}, ...] in IMAGE px
+let _polyClosed = false;
+let _liveSqft = 0;
+
+// Tile image element + canvas refs
+let _img = new Image();
+let _cv, _ctx;
+let _ftPerPx = null;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function _esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function _money(n){ return '$' + Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+
+function toast(msg, isErr){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.toggle('err', !!isErr);
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2400);
+}
+
+function goBack(){
+  if (_activePoly.length && !_polyClosed) {
+    if (!confirm('Discard in-progress polygon?')) return;
+  }
+  history.length > 1 ? history.back() : (location.href = '/pure_cleaning_admin.html');
+}
+
+// ── Math ────────────────────────────────────────────────────────────────────
+// ft_per_px = (156543.03392 * cos(lat) / 2^zoom / scale) * 3.28084
+// Property.satelliteZoom is the captured zoom (19). Static Maps scale=2 means
+// the saved JPG is 1280x1280 (= 640 base * 2), so each pixel covers HALF the
+// base meters/px → divide by 2.
+function ftPerPxFor(latitude, zoom) {
+  if (latitude == null || zoom == null) return null;
+  const mPerPxBase = 156543.03392 * Math.cos(latitude * Math.PI / 180) / Math.pow(2, zoom);
+  const mPerPxImg  = mPerPxBase / 2;   // scale=2 doubling
+  return mPerPxImg * 3.28084;
+}
+
+// Shoelace area in pixel² for [{x,y},...].
+function shoelaceAreaPx(points) {
+  if (!points || points.length < 3) return 0;
+  let a = 0;
+  for (let i = 0; i < points.length; i++) {
+    const j = (i + 1) % points.length;
+    a += points[i].x * points[j].y;
+    a -= points[j].x * points[i].y;
+  }
+  return Math.abs(a) / 2;
+}
+
+function pxToSqft(areaPx) {
+  if (_ftPerPx == null) return 0;
+  return areaPx * _ftPerPx * _ftPerPx;
+}
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+async function boot() {
+  if (!PROP_ID) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('errBox').style.display = 'block';
+    document.getElementById('errBox').textContent = 'No propertyId in URL (expected ?propertyId=prop_…).';
+    return;
+  }
+  try {
+    const res = await fetch(`${PCPC_API}/admin/property/${encodeURIComponent(PROP_ID)}/for-measure`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _prop = data.property;
+    _rateCard = data.rateCard || [];
+    _savedSurfaces = data.surfaces || [];
+
+    _ftPerPx = ftPerPxFor(_prop.satelliteCapturedLat ?? _prop.latitude, _prop.satelliteZoom ?? 19);
+    document.getElementById('ftPerPxLbl').textContent =
+      `${_ftPerPx ? _ftPerPx.toFixed(4) : '?'} ft/px (lat ${(_prop.satelliteCapturedLat ?? _prop.latitude).toFixed(5)}, zoom ${_prop.satelliteZoom ?? 19})`;
+
+    document.getElementById('propPill').style.display = 'inline-block';
+    document.getElementById('propPill').textContent =
+      `${_prop.streetAddress}, ${_prop.city}${_prop.state ? ' ' + _prop.state : ''}${_prop.zip ? ' ' + _prop.zip : ''}`;
+
+    await loadTile();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('canvasArea').style.display = 'block';
+    document.getElementById('sidePanel').style.display  = 'flex';
+
+    renderSavedSurfaces();
+    refreshCurrentForm();
+  } catch(e) {
+    document.getElementById('loading').style.display = 'none';
+    const eb = document.getElementById('errBox');
+    eb.style.display = 'block';
+    eb.textContent = 'Failed to load property: ' + e.message;
+  }
+}
+
+async function loadTile() {
+  const key = _prop.satelliteImageKey;
+  if (!key) throw new Error('property has no satelliteImageKey');
+  const res = await fetch(`${PCPC_API}/admin/photos/key/${key}`);
+  if (!res.ok) throw new Error(`tile HTTP ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  await new Promise((resolve, reject) => {
+    _img.onload = resolve;
+    _img.onerror = () => reject(new Error('tile decode failed'));
+    _img.src = url;
+  });
+
+  // Init canvas at the image's NATIVE pixel size (e.g. 1280×1280).
+  _cv  = document.getElementById('cv');
+  _ctx = _cv.getContext('2d');
+  _cv.width  = _img.naturalWidth;
+  _cv.height = _img.naturalHeight;
+  drawCanvas();
+  attachCanvasHandlers();
+}
+
+// ── Drawing ─────────────────────────────────────────────────────────────────
+function drawCanvas() {
+  _ctx.drawImage(_img, 0, 0);
+  drawSavedPolygons();
+  drawActivePolygon();
+  drawScaleBar();
+}
+
+function drawSavedPolygons() {
+  for (const s of _savedSurfaces) {
+    const p = s.polygon && Array.isArray(s.polygon.points) ? s.polygon.points : null;
+    if (!p || p.length < 3) continue;
+    _ctx.lineWidth = 3;
+    _ctx.strokeStyle = 'rgba(29,158,117,.95)';
+    _ctx.fillStyle   = 'rgba(29,158,117,.18)';
+    _drawPoly(p, true);
+  }
+}
+
+function drawActivePolygon() {
+  if (!_activePoly.length) return;
+  _ctx.lineWidth = 3;
+  _ctx.strokeStyle = 'rgba(244,166,32,.98)';
+  _ctx.fillStyle   = 'rgba(244,166,32,.18)';
+  _drawPoly(_activePoly, _polyClosed);
+  // Draw vertex dots
+  for (const p of _activePoly) {
+    _ctx.beginPath();
+    _ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+    _ctx.fillStyle = '#fff';
+    _ctx.fill();
+    _ctx.lineWidth = 2.5;
+    _ctx.strokeStyle = '#f4a620';
+    _ctx.stroke();
+  }
+}
+
+function _drawPoly(pts, close) {
+  _ctx.beginPath();
+  _ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) _ctx.lineTo(pts[i].x, pts[i].y);
+  if (close && pts.length >= 3) {
+    _ctx.closePath();
+    _ctx.fill();
+  }
+  _ctx.stroke();
+}
+
+function drawScaleBar() {
+  if (!_ftPerPx) return;
+  // Draw a 50-ft scale bar in pixels in the lower-left of the image.
+  const ftTarget = 50;
+  const pxLen = ftTarget / _ftPerPx;
+  const bar = document.getElementById('scaleBarBar');
+  const lbl = document.getElementById('scaleBarLbl');
+  // Scale bar is overlaid in DOM coords — scale to canvas displayed width
+  const cv = _cv;
+  const cssWidth = cv.getBoundingClientRect().width;
+  const ratio = cssWidth / cv.width;
+  bar.style.width = (pxLen * ratio) + 'px';
+  lbl.textContent = ftTarget + ' ft';
+  document.getElementById('scaleBar').style.display = 'flex';
+}
+
+// ── Canvas events ──────────────────────────────────────────────────────────
+function attachCanvasHandlers() {
+  _cv.addEventListener('pointerdown', onCanvasClick);
+  window.addEventListener('resize', drawScaleBar);
+}
+
+function _eventToImagePx(ev) {
+  const r = _cv.getBoundingClientRect();
+  const x = (ev.clientX - r.left) * (_cv.width  / r.width);
+  const y = (ev.clientY - r.top)  * (_cv.height / r.height);
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+const CLOSE_THRESHOLD_PX_DISPLAY = 14;
+
+function onCanvasClick(ev) {
+  if (_polyClosed) return;
+  const p = _eventToImagePx(ev);
+
+  // If clicked near the start vertex AND we have ≥ 3 vertices → close.
+  if (_activePoly.length >= 3) {
+    const first = _activePoly[0];
+    const dx = (p.x - first.x);
+    const dy = (p.y - first.y);
+    const dPx = Math.sqrt(dx*dx + dy*dy);
+    const r = _cv.getBoundingClientRect();
+    const dDisplayed = dPx * (r.width / _cv.width);
+    if (dDisplayed <= CLOSE_THRESHOLD_PX_DISPLAY) {
+      closeActivePolygon();
+      return;
+    }
+  }
+  _activePoly.push(p);
+  refreshLiveReadout();
+  updateButtons();
+  drawCanvas();
+}
+
+function refreshLiveReadout() {
+  _liveSqft = pxToSqft(shoelaceAreaPx(_activePoly));
+  document.getElementById('liveSqft').textContent =
+    _activePoly.length >= 3 ? _liveSqft.toFixed(0) + ' sqft' : '—';
+  document.getElementById('cvOverlay').textContent =
+    _activePoly.length === 0 ? 'Click to start a polygon'
+    : _polyClosed ? 'Polygon closed — pick type / material below'
+    : `${_activePoly.length} vertex${_activePoly.length === 1 ? '' : 'es'} · click first dot to close`;
+  refreshPriceFromRate();
+}
+
+function updateButtons() {
+  const can = _activePoly.length >= 3;
+  document.getElementById('closeBtn').disabled = !can || _polyClosed;
+  document.getElementById('undoBtn').disabled  = _activePoly.length === 0 || _polyClosed;
+  document.getElementById('clearBtn').disabled = _activePoly.length === 0;
+  document.getElementById('saveCurBtn').disabled = !(_polyClosed && _liveSqft > 0);
+}
+
+function closeActivePolygon() {
+  if (_activePoly.length < 3) return;
+  _polyClosed = true;
+  refreshLiveReadout();
+  updateButtons();
+  drawCanvas();
+}
+
+function undoVertex() {
+  if (_polyClosed) return;
+  _activePoly.pop();
+  refreshLiveReadout();
+  updateButtons();
+  drawCanvas();
+}
+
+function clearActivePolygon() {
+  _activePoly = [];
+  _polyClosed = false;
+  refreshLiveReadout();
+  updateButtons();
+  drawCanvas();
+}
+
+// ── Rate card + form ───────────────────────────────────────────────────────
+function rateFor(surfaceType, material) {
+  if (!material) return null;
+  const r = _rateCard.find(x => x.surfaceType === surfaceType && x.material === material);
+  return r || null;
+}
+
+function refreshCurrentForm() {
+  document.getElementById('curType').addEventListener('change', refreshPriceFromRate);
+  document.getElementById('curMaterial').addEventListener('change', refreshPriceFromRate);
+  document.getElementById('curRate').addEventListener('input', () => recalcPriceFromInputs());
+  document.getElementById('curPrice').addEventListener('input', () => {/* manual override, no recalc */});
+  refreshPriceFromRate();
+}
+
+function refreshPriceFromRate() {
+  const surfaceType = document.getElementById('curType').value;
+  const material    = document.getElementById('curMaterial').value;
+  const rate = rateFor(surfaceType, material);
+  const curRate = document.getElementById('curRate');
+  if (rate) curRate.value = rate.pricePerSqft;
+  // Wall + story modifier hint
+  const hint = document.getElementById('storyHint');
+  const isWall = surfaceType === 'wall';
+  const storiesN = Number(_prop?.stories || 0);
+  const useStoryMod = isWall && storiesN >= 2 && rate && rate.storyModifier != null;
+  hint.style.display = useStoryMod ? 'block' : 'none';
+  recalcPriceFromInputs(useStoryMod ? rate.storyModifier : 1);
+}
+
+function recalcPriceFromInputs(storyMod) {
+  const rate = Number(document.getElementById('curRate').value || 0);
+  const mod  = storyMod == null ? 1 : Number(storyMod || 1);
+  const price = _liveSqft * rate * mod;
+  document.getElementById('curPrice').value = price > 0 ? price.toFixed(2) : '';
+}
+
+// ── Save / persist ─────────────────────────────────────────────────────────
+async function saveActiveSurface() {
+  if (!_polyClosed || _liveSqft <= 0) { toast('Close a polygon first', true); return; }
+  const surfaceType = document.getElementById('curType').value;
+  const material    = document.getElementById('curMaterial').value || null;
+  const rate  = Number(document.getElementById('curRate').value || 0) || null;
+  const price = Number(document.getElementById('curPrice').value || 0) || null;
+
+  const polygon = {
+    points:    _activePoly.map(p => ({ x: p.x, y: p.y })),
+    centerLat: _prop.satelliteCapturedLat ?? _prop.latitude,
+    centerLng: _prop.satelliteCapturedLng ?? _prop.longitude,
+    zoom:      _prop.satelliteZoom ?? 19,
+    imgSize:   [_cv.width, _cv.height],
+  };
+
+  const btn = document.getElementById('saveCurBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${PCPC_API}/admin/surface`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        propertyId: _prop.propertyId,
+        surfaceType, material,
+        polygon,
+        sqft: Number(_liveSqft.toFixed(2)),
+        pricePerSqft: rate,
+        price,
+        tracedBy: 'tyler',
+      }),
+    });
+    if (!res.ok) {
+      const det = await res.json().catch(() => ({}));
+      throw new Error(det.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    // Verify round-trip: server returns the persisted surface
+    if (!data.surface || !data.surface.surfaceId) throw new Error('server did not return surfaceId');
+    _savedSurfaces.push(data.surface);
+    renderSavedSurfaces();
+    clearActivePolygon();
+    drawCanvas();
+    toast('✓ Saved surface');
+  } catch(e) {
+    toast('Save failed: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Add to list';
+  }
+}
+
+function renderSavedSurfaces() {
+  const list = document.getElementById('surfacesList');
+  if (!_savedSurfaces.length) {
+    list.innerHTML = `<div style="font-size:13px;color:var(--muted);padding:6px 0;">No surfaces saved yet.</div>`;
+    document.getElementById('totalAmt').textContent = '$0.00';
+    return;
+  }
+  let total = 0;
+  list.innerHTML = _savedSurfaces.map(s => {
+    total += Number(s.price || 0);
+    const m = s.material ? ' · ' + s.material : '';
+    return `<div class="surf-row">
+      <div>
+        <div class="nm">${_esc(_humanizeType(s.surfaceType))}${_esc(m)}</div>
+        <div class="sub">${(s.sqft||0).toFixed(0)} sqft${s.pricePerSqft ? ' @ $'+s.pricePerSqft.toFixed(2)+'/sqft' : ''}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <div class="price">${_money(s.price)}</div>
+        <button class="del" title="Delete" onclick="deleteSurface('${_esc(s.surfaceId)}')">×</button>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('totalAmt').textContent = _money(total);
+}
+
+function _humanizeType(t){
+  return ({driveway:'Driveway',patio:'Patio',sidewalk:'Sidewalk',pool_deck:'Pool deck',roof:'Roof',wall:'Wall',other:'Other'}[t] || t);
+}
+
+async function deleteSurface(surfaceId){
+  if (!confirm('Delete this surface?')) return;
+  try {
+    const res = await fetch(`${PCPC_API}/admin/surface/${encodeURIComponent(surfaceId)}`, { method:'DELETE' });
+    if (!res.ok) {
+      const det = await res.json().catch(() => ({}));
+      throw new Error(det.error || `HTTP ${res.status}`);
+    }
+    _savedSurfaces = _savedSurfaces.filter(s => s.surfaceId !== surfaceId);
+    renderSavedSurfaces();
+    drawCanvas();
+    toast('Deleted');
+  } catch(e) {
+    toast('Delete failed: ' + e.message, true);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

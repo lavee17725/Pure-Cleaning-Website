@@ -1516,6 +1516,40 @@ export default {
       if (path === 'admin/geocode-rooftop-sweep' && request.method === 'POST') {
         return await handleRooftopSweep(request, env, url, corsHeaders);
       }
+
+      // ── Surface Measure Tool (Phase 1 quoting-engine data layer) ─────────────
+      // GET  /admin/property/:id/for-measure  — full bundle for the Measure UI
+      // GET  /admin/property/:id/surfaces     — list traced surfaces
+      // POST /admin/surface                   — create one Surface row
+      // PUT  /admin/surface/:id               — update
+      // DELETE /admin/surface/:id             — delete
+      // GET  /admin/rate-card                 — list all (surfaceType, material) → rate
+      // PUT  /admin/rate-card                 — upsert a rate row
+      if (path.startsWith('admin/property/') && path.endsWith('/for-measure') && request.method === 'GET') {
+        const pid = path.slice('admin/property/'.length, -'/for-measure'.length);
+        return await handlePropertyForMeasure(env, pid, corsHeaders);
+      }
+      if (path.startsWith('admin/property/') && path.endsWith('/surfaces') && request.method === 'GET') {
+        const pid = path.slice('admin/property/'.length, -'/surfaces'.length);
+        return await handleListSurfaces(env, pid, corsHeaders);
+      }
+      if (path === 'admin/surface' && request.method === 'POST') {
+        return await handleCreateSurface(request, env, corsHeaders);
+      }
+      if (path.startsWith('admin/surface/') && request.method === 'PUT') {
+        const sid = path.slice('admin/surface/'.length);
+        return await handleUpdateSurface(request, env, sid, corsHeaders);
+      }
+      if (path.startsWith('admin/surface/') && request.method === 'DELETE') {
+        const sid = path.slice('admin/surface/'.length);
+        return await handleDeleteSurface(env, sid, corsHeaders);
+      }
+      if (path === 'admin/rate-card' && request.method === 'GET') {
+        return await handleListRateCard(env, corsHeaders);
+      }
+      if (path === 'admin/rate-card' && request.method === 'PUT') {
+        return await handleUpsertRateCard(request, env, corsHeaders);
+      }
       // Public quote-form lead photo upload — rate-limited, magic-byte sniffed,
       // 4MB cap, quarantined R2 prefix. Returns the R2 key for the client to
       // attach to /incoming.customerData.photos[].
@@ -3628,6 +3662,308 @@ async function handleSatelliteClearMarker(request, env, corsHeaders) {
     await _logD1Failure(env, 'satellite_clear_marker', e.message).catch(()=>{});
     return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Surface Measure Tool — Phase 1 quoting-engine data layer (2026-06-17).
+//
+// One row per human-traced polygon on a property's satellite tile. Stores the
+// polygon (pixel coords + tile center + zoom) so it can be reprojected onto
+// any future tile of the same property — that's how the dataset trains future
+// auto-trace / classification models. Phase 1 is human-only; later phases
+// read FROM this table to learn.
+//
+// RateCard is the live, editable mirror of docs/QUOTING-ENGINE.md §3. UI
+// auto-fills pricePerSqft from (surfaceType, material); operator can edit
+// per-row or update the rates here.
+
+const _SURFACE_TYPES   = new Set(['driveway','patio','sidewalk','pool_deck','roof','wall','other']);
+const _SURFACE_MATERIALS = new Set(['concrete','paver','rock','tile_barrel','tile_flat','shingle','metal','stucco','other']);
+
+// GET /admin/property/:propertyId/for-measure
+// Bundle the Measure UI needs to render — property meta + tile metadata
+// + any previously-saved surfaces + the rate card. Single round-trip on page
+// load (avoids 4 sequential fetches when the operator opens a tile).
+async function handlePropertyForMeasure(env, propertyId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+
+  const prop = await env.DB.prepare(
+    `SELECT propertyId, streetAddress, unit, city, state, zip,
+            latitude, longitude, stories, sqft, geocodeSource, geocodePrecision,
+            satelliteImageKey, satelliteZoom, satelliteCapturedLat,
+            satelliteCapturedLng, satelliteCapturedAt
+       FROM Property
+      WHERE propertyId = ?`
+  ).bind(propertyId).first();
+  if (!prop) return jsonResponse({ error: 'property not found', propertyId }, corsHeaders, 404);
+
+  const surfaces = (await env.DB.prepare(
+    `SELECT surfaceId, surfaceType, material, polygon, sqft, pricePerSqft, price,
+            source, tracedBy, createdAt, modifiedAt
+       FROM Surface
+      WHERE propertyId = ?
+      ORDER BY createdAt ASC`
+  ).bind(propertyId).all())?.results || [];
+
+  const rateCard = (await env.DB.prepare(
+    `SELECT rateCardId, surfaceType, material, pricePerSqft, storyModifier, notes, updatedAt
+       FROM RateCard
+      ORDER BY surfaceType, material`
+  ).all())?.results || [];
+
+  return jsonResponse({
+    property: prop,
+    surfaces: surfaces.map(_shapeSurface),
+    rateCard,
+  }, corsHeaders);
+}
+
+function _shapeSurface(r) {
+  let polygon = null;
+  if (r.polygon) {
+    try { polygon = JSON.parse(r.polygon); } catch { polygon = null; }
+  }
+  return {
+    surfaceId:    r.surfaceId,
+    propertyId:   r.propertyId || undefined,
+    jobId:        r.jobId      || null,
+    surfaceType:  r.surfaceType,
+    material:     r.material   || null,
+    polygon,
+    sqft:         r.sqft == null ? null : Number(r.sqft),
+    pricePerSqft: r.pricePerSqft == null ? null : Number(r.pricePerSqft),
+    price:        r.price == null ? null : Number(r.price),
+    source:       r.source     || 'traced',
+    tracedBy:     r.tracedBy   || null,
+    createdAt:    r.createdAt,
+    modifiedAt:   r.modifiedAt,
+  };
+}
+
+// GET /admin/property/:propertyId/surfaces — list traced surfaces for a property.
+async function handleListSurfaces(env, propertyId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  const rows = (await env.DB.prepare(
+    `SELECT * FROM Surface WHERE propertyId = ? ORDER BY createdAt ASC`
+  ).bind(propertyId).all())?.results || [];
+  return jsonResponse({ propertyId, surfaces: rows.map(_shapeSurface) }, corsHeaders);
+}
+
+// POST /admin/surface
+// Body: { propertyId, surfaceType, material?, polygon, sqft, pricePerSqft?, price?, tracedBy?, jobId? }
+// polygon must include { points:[{x,y}, ...], centerLat, centerLng, zoom, imgSize?:[w,h] } so it's reprojectable.
+async function handleCreateSurface(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { propertyId, surfaceType, material, polygon, sqft, pricePerSqft, price, tracedBy, jobId } = body;
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  if (!_SURFACE_TYPES.has(surfaceType))
+    return jsonResponse({ error: `surfaceType must be one of ${[..._SURFACE_TYPES].join(' | ')}` }, corsHeaders, 400);
+  if (material != null && !_SURFACE_MATERIALS.has(material))
+    return jsonResponse({ error: `material must be one of ${[..._SURFACE_MATERIALS].join(' | ')}` }, corsHeaders, 400);
+  if (sqft == null || !Number.isFinite(Number(sqft)) || Number(sqft) <= 0)
+    return jsonResponse({ error: 'sqft must be a positive number' }, corsHeaders, 400);
+
+  // Verify the Property exists — friendly 404 instead of FK error.
+  const prop = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId = ?').bind(propertyId).first();
+  if (!prop) return jsonResponse({ error: 'property not found', propertyId }, corsHeaders, 404);
+
+  // Polygon shape: { points:[{x,y},...], centerLat, centerLng, zoom, imgSize? }
+  // Validate shape lightly; we never re-do the math here (UI owns it). The
+  // points + metadata are the audit trail.
+  let polygonJson = null;
+  if (polygon != null) {
+    if (typeof polygon !== 'object' || !Array.isArray(polygon.points))
+      return jsonResponse({ error: 'polygon.points[] required' }, corsHeaders, 400);
+    polygonJson = JSON.stringify({
+      points:    polygon.points,
+      centerLat: polygon.centerLat ?? null,
+      centerLng: polygon.centerLng ?? null,
+      zoom:      polygon.zoom      ?? null,
+      imgSize:   polygon.imgSize   ?? null,
+    });
+  }
+
+  const now = new Date().toISOString();
+  const surfaceId = `surf_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO Surface
+         (surfaceId, propertyId, jobId, surfaceType, material, polygon,
+          sqft, pricePerSqft, price, source, tracedBy, createdAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'traced', ?, ?, ?)`
+    ).bind(
+      surfaceId,
+      propertyId,
+      jobId || null,
+      surfaceType,
+      material || null,
+      polygonJson,
+      Number(sqft),
+      pricePerSqft == null ? null : Number(pricePerSqft),
+      price == null        ? null : Number(price),
+      tracedBy || 'operator',
+      now,
+      now,
+    ).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleCreateSurface', e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success: true,
+    surface: {
+      surfaceId, propertyId, jobId: jobId || null,
+      surfaceType, material: material || null,
+      polygon: polygonJson ? JSON.parse(polygonJson) : null,
+      sqft: Number(sqft),
+      pricePerSqft: pricePerSqft == null ? null : Number(pricePerSqft),
+      price:        price        == null ? null : Number(price),
+      source: 'traced',
+      tracedBy: tracedBy || 'operator',
+      createdAt: now,
+      modifiedAt: now,
+    },
+  }, corsHeaders);
+}
+
+// PUT /admin/surface/:surfaceId — edit any field (material, sqft, prices, etc.).
+async function handleUpdateSurface(request, env, surfaceId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!surfaceId) return jsonResponse({ error: 'surfaceId required' }, corsHeaders, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare(
+    'SELECT surfaceId FROM Surface WHERE surfaceId = ?'
+  ).bind(surfaceId).first();
+  if (!existing) return jsonResponse({ error: 'surface not found', surfaceId }, corsHeaders, 404);
+
+  const fields = {};
+  if (body.surfaceType !== undefined) {
+    if (!_SURFACE_TYPES.has(body.surfaceType)) return jsonResponse({ error: 'invalid surfaceType' }, corsHeaders, 400);
+    fields.surfaceType = body.surfaceType;
+  }
+  if (body.material !== undefined) {
+    if (body.material !== null && !_SURFACE_MATERIALS.has(body.material))
+      return jsonResponse({ error: 'invalid material' }, corsHeaders, 400);
+    fields.material = body.material;
+  }
+  if (body.sqft !== undefined) {
+    if (!Number.isFinite(Number(body.sqft)) || Number(body.sqft) <= 0)
+      return jsonResponse({ error: 'sqft must be a positive number' }, corsHeaders, 400);
+    fields.sqft = Number(body.sqft);
+  }
+  if (body.pricePerSqft !== undefined) fields.pricePerSqft = body.pricePerSqft == null ? null : Number(body.pricePerSqft);
+  if (body.price        !== undefined) fields.price        = body.price        == null ? null : Number(body.price);
+  if (body.tracedBy     !== undefined) fields.tracedBy     = body.tracedBy;
+  if (body.jobId        !== undefined) fields.jobId        = body.jobId;
+  if (body.polygon      !== undefined) {
+    if (body.polygon == null) fields.polygon = null;
+    else if (typeof body.polygon === 'object' && Array.isArray(body.polygon.points)) {
+      fields.polygon = JSON.stringify({
+        points:    body.polygon.points,
+        centerLat: body.polygon.centerLat ?? null,
+        centerLng: body.polygon.centerLng ?? null,
+        zoom:      body.polygon.zoom      ?? null,
+        imgSize:   body.polygon.imgSize   ?? null,
+      });
+    } else return jsonResponse({ error: 'polygon must be object with points[]' }, corsHeaders, 400);
+  }
+
+  if (!Object.keys(fields).length)
+    return jsonResponse({ error: 'no writable fields provided' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  fields.modifiedAt = now;
+  const setClause = Object.keys(fields).map(k => `${k}=?`).join(', ');
+  const setValues = Object.values(fields);
+
+  try {
+    await env.DB.prepare(`UPDATE Surface SET ${setClause} WHERE surfaceId=?`)
+      .bind(...setValues, surfaceId).run();
+  } catch (e) {
+    await _logD1Failure(env, `handleUpdateSurface:${surfaceId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  const updated = await env.DB.prepare(
+    'SELECT * FROM Surface WHERE surfaceId = ?'
+  ).bind(surfaceId).first();
+  return jsonResponse({ success: true, surface: _shapeSurface(updated) }, corsHeaders);
+}
+
+// DELETE /admin/surface/:surfaceId — hard delete (Phase 1 has no soft-delete state).
+async function handleDeleteSurface(env, surfaceId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!surfaceId) return jsonResponse({ error: 'surfaceId required' }, corsHeaders, 400);
+  try {
+    const r = await env.DB.prepare('DELETE FROM Surface WHERE surfaceId=?').bind(surfaceId).run();
+    if (!r.meta?.changes) return jsonResponse({ error: 'surface not found', surfaceId }, corsHeaders, 404);
+  } catch (e) {
+    await _logD1Failure(env, `handleDeleteSurface:${surfaceId}`, e.message);
+    return jsonResponse({ error: 'D1 delete failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({ success: true, surfaceId }, corsHeaders);
+}
+
+// GET /admin/rate-card — list every (surfaceType, material) → rate.
+async function handleListRateCard(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const rows = (await env.DB.prepare(
+    `SELECT rateCardId, surfaceType, material, pricePerSqft, storyModifier, notes, updatedAt
+       FROM RateCard
+      ORDER BY surfaceType, material`
+  ).all())?.results || [];
+  return jsonResponse({ rateCard: rows }, corsHeaders);
+}
+
+// PUT /admin/rate-card — upsert by (surfaceType, material).
+// Body: { surfaceType, material, pricePerSqft, storyModifier?, notes? }
+async function handleUpsertRateCard(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const { surfaceType, material, pricePerSqft, storyModifier, notes } = body;
+  if (!surfaceType) return jsonResponse({ error: 'surfaceType required' }, corsHeaders, 400);
+  if (!material)    return jsonResponse({ error: 'material required' },    corsHeaders, 400);
+  if (pricePerSqft == null || !Number.isFinite(Number(pricePerSqft)))
+    return jsonResponse({ error: 'pricePerSqft must be a number' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  const rateCardId = `rc_${surfaceType.toLowerCase()}_${material.toLowerCase()}`.replace(/[^a-z0-9_]/g, '');
+  try {
+    await env.DB.prepare(
+      `INSERT INTO RateCard (rateCardId, surfaceType, material, pricePerSqft, storyModifier, notes, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(surfaceType, material) DO UPDATE SET
+         pricePerSqft  = excluded.pricePerSqft,
+         storyModifier = excluded.storyModifier,
+         notes         = excluded.notes,
+         updatedAt     = excluded.updatedAt`
+    ).bind(
+      rateCardId, surfaceType, material,
+      Number(pricePerSqft),
+      storyModifier == null ? null : Number(storyModifier),
+      notes || null,
+      now,
+    ).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleUpsertRateCard', e.message);
+    return jsonResponse({ error: 'D1 upsert failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({ success: true, rateCardId, surfaceType, material,
+                       pricePerSqft: Number(pricePerSqft),
+                       storyModifier: storyModifier == null ? null : Number(storyModifier),
+                       notes: notes || null, updatedAt: now }, corsHeaders);
 }
 
 // Haversine distance in meters between two (lat, lng) pairs. Pure JS — used

@@ -875,6 +875,15 @@ function renderHeroBanner(c) {
   const actionsHtml = [
     `<a class="action-btn action-btn-call" href="tel:+1${c.phone}">📞 Call</a>`,
     `<a class="action-btn action-btn-text" href="sms:+1${c.phone}">💬 Text</a>`,
+    (() => {
+      // 📐 Measure — launch the Surface Measure tool against the primary
+      // property's stored zoom-19 tile. Only shown when there's a propertyId
+      // to target (skips silently for orphan-Person records without one).
+      const pid = (c.properties && c.properties[0] && c.properties[0].propertyId) || null;
+      return pid
+        ? `<a class="action-btn" style="background:var(--navy);color:var(--gold);" href="/pure_cleaning_measure_v2.html?propertyId=${encodeURIComponent(pid)}" target="_blank">📐 Measure</a>`
+        : '';
+    })(),
     `<a class="action-btn" style="background:#1d9e75;color:#fff;" href="/pure_cleaning_calendar.html?phone=${encodeURIComponent(c.phone)}" target="_blank">📋 Schedule</a>`,
     `<a class="action-btn" style="background:#0a1628;color:#f4a620;" href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" target="_blank">✨ Quote</a>`,
     `<button class="action-btn action-btn-notes" onclick="showAddNote()">✏️ Note</button>`,
