@@ -336,7 +336,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .rig-commute-banner{font-size:10px;color:var(--muted);font-weight:600;padding:3px 8px;background:#f5f8ff;border-radius:5px;margin:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rig-commute-total{font-size:10px;color:var(--sky);font-weight:700;padding:2px 8px 4px;}
 .route-warn{font-size:10px;color:#dc2626;padding:1px 8px 4px;font-weight:600;}
+/* Soft scheduling hint — Far-gap is informational, not actionable today (the
+   lever is clustering future days, QUOTING-ENGINE.md §9). De-emphasized
+   vs the previous angry-red warning. */
+.route-hint{font-size:10px;color:#6b7280;padding:1px 8px 4px;font-weight:500;font-style:italic;}
 .route-missing{font-size:10px;color:#9ca3af;padding:1px 8px 4px;}
+/* Partner-job missing-worksite warning — visible but soft so the operator
+   notices but isn't alarmed. Different from .route-warn (red) because this
+   is actionable (add worksite address) but not urgent (route math still works
+   for the eligible jobs). */
+.rig-commute-warn{font-size:10px;color:#9a3412;background:rgba(244,166,32,.12);border-radius:5px;padding:2px 8px;margin:2px 4px;font-weight:600;}
 .optimize-btn{background:none;border:1px solid #d1d5db;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700;color:#374151;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .1s;white-space:nowrap;}
 .optimize-btn:hover{background:#f1f5f9;border-color:#9ca3af;}
 
@@ -2568,6 +2577,52 @@ function getJobCoords(c) {
   return null;
 }
 
+// Partner jobs whose Job.workSiteAddress is missing — the customer record's
+// coords are the PARTNER's billing/office address, NOT the work site. Using
+// those for routing is technically "right by luck" sometimes (the 2026-06-18
+// Dan-FtL case) but always wrong in intent: the crew isn't going to the
+// partner's office. Flag these so the UI never silently uses the wrong pin.
+function _partnerJobMissingWorksite(c) {
+  return c && c.customerType === 'partner_referral' && !c.workSiteAddress;
+}
+
+// Route-eligible coords. Returns null for partner jobs that don't have a
+// work-site address so distance calc + ordering exclude them rather than
+// routing through the partner's office. The card itself still renders;
+// only the route math + leg display skip it (with a visible warning).
+function getJobCoordsForRoute(c) {
+  if (_partnerJobMissingWorksite(c)) return null;
+  return getJobCoords(c);
+}
+
+// Nearest-first nearest-neighbor walk from HOME_BASE. Single source of truth
+// for the order the day's cards stack AND the legs are computed against —
+// so 🏠 → first → … → last → 🏠 reads consistently top to bottom (no card↔
+// leg reversal). Earned 2026-06-18: cards were window-sorted while legs
+// used jobs[0]/jobs[last] from a different order, producing Dan-first cards
+// vs Lourdes-first legs on the same routed day.
+function _nearFirstFromHome(jobs) {
+  if (!jobs || jobs.length < 2) return jobs || [];
+  const eligible = jobs.filter(j => getJobCoordsForRoute(j));
+  const ineligible = jobs.filter(j => !getJobCoordsForRoute(j));
+  if (eligible.length < 2) return jobs; // single coord-having job — no ordering needed
+  const ordered = [];
+  let cur = { lat: HOME_BASE.lat, lng: HOME_BASE.lng };
+  const remaining = eligible.slice();
+  while (remaining.length) {
+    let bestIdx = 0, bestD = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const c = getJobCoordsForRoute(remaining[i]);
+      const d = distanceBetween(cur.lat, cur.lng, c.lat, c.lng);
+      if (d < bestD) { bestD = d; bestIdx = i; }
+    }
+    const next = remaining.splice(bestIdx, 1)[0];
+    cur = getJobCoordsForRoute(next);
+    ordered.push(next);
+  }
+  return [...ordered, ...ineligible];
+}
+
 function dmColorClass(drivingMiles) {
   if (drivingMiles < 5)  return 'dm-green';
   if (drivingMiles < 10) return 'dm-gray';
@@ -2590,13 +2645,15 @@ function buildJobsHtmlWithDist(jobs) {
   for (let i = 0; i < jobs.length; i++) {
     parts.push(jobCardScheduled(jobs[i]));
     if (i < jobs.length - 1) {
-      const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i+1]);
+      // Route-eligible coords only — skip the dist marker if either side is
+      // a partner job missing worksite (distance would be to the partner
+      // office, not the actual work site).
+      const a = getJobCoordsForRoute(jobs[i]), b = getJobCoordsForRoute(jobs[i+1]);
       if (a && b) {
         const d = distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
         const mins = Math.round((d / 30) * 60);
         const cls = dmColorClass(d);
-        const warn = d > 15 ? ' ⚠️' : '';
-        parts.push(`<div class="dist-marker ${cls}">${d.toFixed(1)} mi · ~${mins} min${warn}</div>`);
+        parts.push(`<div class="dist-marker ${cls}">${d.toFixed(1)} mi · ~${mins} min</div>`);
       } else {
         parts.push(`<div class="dist-marker dm-none">· · ·</div>`);
       }
@@ -2658,62 +2715,116 @@ function buildJobsByWindow(jobs) {
 
 function renderRouteSummary(jobs, date, rig) {
   if (jobs.length < 2) return '';
+  // Route-eligible coords only — partner jobs missing workSiteAddress are
+  // excluded from the math (they'd otherwise route through the partner office).
   let total = 0, anyMissing = false, maxLeg = 0, maxIdx = -1;
   for (let i = 0; i < jobs.length - 1; i++) {
-    const a = getJobCoords(jobs[i]), b = getJobCoords(jobs[i+1]);
+    const a = getJobCoordsForRoute(jobs[i]), b = getJobCoordsForRoute(jobs[i+1]);
     if (a && b) {
       const d = distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
       total += d;
       if (d > maxLeg) { maxLeg = d; maxIdx = i; }
     } else { anyMissing = true; }
   }
-  const hasAnyCoords = jobs.some(j => getJobCoords(j));
+  const hasAnyCoords = jobs.some(j => getJobCoordsForRoute(j));
   if (!hasAnyCoords) return anyMissing ? `<div class="route-missing">📍 Addresses not geocoded — distances unavailable</div>` : '';
   const mins = Math.round((total / 30) * 60);
-  const warnHtml = maxLeg > 15 ? `<div class="route-warn">⚠️ Far gap: jobs ${maxIdx+1}–${maxIdx+2} (${(maxLeg).toFixed(1)} mi)</div>` : '';
+  // Far-gap softened to a scheduling-signal hint (not an angry warning) per
+  // QUOTING-ENGINE.md §9: the lever is clustering future days, not flagging
+  // today's already-committed route.
+  const farGap = maxLeg > 15 ? `<div class="route-hint">💡 Far gap ${(maxLeg).toFixed(1)} mi — cluster by area next time (§9)</div>` : '';
   const missingNote = anyMissing ? `<div class="route-missing">⚬ Some addresses ungeocoded — estimate incomplete</div>` : '';
   return `<div class="route-summary">
     <span>🚗 ${total.toFixed(1)} mi · ~${mins} min drive</span>
     <button class="optimize-btn" onclick="event.stopPropagation();promptOptimize('${date}','${rig}')">🧭 Optimize</button>
-  </div>${warnHtml}${missingNote}`;
+  </div>${farGap}${missingNote}`;
 }
 
-// Commute distance banners: 🏠→first, last→🏠, and daily total per rig swimlane.
-// Uses 35 mph average for South Florida streets. Returns {top, bottom, total} HTML strings.
-// date + rig params are optional — when provided, banners get IDs for async enrichment.
-// Initial render uses haversine; _refreshRigCommuteBanner() updates with real Google data.
+// Commute distance banners: 🏠 → {first job's name}, {last job's name} → 🏠,
+// and daily total per rig swimlane. Cards stack in the same order these legs
+// are computed (nearest-first walk from HOME_BASE via _nearFirstFromHome), so
+// the top-of-list card matches the leg's "first" and the bottom matches "last"
+// — no card↔leg reversal.
+//
+// Partner jobs missing Job.workSiteAddress are excluded from the leg math
+// (route-eligible coords only) and flagged with a soft warning so the
+// distance calc never silently routes through the partner office.
+//
+// date + rig params are optional — when provided, banners get IDs for async
+// enrichment. Initial render uses haversine; _refreshRigCommuteBanner()
+// updates with real Google data.
 function renderRigCommuteBanners(activeJobs, date, rig) {
   if (!activeJobs.length) return { top: '', bottom: '', total: '' };
-  const firstCoords = getJobCoords(activeJobs[0]);
-  const lastCoords  = getJobCoords(activeJobs[activeJobs.length - 1]);
+
+  // Use route-eligible jobs only (skips partner jobs missing worksite).
+  const eligibles = activeJobs.filter(j => getJobCoordsForRoute(j));
+  const partnerMissing = activeJobs.filter(_partnerJobMissingWorksite);
+
+  const firstJob = eligibles[0];
+  const lastJob  = eligibles[eligibles.length - 1];
+  const firstCoords = firstJob ? getJobCoordsForRoute(firstJob) : null;
+  const lastCoords  = lastJob  ? getJobCoordsForRoute(lastJob)  : null;
   const homeToFirst = firstCoords ? distanceBetween(HOME_BASE.lat, HOME_BASE.lng, firstCoords.lat, firstCoords.lng) * 1.3 : null;
   const lastToHome  = lastCoords  ? distanceBetween(lastCoords.lat, lastCoords.lng, HOME_BASE.lat, HOME_BASE.lng) * 1.3 : null;
   let interMi = 0;
-  for (let i = 0; i < activeJobs.length - 1; i++) {
-    const a = getJobCoords(activeJobs[i]), b = getJobCoords(activeJobs[i + 1]);
+  for (let i = 0; i < eligibles.length - 1; i++) {
+    const a = getJobCoordsForRoute(eligibles[i]), b = getJobCoordsForRoute(eligibles[i + 1]);
     if (a && b) interMi += distanceBetween(a.lat, a.lng, b.lat, b.lng) * 1.3;
   }
+
   const fmt = (mi, mph) => mi != null
     ? `${mi.toFixed(1)} mi · ~${Math.max(1, Math.round(mi / mph * 60))} min`
     : '—';
+  const _short = (c) => {
+    if (!c) return '?';
+    if (c.customerType === 'partner_referral' && c.businessName) return c.businessName.split(' ')[0];
+    const fn = (c.firstName || '').trim();
+    const ln = (c.lastName || '').trim();
+    return fn || ln || c.address?.split(' ')[0] || '?';
+  };
+
   const idTop = date && rig ? ` id="dcb-${date}-${rig}-top"` : '';
   const idBot = date && rig ? ` id="dcb-${date}-${rig}-bot"` : '';
   const idTot = date && rig ? ` id="dcb-${date}-${rig}-tot"` : '';
-  const top    = `<div class="rig-commute-banner"${idTop}>🏠 → first: ${fmt(homeToFirst, 35)}</div>`;
-  const bottom = `<div class="rig-commute-banner"${idBot}>last → 🏠: ${fmt(lastToHome, 35)}</div>`;
+  const firstNm = firstJob ? _short(firstJob) : '';
+  const lastNm  = lastJob  ? _short(lastJob)  : '';
+
+  // Clean one-row legs with the actual job name instead of "first" / "last".
+  const top = firstJob
+    ? `<div class="rig-commute-banner"${idTop}>🏠 → ${esc(firstNm)} · ${fmt(homeToFirst, 35)}</div>`
+    : '';
+  const bottom = lastJob
+    ? `<div class="rig-commute-banner"${idBot}>${esc(lastNm)} → 🏠 · ${fmt(lastToHome, 35)}</div>`
+    : '';
+
   const totalMi = (homeToFirst || 0) + interMi + (lastToHome || 0);
   const anyCoords = homeToFirst != null || lastToHome != null;
   const totalDriveMin = anyCoords ? Math.max(1, Math.round(totalMi / 35 * 60)) : 0;
   const total = anyCoords
     ? `<div class="rig-commute-total"${idTot}>📊 ${totalMi.toFixed(1)} mi · ~${totalDriveMin} min drive · ${activeJobs.length} job${activeJobs.length !== 1 ? 's' : ''}</div>`
     : '';
-  return { top, bottom, total };
+
+  // Partner-missing-worksite warning: visible but soft, not red. Tells the
+  // operator the route math excluded those jobs (rather than silently using
+  // partner office coords).
+  const partnerWarn = partnerMissing.length
+    ? `<div class="rig-commute-warn">⚠ ${partnerMissing.length} partner job${partnerMissing.length === 1 ? '' : 's'} need work-site address — excluded from route</div>`
+    : '';
+
+  return { top, bottom, total: total + partnerWarn };
 }
 
 function getScheduledForRigOrdered(date, rig) {
   const jobs = getScheduledForRig(date, rig);
   const savedOrder = (calState.jobOrder?.[date]?.[rig]) || [];
-  if (!savedOrder.length) return jobs;
+  if (!savedOrder.length) {
+    // No manual reorder — auto-apply nearest-first-from-home so cards stack
+    // in the same order the legs are computed. (Tyler can still drag cards
+    // to override; the dragged order goes into calState.jobOrder and takes
+    // precedence on subsequent renders.) Earned 2026-06-18 — card↔leg
+    // mismatch fix.
+    return _nearFirstFromHome(jobs);
+  }
   // Phase 2B-1: order is jobId-keyed (phone-keyed entries from pre-2B-1 are silently ignored)
   // _stableId is attached by getScheduledForRig's fromKv path for completed KV cards that lack c.jobId.
   const byJobId = {};
@@ -3171,10 +3282,12 @@ function renderCalGrid(dates) {
 // Runs after renderCalGrid sets innerHTML. DOM elements targeted by id="dcb-{date}-{rig}-{slot}".
 
 async function _refreshCommuteBanners(dates) {
-  // Parallel per rig per date — all independent, no ordering constraint
+  // Use the ORDERED jobs list — same nearest-first walk getScheduledForRigOrdered
+  // produces for the cards. That way the async Google enrichment fills the
+  // banner with names + distances matching the on-screen card order.
   await Promise.all(dates.flatMap(date =>
     RIGS.map(rig => {
-      const activeJobs = getScheduledForRig(date, rig)
+      const activeJobs = getScheduledForRigOrdered(date, rig)
         .filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show'; });
       return activeJobs.length ? _refreshRigCommuteBanner(date, rig, activeJobs) : Promise.resolve();
     })
@@ -3183,14 +3296,20 @@ async function _refreshCommuteBanners(dates) {
 
 async function _refreshRigCommuteBanner(date, rig, activeJobs) {
   try {
-    const firstCoords = getJobCoords(activeJobs[0]);
-    const lastCoords  = getJobCoords(activeJobs[activeJobs.length - 1]);
+    // Route-eligible coords only — partner jobs missing worksite stay out of
+    // the math (they're shown via .rig-commute-warn instead).
+    const eligibles = activeJobs.filter(j => getJobCoordsForRoute(j));
+    if (eligibles.length < 1) return;
+    const firstJob = eligibles[0];
+    const lastJob  = eligibles[eligibles.length - 1];
+    const firstCoords = getJobCoordsForRoute(firstJob);
+    const lastCoords  = getJobCoordsForRoute(lastJob);
     if (!firstCoords || !lastCoords) return;
 
-    // Fetch all segments in parallel — home→first, last→home, each inter-job gap
+    // Inter-job legs walk eligibles in order (matches card order on screen).
     const interPairs = [];
-    for (let i = 0; i < activeJobs.length - 1; i++) {
-      const a = getJobCoords(activeJobs[i]), b = getJobCoords(activeJobs[i + 1]);
+    for (let i = 0; i < eligibles.length - 1; i++) {
+      const a = getJobCoordsForRoute(eligibles[i]), b = getJobCoordsForRoute(eligibles[i + 1]);
       interPairs.push(a && b ? fetchDriveTime(a.lat, a.lng, b.lat, b.lng) : Promise.resolve(null));
     }
     const [homeToFirst, lastToHome, ...interResults] = await Promise.all([
@@ -3218,12 +3337,22 @@ async function _refreshRigCommuteBanner(date, rig, activeJobs) {
     const isReal = homeToFirst?.source === 'google' || homeToFirst?.source === 'cache';
     const badge  = isReal ? '' : ' <span style="font-size:9px;opacity:.45;">(est)</span>';
 
+    const _short = (c) => {
+      if (!c) return '?';
+      if (c.customerType === 'partner_referral' && c.businessName) return c.businessName.split(' ')[0];
+      const fn = (c.firstName || '').trim();
+      const ln = (c.lastName || '').trim();
+      return fn || ln || c.address?.split(' ')[0] || '?';
+    };
+    const firstNm = esc(_short(firstJob));
+    const lastNm  = esc(_short(lastJob));
+
     const topEl = document.getElementById(`dcb-${date}-${rig}-top`);
     const botEl = document.getElementById(`dcb-${date}-${rig}-bot`);
     const totEl = document.getElementById(`dcb-${date}-${rig}-tot`);
 
-    if (topEl) topEl.innerHTML = `🏠 → first: ${fmt(homeToFirst)}${badge}`;
-    if (botEl) botEl.innerHTML = `last → 🏠: ${fmt(lastToHome)}${badge}`;
+    if (topEl) topEl.innerHTML = `🏠 → ${firstNm} · ${fmt(homeToFirst)}${badge}`;
+    if (botEl) botEl.innerHTML = `${lastNm} → 🏠 · ${fmt(lastToHome)}${badge}`;
     if (totEl) totEl.innerHTML =
       `📊 ${totalMi.toFixed(1)} mi · ~${totalMin} min drive · ` +
       `${activeJobs.length} job${activeJobs.length !== 1 ? 's' : ''}${badge}`;
