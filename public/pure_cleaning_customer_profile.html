@@ -1296,14 +1296,21 @@ function renderProfile(customer, events){
     return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
   };
   const _fmtWhAvg = hrs => hrs < 10 ? hrs.toFixed(1) + 'h' : Math.round(hrs) + 'h';
-  // Track 1 (wall-clock) is always primary. Track 2 (solo-equiv) is secondary line, shown
-  // only when avgSoloEquivPerVisit is non-null (requires crewCount on at least one job).
-  // Jobs without crew data show wall-clock only — no silent wrong number (Phase 5 rule).
+  // Track 1 (wall-clock avg) is always primary. Track 2 splits by job type:
+  //   - SINGLE-RIG jobs: Solo-equiv (productivity yardstick, $100/hr-solo).
+  //   - MULTI-RIG jobs:  Total labor (raw man-hours — Σ segment_dur × crew).
+  // The two units are physically different and are never averaged together.
+  // Each line fires only when its own subset has data, so a customer with no
+  // multi-rig history sees only "Solo-equiv", and Carlos (only multi-rig) sees
+  // only "Total labor."
   const _soloEquivLine = (wh && wh.avgSoloEquivPerVisit != null)
-    ? `<br><span style="font-size:11px;color:#9333ea;font-weight:600;">Solo-equiv: ${_fmtWhAvg(wh.avgSoloEquivPerVisit)}</span>`
+    ? `<br><span style="font-size:11px;color:#9333ea;font-weight:600;">Solo-equiv: ${_fmtWhAvg(wh.avgSoloEquivPerVisit)}<span style="color:var(--muted);font-weight:500;"> (single-rig)</span></span>`
+    : '';
+  const _totalLaborLine = (wh && wh.avgTotalLaborPerVisit != null)
+    ? `<br><span style="font-size:11px;color:#0d6940;font-weight:600;">Total labor: ${_fmtWhAvg(wh.avgTotalLaborPerVisit)}<span style="color:var(--muted);font-weight:500;"> (multi-rig)</span></span>`
     : '';
   const whVal = wh
-    ? `<span style="font-size:13px;line-height:1.35;">Avg ${_fmtWhAvg(wh.avgPerVisit)}${_soloEquivLine}<br><span style="font-size:11px;color:var(--muted);">Last ${_fmtWh(wh.lastVisitMin)} · ${fmtDate(wh.lastVisitDate)}</span></span>`
+    ? `<span style="font-size:13px;line-height:1.35;">Avg ${_fmtWhAvg(wh.avgPerVisit)}${_soloEquivLine}${_totalLaborLine}<br><span style="font-size:11px;color:var(--muted);">Last ${_fmtWh(wh.lastVisitMin)} · ${fmtDate(wh.lastVisitDate)}</span></span>`
     : null;
 
   const statsData=[

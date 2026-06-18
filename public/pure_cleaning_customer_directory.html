@@ -118,6 +118,37 @@ td.muted{color:var(--muted);}
 @media(max-width:700px){.col-avg-time{display:none!important;}}
 .rev-badge{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;padding:1px 6px;border-radius:7px;margin-left:5px;vertical-align:middle;line-height:1.4;}
 .rev-b5{background:rgba(29,158,117,.15);color:#1d9e75;}.rev-b4{background:rgba(245,158,11,.15);color:#d97706;}.rev-blow{background:rgba(220,38,38,.15);color:#dc2626;}
+
+/* ── DL-02 quick-edit affordance + modal (2026-06-12) ─────────────────── */
+.dir-edit-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:transparent;border:none;cursor:pointer;color:var(--muted);opacity:0;transition:opacity .15s,background .15s,color .15s;font-size:13px;margin-left:6px;vertical-align:middle;-webkit-tap-highlight-color:transparent;}
+tr:hover .dir-edit-btn{opacity:.55;}
+.cust-card:hover .dir-edit-btn{opacity:.55;}
+.dir-edit-btn:hover{opacity:1 !important;background:rgba(45,125,210,.10);color:var(--sky);}
+.dir-edit-btn:active{transform:scale(.92);}
+/* On touch devices (no :hover), keep the pencil faintly visible so Mom can spot it without hover */
+@media(hover:none){.dir-edit-btn{opacity:.45;}}
+
+.edit-modal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:9000;padding:1rem;}
+.edit-modal-card{background:var(--white);border-radius:14px;padding:1.25rem 1.25rem 1rem;max-width:380px;width:100%;box-shadow:0 24px 64px rgba(15,23,42,.30);}
+.edit-modal-title{font-weight:800;font-size:17px;margin-bottom:1rem;color:var(--navy);letter-spacing:-.2px;}
+.edit-modal-row{margin-bottom:.875rem;}
+.edit-modal-row label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;}
+.edit-modal-row label .edit-modal-opt{font-weight:500;font-size:10.5px;text-transform:none;letter-spacing:0;color:#9ca3af;margin-left:4px;}
+.edit-modal-row input{width:100%;padding:.625rem .75rem;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--text);background:var(--white);outline:none;transition:border-color .15s;box-sizing:border-box;}
+.edit-modal-row input:focus{border-color:var(--sky);}
+.edit-modal-row input:disabled{background:#f8f7f3;color:#9ca3af;cursor:not-allowed;}
+.edit-modal-hint{font-size:11px;color:var(--muted);margin-top:5px;font-style:italic;line-height:1.4;}
+.edit-modal-err{font-size:12px;color:var(--red);margin-bottom:.5rem;min-height:14px;font-weight:600;}
+.edit-modal-actions{display:flex;gap:.625rem;justify-content:flex-end;margin-top:.5rem;}
+.edit-modal-actions button{padding:.625rem 1rem;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;border:none;transition:opacity .12s;}
+.edit-modal-actions .btn-cancel{background:#f1f5f9;color:var(--text);}
+.edit-modal-actions .btn-save{background:var(--navy);color:var(--gold);min-width:90px;}
+.edit-modal-actions .btn-save:hover:not(:disabled){background:var(--navy2);}
+.edit-modal-actions .btn-save:disabled{opacity:.55;cursor:wait;}
+@media(max-width:480px){.edit-modal-card{padding:1rem .875rem .75rem;}.edit-modal-row{margin-bottom:.75rem;}.edit-modal-row input{padding:.55rem .65rem;font-size:14px;}}
+
+.dir-toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:var(--gold);padding:.625rem 1.125rem;border-radius:10px;font-size:13.5px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:9100;}
+.dir-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 </head>
 <body>
@@ -188,6 +219,42 @@ td.muted{color:var(--muted);}
   </div>
 </div>
 
+<!-- DL-02 quick-edit modal (2026-06-12) — opens from each row's ✏️ button -->
+<div id="editModal" class="edit-modal" onclick="if(event.target===this)closeEditModal()" style="display:none;">
+  <div class="edit-modal-card" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+    <div class="edit-modal-title" id="editModalTitle">Edit customer</div>
+    <div class="edit-modal-row">
+      <label for="editFn">First name</label>
+      <input type="text" id="editFn" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="edit-modal-row">
+      <label for="editLn">Last name</label>
+      <input type="text" id="editLn" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="edit-modal-row">
+      <label for="editBn">Business name <span class="edit-modal-opt">(optional)</span></label>
+      <input type="text" id="editBn" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="edit-modal-row">
+      <label for="editEm">Email <span class="edit-modal-opt">(optional)</span></label>
+      <input type="email" id="editEm" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="edit-modal-row">
+      <label for="editPh">Phone <span class="edit-modal-opt">(read-only)</span></label>
+      <input type="text" id="editPh" disabled>
+      <div class="edit-modal-hint">Phone changes: call Tyler. It's the identity key — changing it is a separate flow.</div>
+    </div>
+    <div id="editModalErr" class="edit-modal-err"></div>
+    <div class="edit-modal-actions">
+      <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+      <button class="btn-save" id="editSaveBtn" onclick="saveEditModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Inline toast for save confirmations -->
+<div id="dirToast" class="dir-toast"></div>
+
 <script src="/pure_cleaning_tier_utils.js"></script>
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
@@ -234,27 +301,42 @@ function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10
 function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
 function _computeAvgTPW(c){
-  // Track 1 (wall-clock) + Track 2 (solo-equiv). Both null-safe.
-  // Solo-equiv only rendered when avgSoloEquivMinutes is non-null (requires crew data).
+  // Track 1 (wall-clock) is always primary. Track 2 splits by job type so the
+  // two units (solo-equiv vs total labor) are never averaged together:
+  //   - Solo-equiv aggregated over single-rig jobs (avgSoloEquivMinutes ×
+  //     singleRigCount), only when at least one job had crew data.
+  //   - Total labor aggregated over multi-rig jobs (avgTotalLaborMinutes ×
+  //     multiRigCount). Carlos's $100/hr-solo yardstick doesn't apply here —
+  //     it's raw man-hours.
+  // Each subline only renders when its own subset has data. A customer with
+  // only single-rig jobs shows just "Solo-equiv"; Carlos (only multi-rig)
+  // shows just "Total labor."
   const bm=c.bouncieMetrics;
-  if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'', _avgSoloEquivLabel:'' };
+  if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'', _avgSoloEquivLabel:'', _avgTotalLaborLabel:'' };
   const entries=Object.values(bm);
-  let totalWeighted=0,totalCount=0,totalSEWeighted=0,totalSECount=0;
+  let totalWeighted=0,totalCount=0;
+  let totalSEWeighted=0,totalSECount=0;       // single-rig aggregate
+  let totalTLWeighted=0,totalTLCount=0;       // multi-rig aggregate
   for(const e of entries){
     totalWeighted+=(e.avgDurationMinutes||0)*(e.matchedJobCount||1);
     totalCount+=(e.matchedJobCount||1);
-    if(e.avgSoloEquivMinutes!=null){
-      totalSEWeighted+=e.avgSoloEquivMinutes*(e.matchedJobCount||1);
-      totalSECount+=(e.matchedJobCount||1);
+    if(e.avgSoloEquivMinutes!=null && e.singleRigCount){
+      totalSEWeighted+=e.avgSoloEquivMinutes*e.singleRigCount;
+      totalSECount+=e.singleRigCount;
+    }
+    if(e.avgTotalLaborMinutes!=null && e.multiRigCount){
+      totalTLWeighted+=e.avgTotalLaborMinutes*e.multiRigCount;
+      totalTLCount+=e.multiRigCount;
     }
   }
   const avg=Math.round(totalWeighted/totalCount);
   const label=totalCount>=2?'Avg':'Last';
   const str=`${label}: ${fmtMin(avg)}`;
-  // Solo-equiv: only shown when at least one entry has crew data
   const avgSE = totalSECount>0 ? Math.round(totalSEWeighted/totalSECount) : null;
-  const seStr = avgSE!=null ? `Solo-equiv: ${fmtMin(avgSE)}` : '';
-  return { avgLaborPerJob:avg, _avgTPWLabel:str, _avgTPWLabelCard:str, _avgSoloEquivLabel:seStr };
+  const avgTL = totalTLCount>0 ? Math.round(totalTLWeighted/totalTLCount) : null;
+  const seStr = avgSE!=null ? `Solo-equiv: ${fmtMin(avgSE)} (single-rig)` : '';
+  const tlStr = avgTL!=null ? `Total labor: ${fmtMin(avgTL)} (multi-rig)` : '';
+  return { avgLaborPerJob:avg, _avgTPWLabel:str, _avgTPWLabelCard:str, _avgSoloEquivLabel:seStr, _avgTotalLaborLabel:tlStr };
 }
 
 function normCity(city){
@@ -616,14 +698,14 @@ function buildRow(c){
   const _tchip=_tfk
     ?`<span class="tier-chip" style="background:${c._tierColor};" title="Filter by ${c._tier}" onclick="event.stopPropagation();filterByTier('${_tfk}')">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`
     :`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
-  return `<tr onclick="navProfile('${ph}')">
-    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}</td>
+  return `<tr data-phone="${ph}" onclick="navProfile('${ph}')">
+    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button></td>
     <td>${_tchip}</td>
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
-    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}${c._avgSoloEquivLabel?`<br><span style="font-size:10px;color:#9333ea;font-weight:600;">${esc(c._avgSoloEquivLabel)}</span>`:''}</td>
+    <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}${c._avgSoloEquivLabel?`<br><span style="font-size:10px;color:#9333ea;font-weight:600;">${esc(c._avgSoloEquivLabel)}</span>`:''}${c._avgTotalLaborLabel?`<br><span style="font-size:10px;color:#0d6940;font-weight:600;">${esc(c._avgTotalLaborLabel)}</span>`:''}</td>
     <td>${c.totalJobs||'—'}</td>
     <td class="money">${c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—'}</td>
     <td>${statusBadge(c)}</td>
@@ -636,10 +718,10 @@ function buildCard(c){
   const spend=c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—';
   const _tfkc=TIER_KEY_MAP[c._tier]||null;
   const _badgeClick=_tfkc?`onclick="event.stopPropagation();filterByTier('${_tfkc}')" title="Filter by ${c._tier}"`:'';
-  return `<div class="cust-card" onclick="navProfile('${ph}')">
+  return `<div class="cust-card" data-phone="${ph}" onclick="navProfile('${ph}')">
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};cursor:${_tfkc?'pointer':'default'};" ${_badgeClick}>${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
-      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}</div>
+      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button></div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
       ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}
@@ -663,6 +745,178 @@ function renderCards(data){
 function appendCards(data){
   document.getElementById('cardList').insertAdjacentHTML('beforeend',data.map(buildCard).join(''));
 }
+
+// ── DL-02 quick-edit modal (2026-06-12) ────────────────────────────────────
+// Edit Person.firstName / lastName / businessName / email from the directory.
+// Phone is the identity key — intentionally read-only here; changing it is a
+// separate identity-migration flow. customerType is gated by DL-06 automations
+// and gets its own guarded surface later.
+//
+// PATCH /admin/person/{personId} (existing endpoint, whitelist verified) →
+// success toast only after the verified write returns (T1.20: never claim
+// success before the server confirms). Row updates in place — no full
+// directory reload. Audit log entry fires fire-and-forget via /events.
+let _editPhone = null;
+let _editOrig  = null;
+
+function openEditModal(phone, ev) {
+  if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+  const c = allCustomers.find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+  if (!c) return;
+  _editPhone = phone;
+  _editOrig = {
+    firstName:    c.firstName    || '',
+    lastName:     c.lastName     || '',
+    businessName: c.businessName || '',
+    email:        c.email        || '',
+  };
+  document.getElementById('editFn').value = _editOrig.firstName;
+  document.getElementById('editLn').value = _editOrig.lastName;
+  document.getElementById('editBn').value = _editOrig.businessName;
+  document.getElementById('editEm').value = _editOrig.email;
+  document.getElementById('editPh').value = fmtPh(phone);
+  document.getElementById('editModalErr').textContent = '';
+  const btn = document.getElementById('editSaveBtn');
+  btn.disabled = false; btn.textContent = 'Save';
+  document.getElementById('editModal').style.display = 'flex';
+  setTimeout(() => { try { document.getElementById('editFn').focus(); document.getElementById('editFn').select(); } catch {} }, 60);
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').style.display = 'none';
+  _editPhone = null;
+  _editOrig  = null;
+}
+
+async function saveEditModal() {
+  if (!_editPhone || !_editOrig) return;
+  const next = {
+    firstName:    document.getElementById('editFn').value.trim(),
+    lastName:     document.getElementById('editLn').value.trim(),
+    businessName: document.getElementById('editBn').value.trim(),
+    email:        document.getElementById('editEm').value.trim(),
+  };
+  // Compute the actual change set — only fields that truly differ.
+  // Email + business empty-string round-trips to null on the worker side.
+  const changes = {};
+  const diffs   = [];
+  for (const k of ['firstName','lastName','businessName','email']) {
+    const from = _editOrig[k] || '';
+    const to   = next[k] || '';
+    if (from !== to) {
+      changes[k] = (k === 'businessName' || k === 'email') ? (to || null) : to;
+      diffs.push({ field: k, from: from || null, to: to || null });
+    }
+  }
+  // Edit-with-no-changes — close silently, no PATCH fires (Tyler's guard).
+  if (diffs.length === 0) { closeEditModal(); return; }
+
+  const personId = 'person_1' + _editPhone;
+  const btn = document.getElementById('editSaveBtn');
+  const err = document.getElementById('editModalErr');
+  btn.disabled = true; btn.textContent = 'Saving…'; err.textContent = '';
+
+  try {
+    const res = await fetch(`${API}/admin/person/${personId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+    if (!res.ok) {
+      let body = {};
+      try { body = await res.json(); } catch {}
+      err.textContent = body.error || `HTTP ${res.status}`;
+      btn.disabled = false; btn.textContent = 'Save';
+      return;
+    }
+    const data = await res.json();
+    if (!data.success) {
+      err.textContent = data.error || 'Save failed';
+      btn.disabled = false; btn.textContent = 'Save';
+      return;
+    }
+
+    // T1.22 audit log — write WHO/WHEN/FIELD/OLD→NEW via the public /events
+    // endpoint. Fire-and-forget: audit failure must not break the UX.
+    fetch(`${API}/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type:     'person_edit_audit',
+        personId,
+        phone:    _editPhone,
+        changes:  diffs,
+        editedBy: 'admin',                       // only one admin account today
+        editedAt: new Date().toISOString(),
+        source:   'directory_quick_edit',
+      }),
+    }).catch(() => {});
+
+    // Update the local customer record in place + re-render just this row.
+    // Use the worker's returned values as the source of truth (they reflect
+    // what actually landed in D1 — null-coercion for empty strings, etc).
+    const c = allCustomers.find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === _editPhone);
+    if (c) {
+      const p = data.person || {};
+      c.firstName    = p.firstName    ?? next.firstName    ?? '';
+      c.lastName     = p.lastName     ?? next.lastName     ?? '';
+      c.businessName = p.businessName ?? (next.businessName || null);
+      c.email        = p.email        ?? (next.email        || null);
+      // Refresh the cached search-index fields so future searches match the new spelling.
+      c._name = ((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase();
+      try {
+        const r = c._name.replace(/\s+/g,'');
+        const b = new Set();
+        for (let i = 0; i < r.length - 1; i++) b.add(r[i] + r[i+1]);
+        c._bigrams = b;
+      } catch {}
+      refreshDirRow(_editPhone);
+    }
+
+    closeEditModal();
+    showDirToast('✓ Updated ' + ((next.firstName || next.lastName) ? (next.firstName + ' ' + next.lastName).trim() : 'customer'));
+  } catch (e) {
+    err.textContent = e.message || 'Network error';
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+
+// Replace the single row + card for this phone with freshly-built HTML.
+// No full re-render, no scroll jump.
+function refreshDirRow(phone) {
+  const c = allCustomers.find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
+  if (!c) return;
+  const tr = document.querySelector(`tr[data-phone="${phone}"]`);
+  if (tr) {
+    const tmp = document.createElement('tbody');
+    tmp.innerHTML = buildRow(c);
+    if (tmp.firstElementChild) tr.replaceWith(tmp.firstElementChild);
+  }
+  const card = document.querySelector(`.cust-card[data-phone="${phone}"]`);
+  if (card) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = buildCard(c);
+    if (tmp.firstElementChild) card.replaceWith(tmp.firstElementChild);
+  }
+}
+
+let _dirToastTimer = null;
+function showDirToast(msg) {
+  const t = document.getElementById('dirToast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(_dirToastTimer);
+  _dirToastTimer = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// Esc-to-close + Enter-to-save while modal is open.
+document.addEventListener('keydown', (e) => {
+  const modalVisible = document.getElementById('editModal')?.style.display === 'flex';
+  if (!modalVisible) return;
+  if (e.key === 'Escape') { e.preventDefault(); closeEditModal(); }
+  else if (e.key === 'Enter' && (e.target.tagName === 'INPUT')) { e.preventDefault(); saveEditModal(); }
+});
 
 // ── Swipe-safe navigation + fade overlays ─────────────────────────────────────
 let _swipeX = 0, _swipeDx = 0;

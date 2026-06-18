@@ -12492,158 +12492,182 @@ function soloEquiv(actualDuration, crewCount) {
 // NOTE: d1JobToKvShape still defaults crewCount null→2 (line ~2930) for raw API consumers.
 // That default is harmless: solo-equiv returns null for any job with null crew (guarded above).
 
-function computeBouncieMetrics(customer) {
-  const address = (customer.address || '').trim();
-  if (!address) return;
-
-  // Collect all Bouncie-matched durations from jobHistory + active scheduledStatus.
-  // DEDUPE: track seen jobIds (or date as fallback) so a completed job that appears in
-  // BOTH jobHistory[] AND scheduledStatus (e.g. Anas Hadeh matchedJobCount=2 bug) counts once.
-  //
-  // 2026-06-18 — Bug 4 fix: for jobs split across rig segments (Carlos
-  // 2 + 1 crew on same parent), GROUP by parentJobId first so the
-  // crewCount used by soloEquiv is the SUM across segments (Carlos: 3),
-  // not each segment's individual crewCount averaged separately. Duration
-  // is the parent's actualDuration (segments share it via the parent row).
-  // Multiplier table at throughputMultiplier() — keeping {1:1, 2:1.85, 3:2.6}
-  // for this fix; Tyler to confirm whether to steepen the 3-person value.
-  const seenIds = new Set();
-  const matched = [];
-  const groupedByParent = new Map(); // parentJobId → { date, minutes, crewSum }
-
-  for (const j of (customer.jobHistory || [])) {
-    if (!j.actualDuration || j.actualDuration <= 0) continue;
-
-    // Rig/day segments — accumulate into their parent's group, don't push
-    // their own matched[] entry. Each segment's crewCount adds to the sum.
+// Classify a jobHistory + optional ss extra into three bins:
+//   wallClock — every matched job's wall-clock minutes (single-rig + multi-rig)
+//   singleRig — jobs with no rig/day segments; soloEquiv applied per job
+//   multiRig  — jobs WITH rig/day segments; total labor = Σ(segDur × segCrew)
+//
+// Unit rule (2026-06-18, Bug 4 refinement, per Tyler):
+//   - Single-rig: solo-equiv is the productivity yardstick ($100/hr solo).
+//     SE = duration × throughputMultiplier(crew). E.g. 2h × 2-crew → 3.7h.
+//   - Multi-rig: solo-equiv is INVALID — the productivity multiplier doesn't
+//     compose across crews on the same site. Show raw man-hours instead:
+//     total labor = Σ(segment_dur × segment_crew). Carlos: 330×2 + 334×1 = 994m.
+//   - Auto-detect by segment presence. Never average a solo-equiv into a
+//     total-labor; the two units are physically different.
+function _classifyJobsForLabor(jh, ssExtra) {
+  // Step 1 — collect rig/day segments grouped by parent.
+  const segsByParent = new Map();
+  for (const j of (jh || [])) {
     if ((j.source === 'rig_segment' || j.source === 'day_segment') && j.parentJobId) {
-      const g = groupedByParent.get(j.parentJobId);
-      if (g) {
-        g.crewSum += Number(j.crewCount || 0);
-      } else {
-        groupedByParent.set(j.parentJobId, {
-          date:    j.date || '',
-          minutes: j.actualDuration,   // segment shares parent's duration
-          crewSum: Number(j.crewCount || 0),
-        });
-      }
-      // segments don't enter seenIds — the parent (if it's also in jh) does
-      continue;
+      const list = segsByParent.get(j.parentJobId) || [];
+      list.push({
+        crew: Number(j.crewCount || 0),
+        dur:  Number(j.actualDuration || 0),
+        date: j.date || '',
+      });
+      segsByParent.set(j.parentJobId, list);
     }
+  }
+
+  const wallClock = []; // { date, minutes }
+  const singleRig = []; // { date, minutes, soloEquivMin } — SE null when no crew data
+  const multiRig  = []; // { date, wallMinutes, totalLaborMin }
+  const seenIds = new Set();
+
+  for (const j of (jh || [])) {
+    if (j.source === 'rig_segment' || j.source === 'day_segment') continue;
+    if (j.source === 'csv_backfill') continue;
 
     const key = j.jobId || j.date || '';
     if (key && seenIds.has(key)) continue;
     if (key) seenIds.add(key);
     if (j.date) seenIds.add(j.date);
 
-    // If this is the PARENT of a grouped segment-set, prefer the summed
-    // crew over the parent's own (often null/1) crewCount.
-    const grouped = j.jobId && groupedByParent.get(j.jobId);
-    const crewForSe = grouped && grouped.crewSum > 0 ? grouped.crewSum : (j.crewCount || null);
-    matched.push({ date: j.date || '', minutes: j.actualDuration, crewCount: crewForSe });
-    if (grouped) groupedByParent.delete(j.jobId);  // parent consumed it
+    const segs = j.jobId && segsByParent.get(j.jobId);
+    if (segs && segs.length) {
+      // Multi-rig — total labor = Σ(dur × crew) across segments.
+      const totalLaborMin = segs.reduce((s, seg) => s + seg.dur * seg.crew, 0);
+      if (totalLaborMin > 0) {
+        // Wall-clock minutes for a multi-rig job: max segment duration. Segments
+        // overlap in clock time (different rigs on the same site at the same
+        // hours); the customer "felt" the longest crew's stay.
+        const wallMin = Math.max(...segs.map(s => s.dur));
+        const date = j.date || segs[0].date || '';
+        multiRig.push({ date, wallMinutes: wallMin, totalLaborMin });
+        wallClock.push({ date, minutes: wallMin });
+      }
+      segsByParent.delete(j.jobId);
+      continue;
+    }
+
+    // Single-rig
+    if (!j.actualDuration || j.actualDuration <= 0) continue;
+    const se = soloEquiv(j.actualDuration, j.crewCount);
+    singleRig.push({ date: j.date || '', minutes: j.actualDuration, soloEquivMin: se });
+    wallClock.push({ date: j.date || '', minutes: j.actualDuration });
   }
 
-  // Any grouped segments whose parent wasn't in jh (rare — parent might be in
-  // ss only or filtered out) still contribute their own matched[] entry so the
-  // metric reflects the work done.
-  for (const g of groupedByParent.values()) {
-    if (g.crewSum > 0) matched.push({ date: g.date, minutes: g.minutes, crewCount: g.crewSum });
-  }
-
-  const ss = customer.scheduledStatus || {};
-  if (ss.actualDuration > 0) {
-    // Dedupe by jobId (_lastJobId) first, then by scheduledDate.
-    // Both are added to seenIds from jobHistory above so either key catches the duplicate.
-    const ssKey = ss._lastJobId || ss.scheduledDate || '';
-    if (!ssKey || !seenIds.has(ssKey)) {
-      matched.push({
-        date: ss.scheduledDate || (ss.completedAt || '').slice(0, 10),
-        minutes: ss.actualDuration,
-        crewCount: ss.crewCount || null,
-      });
+  // Orphan segments — parent isn't in jh (parent in ss only, or filtered).
+  // Treat the segment-group as a multi-rig job in its own right.
+  for (const segs of segsByParent.values()) {
+    const totalLaborMin = segs.reduce((s, seg) => s + seg.dur * seg.crew, 0);
+    if (totalLaborMin > 0) {
+      const wallMin = Math.max(...segs.map(s => s.dur));
+      const date = segs[0].date || '';
+      multiRig.push({ date, wallMinutes: wallMin, totalLaborMin });
+      wallClock.push({ date, minutes: wallMin });
     }
   }
 
-  if (!matched.length) {
+  // scheduledStatus extra — always a single-rig contribution (ss can't carry
+  // a segment group). Dedupe against the jh-side seenIds.
+  if (ssExtra && ssExtra.minutes > 0) {
+    const ssKey = ssExtra.jobId || ssExtra.date || '';
+    if (!ssKey || !seenIds.has(ssKey)) {
+      const se = soloEquiv(ssExtra.minutes, ssExtra.crewCount);
+      singleRig.push({ date: ssExtra.date || '', minutes: ssExtra.minutes, soloEquivMin: se });
+      wallClock.push({ date: ssExtra.date || '', minutes: ssExtra.minutes });
+    }
+  }
+
+  return { wallClock, singleRig, multiRig };
+}
+
+function computeBouncieMetrics(customer) {
+  const address = (customer.address || '').trim();
+  if (!address) return;
+
+  const ss = customer.scheduledStatus || {};
+  const ssExtra = ss.actualDuration > 0 ? {
+    jobId:     ss._lastJobId || null,
+    date:      ss.scheduledDate || (ss.completedAt || '').slice(0, 10),
+    minutes:   ss.actualDuration,
+    crewCount: ss.crewCount || null,
+  } : null;
+
+  const { wallClock, singleRig, multiRig } = _classifyJobsForLabor(customer.jobHistory, ssExtra);
+
+  if (!wallClock.length) {
     delete customer.bouncieMetrics;
     return;
   }
 
-  matched.sort((a, b) => a.date < b.date ? -1 : 1);
+  wallClock.sort((a, b) => a.date < b.date ? -1 : 1);
+  singleRig.sort((a, b) => a.date < b.date ? -1 : 1);
+  multiRig.sort((a, b) => a.date < b.date ? -1 : 1);
 
-  // Track 1 — wall-clock: exact on-site duration, crew-agnostic
-  const avg  = Math.round(matched.reduce((a, b) => a + b.minutes, 0) / matched.length);
-  const last = matched[matched.length - 1].minutes;
+  // Track 1 — wall-clock (crew-agnostic) over EVERY matched job.
+  const avg  = Math.round(wallClock.reduce((s, m) => s + m.minutes, 0) / wallClock.length);
+  const last = wallClock[wallClock.length - 1].minutes;
 
-  // Track 2 — solo-equiv: actualDuration × throughputMultiplier(crewCount)
-  // Only computed for entries where crewCount is known; others contribute null (excluded from avg)
-  const seMatched = matched.map(m => soloEquiv(m.minutes, m.crewCount)).filter(v => v !== null);
-  const avgSE  = seMatched.length > 0 ? Math.round(seMatched.reduce((a,b) => a+b, 0) / seMatched.length) : null;
-  const lastSE = seMatched.length > 0 ? seMatched[seMatched.length - 1] : null;
+  // Track 2a — solo-equiv over single-rig jobs only (productivity yardstick).
+  const seVals = singleRig.map(s => s.soloEquivMin).filter(v => v !== null);
+  const avgSE  = seVals.length > 0 ? Math.round(seVals.reduce((a, b) => a + b, 0) / seVals.length) : null;
+  const lastSE = seVals.length > 0 ? seVals[seVals.length - 1] : null;
+
+  // Track 2b — total labor over multi-rig jobs only (raw man-hours).
+  const tlVals = multiRig.map(m => m.totalLaborMin);
+  const avgTL  = tlVals.length > 0 ? Math.round(tlVals.reduce((a, b) => a + b, 0) / tlVals.length) : null;
+  const lastTL = tlVals.length > 0 ? tlVals[tlVals.length - 1] : null;
 
   customer.bouncieMetrics = {
     [address]: {
-      avgDurationMinutes:   avg,      // Track 1: wall-clock avg (always present when Bouncie matched)
-      lastDurationMinutes:  last,     // Track 1: wall-clock last
-      avgSoloEquivMinutes:  avgSE,    // Track 2: solo-equiv avg (null when no crew data)
-      lastSoloEquivMinutes: lastSE,   // Track 2: solo-equiv last
-      lastServiceDate:      matched[matched.length - 1].date,
-      matchedJobCount:      matched.length,
+      avgDurationMinutes:    avg,                       // Track 1: wall-clock avg
+      lastDurationMinutes:   last,                      // Track 1: wall-clock last
+      avgSoloEquivMinutes:   avgSE,                     // Track 2a: solo-equiv avg (single-rig only)
+      lastSoloEquivMinutes:  lastSE,                    // Track 2a: solo-equiv last
+      avgTotalLaborMinutes:  avgTL,                     // Track 2b: total labor avg (multi-rig only)
+      lastTotalLaborMinutes: lastTL,                    // Track 2b: total labor last
+      singleRigCount:        singleRig.length,
+      multiRigCount:         multiRig.length,
+      matchedJobCount:       wallClock.length,
+      lastServiceDate:       wallClock[wallClock.length - 1].date,
     },
   };
 }
 
 function computeWorkerHoursStats(customer) {
-  // Wall-clock lens (Track 1) + solo-equiv (Track 2) — both computed here for the profile stat.
-  // Profile "Job Duration" stat reads avgPerVisit (wall-clock) + avgSoloEquivPerVisit (Track 2).
-  //
-  // 2026-06-18 — Bug 4 fix mirrored from computeBouncieMetrics: rig/day
-  // segments roll up into their parent's crew sum before soloEquiv runs.
-  const seenIds = new Set();
-  const matched = [];
-  const groupedByParent = new Map();
-  for (const j of (customer.jobHistory || [])) {
-    if (!j.actualDuration || j.actualDuration <= 0) continue;
-    if (j.source === 'csv_backfill') continue;
-    if ((j.source === 'rig_segment' || j.source === 'day_segment') && j.parentJobId) {
-      const g = groupedByParent.get(j.parentJobId);
-      if (g) g.crewSum += Number(j.crewCount || 0);
-      else groupedByParent.set(j.parentJobId, {
-        date: j.date || '', durationMin: j.actualDuration, crewSum: Number(j.crewCount || 0),
-      });
-      continue;
-    }
-    const key = j.jobId || j.date || '';
-    if (key && seenIds.has(key)) continue;
-    if (key) seenIds.add(key);
-    const grouped = j.jobId && groupedByParent.get(j.jobId);
-    const crewForSe = grouped && grouped.crewSum > 0 ? grouped.crewSum : (j.crewCount || null);
-    matched.push({ date: j.date || '', durationMin: j.actualDuration, crewCount: crewForSe });
-    if (grouped) groupedByParent.delete(j.jobId);
-  }
-  for (const g of groupedByParent.values()) {
-    if (g.crewSum > 0) matched.push({ date: g.date, durationMin: g.durationMin, crewCount: g.crewSum });
-  }
-  if (!matched.length) { delete customer.workerHoursStats; return; }
-  matched.sort((a, b) => a.date < b.date ? -1 : 1);
+  // Profile "Job Duration" stat. Same classification as computeBouncieMetrics:
+  // single-rig jobs surface a solo-equiv productivity number; multi-rig jobs
+  // surface raw total labor (man-hours). Wall-clock avg/last is shared.
+  const { wallClock, singleRig, multiRig } =
+    _classifyJobsForLabor(customer.jobHistory, /* ssExtra */ null);
 
-  // Track 1: wall-clock avg/last (unchanged)
-  const avg  = matched.reduce((s, j) => s + j.durationMin, 0) / matched.length;
-  const last = matched[matched.length - 1];
+  if (!wallClock.length) { delete customer.workerHoursStats; return; }
+  wallClock.sort((a, b) => a.date < b.date ? -1 : 1);
 
-  // Track 2: solo-equiv — only entries with known crewCount contribute
-  const seVals = matched.map(j => soloEquiv(j.durationMin, j.crewCount)).filter(v => v !== null);
-  const avgSE  = seVals.length > 0 ? seVals.reduce((a,b) => a+b, 0) / seVals.length : null;
+  const avgWall  = wallClock.reduce((s, m) => s + m.minutes, 0) / wallClock.length;
+  const lastWall = wallClock[wallClock.length - 1];
+
+  const seVals = singleRig.map(s => s.soloEquivMin).filter(v => v !== null);
+  const avgSE  = seVals.length > 0 ? seVals.reduce((a, b) => a + b, 0) / seVals.length : null;
+
+  const tlVals = multiRig.map(m => m.totalLaborMin);
+  const avgTL  = tlVals.length > 0 ? tlVals.reduce((a, b) => a + b, 0) / tlVals.length : null;
 
   customer.workerHoursStats = {
-    avgPerVisit:          Math.round(avg * 10) / 10 / 60,   // Track 1: wall-clock hours, 1dp
-    lastVisitMin:         last.durationMin,                  // Track 1: wall-clock minutes
-    lastVisitDate:        last.date,
-    totalMatchedVisits:   matched.length,
-    avgSoloEquivPerVisit: avgSE !== null                     // Track 2: solo-equiv hours (null if no crew data)
-      ? Math.round(avgSE * 10) / 10 / 60
-      : null,
+    // Track 1 — wall-clock (always present when any match)
+    avgPerVisit:           Math.round(avgWall * 10) / 10 / 60,
+    lastVisitMin:          lastWall.minutes,
+    lastVisitDate:         lastWall.date,
+    totalMatchedVisits:    wallClock.length,
+    // Track 2a — solo-equiv hours over SINGLE-RIG jobs only (productivity)
+    avgSoloEquivPerVisit:  avgSE !== null ? Math.round(avgSE * 10) / 10 / 60 : null,
+    singleRigCount:        singleRig.length,
+    // Track 2b — total labor hours over MULTI-RIG jobs only (raw man-hours)
+    avgTotalLaborPerVisit: avgTL !== null ? Math.round(avgTL * 10) / 10 / 60 : null,
+    multiRigCount:         multiRig.length,
   };
 }
 
