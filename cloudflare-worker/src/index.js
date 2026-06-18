@@ -5942,6 +5942,12 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
   for (const seg of _rigSegCompleted) {
     jobHistory.push({
       jobId:              seg.jobId,
+      // parentJobId carried through so downstream consumers (computeBouncieMetrics +
+      // computeWorkerHoursStats grouping for soloEquiv, Phase-1 quoting Surface
+      // table joins) can link the segment back to its parent without re-querying
+      // D1. Earned 2026-06-18 Bug 4 fix: without this the worker-side grouping
+      // can't sum crewCount across a job's segments.
+      parentJobId:        seg.parentJobId || null,
       date:               seg.scheduledDate || null,
       services:           '',
       amount:             0,
@@ -5986,6 +5992,10 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
       if (jobHistory.some(e => e.source === 'day_segment' && e.jobId === seg.jobId)) continue;
       jobHistory.push({
         jobId:              seg.jobId,
+        // parentJobId carried through for the same reason as rig_segment above
+        // (Bug 4 grouping). Multi-day day-children have parentJobId pointing
+        // at the day-1 parent; the day-1 parent itself has parentJobId=null.
+        parentJobId:        seg.parentJobId || null,
         date:               seg.scheduledDate,
         services:           seg.dayPhase || seg.servicesRaw || '',
         amount:             seg.amount   || 0,
