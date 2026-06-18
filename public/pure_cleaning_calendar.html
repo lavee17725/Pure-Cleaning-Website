@@ -2308,6 +2308,11 @@ function _jobRowToShape(job, isMultiProperty) {
     gateCode:       job.gateCode     || null,
     workSiteAddress: job.workSiteAddress || null,
     workSiteCity:   job.workSiteCity   || null,
+    // Server-side marker (Bug 6 fix): true when handleCalendarJobs successfully
+    // overrode latitude/longitude with the worksite Property's coords. False/null
+    // means lat/lng are still pointing at the partner's billing property (their
+    // office). Banner + route math gate on this.
+    worksiteResolved: !!job.worksiteResolved,
     endCustomerName:  job.endCustomerName  || null,
     endCustomerPhone: job.endCustomerPhone || null,
     customerType:   job.customerType   || 'residential',
@@ -2577,13 +2582,24 @@ function getJobCoords(c) {
   return null;
 }
 
-// Partner jobs whose Job.workSiteAddress is missing — the customer record's
-// coords are the PARTNER's billing/office address, NOT the work site. Using
-// those for routing is technically "right by luck" sometimes (the 2026-06-18
-// Dan-FtL case) but always wrong in intent: the crew isn't going to the
-// partner's office. Flag these so the UI never silently uses the wrong pin.
+// Partner jobs whose route coords still point at the partner's billing
+// (office) Property instead of the work site. Gated on the SERVER-SIDE
+// `worksiteResolved` marker (set by handleCalendarJobs when the worksite
+// Property row was found + its coords overrode the joined Property.lat/lng).
+//
+// Earlier version gated on `!c.workSiteAddress` — but workSiteAddress was
+// never hoisted to the customer shape, so the check was always true and the
+// banner over-fired for every partner. More importantly, the warning has to
+// fire EXACTLY when route math is still using the office pin — independent
+// of whether workSiteAddress was set (presence of an address ≠ presence of
+// coords). 2026-06-18 — Bug 6 fix.
 function _partnerJobMissingWorksite(c) {
-  return c && c.customerType === 'partner_referral' && !c.workSiteAddress;
+  if (!c || c.customerType !== 'partner_referral') return false;
+  // Worksite coords resolved → trust route math.
+  if (c.worksiteResolved) return false;
+  // Otherwise route math is still using whatever Property.latitude returns —
+  // for partner jobs that's the office. Banner fires.
+  return true;
 }
 
 // Route-eligible coords. Returns null for partner jobs that don't have a

@@ -78,6 +78,11 @@ body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--t
 .ar-desc { font-size: 12px; color: var(--muted); margin-top: 1px; }
 .ar-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .ar-price { font-size: 14px; font-weight: 700; color: var(--terra); }
+/* Slashed regular price shown beside the bundle price when the add-on has a
+   higher regularPrice on file — gives the customer a visible "vs" anchor.
+   Quote-builder already captures + threads regularPrice through; this surfaces
+   it on the customer's quote view. */
+.ar-reg { font-size: 12px; font-weight: 600; color: #9ca3af; text-decoration: line-through; margin-right: 6px; }
 .ar-cb { width: 22px; height: 22px; border: 2px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; transition: all .12s; flex-shrink: 0; background: var(--white); color: transparent; }
 .addon-row.ar-selected .ar-cb { background: var(--green); border-color: var(--green); color: #fff; }
 
@@ -729,6 +734,7 @@ function renderAvailableAddons() {
         ${desc ? `<div class="ar-desc">${escHtml(desc)}</div>` : ''}
       </div>
       <div class="ar-right">
+        ${a.regularPrice && a.regularPrice > a.bundle ? `<span class="ar-reg">$${a.regularPrice}</span>` : ''}
         <span class="ar-price">+$${a.bundle}</span>
         <div class="ar-cb">${isAdded ? '✓' : ''}</div>
       </div>

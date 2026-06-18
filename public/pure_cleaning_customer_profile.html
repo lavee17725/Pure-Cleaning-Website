@@ -1107,7 +1107,16 @@ function renderServiceHistory(c) {
   if (!el) return;
 
   const { totalJobs } = getEffectiveStats(c);
-  const jh = (c.jobHistory || []).slice().sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
+  // Filter out rig_segment + day_segment display entries — the worker appends
+  // those to jobHistory[] (index.js:5953, 5997) for calendar swimlane rendering
+  // (per-rig + per-day sub-cards). They are NOT real jobs; the parent jobHistory
+  // entry already carries the billing + duration. Showing them here both
+  // dupes the service-history list AND inflates "Show all N." (Canonical
+  // exclusion sites: index.js:8537-8538 + 7106-7107.)
+  const jh = (c.jobHistory || [])
+    .filter(j => j.source !== 'rig_segment' && j.source !== 'day_segment')
+    .slice()
+    .sort((a, b) => (b.date || '') < (a.date || '') ? -1 : 1);
   const ss = c.scheduledStatus || {};
   const qs = c.quoteStatus    || {};
   const phone = c.phone || '';
@@ -1315,8 +1324,15 @@ function renderProfile(customer, events){
   // SAFETY — must be first, loudest callout on the page
   if(c.doNotService) callouts.push({cls:'callout-red', text:'⛔ DO NOT SERVICE — this customer is flagged. Do not schedule, quote, or dispatch.'});
   if(c.customerType === 'partner_referral') {
-    const partnerJobs = (c.jobHistory||[]).filter(j => j.source !== 'csv_backfill').length;
-    const partnerRevenue = (c.jobHistory||[]).filter(j => j.source !== 'csv_backfill').reduce((s,j) => s+(j.amount||0), 0);
+    // Exclude csv_backfill (historical synthetic rows) AND rig_segment/
+    // day_segment (per-rig + per-day display sub-cards the worker appends for
+    // calendar swimlanes — the parent jobHistory entry already carries the
+    // billing). Otherwise the partner callout double-counts a single
+    // multi-segment job. Canonical pattern: index.js:7106-7107 (isRigSegment=0
+    // AND parentJobId IS NULL).
+    const _realJob = j => j.source !== 'csv_backfill' && j.source !== 'rig_segment' && j.source !== 'day_segment';
+    const partnerJobs = (c.jobHistory||[]).filter(_realJob).length;
+    const partnerRevenue = (c.jobHistory||[]).filter(_realJob).reduce((s,j) => s+(j.amount||0), 0);
     const statsStr = partnerJobs ? ` · ${partnerJobs} job${partnerJobs!==1?'s':''} · $${Math.round(partnerRevenue).toLocaleString()} total` : '';
     callouts.push({cls:'callout-blue', text:`🤝 Referral Partner${statsStr}${c.partnerNotes ? ' — ' + esc(c.partnerNotes) : ''}`});
   }

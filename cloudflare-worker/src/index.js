@@ -7027,7 +7027,63 @@ async function handleCalendarJobs(request, env, corsHeaders) {
       ORDER BY j.scheduledDate, j.rigId, j.scheduledTimeWindow
     `).bind(weekStart, weekEndStr).all();
 
-    return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: results || [] }, corsHeaders);
+    // ── Bug 6 fix (2026-06-18): partner-job worksite coord resolution ─────────
+    // The base SELECT joins Property by Job.propertyId — for partner jobs that
+    // is the PARTNER'S BILLING property (their office). So lat/lng come back
+    // pointed at the office, not where the crew is actually going. Without this
+    // fix, the calendar route math (commute banners, Optimize, distance markers)
+    // silently routed to the partner office. The calendar's _partnerJobMissingWorksite
+    // banner could be turned off independently, but the brief explicitly forbids
+    // shipping banner-silence without the coord fix (silent-wrong-pin regression).
+    //
+    // Resolution path (cheapest first; mirrors Bouncie matcher precedence at
+    // index.js:10014-10038 but capped to no-API lookups for the calendar-loop
+    // hot path):
+    //   1. Look up the worksite as its own Property row by (workSiteAddress,
+    //      workSiteCity) → use those coords if found. Nelson's worksite
+    //      (prop_3120_ne_46th_street_fort_lauderdale) already has ROOFTOP
+    //      coords from the geocode-rooftop-sweep.
+    //   2. (Phase 2 — not in this commit) Places API on workSitePlaceId + KV
+    //      cache for any worksite without a Property row.
+    // When ANY override succeeds, stamp `worksiteResolved: true` on the row so
+    // the calendar's banner gate trusts it. When no override happens but
+    // workSiteAddress is set, leave the row's lat/lng as-is (partner office)
+    // and keep `worksiteResolved: false` → calendar banner fires + the route
+    // math is visibly wrong (operator notified, no silent-wrong-pin).
+    const rows = results || [];
+    const worksiteRows = rows.filter(r => r.workSiteAddress && r.workSiteCity);
+    if (worksiteRows.length) {
+      const wantedIds = [...new Set(worksiteRows.map(r => _d1PropId(r.workSiteAddress, r.workSiteCity)))];
+      // Batched SELECT — single query for up to N worksite properties.
+      const placeholders = wantedIds.map(() => '?').join(',');
+      try {
+        const wsProps = (await env.DB.prepare(
+          `SELECT propertyId, latitude, longitude, geocodeSource, geocodePrecision, zip
+             FROM Property
+            WHERE propertyId IN (${placeholders})
+              AND latitude IS NOT NULL
+              AND longitude IS NOT NULL`
+        ).bind(...wantedIds).all())?.results || [];
+        const byId = new Map(wsProps.map(p => [p.propertyId, p]));
+        for (const r of worksiteRows) {
+          const wsId = _d1PropId(r.workSiteAddress, r.workSiteCity);
+          const ws = byId.get(wsId);
+          if (ws) {
+            r.latitude            = ws.latitude;
+            r.longitude           = ws.longitude;
+            r.zip                 = ws.zip || r.workSiteZip || r.zip;
+            r.worksiteResolved    = true;
+            r.worksitePropertyId  = wsId;
+            r.worksiteGeocodeSrc  = ws.geocodeSource || null;
+            r.worksitePrecision   = ws.geocodePrecision || null;
+          }
+        }
+      } catch (e) {
+        await _logD1Failure(env, 'handleCalendarJobs:worksite_lookup', e.message).catch(()=>{});
+      }
+    }
+
+    return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: rows }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handleCalendarJobs', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
@@ -9900,45 +9956,85 @@ async function bouncieJobDurationMatcher(date, env) {
   const tripFirstCoord = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[0]          : null; };
   const tripLastCoord  = tr => { const c = tr?.gps?.coordinates; return c?.length ? c[c.length - 1]: null; };
 
-  // Find the closest dwell window in a set of trips for a given job location.
-  // Always returns closestDistKm so callers can report distance even on rejection.
-  // Only returns a usable durationMin when distance <= MEDIUM_KM and duration >= MIN_DUR_MIN.
+  // Find the dwell window for a job location.
+  //
+  // 2026-06-18 — Bug 5 fix. Old logic locked onto the trip whose endpoint
+  // was geometrically CLOSEST to the pin, then walked forward to a
+  // departure. On a day where the rig made two stops near the same site
+  // (Nelson r2: ~66m short stop + ~3.5h real stop), the closest-endpoint
+  // pick could grab the short one and miss the real work. New logic:
+  // 1. Find every arrival within MEDIUM_KM of the pin.
+  // 2. For each, pair with the next departure-near-pin to form a dwell.
+  // 3. Pick the LONGEST dwell. Cross-rig "longest dwell" compare still
+  //    runs at line ~10086 — this just makes the within-rig pick correct.
+  // closestDistKm is preserved for the no-match diagnostic (closest stop
+  // even when below threshold).
   function proximityMatch(trips, jobLat, jobLon, useFirstDeparture = false) {
-    // Find the trip whose last coord is closest to the job (ignoring threshold for now)
-    let arrivalTrip = null;
+    // Diagnostic: track the globally closest endpoint for the no-match case.
+    let closestArrivalTrip = null;
     let closestDistKm = Infinity;
     for (const trip of trips) {
       const last = tripLastCoord(trip);
       if (!last) continue;
       const d = haversineKm(last[1], last[0], jobLat, jobLon);
-      if (d < closestDistKm) { closestDistKm = d; arrivalTrip = trip; }
+      if (d < closestDistKm) { closestDistKm = d; closestArrivalTrip = trip; }
     }
-    if (!arrivalTrip) return { durationMin: 0, closestDistKm: Infinity };
-
-    // Hard reject: closest approach is farther than MEDIUM_KM
+    if (!closestArrivalTrip) return { durationMin: 0, closestDistKm: Infinity };
     if (closestDistKm > MEDIUM_KM) {
-      return { durationMin: 0, closestDistKm, closestArrival: arrivalTrip.endTime };
+      return { durationMin: 0, closestDistKm, closestArrival: closestArrivalTrip.endTime };
     }
 
-    // Within threshold — find the departure trip (latest trip starting near job, after arrival)
-    let departureTrip = null;
-    for (const trip of trips) {
-      if (trip.startTime <= arrivalTrip.endTime) continue;
-      const first = tripFirstCoord(trip);
-      if (!first) continue;
-      if (haversineKm(first[1], first[0], jobLat, jobLon) <= MEDIUM_KM) {
+    // Enumerate every (arrival, departure) candidate pair within MEDIUM_KM
+    // and pick the LONGEST dwell. For each arrival trip whose endpoint is
+    // within threshold, walk forward through trips to find the next one
+    // whose start point is also within threshold (= a departure from the
+    // same site). useFirstDeparture flips the tie-break the same way it
+    // did in the old version (neighbor-jobs use first departure).
+    let best = null; // { arrivalTrip, departureTrip, durationMin, arrivalDistKm }
+    for (const arrivalTrip of trips) {
+      const last = tripLastCoord(arrivalTrip);
+      if (!last) continue;
+      const arrivalDistKm = haversineKm(last[1], last[0], jobLat, jobLon);
+      if (arrivalDistKm > MEDIUM_KM) continue;
+
+      // Find a departure trip — same tie-break behavior as before but scoped
+      // to this specific arrival.
+      let departureTrip = null;
+      for (const trip of trips) {
+        if (trip.startTime <= arrivalTrip.endTime) continue;
+        const first = tripFirstCoord(trip);
+        if (!first) continue;
+        if (haversineKm(first[1], first[0], jobLat, jobLon) > MEDIUM_KM) continue;
         if (!departureTrip || (useFirstDeparture
-          ? trip.startTime < departureTrip.startTime   // neighbor: use FIRST departure (own dwell window)
-          : trip.startTime > departureTrip.startTime)) // default: use LATEST departure (unchanged — supply-run / micro-event safe)
+          ? trip.startTime < departureTrip.startTime
+          : trip.startTime > departureTrip.startTime)) {
           departureTrip = trip;
+        }
+      }
+      if (!departureTrip) continue;
+
+      const durationMin = Math.round((+new Date(departureTrip.startTime) - +new Date(arrivalTrip.endTime)) / 60000);
+      if (durationMin <= 0) continue;
+      if (!best || durationMin > best.durationMin) {
+        best = { arrivalTrip, departureTrip, durationMin, arrivalDistKm };
       }
     }
 
-    if (arrivalTrip && departureTrip) {
-      const durationMin = Math.round((+new Date(departureTrip.startTime) - +new Date(arrivalTrip.endTime)) / 60000);
-      return { arrivalTs: arrivalTrip.endTime, departureTs: departureTrip.startTime, durationMin, closestDistKm, arrivalTrip, departureTrip };
+    if (best) {
+      return {
+        arrivalTs:   best.arrivalTrip.endTime,
+        departureTs: best.departureTrip.startTime,
+        durationMin: best.durationMin,
+        // Report the SELECTED arrival's distance for confidence math, not the
+        // globally-closest stop (which may have been the short fly-by).
+        closestDistKm: best.arrivalDistKm,
+        arrivalTrip:   best.arrivalTrip,
+        departureTrip: best.departureTrip,
+      };
     }
-    return { durationMin: 0, closestDistKm };
+    // No valid arrival/departure pair within threshold — fall back to the
+    // no-pair diagnostic with the closest endpoint reported.
+    return { durationMin: 0, closestDistKm, closestArrival: closestArrivalTrip.endTime };
   }
 
   const results = [];
@@ -10164,8 +10260,13 @@ async function bouncieJobDurationMatcher(date, env) {
       // Mirror to ss when it covers this job's date
       if (ss.scheduledDate === date || ss.completedAt?.startsWith(date)) {
         Object.assign(ss, timingData);
-        // Rig auto-migration: high-confidence only
-        if (isHigh && bestRig && ss.rig !== bestRig) {
+        // Rig auto-migration: high-confidence only.
+        // 2026-06-18 — Bug 5 amendment: NEVER auto-migrate when the row is a
+        // declared rig-segment. The operator (or upstream split) has already
+        // told us which rig owns this sub-job; the matcher's nearest-stop
+        // pick can be wrong on multi-rig days (Danny-on-wrong-rig label).
+        // For rig-segments, intentRig wins and we leave ss.rig alone.
+        if (isHigh && bestRig && ss.rig !== bestRig && !row.isRigSegment) {
           ss.intentRig = intentRig;
           ss.rig       = bestRig;
         }
@@ -12388,18 +12489,56 @@ function computeBouncieMetrics(customer) {
   // Collect all Bouncie-matched durations from jobHistory + active scheduledStatus.
   // DEDUPE: track seen jobIds (or date as fallback) so a completed job that appears in
   // BOTH jobHistory[] AND scheduledStatus (e.g. Anas Hadeh matchedJobCount=2 bug) counts once.
+  //
+  // 2026-06-18 — Bug 4 fix: for jobs split across rig segments (Carlos
+  // 2 + 1 crew on same parent), GROUP by parentJobId first so the
+  // crewCount used by soloEquiv is the SUM across segments (Carlos: 3),
+  // not each segment's individual crewCount averaged separately. Duration
+  // is the parent's actualDuration (segments share it via the parent row).
+  // Multiplier table at throughputMultiplier() — keeping {1:1, 2:1.85, 3:2.6}
+  // for this fix; Tyler to confirm whether to steepen the 3-person value.
   const seenIds = new Set();
   const matched = [];
+  const groupedByParent = new Map(); // parentJobId → { date, minutes, crewSum }
 
   for (const j of (customer.jobHistory || [])) {
     if (!j.actualDuration || j.actualDuration <= 0) continue;
+
+    // Rig/day segments — accumulate into their parent's group, don't push
+    // their own matched[] entry. Each segment's crewCount adds to the sum.
+    if ((j.source === 'rig_segment' || j.source === 'day_segment') && j.parentJobId) {
+      const g = groupedByParent.get(j.parentJobId);
+      if (g) {
+        g.crewSum += Number(j.crewCount || 0);
+      } else {
+        groupedByParent.set(j.parentJobId, {
+          date:    j.date || '',
+          minutes: j.actualDuration,   // segment shares parent's duration
+          crewSum: Number(j.crewCount || 0),
+        });
+      }
+      // segments don't enter seenIds — the parent (if it's also in jh) does
+      continue;
+    }
+
     const key = j.jobId || j.date || '';
     if (key && seenIds.has(key)) continue;
     if (key) seenIds.add(key);
-    // Track BOTH the jobId and the date so scheduledStatus can be deduped by either
     if (j.date) seenIds.add(j.date);
-    // crewCount carried for Track 2 solo-equiv (null when not known — soloEquiv() guards)
-    matched.push({ date: j.date || '', minutes: j.actualDuration, crewCount: j.crewCount || null });
+
+    // If this is the PARENT of a grouped segment-set, prefer the summed
+    // crew over the parent's own (often null/1) crewCount.
+    const grouped = j.jobId && groupedByParent.get(j.jobId);
+    const crewForSe = grouped && grouped.crewSum > 0 ? grouped.crewSum : (j.crewCount || null);
+    matched.push({ date: j.date || '', minutes: j.actualDuration, crewCount: crewForSe });
+    if (grouped) groupedByParent.delete(j.jobId);  // parent consumed it
+  }
+
+  // Any grouped segments whose parent wasn't in jh (rare — parent might be in
+  // ss only or filtered out) still contribute their own matched[] entry so the
+  // metric reflects the work done.
+  for (const g of groupedByParent.values()) {
+    if (g.crewSum > 0) matched.push({ date: g.date, minutes: g.minutes, crewCount: g.crewSum });
   }
 
   const ss = customer.scheduledStatus || {};
@@ -12448,15 +12587,33 @@ function computeBouncieMetrics(customer) {
 function computeWorkerHoursStats(customer) {
   // Wall-clock lens (Track 1) + solo-equiv (Track 2) — both computed here for the profile stat.
   // Profile "Job Duration" stat reads avgPerVisit (wall-clock) + avgSoloEquivPerVisit (Track 2).
+  //
+  // 2026-06-18 — Bug 4 fix mirrored from computeBouncieMetrics: rig/day
+  // segments roll up into their parent's crew sum before soloEquiv runs.
   const seenIds = new Set();
   const matched = [];
+  const groupedByParent = new Map();
   for (const j of (customer.jobHistory || [])) {
     if (!j.actualDuration || j.actualDuration <= 0) continue;
     if (j.source === 'csv_backfill') continue;
+    if ((j.source === 'rig_segment' || j.source === 'day_segment') && j.parentJobId) {
+      const g = groupedByParent.get(j.parentJobId);
+      if (g) g.crewSum += Number(j.crewCount || 0);
+      else groupedByParent.set(j.parentJobId, {
+        date: j.date || '', durationMin: j.actualDuration, crewSum: Number(j.crewCount || 0),
+      });
+      continue;
+    }
     const key = j.jobId || j.date || '';
     if (key && seenIds.has(key)) continue;
     if (key) seenIds.add(key);
-    matched.push({ date: j.date || '', durationMin: j.actualDuration, crewCount: j.crewCount || null });
+    const grouped = j.jobId && groupedByParent.get(j.jobId);
+    const crewForSe = grouped && grouped.crewSum > 0 ? grouped.crewSum : (j.crewCount || null);
+    matched.push({ date: j.date || '', durationMin: j.actualDuration, crewCount: crewForSe });
+    if (grouped) groupedByParent.delete(j.jobId);
+  }
+  for (const g of groupedByParent.values()) {
+    if (g.crewSum > 0) matched.push({ date: g.date, durationMin: g.durationMin, crewCount: g.crewSum });
   }
   if (!matched.length) { delete customer.workerHoursStats; return; }
   matched.sort((a, b) => a.date < b.date ? -1 : 1);
