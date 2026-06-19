@@ -7632,17 +7632,39 @@ async function handlePartnersRanked(env, corsHeaders) {
 // rows + adding a render branch in the bell — no schema change.
 
 // POST /admin/reminder  { personId, followUpMonth, note?, type? }
+// Add cadenceMonths to a YYYY-MM string, return the same shape. UTC clock math:
+// build a Date from YYYY-MM-01, add N months, slice back to YYYY-MM. Handles
+// year rollover (Oct + 12 → next Oct, Aug + 6 → Feb next year).
+function _addMonthsToYM(ymStr, months) {
+  if (!ymStr || !/^\d{4}-(0[1-9]|1[0-2])$/.test(ymStr)) return null;
+  const [y, m] = ymStr.split('-').map(Number);
+  // JS month is 0-indexed: m-1 + months can overflow; Date constructor handles it.
+  const d = new Date(Date.UTC(y, m - 1 + Number(months || 0), 1));
+  return d.toISOString().slice(0, 7);
+}
+
 async function handleCreateReminder(request, env, corsHeaders) {
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object')
     return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
-  const { personId, followUpMonth, note, type } = body;
+  const { personId, followUpMonth, note, type, cadenceMonths } = body;
   if (!personId)        return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
   if (!followUpMonth)   return jsonResponse({ error: 'followUpMonth required (YYYY-MM)' }, corsHeaders, 400);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(followUpMonth))
     return jsonResponse({ error: 'followUpMonth must be YYYY-MM' }, corsHeaders, 400);
+  // cadenceMonths — null/undefined OR a positive integer up to 60 (5 years).
+  // The 60-cap protects against fat-fingered very-long cadences silently
+  // queuing a reminder for 2050.
+  let cadence = null;
+  if (cadenceMonths != null && cadenceMonths !== '') {
+    const n = Number(cadenceMonths);
+    if (!Number.isInteger(n) || n < 1 || n > 60) {
+      return jsonResponse({ error: 'cadenceMonths must be an integer 1..60 or null' }, corsHeaders, 400);
+    }
+    cadence = n;
+  }
 
   // Verify the Person exists — friendly 404 instead of a SQL FK error,
   // and it confirms the link target before we write.
@@ -7658,9 +7680,9 @@ async function handleCreateReminder(request, env, corsHeaders) {
   try {
     await env.DB.prepare(
       `INSERT INTO Reminder
-         (reminderId, type, personId, followUpMonth, note, status, createdAt, modifiedAt)
-       VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`
-    ).bind(reminderId, safeType, personId, followUpMonth, (note || '').trim() || null, now, now).run();
+         (reminderId, type, personId, followUpMonth, note, status, cadenceMonths, createdAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+    ).bind(reminderId, safeType, personId, followUpMonth, (note || '').trim() || null, cadence, now, now).run();
   } catch (e) {
     await _logD1Failure(env, 'handleCreateReminder', e.message);
     return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
@@ -7674,6 +7696,7 @@ async function handleCreateReminder(request, env, corsHeaders) {
     followUpMonth,
     note:          (note || '').trim() || null,
     status:        'active',
+    cadenceMonths: cadence,
     createdAt:     now,
     modifiedAt:    now,
   }, corsHeaders);
@@ -7694,6 +7717,7 @@ async function handleRemindersActive(env, corsHeaders) {
               r.type,
               r.followUpMonth,
               r.note,
+              r.cadenceMonths,
               r.createdAt,
               p.personId,
               p.firstName,
@@ -7713,6 +7737,7 @@ async function handleRemindersActive(env, corsHeaders) {
         type:          r.type,
         followUpMonth: r.followUpMonth,
         note:          r.note,
+        cadenceMonths: r.cadenceMonths == null ? null : Number(r.cadenceMonths),
         createdAt:     r.createdAt,
         person: {
           personId:     r.personId,
@@ -7729,13 +7754,24 @@ async function handleRemindersActive(env, corsHeaders) {
   }
 }
 
-// POST /admin/reminder/:reminderId/status  { status }
+// POST /admin/reminder/:reminderId/status
+//   Body: { status: 'active'|'done'|'dismissed', followUpMonth?: 'YYYY-MM' }
 //
-// Server-side dismiss (the whole reason this isn't localStorage). 'done' is
-// the normal "I handled it" path; 'dismissed' is "this no longer matters
-// without me acting on it"; 'active' is the un-do for either. Operationally
-// only 'done' is wired in the bell card today — the others exist for future
-// surfaces (a reminders index, batch dismiss, etc.) without endpoint churn.
+// Server-side state transition + Snooze + cadence auto-reschedule.
+//
+// 'done' is the normal "I handled it" path; 'dismissed' is "this no longer
+// matters without me acting on it"; 'active' is the un-do for either.
+//
+// Snooze: when `followUpMonth` is provided in the body, also UPDATE the row's
+// followUpMonth (typical use: { status: 'active', followUpMonth: 'YYYY-MM' }
+// — reschedules without creating a new row). Validates YYYY-MM format.
+//
+// Cadence auto-reschedule (2026-06-19, outreach feature): when the transition
+// is to 'done' AND the row has cadenceMonths set, ALSO insert a new active
+// reminder for the same person at followUpMonth + cadenceMonths. The next
+// reminder carries the same type / note / cadence so the recurrence keeps
+// rolling forward. Tyler's recurring HOA / commercial / loyal repeats run
+// themselves without manual re-entry every cycle.
 async function handleReminderStatus(request, env, reminderId, corsHeaders) {
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   if (!reminderId) return jsonResponse({ error: 'reminderId required' }, corsHeaders, 400);
@@ -7749,18 +7785,81 @@ async function handleReminderStatus(request, env, reminderId, corsHeaders) {
   if (!ALLOWED.has(status))
     return jsonResponse({ error: 'status must be active | done | dismissed' }, corsHeaders, 400);
 
+  let snoozeMonth = null;
+  if (body.followUpMonth !== undefined && body.followUpMonth !== null) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(body.followUpMonth))
+      return jsonResponse({ error: 'followUpMonth must be YYYY-MM' }, corsHeaders, 400);
+    snoozeMonth = body.followUpMonth;
+  }
+
+  // Load the row so we have type / personId / followUpMonth / cadence for the
+  // potential auto-reschedule. Also so 404 is a clean predicate (UPDATE-
+  // rowcount-zero would fire even if the row exists but values match).
+  const existing = await env.DB.prepare(
+    'SELECT reminderId, type, personId, followUpMonth, note, cadenceMonths FROM Reminder WHERE reminderId = ?'
+  ).bind(reminderId).first();
+  if (!existing) return jsonResponse({ error: 'reminder not found', reminderId }, corsHeaders, 404);
+
   const now = new Date().toISOString();
   try {
-    const r = await env.DB.prepare(
-      'UPDATE Reminder SET status = ?, modifiedAt = ? WHERE reminderId = ?'
-    ).bind(status, now, reminderId).run();
-    const changes = r.meta?.changes ?? 0;
-    if (!changes) return jsonResponse({ error: 'reminder not found', reminderId }, corsHeaders, 404);
+    // Single UPDATE — status + optional followUpMonth (snooze).
+    if (snoozeMonth) {
+      await env.DB.prepare(
+        'UPDATE Reminder SET status = ?, followUpMonth = ?, modifiedAt = ? WHERE reminderId = ?'
+      ).bind(status, snoozeMonth, now, reminderId).run();
+    } else {
+      await env.DB.prepare(
+        'UPDATE Reminder SET status = ?, modifiedAt = ? WHERE reminderId = ?'
+      ).bind(status, now, reminderId).run();
+    }
   } catch (e) {
     await _logD1Failure(env, 'handleReminderStatus', e.message);
     return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
   }
-  return jsonResponse({ success: true, reminderId, status, modifiedAt: now }, corsHeaders);
+
+  // Cadence auto-reschedule — fires when transitioning to 'done' AND the row
+  // carries a cadence. Inserts the next reminder at (current followUpMonth +
+  // cadence) so the recurrence rolls forward without losing the cadence
+  // chain. Skipped on 'dismissed' (operator explicitly opted out of recurrence)
+  // and 'active' (no transition, just snooze).
+  let nextReminder = null;
+  if (status === 'done' && existing.cadenceMonths) {
+    const nextMonth = _addMonthsToYM(existing.followUpMonth, existing.cadenceMonths);
+    if (nextMonth) {
+      const nextId = `rem_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+      try {
+        await env.DB.prepare(
+          `INSERT INTO Reminder
+             (reminderId, type, personId, followUpMonth, note, status, cadenceMonths, createdAt, modifiedAt)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+        ).bind(nextId, existing.type, existing.personId, nextMonth, existing.note, existing.cadenceMonths, now, now).run();
+        nextReminder = {
+          reminderId:    nextId,
+          type:          existing.type,
+          personId:      existing.personId,
+          followUpMonth: nextMonth,
+          note:          existing.note,
+          cadenceMonths: existing.cadenceMonths,
+          status:        'active',
+          createdAt:     now,
+          modifiedAt:    now,
+        };
+      } catch (e) {
+        await _logD1Failure(env, 'handleReminderStatus:autoReschedule', e.message);
+        // Non-fatal — the original done-update succeeded. Tyler will see the
+        // missing-next-reminder in /admin/person/:id/reminders history.
+      }
+    }
+  }
+
+  return jsonResponse({
+    success: true,
+    reminderId,
+    status,
+    followUpMonth: snoozeMonth || existing.followUpMonth,
+    nextReminder,
+    modifiedAt: now,
+  }, corsHeaders);
 }
 
 // GET /admin/person/:personId/reminders — per-person history (all statuses).
@@ -7769,12 +7868,18 @@ async function handlePersonReminders(env, personId, corsHeaders) {
   if (!personId) return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
   try {
     const rows = (await env.DB.prepare(
-      `SELECT reminderId, type, followUpMonth, note, status, createdAt, modifiedAt
+      `SELECT reminderId, type, followUpMonth, note, status, cadenceMonths, createdAt, modifiedAt
          FROM Reminder
         WHERE personId = ?
         ORDER BY followUpMonth DESC, createdAt DESC`
     ).bind(personId).all())?.results || [];
-    return jsonResponse({ personId, reminders: rows }, corsHeaders);
+    return jsonResponse({
+      personId,
+      reminders: rows.map(r => ({
+        ...r,
+        cadenceMonths: r.cadenceMonths == null ? null : Number(r.cadenceMonths),
+      })),
+    }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handlePersonReminders', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);

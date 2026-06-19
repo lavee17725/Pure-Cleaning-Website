@@ -1,0 +1,28 @@
+-- Migration 0027: Reminder.cadenceMonths — recurring outreach support
+--
+-- Adds one column so the existing Reminder table (migration 0025) can carry
+-- a recurrence cadence alongside the one-time manual_follow_up rows it was
+-- originally built for. The type column was designed exactly for this — see
+-- 0025's "open container" note — so the new feature ships as:
+--   - New column `cadenceMonths INTEGER` (NULL = one-time, 6/12/24/… = every N months).
+--   - New type value `'outreach'` for the new "remind me to reach out" feature.
+--     (The CHECK on type was never added in 0025 — column is plain TEXT — so no
+--      enum update is required. The worker already round-trips arbitrary type
+--      values and the bell render path branches on type.)
+--
+-- Behavior the worker adds in the same release:
+--   - POST /admin/reminder accepts cadenceMonths in body.
+--   - POST /admin/reminder/:id/status: when transitioning to 'done' AND the row
+--     has cadenceMonths set, atomically insert a NEW reminder for the same
+--     person with followUpMonth = (current followUpMonth + cadenceMonths) so
+--     the recurrence rolls forward without manual re-entry.
+--   - POST /admin/reminder/:id/status also accepts an optional `followUpMonth`
+--     field for Snooze/reschedule (changes the target month without creating
+--     a new row).
+--
+-- ADDITIVE ONLY. No existing column changed, no existing row mutated.
+-- Snapshot customer_db_backup_2026-06-19T00-49-08 taken before applying.
+--
+-- Date: 2026-06-19
+
+ALTER TABLE Reminder ADD COLUMN cadenceMonths INTEGER DEFAULT NULL;

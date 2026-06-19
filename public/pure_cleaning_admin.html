@@ -511,6 +511,11 @@ function dismissAlert(evtId) {
 // dismissed across browsers (never the localStorage path). Optimistically
 // drops the card from the in-memory list; on server failure we re-fetch so
 // the UI re-syncs with truth (T1.20).
+//
+// Cadence-aware: when the row has cadenceMonths set, the server inserts the
+// next reminder at +cadence months. The next one won't surface in the bell
+// until its month is due, so the card simply disappears for now — Tyler
+// can see the chain on the customer profile's reminder history.
 async function dismissReminder(reminderId) {
   if (!reminderId) return;
   const _prev = _reminderAlerts.slice();
@@ -524,6 +529,14 @@ async function dismissReminder(reminderId) {
       body: JSON.stringify({ status:'done' }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    if (data?.nextReminder?.followUpMonth) {
+      // Light-touch confirmation so Tyler sees the recurrence rolled forward.
+      const ym = data.nextReminder.followUpMonth;
+      const [y, m] = ym.split('-').map(Number);
+      const lbl = new Date(y, m-1, 1).toLocaleDateString('en-US', { month:'short', year:'numeric' });
+      showToast(`✓ Done — next reminder set for ${lbl}`);
+    }
   } catch(e) {
     // Re-fetch authoritative state — if the server didn't accept the dismiss,
     // the card should come back.
@@ -532,6 +545,53 @@ async function dismissReminder(reminderId) {
     _renderNotifPanel();
     checkReminders().catch(() => {});
     alert('Failed to dismiss reminder: ' + e.message);
+  }
+}
+
+// Snooze / reschedule — bumps a reminder's followUpMonth without creating
+// a new row. Uses the same status endpoint with status='active' so it stays
+// in the feed (it just won't fire again until the new month is due).
+// Default snooze: current followUpMonth + 1 month. Operator picks via prompt
+// for a different month.
+async function snoozeReminder(reminderId, currentYM) {
+  if (!reminderId) return;
+  // Default next month (no further out than 5 years from now).
+  let suggest = '';
+  if (currentYM && /^\d{4}-\d{2}$/.test(currentYM)) {
+    const [y, m] = currentYM.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m, 1));  // m (0-indexed of next month)
+    suggest = d.toISOString().slice(0, 7);
+  } else {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    suggest = d.toISOString().slice(0, 7);
+  }
+  const newYM = prompt('Snooze to which month? (YYYY-MM)', suggest);
+  if (!newYM) return;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(newYM)) {
+    alert('Use YYYY-MM format (e.g. 2026-09)');
+    return;
+  }
+  const _prev = _reminderAlerts.slice();
+  _reminderAlerts = _reminderAlerts.filter(r => r.reminderId !== reminderId);
+  _updateBellDot();
+  _renderNotifPanel();
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reminder/${encodeURIComponent(reminderId)}/status`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:'active', followUpMonth: newYM }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const [y, m] = newYM.split('-').map(Number);
+    const lbl = new Date(y, m-1, 1).toLocaleDateString('en-US', { month:'short', year:'numeric' });
+    showToast(`😴 Snoozed to ${lbl}`);
+  } catch(e) {
+    _reminderAlerts = _prev;
+    _updateBellDot();
+    _renderNotifPanel();
+    checkReminders().catch(() => {});
+    alert('Failed to snooze: ' + e.message);
   }
 }
 
@@ -544,9 +604,15 @@ function _renderNotifPanel() {
     return;
   }
 
-  // Manual follow-up reminders — typed FOLLOW-UP cards. Click-to-text uses the
-  // Person.primaryPhone (greyed out when missing). Dismiss POSTs status='done'
-  // to the server so it's cross-device + never re-surfaces.
+  // Reminder cards — two types share this render path:
+  //   - manual_follow_up: orange/terra, label "📅 FOLLOW-UP" (Tyler's per-customer
+  //     one-time notes — Peter Toku case)
+  //   - outreach: terra too, label "📞 OUTREACH" (proactive recurring chase for
+  //     HOA / commercial / loyal repeats; carries cadenceMonths so Done auto-
+  //     schedules the next at +cadence months on the server)
+  // Both types get: Text · View · Snooze · Done.
+  // SMS body differs by type — outreach pre-fills a next-cleaning prompt; follow-up
+  // opens an empty composer so Tyler can write the message himself.
   const _monthLabel = ym => {
     if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || '';
     const [y, m] = ym.split('-').map(Number);
@@ -558,17 +624,31 @@ function _renderNotifPanel() {
       ? `${p.businessName}${(p.firstName||p.lastName) ? ' — '+((p.firstName||'')+' '+(p.lastName||'')).trim() : ''}`
       : `${(p.firstName||'') + ' ' + (p.lastName||'')}`.trim() || 'Customer';
     const ph   = p.phone || '';
-    const smsHref = ph ? `sms:+1${ph}` : '#';
+    const isOutreach = r.type === 'outreach';
+    const typeLabel = isOutreach ? '📞 OUTREACH' : '📅 FOLLOW-UP';
+    const cadenceStr = r.cadenceMonths ? ` · every ${r.cadenceMonths}mo` : '';
+    // SMS body for outreach: short, casual, next-cleaning prompt. Operator can
+    // edit before sending — the body is a deep-link to the SMS composer, not
+    // an auto-send. Follow-up type opens an empty composer (matches the old
+    // behavior — Tyler writes the message himself).
+    const firstNm = (p.firstName || '').trim().split(' ')[0] || 'there';
+    const outreachBody = `Hey ${firstNm}, Tyler from Pure Cleaning checking in 💧 Time to get on the calendar for your next cleaning? Reply with a week that works and I'll lock it in.\n\n— Tyler\n954-389-2642\nReply STOP to opt out.`;
+    const smsHref = ph
+      ? (isOutreach
+          ? `sms:+1${ph}?&body=${encodeURIComponent(outreachBody)}`
+          : `sms:+1${ph}`)
+      : '#';
     const noteHtml = r.note ? `<br>${_ea(r.note)}` : '';
     const profileUrl = ph ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}` : '';
     return `<div class="notif-card" style="border-left:3px solid var(--terra);">
-      <div class="notif-card-type" style="color:var(--terra);">📅 FOLLOW-UP · ${_ea(_monthLabel(r.followUpMonth))}</div>
+      <div class="notif-card-type" style="color:var(--terra);">${typeLabel} · ${_ea(_monthLabel(r.followUpMonth))}${cadenceStr}</div>
       <div class="notif-card-body"><strong>${_ea(name)}</strong>${noteHtml}</div>
       <div class="notif-card-actions">
         ${ph
           ? `<a class="nc-view-btn" href="${smsHref}" style="text-decoration:none;display:inline-block;">💬 Text</a>`
           : `<button class="nc-view-btn" disabled style="opacity:.4;cursor:not-allowed;" title="No phone on file">💬 Text</button>`}
         ${profileUrl ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View</button>` : ''}
+        <button class="nc-view-btn" onclick="snoozeReminder('${_ea(r.reminderId)}','${_ea(r.followUpMonth)}')">😴 Snooze</button>
         <button class="nc-dismiss-btn" onclick="dismissReminder('${_ea(r.reminderId)}')">Done</button>
       </div>
     </div>`;

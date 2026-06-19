@@ -477,18 +477,35 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div id="followUpList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:.625rem;"></div>
       <div id="followUpArea" class="add-note-area" style="display:none;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:120px;">
+            Reminder type
+            <select id="followUpTypeInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
+              <option value="manual_follow_up">Follow-up (one-time)</option>
+              <option value="outreach">Outreach (next cleaning)</option>
+            </select>
+          </label>
           <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:140px;">
-            Follow-up month
+            Target month
             <input type="month" id="followUpMonthInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
+          </label>
+          <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:140px;">
+            Cadence
+            <select id="followUpCadenceInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
+              <option value="">One-time</option>
+              <option value="3">Every 3 months</option>
+              <option value="6">Every 6 months</option>
+              <option value="12">Every year</option>
+              <option value="24">Every 2 years</option>
+            </select>
           </label>
         </div>
         <textarea id="followUpNoteInput" placeholder="Note (e.g. 'Contact Peter about re-doing the service — discussed in person')"></textarea>
         <div class="add-note-actions">
           <button class="btn-cancel-note" onclick="cancelFollowUp()">Cancel</button>
-          <button class="btn-save-note" onclick="saveFollowUp()">Save Follow-Up</button>
+          <button class="btn-save-note" onclick="saveFollowUp()">Save reminder</button>
         </div>
       </div>
-      <button class="btn-add-note" id="addFollowUpBtn" onclick="showAddFollowUp()">+ Set Follow-Up</button>
+      <button class="btn-add-note" id="addFollowUpBtn" onclick="showAddFollowUp()">+ Remind me to reach out</button>
     </div>
   </div>
 
@@ -1634,9 +1651,13 @@ function renderFollowUps(){
   list.innerHTML = _followUps.map(r => {
     const _due = (new Date().toISOString().slice(0,7) >= r.followUpMonth);
     const _status = r.status || 'active';
+    const _isOutreach = r.type === 'outreach';
+    const _emoji = _isOutreach ? '📞' : '📅';
+    const _typeLabel = _isOutreach ? 'OUTREACH' : 'FOLLOW-UP';
+    const _cadenceStr = r.cadenceMonths ? ` · every ${r.cadenceMonths}mo` : '';
     return `<div style="background:${_status==='active' && _due ? '#fff7ed':'#fafafa'};border:1.5px solid ${_status==='active' && _due ? '#fed7aa':'var(--border)'};border-radius:10px;padding:10px 12px;">
       <div style="font-size:11px;font-weight:700;color:${_status==='active' && _due ? '#9a3412':'var(--muted)'};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">
-        📅 ${esc(_monthLabel(r.followUpMonth))}${_status==='active' && _due ? ' · DUE' : ''}${_status!=='active' ? ' · '+esc(_status.toUpperCase()) : ''}
+        ${_emoji} ${_typeLabel} · ${esc(_monthLabel(r.followUpMonth))}${esc(_cadenceStr)}${_status==='active' && _due ? ' · DUE' : ''}${_status!=='active' ? ' · '+esc(_status.toUpperCase()) : ''}
       </div>
       ${r.note ? `<div style="font-size:13.5px;color:var(--text);line-height:1.45;">${esc(r.note)}</div>` : ''}
       ${_status === 'active' ? `<div style="margin-top:8px;"><button onclick="dismissFollowUp('${esc(r.reminderId)}')" style="background:#f3f4f6;border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer;">Mark done</button></div>` : ''}
@@ -1658,12 +1679,17 @@ function cancelFollowUp(){
   document.getElementById('followUpArea').style.display = 'none';
   document.getElementById('addFollowUpBtn').style.display = '';
   document.getElementById('followUpNoteInput').value = '';
+  document.getElementById('followUpCadenceInput').value = '';
+  document.getElementById('followUpTypeInput').value = 'manual_follow_up';
 }
 
 async function saveFollowUp(){
   const ym = (document.getElementById('followUpMonthInput').value || '').trim();
   const note = (document.getElementById('followUpNoteInput').value || '').trim();
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { alert('Pick a follow-up month (YYYY-MM).'); return; }
+  const type = document.getElementById('followUpTypeInput').value || 'manual_follow_up';
+  const cadenceRaw = document.getElementById('followUpCadenceInput').value;
+  const cadenceMonths = cadenceRaw ? Number(cadenceRaw) : null;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { alert('Pick a target month (YYYY-MM).'); return; }
   const ph10 = (_customer?.phone||'').replace(/\D/g,'').slice(-10);
   if (!ph10) { alert('No phone on this customer record.'); return; }
   const personId = 'person_1' + ph10;
@@ -1673,7 +1699,7 @@ async function saveFollowUp(){
     const res = await fetch(`${API}/admin/reminder`, {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ personId, followUpMonth: ym, note: note || null }),
+      body: JSON.stringify({ personId, followUpMonth: ym, note: note || null, type, cadenceMonths }),
     });
     if (!res.ok) {
       const det = await res.json().catch(() => ({}));

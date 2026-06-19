@@ -255,6 +255,46 @@ tr:hover .dir-edit-btn{opacity:.55;}
 <!-- Inline toast for save confirmations -->
 <div id="dirToast" class="dir-toast"></div>
 
+<!-- "Remind me to reach out" modal — wires to /admin/reminder (D1 Reminder table).
+     Distinct from reactivation: reactivation chases lapsed customers automatically;
+     this is Tyler's proactive cadence for known recurring relationships (HOAs,
+     commercial accounts, loyal repeats). Server-side state, cross-device (Rule 22). -->
+<div id="reminderModal" class="edit-modal" onclick="if(event.target===this)closeReminderModal()" style="display:none;">
+  <div class="edit-modal-card" role="dialog" aria-modal="true" aria-labelledby="reminderModalTitle">
+    <div class="edit-modal-title" id="reminderModalTitle">Remind me to reach out</div>
+    <div class="edit-modal-row">
+      <label for="remType">Reminder type</label>
+      <select id="remType" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;width:100%;">
+        <option value="outreach">Outreach (next cleaning)</option>
+        <option value="manual_follow_up">Follow-up (one-time)</option>
+      </select>
+    </div>
+    <div class="edit-modal-row">
+      <label for="remMonth">Target month</label>
+      <input type="month" id="remMonth">
+    </div>
+    <div class="edit-modal-row">
+      <label for="remCadence">Cadence</label>
+      <select id="remCadence" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;width:100%;">
+        <option value="">One-time</option>
+        <option value="3">Every 3 months</option>
+        <option value="6" selected>Every 6 months</option>
+        <option value="12">Every year</option>
+        <option value="24">Every 2 years</option>
+      </select>
+    </div>
+    <div class="edit-modal-row">
+      <label for="remNote">Note <span class="edit-modal-opt">(optional)</span></label>
+      <input type="text" id="remNote" placeholder="e.g. ask about next roof clean">
+    </div>
+    <div id="reminderModalErr" class="edit-modal-err"></div>
+    <div class="edit-modal-actions">
+      <button class="btn-cancel" onclick="closeReminderModal()">Cancel</button>
+      <button class="btn-save" id="reminderSaveBtn" onclick="saveReminderModal()">Save reminder</button>
+    </div>
+  </div>
+</div>
+
 <script src="/pure_cleaning_tier_utils.js"></script>
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
@@ -699,7 +739,7 @@ function buildRow(c){
     ?`<span class="tier-chip" style="background:${c._tierColor};" title="Filter by ${c._tier}" onclick="event.stopPropagation();filterByTier('${_tfk}')">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`
     :`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr data-phone="${ph}" onclick="navProfile('${ph}')">
-    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button></td>
+    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></td>
     <td>${_tchip}</td>
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
@@ -721,7 +761,7 @@ function buildCard(c){
   return `<div class="cust-card" data-phone="${ph}" onclick="navProfile('${ph}')">
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};cursor:${_tfkc?'pointer':'default'};" ${_badgeClick}>${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
-      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button></div>
+      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
       ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}
@@ -786,6 +826,73 @@ function closeEditModal() {
   document.getElementById('editModal').style.display = 'none';
   _editPhone = null;
   _editOrig  = null;
+}
+
+// ── "Remind me to reach out" modal ──────────────────────────────────────────
+// POSTs to /admin/reminder (D1 Reminder table). Type=outreach when cadence is
+// set, otherwise the operator pick. Server auto-creates the next reminder at
+// +cadenceMonths when this one is marked done in the bell — Tyler's recurring
+// HOA / commercial / loyal-repeat list runs itself.
+let _remindPhone = null;
+function openReminderModal(phone, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  _remindPhone = phone;
+  const c = (allCustomers || []).find(x => String(x.phone) === String(phone));
+  const name = c ? `${(c.firstName||'')+' '+(c.lastName||'')}`.trim() : phone;
+  document.getElementById('reminderModalTitle').textContent = `Remind me about ${name || 'this customer'}`;
+  // Default target month: next month so the bell doesn't fire immediately
+  const d = new Date(); d.setMonth(d.getMonth() + 1);
+  document.getElementById('remMonth').value = d.toISOString().slice(0, 7);
+  document.getElementById('remNote').value  = '';
+  document.getElementById('remType').value  = 'outreach';
+  document.getElementById('remCadence').value = '6';
+  document.getElementById('reminderModalErr').textContent = '';
+  document.getElementById('reminderSaveBtn').disabled = false;
+  document.getElementById('reminderSaveBtn').textContent = 'Save reminder';
+  document.getElementById('reminderModal').style.display = 'flex';
+  setTimeout(() => { try { document.getElementById('remMonth').focus(); } catch {} }, 60);
+}
+
+function closeReminderModal() {
+  document.getElementById('reminderModal').style.display = 'none';
+  _remindPhone = null;
+}
+
+async function saveReminderModal() {
+  if (!_remindPhone) return;
+  const ym       = (document.getElementById('remMonth').value || '').trim();
+  const note     = (document.getElementById('remNote').value || '').trim();
+  const type     = document.getElementById('remType').value || 'outreach';
+  const cadRaw   = document.getElementById('remCadence').value;
+  const cadence  = cadRaw ? Number(cadRaw) : null;
+  const errEl    = document.getElementById('reminderModalErr');
+  errEl.textContent = '';
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { errEl.textContent = 'Pick a target month.'; return; }
+  const ph10 = (_remindPhone || '').replace(/\D/g, '').slice(-10);
+  if (ph10.length !== 10) { errEl.textContent = 'Customer has no usable phone.'; return; }
+  const personId = 'person_1' + ph10;
+  const btn = document.getElementById('reminderSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`${API}/admin/reminder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personId, followUpMonth: ym, note: note || null, type, cadenceMonths: cadence }),
+    });
+    if (!res.ok) {
+      const det = await res.json().catch(() => ({}));
+      throw new Error(det.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (!data?.reminderId || data?.personId !== personId) throw new Error('server did not confirm');
+    closeReminderModal();
+    const [y, m] = ym.split('-').map(Number);
+    const lbl = new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    showDirToast(`✓ Reminder set for ${lbl}${cadence ? ` (every ${cadence}mo)` : ''}`);
+  } catch (e) {
+    errEl.textContent = 'Save failed: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Save reminder';
+  }
 }
 
 async function saveEditModal() {
@@ -912,10 +1019,18 @@ function showDirToast(msg) {
 
 // Esc-to-close + Enter-to-save while modal is open.
 document.addEventListener('keydown', (e) => {
-  const modalVisible = document.getElementById('editModal')?.style.display === 'flex';
-  if (!modalVisible) return;
-  if (e.key === 'Escape') { e.preventDefault(); closeEditModal(); }
-  else if (e.key === 'Enter' && (e.target.tagName === 'INPUT')) { e.preventDefault(); saveEditModal(); }
+  const editModalVisible = document.getElementById('editModal')?.style.display === 'flex';
+  const reminderModalVisible = document.getElementById('reminderModal')?.style.display === 'flex';
+  if (!editModalVisible && !reminderModalVisible) return;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (editModalVisible)     closeEditModal();
+    if (reminderModalVisible) closeReminderModal();
+  } else if (e.key === 'Enter' && (e.target.tagName === 'INPUT')) {
+    e.preventDefault();
+    if (editModalVisible)     saveEditModal();
+    if (reminderModalVisible) saveReminderModal();
+  }
 });
 
 // ── Swipe-safe navigation + fade overlays ─────────────────────────────────────
