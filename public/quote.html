@@ -263,7 +263,10 @@
 
   footer{background:#06101f;color:#8fa1b8;padding:30px 0;font-size:13px;text-align:center}
   footer a{color:#b9c7d9;text-decoration:none}
+  .ts-wrap{margin:0 0 14px;display:flex;justify-content:center;min-height:65px;}
 </style>
+<!-- Cloudflare Turnstile (Managed mode — mostly invisible to real customers) -->
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
 
@@ -634,6 +637,11 @@
   <div class="submit-err" id="submitErr">
     <strong>Something went wrong sending your request.</strong><br>
     Please call or text us at <a href="tel:+19543892642">(954) 389-2642</a> &mdash; we're here 7am&ndash;10pm Mon&ndash;Sun.
+  </div>
+
+  <!-- Cloudflare Turnstile (anti-spam). Managed mode = invisible for real customers; bots get challenged. -->
+  <div class="ts-wrap">
+    <div class="cf-turnstile" data-sitekey="0x4AAAAAADn4SEfZ8vz9zd7n" data-theme="light" data-size="flexible"></div>
   </div>
 
   <!-- Submit button -->
@@ -1241,6 +1249,15 @@
       return;
     }
 
+    // Cloudflare Turnstile token — Managed widget injects one transparently.
+    // Empty here = customer arrived faster than the script loaded OR the
+    // widget couldn't render (ad-blocker etc). Worker fail-opens when token
+    // missing/invalid AND siteverify itself errors — but for the typical case
+    // (script loaded, customer waited the ~0–2s for managed to settle) we
+    // include it. Submit is NEVER blocked client-side.
+    var tsTok = '';
+    try { if (window.turnstile) tsTok = window.turnstile.getResponse() || ''; } catch(_) {}
+
     state.submitting = true;
     var btn = $('submitBtn');
     btn.disabled = true; btn.textContent = 'Sending…';
@@ -1260,6 +1277,7 @@
         customer_name: form.firstName + ' ' + form.lastName,
         submittedAt: new Date().toISOString(),
         status: 'new', quotedAt: null, source: 'homepage',
+        turnstileToken: tsTok,
         customerData: {
           firstName: form.firstName, lastName: form.lastName,
           phone: form.phone, email: form.email,
@@ -1364,6 +1382,9 @@
       btn.textContent = 'Send My Quote Request →';
       $('submitErr').classList.add('shown');
       $('submitErr').scrollIntoView({behavior:'smooth', block:'center'});
+      // Reset Turnstile so a retry generates a fresh token (Cloudflare burns
+      // tokens after one siteverify regardless of outcome).
+      try { if (window.turnstile) window.turnstile.reset(); } catch(_) {}
     });
   });
 
