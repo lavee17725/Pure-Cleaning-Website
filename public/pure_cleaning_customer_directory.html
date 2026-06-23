@@ -50,12 +50,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .search-clear{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:17px;display:none;padding:2px;}
 .search-clear.vis{display:block;}
 
-/* Filter pills */
-.filter-row{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;margin-bottom:1rem;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
-.filter-row::-webkit-scrollbar{display:none;}
-.filter-pill{flex-shrink:0;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid var(--border);background:var(--white);color:var(--muted);cursor:pointer;transition:all .12s;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
-.filter-pill:hover{border-color:var(--sky);color:var(--sky);}
-.filter-pill.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+/* Segment tabs (Residential / Partner / Commercial) */
+.segment-bar{display:flex;gap:2px;margin-bottom:.875rem;border-bottom:1.5px solid var(--border);}
+.segment-tab{flex-shrink:0;padding:9px 18px;border:none;border-bottom:2.5px solid transparent;background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .12s;margin-bottom:-1.5px;-webkit-tap-highlight-color:transparent;}
+.segment-tab:hover{color:var(--sky);}
+.segment-tab.active{color:var(--navy);border-bottom-color:var(--navy);}
+.segment-tab .seg-count{font-weight:600;opacity:.65;font-size:12px;margin-left:5px;}
 
 /* Export + count bar */
 .bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;flex-wrap:wrap;gap:8px;}
@@ -169,7 +169,7 @@ tr:hover .dir-edit-btn{opacity:.55;}
     <button class="search-clear" id="searchClear" onclick="clearSearch()">×</button>
   </div>
 
-  <div class="filter-row" id="filterRow"></div>
+  <div class="segment-bar" id="segmentBar"></div>
 
   <div class="bar">
     <div class="bar-count" id="barCount"></div>
@@ -244,6 +244,13 @@ tr:hover .dir-edit-btn{opacity:.55;}
       <input type="text" id="editPh" disabled>
       <div class="edit-modal-hint">Phone changes: call Tyler. It's the identity key — changing it is a separate flow.</div>
     </div>
+    <!-- Per-property editor — surfaces every PersonProperty link. Address/city changes
+         re-geocode via PATCH /admin/property. Label/primary changes go through
+         PATCH /admin/person-property. Cleanup-Spec 2026-06-21. -->
+    <div class="edit-modal-row" id="editPropsWrap" style="display:none;">
+      <label>Properties</label>
+      <div id="editPropsList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
     <div id="editModalErr" class="edit-modal-err"></div>
     <div class="edit-modal-actions">
       <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
@@ -303,7 +310,7 @@ const PAGE_SIZE = 50;
 let allCustomers = [];
 let filtered = [];
 let displayed = 0;
-let activeFilters = new Set(['all']);
+let activeSegment = 'residential';  // 2026-06-22: 3 customerType tabs — default Residential.
 let searchVal = '';
 
 // Tier rank: 1 = highest value (LOYAL/VIP), higher number = lower value
@@ -341,16 +348,24 @@ function fmtPh(p){ const d=String(p||'').replace(/\D/g,''); return d.length===10
 function fmtDate(s){ if(!s)return'—'; const d=new Date(s.includes('T')?s:s+'T12:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
 function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
 function _computeAvgTPW(c){
+  // 2026-06-22: /customers/summary now pre-computes these 5 labels server-side.
+  // Verified byte-identical against the legacy client compute over all 1,252
+  // customers before the switch. If any of the pre-computed fields is present
+  // we use them as-is; otherwise we fall back to the original walk so any
+  // future caller that hands us a non-summary payload (raw KV blob, legacy
+  // /customers payload, etc.) still works.
+  if (c && (c._avgTPWLabel !== undefined || c.avgLaborPerJob !== undefined)) {
+    return {
+      avgLaborPerJob:      c.avgLaborPerJob      ?? null,
+      _avgTPWLabel:        c._avgTPWLabel        ?? '—',
+      _avgTPWLabelCard:    c._avgTPWLabelCard    ?? '',
+      _avgSoloEquivLabel:  c._avgSoloEquivLabel  ?? '',
+      _avgTotalLaborLabel: c._avgTotalLaborLabel ?? '',
+    };
+  }
+  // Fallback: original client walk over c.bouncieMetrics.
   // Track 1 (wall-clock) is always primary. Track 2 splits by job type so the
-  // two units (solo-equiv vs total labor) are never averaged together:
-  //   - Solo-equiv aggregated over single-rig jobs (avgSoloEquivMinutes ×
-  //     singleRigCount), only when at least one job had crew data.
-  //   - Total labor aggregated over multi-rig jobs (avgTotalLaborMinutes ×
-  //     multiRigCount). Carlos's $100/hr-solo yardstick doesn't apply here —
-  //     it's raw man-hours.
-  // Each subline only renders when its own subset has data. A customer with
-  // only single-rig jobs shows just "Solo-equiv"; Carlos (only multi-rig)
-  // shows just "Total labor."
+  // two units (solo-equiv vs total labor) are never averaged together.
   const bm=c.bouncieMetrics;
   if(!bm||!Object.keys(bm).length) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'', _avgSoloEquivLabel:'', _avgTotalLaborLabel:'' };
   const entries=Object.values(bm);
@@ -369,6 +384,7 @@ function _computeAvgTPW(c){
       totalTLCount+=e.multiRigCount;
     }
   }
+  if (totalCount <= 0) return { avgLaborPerJob:null, _avgTPWLabel:'—', _avgTPWLabelCard:'', _avgSoloEquivLabel:'', _avgTotalLaborLabel:'' };
   const avg=Math.round(totalWeighted/totalCount);
   const label=totalCount>=2?'Avg':'Last';
   const str=`${label}: ${fmtMin(avg)}`;
@@ -403,8 +419,14 @@ function isSealingProspect(c){
 // ── Data Loading ──────────────────────────────────────────────────────────────
 async function init(){
   try{
+    // 2026-06-22: switched to /customers/summary (~999 KB vs 4 MB).
+    // Server-side endpoint pre-computes hasRoofHistory + the 5 labor labels
+    // (avgLaborPerJob, _avgTPWLabel, _avgTPWLabelCard, _avgSoloEquivLabel,
+    // _avgTotalLaborLabel). Directory's client-side bouncieMetrics walk is
+    // now a passthrough (see `_computeAvgTPW` below) — kept as a safety
+    // fallback in case a future caller hands us a non-summary payload.
     const [res, rsRes]=await Promise.all([
-      fetch(`${API}/customers`),
+      fetch(`${API}/customers/summary`),
       fetch(`${API}/admin/review-states`).catch(()=>null),
     ]);
     const data=await res.json();
@@ -418,8 +440,8 @@ async function init(){
       const vip = tier.vip || false;
       return{
         ...c,
-        _name:((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase(),
-        _bigrams:(s=>{const r=s.replace(/\s+/g,'');const b=new Set();for(let i=0;i<r.length-1;i++)b.add(r[i]+r[i+1]);return b;})(((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase()),
+        _name:((c.firstName||'')+' '+(c.lastName||'')+' '+(c.businessName||'')).trim().toLowerCase(),
+        _bigrams:(s=>{const r=s.replace(/\s+/g,'');const b=new Set();for(let i=0;i<r.length-1;i++)b.add(r[i]+r[i+1]);return b;})(((c.firstName||'')+' '+(c.lastName||'')+' '+(c.businessName||'')).trim().toLowerCase()),
         _tier:tier.label,
         _tierColor:tier.color,
         _tierEmoji:tier.emoji||'',
@@ -434,83 +456,40 @@ async function init(){
       };
     });
     document.getElementById('loadingState').style.display='none';
-    // Pre-activate filter from URL param
-    const urlFilter = new URLSearchParams(location.search).get('filter');
-    if(urlFilter && urlFilter !== 'all'){
-      activeFilters = new Set([urlFilter]);
-    }
-    buildFilterPills();
+    buildSegmentTabs();
     applyAll();
   }catch(e){
     document.getElementById('loadingState').innerHTML=`<div class="empty-icon">⚠️</div><div class="empty-title">Failed to load</div><div>${esc(e.message)}</div>`;
   }
 }
 
-// ── Filter pills ──────────────────────────────────────────────────────────────
-function buildFilterPills(){
-  const counts={
-    all:        allCustomers.length,
-    scheduled:  allCustomers.filter(c=>c._tier==='SCHEDULED').length,
-    hot:        allCustomers.filter(c=>c._tier==='HOT').length,
-    warm:       allCustomers.filter(c=>c._tier==='WARM').length,
-    overdue:    allCustomers.filter(c=>c._tier==='OVERDUE').length,
-    vip:        allCustomers.filter(c=>c._vip).length,
-    loyal:      allCustomers.filter(c=>c._tier==='LOYAL').length,
-    new:        allCustomers.filter(c=>c._tier==='NEW').length,
-    no_history: allCustomers.filter(c=>c._tier==='NO HISTORY').length,
-    opted_out:  allCustomers.filter(c=>!!c.optOut).length,
-    excluded:   allCustomers.filter(c=>c.reactivationExcluded?.excluded).length,
-  };
-  const pills=[
-    {key:'all',        label:`All (${counts.all})`},
-    {key:'scheduled',  label:`📋 Scheduled (${counts.scheduled})`},
-    {key:'hot',        label:`🔥 Hot (${counts.hot})`},
-    {key:'warm',       label:`🌶️ Warm (${counts.warm})`},
-    {key:'overdue',    label:`⏰ Overdue (${counts.overdue})`},
-    {key:'vip',        label:`💎 VIP (${counts.vip})`},
-    {key:'loyal',      label:`💚 Loyal (${counts.loyal})`},
-    {key:'new',        label:`🆕 New (${counts.new})`},
-    {key:'no_history', label:`❄️ No History (${counts.no_history})`},
-    {key:'opted_out',  label:`🚫 Opted Out (${counts.opted_out})`},
-    {key:'excluded',   label:`🔴 Excluded (${counts.excluded})`},
+// ── Segment tabs (Residential / Partner / Commercial) ────────────────────────
+// 2026-06-22: client-side segmentation off the already-loaded /customers/summary
+// payload — no new endpoint. Default Residential. Partner tab defaults to
+// totalJobs DESC so the most-active partners surface first (brief request).
+function buildSegmentTabs(){
+  const counts = { residential:0, partner:0, commercial:0 };
+  for (const c of allCustomers) counts[_segmentOf(c)] += 1;
+  const tabs = [
+    { key:'residential', label:'🏠 Residential' },
+    { key:'partner',     label:'🤝 Partner' },
+    { key:'commercial',  label:'🏢 Commercial' },
   ];
-  document.getElementById('filterRow').innerHTML=pills.map(p=>
-    `<div class="filter-pill${activeFilters.has(p.key)?' active':''}" data-key="${p.key}" onclick="togglePill('${p.key}')">${p.label}</div>`
+  document.getElementById('segmentBar').innerHTML = tabs.map(t =>
+    `<button class="segment-tab${activeSegment===t.key?' active':''}" data-seg="${t.key}" onclick="setSegment('${t.key}')">${t.label}<span class="seg-count">(${counts[t.key]})</span></button>`
   ).join('');
 }
 
-const TIER_KEY_MAP = {
-  'SCHEDULED':  'scheduled',
-  'HOT':        'hot',
-  'WARM':       'warm',
-  'OVERDUE':    'overdue',
-  'LOYAL':      'loyal',
-  'NEW':        'new',
-  'NO HISTORY': 'no_history',
-  'OPT-OUT':    'opted_out',
-};
-
-function filterByTier(key){
-  activeFilters = new Set([key]);
-  document.querySelectorAll('.filter-pill').forEach(el=>{
-    el.classList.toggle('active', el.dataset.key === key);
-  });
-  applyAll();
-  document.getElementById('filterRow').scrollIntoView({behavior:'smooth', block:'nearest'});
-}
-
-function togglePill(key){
-  if(key==='all'){
-    activeFilters=new Set(['all']);
-  }else{
-    activeFilters.delete('all');
-    if(activeFilters.has(key))activeFilters.delete(key);
-    else activeFilters.add(key);
-    if(!activeFilters.size)activeFilters.add('all');
-  }
-  document.querySelectorAll('.filter-pill').forEach(el=>{
-    el.classList.toggle('active',activeFilters.has(el.dataset.key));
-  });
+function setSegment(key){
+  if (activeSegment === key) return;
+  activeSegment = key;
+  // Partner segment defaults to most-active first; other segments clear sort.
+  if (key === 'partner') { _sortCol = 'totalJobs'; _sortAsc = false; }
+  else { _sortCol = null; _sortAsc = true; }
+  _saveSortState();
+  document.querySelectorAll('.segment-tab').forEach(el =>
+    el.classList.toggle('active', el.dataset.seg === key)
+  );
   applyAll();
 }
 
@@ -564,13 +543,20 @@ function clearSearch(){
 
 // ── Filter + Sort + Render ────────────────────────────────────────────────────
 function applyAll(){
-  let data=allCustomers;
+  // 2026-06-22: segment filter is the outer-most gate — applied before search,
+  // tier pills, or sort. Default 'residential'. Partner/Commercial are
+  // separate worldviews per DL-06; never mix segments in a single list view.
+  let data = allCustomers.filter(c => _segmentOf(c) === activeSegment);
 
   // Search — fuzzy name + exact phone/email/address/city, ranked by score
   if(searchVal){
-    // Phone/email/address/city: exact substring only (never fuzzy-match digits or addresses)
+    // Phone/email/address/city: exact substring only (never fuzzy-match digits or addresses).
+    // 2026-06-22 Phase 2 (c): altPhoneDigits carries every alternate number (legacy altPhone +
+    // alternateContacts[].phone + merged-record carries) — searching any of a customer's
+    // numbers surfaces them.
     const _exactFields = c =>
       (c.phone||'').includes(searchVal) ||
+      (c.altPhoneDigits||'').includes(searchVal) ||
       (c.email||'').toLowerCase().includes(searchVal) ||
       (c.address||'').toLowerCase().includes(searchVal) ||
       (c.city||'').toLowerCase().includes(searchVal);
@@ -579,23 +565,6 @@ function applyAll(){
       .filter(x => x._s > 0)
       .sort((a, b) => b._s - a._s || a.c._name.localeCompare(b.c._name))
       .map(x => x.c);
-  }
-
-  // Filter pills
-  if(!activeFilters.has('all')){
-    data=data.filter(c=>{
-      if(activeFilters.has('scheduled')&&c._tier==='SCHEDULED')return true;
-      if(activeFilters.has('hot')&&c._tier==='HOT')return true;
-      if(activeFilters.has('warm')&&c._tier==='WARM')return true;
-      if(activeFilters.has('overdue')&&c._tier==='OVERDUE')return true;
-      if(activeFilters.has('vip')&&c._vip)return true;
-      if(activeFilters.has('loyal')&&c._tier==='LOYAL')return true;
-      if(activeFilters.has('new')&&c._tier==='NEW')return true;
-      if(activeFilters.has('no_history')&&c._tier==='NO HISTORY')return true;
-      if(activeFilters.has('opted_out')&&!!c.optOut)return true;
-      if(activeFilters.has('excluded')&&c.reactivationExcluded?.excluded)return true;
-      return false;
-    });
   }
 
   // Sort
@@ -732,14 +701,31 @@ function flagIcons(c){
   return f?`<span class="flag-icons">${f}</span>`:'';
 }
 
+// 2026-06-22: name fallback — firstName+lastName → businessName → phone.
+// Fixes the directory's "—" rows for commercial/partner records that only
+// carry a business name. Used by buildRow, buildCard, and the edit toast.
+function _displayName(c){
+  const fn = ((c.firstName||'')+' '+(c.lastName||'')).trim();
+  if (fn) return fn;
+  if (c.businessName) return c.businessName;
+  const ph = String(c.phone||'').replace(/\D/g,'');
+  return ph ? fmtPh(ph) : '—';
+}
+
+// 2026-06-22: 3-segment tab mapping. Anything not partner_referral or
+// commercial falls into residential (null/undefined legacy types included).
+function _segmentOf(c){
+  const t = (c.customerType || 'residential').toLowerCase();
+  if (t === 'partner_referral') return 'partner';
+  if (t === 'commercial') return 'commercial';
+  return 'residential';
+}
+
 function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
-  const _tfk=TIER_KEY_MAP[c._tier]||null;
-  const _tchip=_tfk
-    ?`<span class="tier-chip" style="background:${c._tierColor};" title="Filter by ${c._tier}" onclick="event.stopPropagation();filterByTier('${_tfk}')">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`
-    :`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
+  const _tchip=`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr data-phone="${ph}" onclick="navProfile('${ph}')">
-    <td class="wrap">${esc(((c.firstName||'')+' '+(c.lastName||'')).trim()||'—')}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></td>
+    <td class="wrap">${esc(_displayName(c))}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></td>
     <td>${_tchip}</td>
     <td class="muted">${fmtPh(c.phone)}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
@@ -754,12 +740,10 @@ function buildRow(c){
 
 function buildCard(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
-  const name=((c.firstName||'')+' '+(c.lastName||'')).trim()||'Unknown';
+  const name=_displayName(c);
   const spend=c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—';
-  const _tfkc=TIER_KEY_MAP[c._tier]||null;
-  const _badgeClick=_tfkc?`onclick="event.stopPropagation();filterByTier('${_tfkc}')" title="Filter by ${c._tier}"`:'';
   return `<div class="cust-card" data-phone="${ph}" onclick="navProfile('${ph}')">
-    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};cursor:${_tfkc?'pointer':'default'};" ${_badgeClick}>${c._tierEmoji||c._tier.slice(0,2)}</div>
+    <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
@@ -816,10 +800,64 @@ function openEditModal(phone, ev) {
   document.getElementById('editEm').value = _editOrig.email;
   document.getElementById('editPh').value = fmtPh(phone);
   document.getElementById('editModalErr').textContent = '';
+  document.getElementById('editPropsWrap').style.display = 'none';
+  document.getElementById('editPropsList').innerHTML = '';
   const btn = document.getElementById('editSaveBtn');
   btn.disabled = false; btn.textContent = 'Save';
   document.getElementById('editModal').style.display = 'flex';
+  // Async: fetch full customer with properties[] (allCustomers blob excludes them).
+  _loadEditProperties(phone).catch(() => {});
   setTimeout(() => { try { document.getElementById('editFn').focus(); document.getElementById('editFn').select(); } catch {} }, 60);
+}
+
+// Fetch full /customer/:phone shape (which carries properties[] with labels +
+// primaryContact) and render an inline mini-editor for each. Empty
+// "(unknown)" fields render "N/A" placeholder — no false fallback (Rule 22).
+let _editPropsOrig = []; // snapshot for diff
+async function _loadEditProperties(phone) {
+  const wrap = document.getElementById('editPropsWrap');
+  const list = document.getElementById('editPropsList');
+  list.innerHTML = '<div class="edit-modal-hint">Loading properties…</div>';
+  wrap.style.display = '';
+  let props = [];
+  try {
+    const r = await fetch(`${API}/customer/${phone}`);
+    if (r.ok) {
+      const d = await r.json();
+      props = (d?.customer?.properties) || [];
+    }
+  } catch (_) {}
+  if (!props.length) {
+    list.innerHTML = '<div class="edit-modal-hint">No properties on file. Use New Job to add one.</div>';
+    _editPropsOrig = [];
+    return;
+  }
+  _editPropsOrig = props.map(p => ({
+    propertyId:     p.propertyId,
+    streetAddress:  p.streetAddress || '',
+    city:           p.city          || '',
+    propertyLabel:  p.propertyLabel || '',
+    primaryContact: !!p.primaryContact,
+  }));
+  list.innerHTML = props.map((p, i) => {
+    const street = (p.streetAddress || '').replace(/"/g, '&quot;');
+    const city   = (p.city          || '').replace(/"/g, '&quot;');
+    const label  = (p.propertyLabel || '').replace(/"/g, '&quot;');
+    const prim   = p.primaryContact ? 'checked' : '';
+    return `
+      <div class="edit-prop-card" data-prop-id="${p.propertyId}" style="border:1px solid var(--border);border-radius:9px;padding:10px 12px;background:#fafbfd;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+          <input type="text" data-field="streetAddress" value="${street}" placeholder="Street address" style="flex:2;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+          <input type="text" data-field="city" value="${city}" placeholder="City" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" data-field="propertyLabel" value="${label}" placeholder="Label (e.g. Main residence)" style="flex:2;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+          <label style="display:flex;gap:5px;align-items:center;font-size:12px;color:#586278;white-space:nowrap;">
+            <input type="checkbox" data-field="primaryContact" ${prim}> Primary
+          </label>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function closeEditModal() {
@@ -915,8 +953,33 @@ async function saveEditModal() {
       diffs.push({ field: k, from: from || null, to: to || null });
     }
   }
+
+  // Property diffs — per-card: streetAddress/city/propertyLabel/primaryContact.
+  // Per-property changes flow through PATCH /admin/property + PATCH /admin/person-property.
+  // (Address/city changes trigger re-geocode worker-side; KV refreshes on every linked Person.)
+  const propEdits = []; // [{propertyId, propPatch, ppPatch}]
+  document.querySelectorAll('#editPropsList .edit-prop-card').forEach((card, idx) => {
+    const pid = card.dataset.propId;
+    const orig = _editPropsOrig[idx];
+    if (!pid || !orig) return;
+    const get = f => card.querySelector(`[data-field="${f}"]`);
+    const street = (get('streetAddress')?.value || '').trim();
+    const city   = (get('city')?.value          || '').trim();
+    const label  = (get('propertyLabel')?.value || '').trim();
+    const prim   = !!get('primaryContact')?.checked;
+    const propPatch = {};
+    if (street !== (orig.streetAddress || '')) propPatch.streetAddress = street || null;
+    if (city   !== (orig.city          || '')) propPatch.city          = city   || null;
+    const ppPatch = {};
+    if (label !== (orig.propertyLabel || '')) ppPatch.propertyLabel = label;
+    if (prim !== !!orig.primaryContact)      ppPatch.primaryContact = prim;
+    if (Object.keys(propPatch).length || Object.keys(ppPatch).length) {
+      propEdits.push({ propertyId: pid, propPatch, ppPatch });
+    }
+  });
+
   // Edit-with-no-changes — close silently, no PATCH fires (Tyler's guard).
-  if (diffs.length === 0) { closeEditModal(); return; }
+  if (diffs.length === 0 && propEdits.length === 0) { closeEditModal(); return; }
 
   const personId = 'person_1' + _editPhone;
   const btn = document.getElementById('editSaveBtn');
@@ -924,23 +987,55 @@ async function saveEditModal() {
   btn.disabled = true; btn.textContent = 'Saving…'; err.textContent = '';
 
   try {
-    const res = await fetch(`${API}/admin/person/${personId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(changes),
-    });
-    if (!res.ok) {
-      let body = {};
-      try { body = await res.json(); } catch {}
-      err.textContent = body.error || `HTTP ${res.status}`;
-      btn.disabled = false; btn.textContent = 'Save';
-      return;
+    // 1. Person fields (only when there's a real diff)
+    let data = { success: true, person: null };
+    if (Object.keys(changes).length) {
+      const res = await fetch(`${API}/admin/person/${personId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changes),
+      });
+      if (!res.ok) {
+        let body = {};
+        try { body = await res.json(); } catch {}
+        err.textContent = body.error || `HTTP ${res.status}`;
+        btn.disabled = false; btn.textContent = 'Save';
+        return;
+      }
+      data = await res.json();
+      if (!data.success) {
+        err.textContent = data.error || 'Save failed';
+        btn.disabled = false; btn.textContent = 'Save';
+        return;
+      }
     }
-    const data = await res.json();
-    if (!data.success) {
-      err.textContent = data.error || 'Save failed';
-      btn.disabled = false; btn.textContent = 'Save';
-      return;
+    // 2. Property + PersonProperty edits — each one is its own PATCH so a
+    //    partial failure surfaces the specific row that broke.
+    for (const e of propEdits) {
+      if (Object.keys(e.propPatch).length) {
+        const rp = await fetch(`${API}/admin/property/${e.propertyId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(e.propPatch),
+        });
+        if (!rp.ok) {
+          const ej = await rp.json().catch(() => ({}));
+          err.textContent = `Property update failed: ${ej.error || rp.status}`;
+          btn.disabled = false; btn.textContent = 'Save';
+          return;
+        }
+      }
+      if (Object.keys(e.ppPatch).length) {
+        const rpp = await fetch(`${API}/admin/person-property`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ personId, propertyId: e.propertyId, ...e.ppPatch }),
+        });
+        if (!rpp.ok) {
+          const ej = await rpp.json().catch(() => ({}));
+          err.textContent = `Label / primary update failed: ${ej.error || rpp.status}`;
+          btn.disabled = false; btn.textContent = 'Save';
+          return;
+        }
+      }
     }
 
     // T1.22 audit log — write WHO/WHEN/FIELD/OLD→NEW via the public /events
@@ -970,7 +1065,7 @@ async function saveEditModal() {
       c.businessName = p.businessName ?? (next.businessName || null);
       c.email        = p.email        ?? (next.email        || null);
       // Refresh the cached search-index fields so future searches match the new spelling.
-      c._name = ((c.firstName||'')+' '+(c.lastName||'')).trim().toLowerCase();
+      c._name = ((c.firstName||'')+' '+(c.lastName||'')+' '+(c.businessName||'')).trim().toLowerCase();
       try {
         const r = c._name.replace(/\s+/g,'');
         const b = new Set();
@@ -981,7 +1076,7 @@ async function saveEditModal() {
     }
 
     closeEditModal();
-    showDirToast('✓ Updated ' + ((next.firstName || next.lastName) ? (next.firstName + ' ' + next.lastName).trim() : 'customer'));
+    showDirToast('✓ Updated ' + (c ? _displayName(c) : 'customer'));
   } catch (e) {
     err.textContent = e.message || 'Network error';
     btn.disabled = false; btn.textContent = 'Save';

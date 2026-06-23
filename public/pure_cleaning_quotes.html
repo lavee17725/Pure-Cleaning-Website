@@ -220,7 +220,13 @@ async function getCachedCustomerDB() {
       if (Date.now() - timestamp < TTL_MS) return data;
     }
   } catch(e) {}
-  const res = await fetch('https://purecleaning-api.tylerfumero.workers.dev/customers');
+  // 2026-06-22: switched to /customers/summary. Summary shape was expanded
+  // to carry the full quoteStatus subset (state, sentDate, sentAt, viewedDate,
+  // approvedDate, lostDate, lostReason, deleted, reminderSkipped, confirmedBy,
+  // confirmedAt, confirmedDate, mainServices), scheduledStatus.canceled*,
+  // alerts, linkBin, linkCode — all fields this page reads.
+  // KV bridge in d1AllCustomersToKvShape preserves these across D1 rebuilds.
+  const res = await fetch('https://purecleaning-api.tylerfumero.workers.dev/customers/summary');
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
   try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data, timestamp: Date.now() })); } catch(e) {}
@@ -233,9 +239,12 @@ async function init() {
     dbRecord = await getCachedCustomerDB() || {};
     const customers = dbRecord.customers || [];
 
-    // Auto-age: sent/viewed quotes 14+ days old → lost
+    // Auto-age: sent/viewed quotes 14+ days old → lost.
+    // 2026-06-22 migration: server-side bulk endpoint replaces the per-customer
+    // mutation + full-DB PUT. Page mutates the in-memory copy too so the
+    // current render reflects the change without waiting for re-fetch.
     const today = isoToday();
-    let aged = false;
+    let stale = 0;
     customers.forEach(c => {
       const qs = c.quoteStatus;
       if (!qs || qs.state === 'approved' || qs.state === 'lost') return;
@@ -244,10 +253,14 @@ async function init() {
         qs.state = 'lost';
         qs.lostDate = today;
         qs.lostReason = 'no response';
-        aged = true;
+        stale++;
       }
     });
-    if (aged) saveDb().catch(e => console.warn('Auto-age save failed:', e));
+    if (stale > 0) {
+      bulkAgeQuotes(14, 'no response')
+        .then(r => console.log(`[quotes] bulk-aged ${r.aged} of ${r.scanned}`))
+        .catch(e => console.warn('Auto-age save failed:', e));
+    }
 
     allQuotes = customers.filter(c => c.quoteStatus && c.quoteStatus.state);
     document.getElementById('loading').style.display = 'none';
@@ -258,13 +271,33 @@ async function init() {
   }
 }
 
-async function saveDb() {
+// 2026-06-22 quotes migration: replaced legacy full-DB PUT pattern with
+// scoped POST /admin/quote-state. Each caller passes the specific phone
+// and patch fields they want to write. saveDb() retained as a wrapper for
+// minimum-diff callsite updates.
+const API_BASE = 'https://purecleaning-api.tylerfumero.workers.dev';
+async function patchQuoteState(phone, patch) {
   sessionStorage.removeItem('pcpc_customer_db_cache');
-  await fetch('https://purecleaning-api.tylerfumero.workers.dev/customers', {
-    method: 'PUT',
+  const r = await fetch(`${API_BASE}/admin/quote-state`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(dbRecord),
+    body: JSON.stringify({ phone, patch }),
   });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(`patchQuoteState ${phone}: ${e.error || r.status}`);
+  }
+  return r.json();
+}
+async function bulkAgeQuotes(staleDays = 14, reason = 'no response') {
+  sessionStorage.removeItem('pcpc_customer_db_cache');
+  const r = await fetch(`${API_BASE}/admin/quote-state/bulk-age`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ staleDays, reason }),
+  });
+  if (!r.ok) throw new Error(`bulk-age HTTP ${r.status}`);
+  return r.json();
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
@@ -464,13 +497,16 @@ async function markBooked(phone) {
   if (dbC) {
     if (!dbC.quoteStatus) dbC.quoteStatus = {};
     dbC.quoteStatus.state = 'approved'; dbC.quoteStatus.approvedDate = today;
-    if (!dbC.scheduledStatus || !dbC.scheduledStatus.state) {
-      dbC.scheduledStatus = { state:'needs_scheduling', scheduledDate:null, rig:null, crew:[], estimatedDuration:2, jobNotes:'', startTime:'09:00' };
-    }
+    // 2026-06-22: dropped the auto-init of scheduledStatus.state='needs_scheduling'
+    // because (a) the booked-card render handles null scheduledStatus fine
+    // (falls back to the "Schedule This Job →" link), and (b) scheduledStatus
+    // is derived from D1 Job rows; writing a KV placeholder would be cosmetic.
+    // The operator clicks "Schedule This Job →" → calendar.html → real Job in D1.
   }
 
   animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
-  saveDb().catch(e => console.warn('Save failed:', e));
+  patchQuoteState(phone, { state: 'approved', approvedDate: today })
+    .catch(e => console.warn('Save failed:', e));
 }
 
 function openLostModal(phone, name) {
@@ -509,7 +545,8 @@ async function confirmLost() {
   const phone = lostPhone;
   closeLostModal();
   animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
-  saveDb().catch(e => console.warn('Save failed:', e));
+  patchQuoteState(phone, { state: 'lost', lostDate: today, lostReason: reason })
+    .catch(e => console.warn('Save failed:', e));
 }
 
 async function resendQuote(phone) {
@@ -519,7 +556,8 @@ async function resendQuote(phone) {
   c.quoteStatus.state = 'sent'; c.quoteStatus.sentDate = today; c.quoteStatus.viewedDate = null;
   const dbC = (dbRecord.customers || []).find(x => x.phone === phone);
   if (dbC && dbC.quoteStatus) { dbC.quoteStatus.state = 'sent'; dbC.quoteStatus.sentDate = today; dbC.quoteStatus.viewedDate = null; }
-  saveDb().catch(e => console.warn('Save failed:', e));
+  patchQuoteState(phone, { state: 'sent', sentDate: today, viewedDate: null })
+    .catch(e => console.warn('Save failed:', e));
   updateCounts();
 
   const link = (c.linkBin && c.linkCode) ? `${QUOTE_BASE}?c=${c.linkBin}.${c.linkCode}` : '';
@@ -558,7 +596,8 @@ async function confirmDelete() {
   if (dbC?.quoteStatus) { dbC.quoteStatus.deleted = true; dbC.quoteStatus.deletedAt = today; }
 
   animateOut(phone, () => { updateCounts(); renderPane(activeTab); });
-  saveDb().catch(e => console.warn('Delete save failed:', e));
+  patchQuoteState(phone, { deleted: true, deletedAt: today })
+    .catch(e => console.warn('Delete save failed:', e));
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

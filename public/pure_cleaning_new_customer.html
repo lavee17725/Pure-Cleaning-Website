@@ -1725,17 +1725,34 @@ async function _populatePartnerDropdown() {
     }
   } catch(_) { /* fall through to client-side filter */ }
   if (!partners) {
+    // Fallback: mirror the server's ranking by counting completed jobs from
+    // jobHistory client-side, so the menu is still job-volume-first when the
+    // ranked endpoint is unreachable (the API includes doNotContact exclusion;
+    // the fallback exclusion matches).
     partners = (allCustomers||[])
-      .filter(c => c.customerType === 'partner_referral' && !c.deleted)
-      .map(c => ({ firstName: c.firstName, lastName: c.lastName, businessName: c.businessName, phone: c.phone }));
+      .filter(c => c.customerType === 'partner_referral' && !c.deleted && !c.optOut)
+      .map(c => ({
+        firstName:    c.firstName,
+        lastName:     c.lastName,
+        businessName: c.businessName,
+        phone:        c.phone,
+        jobCount:     (c.jobHistory||[]).filter(j => j.status === 'completed').length,
+      }))
+      .sort((a, b) => (b.jobCount || 0) - (a.jobCount || 0));
   }
-  // Rebuild options preserving the current selection
+  // Rebuild options preserving the current selection. "+ Add new partner" pinned
+  // immediately after the placeholder so it's always reachable; partner rows
+  // follow in jobCount DESC order with the count visible so the ranking is
+  // legible (1-job and 0-job partners read identically without the suffix).
   const cur = sel.value;
   sel.innerHTML = '<option value="">— Select existing partner or add new —</option><option value="__new__">+ Add new partner</option>';
   for (const p of partners) {
     const opt = document.createElement('option');
     opt.value = p.phone;
-    opt.textContent = `${p.firstName||''} ${p.lastName||''} ${p.businessName ? '('+p.businessName+')' : ''}`.trim();
+    const base = `${p.firstName||''} ${p.lastName||''} ${p.businessName ? '('+p.businessName+')' : ''}`.trim();
+    const n    = Number(p.jobCount || 0);
+    const suffix = n > 0 ? ` · ${n} job${n === 1 ? '' : 's'}` : ' · no jobs';
+    opt.textContent = base + suffix;
     sel.appendChild(opt);
   }
   if (cur) sel.value = cur;
@@ -2753,32 +2770,40 @@ async function submitDigitalPath() {
     const code = await genLink(customer);
     customer.linkCode = code;
     customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
+    // PRIMARY customer create — verify the DB write BEFORE showing the success
+    // screen + quote link. If the PUT fails, the customer is never persisted, so
+    // Tyler must NOT send the link. saveDb() PUT → dual-write infra creates the
+    // Property row before the response lands.
+    try {
+      await saveDb();
+    } catch(e) {
+      console.warn('[new_customer] DB save failed:', e.message);
+      alert('⚠️ Customer not saved — check connection. Do not send the link yet.');
+      btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';
+      return;
+    }
     showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
-    // saveDb() PUT → dual-write infra creates the Property row before the response
-    // lands. AFTER that resolves, fire the quote-photo connect (T1.22) so any photos
+    // AFTER the verified save, fire the quote-photo connect (T1.22) so any photos
     // captured on the public quote form re-key onto Property.photoKeys and become
-    // profile-visible. Fire-and-forget — the customer create is the user-visible
-    // success; the connect is best-effort and re-runnable if it fails.
-    saveDb()
-      .then(() => {
-        const connect = window.__pcpcLeadPhotoConnect;
-        if (!connect || !connect.leadId || !Array.isArray(connect.photoKeys) || !connect.photoKeys.length) return;
-        const propId = _ncPropId();
-        if (!propId) { console.warn('[connect] no propertyId — leaving keys at quote-leads/'); return; }
-        fetch(`${PCPC_API}/admin/quote-photo-connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ leadId: connect.leadId, propertyId: propId, photoKeys: connect.photoKeys }),
-        }).then(r => r.json()).then(d => {
-          if (d && d.success) {
-            console.log('[connect] photos migrated to', d.newKeys);
-            window.__pcpcLeadPhotoConnect = null;  // consumed
-          } else {
-            console.warn('[connect] failed', d);
-          }
-        }).catch(e => console.warn('[connect] error', e.message));
-      })
-      .catch(e => console.warn('[new_customer] DB save failed:', e.message));
+    // profile-visible. Genuinely fire-and-forget — best-effort and re-runnable.
+    (() => {
+      const connect = window.__pcpcLeadPhotoConnect;
+      if (!connect || !connect.leadId || !Array.isArray(connect.photoKeys) || !connect.photoKeys.length) return;
+      const propId = _ncPropId();
+      if (!propId) { console.warn('[connect] no propertyId — leaving keys at quote-leads/'); return; }
+      fetch(`${PCPC_API}/admin/quote-photo-connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ leadId: connect.leadId, propertyId: propId, photoKeys: connect.photoKeys }),
+      }).then(r => r.json()).then(d => {
+        if (d && d.success) {
+          console.log('[connect] photos migrated to', d.newKeys);
+          window.__pcpcLeadPhotoConnect = null;  // consumed
+        } else {
+          console.warn('[connect] failed', d);
+        }
+      }).catch(e => console.warn('[connect] error', e.message));
+    })();
   } catch(e) {
     alert('Error: ' + e.message);
     btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';

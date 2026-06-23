@@ -516,6 +516,51 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
     ⏰ Outreach paused — Mon-Fri 9 AM to 7 PM ET only. Resumes <span id="resumesIn"></span>.
   </div>
 
+  <!-- LANE TABS (Smart Reactivation 2026-06-21):
+       Three mutually-exclusive segments + a manual-review bucket. Residential is
+       Tyler's main outreach pool; Commercial gets a careful single-message lane;
+       Partner shows the partner THEMSELVES (never their referred end-customers).
+       Manual Review = anyone past REACTIVATION_RETRY_CAP with no booking since
+       firstContactAt — surfaced separately so we can triage instead of re-blast. -->
+  <div class="lane-tabs" id="laneTabs" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
+    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-right:4px;">Lane:</span>
+    <!-- 2026-06-22 tiered eligibility: Residential split into Tier 1 (Due Now)
+         and Tier 2 (Grounds Upsell — roof customers 6-18mo, gentle upsell of
+         driveway/walkway/patio while their roof is still under 18mo cadence). -->
+    <button class="lane-tab active" data-lane="tier1Due" onclick="setLane('tier1Due')"
+            style="padding:7px 14px;border-radius:18px;border:1.5px solid #4ade80;background:rgba(34,197,94,.18);color:#86efac;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;">
+      🏡 Due Now <span class="pool-badge" id="laneCountTier1">—</span>
+    </button>
+    <button class="lane-tab" data-lane="tier2GroundsUpsell" onclick="setLane('tier2GroundsUpsell')"
+            style="padding:7px 14px;border-radius:18px;border:1.5px solid rgba(124,58,237,.5);background:rgba(124,58,237,.10);color:#c4b5fd;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;opacity:.7;">
+      🌱 Grounds Upsell <span class="pool-badge" id="laneCountTier2">—</span>
+    </button>
+    <button class="lane-tab" data-lane="commercial" onclick="setLane('commercial')"
+            style="padding:7px 14px;border-radius:18px;border:1.5px solid rgba(244,166,32,.4);background:rgba(244,166,32,.08);color:#f4a620;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;opacity:.7;">
+      🏢 Commercial <span class="pool-badge" id="laneCountCom">—</span>
+    </button>
+    <button class="lane-tab" data-lane="partner" onclick="setLane('partner')"
+            style="padding:7px 14px;border-radius:18px;border:1.5px solid rgba(99,179,237,.4);background:rgba(99,179,237,.08);color:#7dd3fc;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;opacity:.7;">
+      🤝 Partner <span class="pool-badge" id="laneCountPart">—</span>
+    </button>
+    <button class="lane-tab" data-lane="manualReview" onclick="setLane('manualReview')"
+            style="padding:7px 14px;border-radius:18px;border:1.5px solid rgba(229,62,62,.4);background:rgba(229,62,62,.08);color:#fca5a5;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;opacity:.7;">
+      ⚠️ Manual Review <span class="pool-badge" id="laneCountMR">—</span>
+    </button>
+    <span class="lane-cooldown-note" style="margin-left:auto;font-size:11px;color:var(--muted);">
+      Cooldown: <span id="laneCooldownDays">90</span>d · Retry cap: <span id="laneRetryCap">3</span>
+    </span>
+  </div>
+
+  <!-- 2026-06-22 date-windowed campaign banner. Shows which reactivation
+       template is currently active (auto-picked from REACTIVATION_CAMPAIGNS
+       by date). Tier 1 only — tier-2 grounds upsell has its own copy. -->
+  <div id="activeCampaignBar" style="font-size:11px;color:#86efac;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.18);padding:6px 12px;border-radius:8px;margin-bottom:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+    <span style="opacity:.8;">📅 Active reactivation campaign (Tier 1):</span>
+    <strong id="activeCampaignLabel" style="color:#bbf7d0;">—</strong>
+    <span id="activeCampaignWindow" style="color:var(--muted);font-weight:400;"></span>
+  </div>
+
   <!-- POOL TABS -->
   <div class="pool-tabs" id="poolTabs">
     <button class="pool-tab active" onclick="setPoolTab('active')">🎯 Active Pool <span class="pool-badge" id="tabActiveCount">—</span></button>
@@ -779,11 +824,188 @@ function buildServiceDescription(jobHistory, quoteStatus, scheduledStatus) {
   return null;
 }
 
-const ACTIVE_VARIANT = {
+// ═══════════════════════════════════════════════════
+// REACTIVATION CAMPAIGN REGISTRY — date-windowed message selector
+// ═══════════════════════════════════════════════════
+// 2026-06-22: replaces the single hardcoded ACTIVE_VARIANT with a registry of
+// campaigns. Each campaign carries an activeFrom / activeUntil window plus a
+// recurrence type:
+//   • ONE_TIME — year-specific dates; expires permanently after activeUntil
+//     (e.g. the 2026 World Cup window must NOT re-fire in 2027)
+//   • ANNUAL — month/day only; auto-repeats every year (July 4th, Super Bowl,
+//     Memorial/Labor Day, Thanksgiving, December holiday — register the
+//     template + window once, no yearly maintenance)
+//
+// Selector (getActiveReactivationCampaign) picks whichever window contains
+// today; falls back to REACTIVATION_STANDARD when none is active. No manual
+// swap needed — Tyler just sees the message that matches the date.
+//
+// Tier 2 grounds-upsell keeps its own copy (ACTIVE_VARIANT_GROUNDS_UPSELL
+// below) — campaign selector does NOT apply to that lane.
+//
+// To add a new campaign: append an entry to REACTIVATION_CAMPAIGNS with the
+// window, recurrence, and template. The bulk-reactivation page picks it up
+// automatically on next page load. To retire one: delete the entry.
+
+const REACTIVATION_STANDARD = {
+  id: 'standard',
   label: 'B',
+  recurrence: 'FALLBACK',
   template: `Hi {firstName}, Tyler from Pure Cleaning. It's been about {monthsText} since we pressure cleaned your exterior.
 
 Try out our new quote system, your info's already filled in:
+{quoteLink}
+
+Or call/text me at 954-389-2642 — happy to talk it through.
+
+— The Pure Cleaning Family
+Reply STOP to opt out`,
+};
+
+const REACTIVATION_CAMPAIGNS = [
+  // ── 2026 World Cup + 4th of July (combined) — ONE_TIME, now → 2026-07-04 ──
+  {
+    id: 'world_cup_july4_2026',
+    label: 'WC+Jul4',
+    recurrence: 'ONE_TIME',
+    activeFrom:  { year: 2026, month: 6, day: 22 },
+    activeUntil: { year: 2026, month: 7, day: 4  },
+    template: `Hi {firstName}, it's the Pure Cleaning family. The World Cup and 4th of July have everyone hosting — if you'd like your place looking fresh before company comes, we've got you.
+
+Your quote's ready, info already filled in: {quoteLink}
+
+If the link doesn't turn blue, copy it into your browser — or just text or call us at 954-389-2642.
+
+— Pure Cleaning
+
+Reply STOP to opt out`,
+  },
+  // ── 2026 World Cup only — ONE_TIME, 2026-07-05 → 2026-07-19 ──
+  {
+    id: 'world_cup_only_2026',
+    label: 'WC',
+    recurrence: 'ONE_TIME',
+    activeFrom:  { year: 2026, month: 7, day: 5  },
+    activeUntil: { year: 2026, month: 7, day: 19 },
+    template: `Hi {firstName}, it's the Pure Cleaning family. With the World Cup on, everyone's hosting — if you'd like your place looking fresh before the next watch party, we've got you.
+
+Your quote's ready, info already filled in: {quoteLink}
+
+If the link doesn't turn blue, copy it into your browser — or just text or call us at 954-389-2642.
+
+— Pure Cleaning
+
+Reply STOP to opt out`,
+  },
+  // ── ANNUAL CAMPAIGN SEEDS ───────────────────────────────────────────────
+  // Uncomment + tune copy when each becomes ready. Structure is in place so
+  // adding one is a 2-minute job (paste the template, leave the window as-is
+  // or shift by a day or two). All ANNUAL entries auto-repeat every year by
+  // matching only month/day — no per-year maintenance.
+  //
+  // {
+  //   id: 'july_4_annual',
+  //   label: 'Jul4',
+  //   recurrence: 'ANNUAL',
+  //   activeFrom:  { month: 6, day: 14 },   // ~3 weeks before
+  //   activeUntil: { month: 7, day: 4  },
+  //   template: `...`,
+  // },
+  // {
+  //   id: 'super_bowl_annual',
+  //   label: 'SB',
+  //   recurrence: 'ANNUAL',
+  //   activeFrom:  { month: 1, day: 18 },   // ~3 weeks before early-Feb SB
+  //   activeUntil: { month: 2, day: 9  },
+  //   template: `...`,
+  // },
+  // {
+  //   id: 'memorial_day_annual',
+  //   label: 'Mem',
+  //   recurrence: 'ANNUAL',
+  //   activeFrom:  { month: 5, day: 4  },
+  //   activeUntil: { month: 5, day: 31 },   // last Mon of May approx
+  //   template: `...`,
+  // },
+  // {
+  //   id: 'labor_day_annual',
+  //   label: 'Labor',
+  //   recurrence: 'ANNUAL',
+  //   activeFrom:  { month: 8, day: 14 },
+  //   activeUntil: { month: 9, day: 7  },   // first Mon of Sep approx
+  //   template: `...`,
+  // },
+  // {
+  //   id: 'thanksgiving_annual',
+  //   label: 'TG',
+  //   recurrence: 'ANNUAL',
+  //   activeFrom:  { month: 10, day: 28 },  // ~3 weeks before 4th Thu of Nov
+  //   activeUntil: { month: 11, day: 30 },
+  //   template: `...`,
+  // },
+  // {
+  //   id: 'december_holiday_annual',
+  //   label: 'Dec',
+  //   recurrence: 'ANNUAL',
+  //   activeFrom:  { month: 11, day: 5  },  // ~3 weeks before Dec 1
+  //   activeUntil: { month: 12, day: 25 },
+  //   template: `...`,
+  // },
+];
+
+// Override "today" for verification (set window.__REACTIVATION_TODAY = 'YYYY-MM-DD').
+// Production always uses new Date(). Date construction uses noon local time to
+// avoid TZ-drift around midnight in the in-window check.
+function _reactivationToday() {
+  if (typeof window !== 'undefined' && window.__REACTIVATION_TODAY) {
+    const d = new Date(window.__REACTIVATION_TODAY + 'T12:00:00');
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
+function _isCampaignActive(campaign, today) {
+  if (!campaign || !campaign.activeFrom || !campaign.activeUntil) return false;
+  if (campaign.recurrence === 'ONE_TIME') {
+    if (!campaign.activeFrom.year || !campaign.activeUntil.year) return false;
+    const from = new Date(campaign.activeFrom.year,  campaign.activeFrom.month - 1,  campaign.activeFrom.day);
+    const to   = new Date(campaign.activeUntil.year, campaign.activeUntil.month - 1, campaign.activeUntil.day, 23, 59, 59);
+    return today >= from && today <= to;
+  }
+  if (campaign.recurrence === 'ANNUAL') {
+    const yr = today.getFullYear();
+    const from = new Date(yr, campaign.activeFrom.month  - 1, campaign.activeFrom.day);
+    let to     = new Date(yr, campaign.activeUntil.month - 1, campaign.activeUntil.day, 23, 59, 59);
+    // Year-rollover (e.g. Dec window into next Jan): extend end into next year
+    if (to < from) to = new Date(yr + 1, campaign.activeUntil.month - 1, campaign.activeUntil.day, 23, 59, 59);
+    return today >= from && today <= to;
+  }
+  return false;
+}
+
+function getActiveReactivationCampaign(today) {
+  const t = today || _reactivationToday();
+  for (const c of REACTIVATION_CAMPAIGNS) {
+    if (_isCampaignActive(c, t)) return c;
+  }
+  return REACTIVATION_STANDARD;
+}
+
+// Backwards-compat alias — kept until every reference migrates to
+// getActiveReactivationCampaign(). For tier1Due the selector is the source
+// of truth; this constant only sticks around so search-and-replace edits
+// can find it during the next cleanup pass.
+const ACTIVE_VARIANT = REACTIVATION_STANDARD;
+
+// 2026-06-22 Tier 2: grounds-focused upsell template. Roof customers 6-18mo
+// are too soon for another roof clean but their driveway/patio/walkway are
+// usually due for a refresh. Editable in the SMS composer before send.
+// Brief-final wording locked in 2026-06-22 Deploy 1.
+const ACTIVE_VARIANT_GROUNDS_UPSELL = {
+  label: 'B-GR',
+  template: `Hi {firstName}, Tyler from Pure Cleaning. We pressure cleaned your roof about {monthsText} ago — driveways, patios and walkways pick up dirt and algae a lot faster than a roof does. Want us to freshen up the grounds for you?
+
+Your info's already saved in our new quote system:
 {quoteLink}
 
 Or call/text me at 954-389-2642 — happy to talk it through.
@@ -895,6 +1117,17 @@ let oldDbCustomers = []; // saved before update mode merge
 let updateMode = false; // true when re-processing CSVs to merge with existing DB
 let lastTotalRows = 0; // total raw rows from last processFiles run (stored for DB stats)
 let poolTab       = 'active'; // 'active' | 'contacted' | 'all'
+// Smart-reactivation lane (2026-06-21). Default residential — matches the
+// existing behavior. Commercial/Partner show their own segments only.
+// 'manualReview' loads from /admin/reactivation/eligibility.needsManualReview.
+// 2026-06-22 tiered: default to Tier 1 Due Now (the action-now list).
+let currentLane   = 'tier1Due';
+// Cache for manual-review phone set (computed server-side).
+let _manualReviewPhones = new Set();
+// 2026-06-22 tiered: phone sets driving the tier filters. Populated by
+// loadReactivationEligibility() on init and after every text-send.
+let _tier1DuePhones        = new Set();
+let _tier2GroundsUpPhones  = new Set();
 let phoneFilter   = 'active'; // 'active' | 'all' | 'disconnected'
 let searchQuery   = '';
 let openRowMenu   = null; // phone of currently open ⋯ menu
@@ -1613,18 +1846,18 @@ function applyFilters() {
   const qDigits = q.replace(/\D/g, '');
 
   if (poolTab === 'timeline') {
+    // 2026-06-22 (#2): timeline is an overview of reactivation status across
+    // ALL customers — lane + chip filters don't belong here (operator already
+    // picked a lane elsewhere; timeline answers "what's the workflow look like
+    // right now?"). Keep universal exclusions (opted-out/moved-away/excluded
+    // have dedicated tabs) + search.
     filteredCustomers = allCustomers.filter(c => {
-      // DL-06: exclude partners + commercial from residential reactivation campaigns
-      if (c.customerType === 'partner_referral' || c.customerType === 'commercial') return false;
       if (c.reactivationExcluded?.excluded || c.optOut || c.movedAway) return false;
-      if (!activeTiers.has(c.tier)) return false;
-      if (city && c.city !== city) return false;
-      if (c.lifetimeSpend < minSpend) return false;
       if (q) {
         const fullName = (c.fn + ' ' + c.ln).toLowerCase();
         const matches = fullName.includes(q) || (c.fn||'').toLowerCase().includes(q) ||
           (c.ln||'').toLowerCase().includes(q) || (c.city||'').toLowerCase().includes(q) ||
-          (c.address||'').toLowerCase().includes(q) || (qDigits && c.phone && c.phone.includes(qDigits));
+          (c.address||'').toLowerCase().includes(q) || (qDigits && ((c.phone && c.phone.includes(qDigits)) || (c.altPhoneDigits && c.altPhoneDigits.includes(qDigits))));
         if (!matches) return false;
       }
       return true;
@@ -1640,15 +1873,27 @@ function applyFilters() {
       if (!isDns) return false;
       if (q) {
         const full = ((c.fn||'') + ' ' + (c.ln||'')).toLowerCase();
-        return full.includes(q) || (qDigits && c.phone && c.phone.includes(qDigits));
+        return full.includes(q) || (qDigits && ((c.phone && c.phone.includes(qDigits)) || (c.altPhoneDigits && c.altPhoneDigits.includes(qDigits))));
       }
       return true;
     }
     // Exclude DNS/cold-storage customers from all other tabs
     if (c.quoteLifecycle === 'did_not_service' || c.quoteLifecycle === 'cold_storage') return false;
-    // DL-06: partners + commercial never in residential reactivation (opted_out/moved_away tabs still ok to show them)
-    if (poolTab !== 'opted_out' && poolTab !== 'moved_away' && poolTab !== 'excluded') {
-      if (c.customerType === 'partner_referral' || c.customerType === 'commercial') return false;
+    // Lane gate (Smart Reactivation 2026-06-21):
+    //   - residential lane excludes partner_referral + commercial (existing DL-06 behavior)
+    //   - commercial lane shows ONLY customerType='commercial' OR isCommercialAccount=1
+    //   - partner lane shows ONLY customerType='partner_referral' (the partner themselves,
+    //     never their referred end-customers — DL-06 already prevents end-customers from
+    //     getting partner customerType, so this is naturally correct)
+    //   - manualReview lane shows ONLY phones the server flagged (3+ texts, no booking)
+    // 2026-06-22 (#2 expanded): lane gate (matchesLane) is an ACTIVE-POOL
+    // eligibility filter. _tier1DuePhones excludes cooldown/retry-cap/optout —
+    // exactly the populations history+audit tabs are meant to show. Running it
+    // on today/contacted/week/booked/all/timeline left badges (which skip
+    // matchesLane in updateTabCounts) ≠ list (which applied it). Restricted to
+    // 'active' tab only — every other tab now sees badge = list.
+    if (poolTab === 'active') {
+      if (!matchesLane(c)) return false;
     }
     if (poolTab === 'excluded')   return c.reactivationExcluded?.excluded === true;
     if (poolTab === 'opted_out')   return !!c.optOut;
@@ -1662,19 +1907,25 @@ function applyFilters() {
       if (q) {
         const full = ((c.fn||'') + ' ' + (c.ln||'')).toLowerCase();
         return full.includes(q) || (c.city||'').toLowerCase().includes(q) ||
-               (qDigits && c.phone && c.phone.includes(qDigits));
+               (qDigits && ((c.phone && c.phone.includes(qDigits)) || (c.altPhoneDigits && c.altPhoneDigits.includes(qDigits))));
       }
       return true;
     }
     if (c.reactivationExcluded?.excluded) return false;
     if (c.optOut)    return false;
     if (c.movedAway) return false;
-    if (!activeTiers.has(c.tier)) return false;
-    if (city && c.city !== city) return false;
-    if (c.lifetimeSpend < minSpend) return false;
-    if (phoneFilter === 'active'       && c.phoneStatus === 'disconnected') return false;
-    if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
-    if (poolTab === 'active'    && isInCooldown(c.phone))  return false;
+    // 2026-06-22 history-tab fix: tier/city/spend/phone chips describe who's
+    // available for outreach RIGHT NOW. History tabs (today/contacted/week)
+    // answer "who did we contact already?" — an audit view independent of the
+    // current chip selection. Scope these to the active pool tab only.
+    if (poolTab === 'active') {
+      if (!activeTiers.has(c.tier)) return false;
+      if (city && c.city !== city) return false;
+      if (c.lifetimeSpend < minSpend) return false;
+      if (phoneFilter === 'active'       && c.phoneStatus === 'disconnected') return false;
+      if (phoneFilter === 'disconnected' && c.phoneStatus !== 'disconnected') return false;
+      if (isInCooldown(c.phone))  return false;
+    }
     // Service section filter: exclude customers not due for any service
     if (poolTab === 'active') {
       if (!c.svcSection) return false;
@@ -1697,7 +1948,7 @@ function applyFilters() {
         (c.ln || '').toLowerCase().includes(q) ||
         (c.city || '').toLowerCase().includes(q) ||
         (c.address || '').toLowerCase().includes(q) ||
-        (qDigits && c.phone && c.phone.includes(qDigits));
+        (qDigits && ((c.phone && c.phone.includes(qDigits)) || (c.altPhoneDigits && c.altPhoneDigits.includes(qDigits))));
       if (!matches) return false;
     }
     return true;
@@ -2360,6 +2611,16 @@ let currentTextNowPhone = null;
 
 function overrideAndSend(phone) {
   document.querySelector('.compliance-modal-backdrop')?.remove();
+  // 2026-06-22 (#4): re-check the daily cap. An operator can queue many
+  // overrides in a row (each through a separate modal); the hard ceiling at
+  // 100 must hold regardless of per-row prompts. checkCompliance returns
+  // override:false ONLY for severity=hard_daily, so we mirror that exactly —
+  // soft caps (31 daily / 151 weekly / outside-hours) stay overridable.
+  const c = checkCompliance();
+  if (!c.allowed && c.severity === 'hard_daily') {
+    alert('🚫 ' + c.reason);
+    return;
+  }
   executeTextNow(phone);
 }
 
@@ -2376,7 +2637,37 @@ function updateHoursBanner() {
 }
 
 function getNextVariant() {
-  return ACTIVE_VARIANT; // always Variant B — to re-enable rotation, restore cycling logic here
+  // Tier 2 lane uses the grounds-focused upsell template — campaign selector
+  // explicitly does NOT apply (Mom's instinct is the grounds-upsell wording
+  // is decoupled from holiday-driven seasonal pushes).
+  if (currentLane === 'tier2GroundsUpsell') return ACTIVE_VARIANT_GROUNDS_UPSELL;
+  // 2026-06-22: Tier 1 (and all other lanes) now reads from the date-windowed
+  // campaign registry. World Cup + 4th of July combined window is live now;
+  // shifts to "World Cup only" on 2026-07-05; falls back to standard 2026-07-20.
+  return getActiveReactivationCampaign();
+}
+
+// Surface which reactivation campaign is currently active in the composer so
+// operators know what template is about to fire before they hit Send.
+function updateActiveCampaignBanner() {
+  const camp  = getActiveReactivationCampaign();
+  const elLbl = document.getElementById('activeCampaignLabel');
+  const elWin = document.getElementById('activeCampaignWindow');
+  if (elLbl) {
+    elLbl.textContent = camp.id === 'standard'
+      ? 'Standard reactivation (no seasonal window active)'
+      : camp.label;
+  }
+  if (elWin) {
+    if (camp.id === 'standard') {
+      elWin.textContent = '';
+    } else {
+      const fmt = pt => pt.year
+        ? `${pt.year}-${String(pt.month).padStart(2,'0')}-${String(pt.day).padStart(2,'0')}`
+        : `${pt.month}/${pt.day}`;
+      elWin.textContent = `· ${fmt(camp.activeFrom)} → ${fmt(camp.activeUntil)} · ${camp.recurrence}`;
+    }
+  }
 }
 
 function resolveTemplateVars(customer, link) {
@@ -2479,7 +2770,8 @@ async function testSendToMe(phone) {
 
   const longUrl = `${QUOTE_BASE}?c=${code}&v=B_TEST`;
   const shortLink = shortenUrl(longUrl);
-  const body = buildVariantBody(ACTIVE_VARIANT, c, shortLink);
+  // 2026-06-22: tier-aware — pick the grounds-upsell template when on Tier 2.
+  const body = buildVariantBody(getNextVariant(), c, shortLink);
   const testBody = `[TEST — would have gone to ${parseFirstName(c.fn) || c.fn}]\n\n${body}`;
 
   // No customer record update, no event log, no cap counting
@@ -2518,7 +2810,12 @@ function updateContactStats() {
 }
 function loadContactRecord(phone) {
   try {
-    const v = loadContacts()[phone];
+    // 2026-06-22 (#5): server stores keys as 10-digit phones (worker's _norm10).
+    // Caller may pass c.phone with formatting or extra digits — strip before
+    // lookup or every isInCooldown / isContactedToday check silently misses.
+    const key = String(phone || '').replace(/\D/g, '').slice(-10);
+    if (key.length !== 10) return null;
+    const v = loadContacts()[key];
     if (!v) return null;
     return typeof v === 'string' ? { contactedAt: v, cooldownUntil: null } : v;
   } catch { return null; }
@@ -2548,6 +2845,71 @@ async function undoContact(phone) {
     alert('Could not undo on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
   }
 }
+// ── Lane helpers (Smart Reactivation 2026-06-21) ────────────────────────────
+// matchesLane: gate one customer against the active lane. Single source of truth
+// for "which segment is this customer in" — every filter path calls this.
+function matchesLane(c) {
+  const ph = (c.phone || '').replace(/\D/g, '').slice(-10);
+  const ct = (c.customerType || 'residential').toLowerCase();
+  // 2026-06-22 tiered: tier filters use the phone set returned from
+  // /admin/reactivation/eligibility. This is authoritative — anyone not in
+  // the set is excluded (cooldown, retry-cap, opt-out, under-6mo, etc.).
+  if (currentLane === 'tier1Due')           return _tier1DuePhones.has(ph);
+  if (currentLane === 'tier2GroundsUpsell') return _tier2GroundsUpPhones.has(ph);
+  // Legacy 'residential' lane = union of tier1 + tier2; kept for any code
+  // that still references it.
+  if (currentLane === 'residential') {
+    if (ct === 'partner_referral' || ct === 'commercial') return false;
+    return true;
+  }
+  if (currentLane === 'commercial') {
+    return ct === 'commercial' || !!c.isCommercialAccount;
+  }
+  if (currentLane === 'partner') {
+    return ct === 'partner_referral';
+  }
+  if (currentLane === 'manualReview') {
+    return _manualReviewPhones.has(ph);
+  }
+  return true;
+}
+
+function setLane(lane) {
+  if (!['tier1Due','tier2GroundsUpsell','residential','commercial','partner','manualReview'].includes(lane)) return;
+  currentLane = lane;
+  document.querySelectorAll('.lane-tab').forEach(el => {
+    const on = el.dataset.lane === lane;
+    el.classList.toggle('active', on);
+    el.style.opacity = on ? '1' : '0.55';
+  });
+  applyFilters();
+}
+
+async function loadReactivationEligibility() {
+  try {
+    const r = await fetch(`${PCPC_API_BR}/admin/reactivation/eligibility`);
+    if (!r.ok) return;
+    const d = await r.json();
+    // Tier counts (Tier 1 Due Now + Tier 2 Grounds Upsell) replaced the old
+    // single Residential count. Backwards-safe: if a stale worker returns
+    // only the old shape, the new counters fall back to the residential total.
+    const t1 = (d.lanes.tier1Due           != null) ? d.lanes.tier1Due           : d.lanes.residential;
+    const t2 = (d.lanes.tier2GroundsUpsell != null) ? d.lanes.tier2GroundsUpsell : 0;
+    const t1El = document.getElementById('laneCountTier1');
+    const t2El = document.getElementById('laneCountTier2');
+    if (t1El) t1El.textContent = t1;
+    if (t2El) t2El.textContent = t2;
+    document.getElementById('laneCountCom').textContent  = d.lanes.commercial;
+    document.getElementById('laneCountPart').textContent = d.lanes.partner;
+    document.getElementById('laneCountMR').textContent   = d.lanes.needsManualReview;
+    document.getElementById('laneCooldownDays').textContent = d.cooldownDays;
+    document.getElementById('laneRetryCap').textContent     = d.retryCap;
+    _manualReviewPhones    = new Set((d.needsManualReview      || []).map(x => x.phone));
+    _tier1DuePhones        = new Set((d.tier1Due               || []).map(x => x.phone));
+    _tier2GroundsUpPhones  = new Set((d.tier2GroundsUpsell     || []).map(x => x.phone));
+  } catch (e) { /* fail-soft; counts just stay '—' */ }
+}
+
 function setPoolTab(tab) {
   poolTab = tab;
   document.querySelectorAll('.pool-tab').forEach((el, i) => {
@@ -2599,7 +2961,10 @@ function updateTabCounts() {
   document.getElementById('tabTodayCount').textContent     = todayCt;
   document.getElementById('tabWeekCount').textContent      = weekCt;
   document.getElementById('tabContactedCount').textContent = contacted;
-  document.getElementById('tabAllCount').textContent       = allCustomers.length;
+  // 2026-06-22 (#2): All tab list excludes opt-outs / moved / DNS / excluded
+  // (those have their own tabs). Badge now mirrors that — was previously
+  // allCustomers.length which overcounted by including audit-tab populations.
+  document.getElementById('tabAllCount').textContent       = (active + booked + contacted);
   document.getElementById('tabOptedOutCount').textContent  = optedOutCt;
   document.getElementById('tabMovedAwayCount').textContent = movedAwayCt;
   document.getElementById('tabExcludedCount').textContent  = excludedCt;
@@ -2636,6 +3001,15 @@ async function executeTextNow(phone) {
   // TCPA enforcement: never send SMS to opted-out customers
   if (c.optOut) {
     alert(`Cannot send SMS — ${c.fn} ${c.ln} has opted out of text messages (TCPA compliance). Contact by phone only: ${formatPhone(c.phone)}`);
+    return;
+  }
+  // DL-06 / Rule 11: referral-only records (synthetic personIds, REFERRAL_*
+  // phone prefixes, or isReferralOnly flag) must NEVER be texted. They aren't
+  // real contactable customers — they're attribution placeholders. Caught
+  // here too even if eligibility upstream filters them, in case a stale
+  // allCustomers row slips through. Added 2026-06-22.
+  if (c.isReferralOnly || (c.phone || '').toString().startsWith('REFERRAL_')) {
+    alert(`Cannot send SMS — ${c.fn||''} ${c.ln||''} is a referral-only record (no real phone). DL-06 / Rule 11.`);
     return;
   }
 
@@ -2697,6 +3071,10 @@ async function executeTextNow(phone) {
   // Mirror local cache to server's truth, then navigate to Messages.
   _reactContactsServer[c.phone] = { contactedAt: serverRec.contactedAt, cooldownUntil: serverRec.cooldownUntil };
   try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+
+  // Refresh lane counts so the residential pill drops by one + manual-review
+  // bumps when this customer crossed the retry-cap.
+  loadReactivationEligibility().catch(() => {});
 
   window.location.href = `sms:${c.phone}&body=${encodeURIComponent(body)}`;
 
@@ -2924,23 +3302,69 @@ function promptOptOut(phone) {
   document.body.appendChild(modal);
 }
 
-function markOptedOut(phone, reason) {
+// 2026-06-22 (#1, #3): await the server write + revert + alert on failure.
+// Routes through /reactivation/optout — the server writes c.optOut in KV,
+// optOut flag in reactivation_contacts, AND Person.doNotContact=1 in D1
+// (canonical TCPA gate). Without all three, the next KV rebuild from D1
+// strips c.optOut and the customer becomes contactable again. Model on
+// undoContact's await-then-revert pattern.
+async function markOptedOut(phone, reason) {
   document.getElementById('optOutModal')?.remove();
   const c = allCustomers.find(x => x.phone === phone);
   if (!c) return;
+  const prevOptOut = c.optOut || null;
+  const prevSelected = selectedPhones.has(phone);
+  // Optimistic UI
   c.optOut = { reason: reason || 'customer_request', at: new Date().toISOString() };
   selectedPhones.delete(phone);
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
+  try {
+    const r = await fetch(`${PCPC_API_BR}/reactivation/optout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, reason: reason || 'customer_request' }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+    // Sync server's authoritative contact-map entry locally
+    if (d.contactRecord) {
+      _reactContactsServer[phone] = d.contactRecord;
+      try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+    }
+  } catch (e) {
+    c.optOut = prevOptOut;
+    if (prevSelected) selectedPhones.add(phone);
+    applyFilters();
+    alert('Could not save opt-out on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
+  }
 }
 
-function restoreOptOut(phone) {
+// 2026-06-22 (#1, #3): scoped restore via new /reactivation/restore-optout —
+// clears c.optOut in KV, optOut flag in reactivation_contacts, and
+// Person.doNotContact=0 in D1 (the verified-write trio).
+async function restoreOptOut(phone) {
   closeRowMenus();
   const c = allCustomers.find(x => x.phone === phone);
   if (!c) return;
+  const prevOptOut = c.optOut || null;
   c.optOut = null;
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
+  try {
+    const r = await fetch(`${PCPC_API_BR}/reactivation/restore-optout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+    if (d.contactRecord) _reactContactsServer[phone] = d.contactRecord;
+    else                 delete _reactContactsServer[phone];
+    try { localStorage.setItem(REACT_CACHE_KEY, JSON.stringify(_reactContactsServer)); } catch {}
+  } catch (e) {
+    c.optOut = prevOptOut;
+    applyFilters();
+    alert('Could not restore opt-out on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
+  }
 }
 
 function promptMovedAway(phone) {
@@ -2967,23 +3391,58 @@ function promptMovedAway(phone) {
   document.body.appendChild(modal);
 }
 
-function markMovedAway(phone, location) {
+// 2026-06-22 (#1): await saveDatabase + revert on failure. There's no scoped
+// server endpoint for movedAway yet (still in the customer_db blob), so this
+// is a whole-DB PUT for now — but at least the UI no longer claims success
+// when the write didn't land.
+// 2026-06-22 saveDb-migration: scoped POST /customer/:phone/moved-away replaces
+// the whole-DB PUT (4-5s clobber-risk path). Server handles the single-customer
+// KV write with verify-after. Failure: revert local state + alert (unchanged
+// pattern from Phase 1; just a faster, scoped endpoint underneath).
+async function markMovedAway(phone, location) {
   document.getElementById('movedAwayModal')?.remove();
   const c = allCustomers.find(x => x.phone === phone);
   if (!c) return;
+  const prevMoved = c.movedAway || null;
+  const prevSelected = selectedPhones.has(phone);
   c.movedAway = { at: new Date().toISOString(), location: location || null };
   selectedPhones.delete(phone);
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
+  try {
+    const r = await fetch(`${PCPC_API_BR}/customer/${phone}/moved-away`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ location: location || null }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+    if (d.movedAway) c.movedAway = d.movedAway;  // sync server timestamp
+  } catch (e) {
+    c.movedAway = prevMoved;
+    if (prevSelected) selectedPhones.add(phone);
+    applyFilters();
+    alert('Could not save moved-away on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
+  }
 }
 
-function restoreMovedAway(phone) {
+async function restoreMovedAway(phone) {
   closeRowMenus();
   const c = allCustomers.find(x => x.phone === phone);
   if (!c) return;
+  const prevMoved = c.movedAway || null;
   c.movedAway = null;
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
+  try {
+    const r = await fetch(`${PCPC_API_BR}/customer/${phone}/moved-away`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clear: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+  } catch (e) {
+    c.movedAway = prevMoved;
+    applyFilters();
+    alert('Could not restore moved-away on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
+  }
 }
 
 function markCommercial(phone) {
@@ -3130,18 +3589,39 @@ function closeRestoreModal() {
   _restorePhone = null;
 }
 
-function confirmRestore(phone) {
+// 2026-06-22 (#1): await + revert on failure. Captures BOTH reactivationExcluded
+// AND movedAway state so a server failure rolls back the full edit. Toast +
+// stats update only on confirmed save — never on optimistic update alone.
+async function confirmRestore(phone) {
   closeRestoreModal();
   const c = allCustomers.find(x => x.phone === phone);
   if (!c || !c.reactivationExcluded) return;
-  const wasReason = c.reactivationExcluded.reason;
+  const prevExcluded = c.reactivationExcluded;
+  const prevMoved    = c.movedAway || null;
+  const wasReason    = c.reactivationExcluded.reason;
   c.reactivationExcluded = { ...c.reactivationExcluded, excluded: false, restoredAt: new Date().toISOString(), restoredBy: 'tyler' };
-  // Clear side-effect flags EXCEPT optOut (TCPA: stays set regardless)
   if (wasReason === 'moved_away') c.movedAway = null;
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
-  updateContactStats();
-  showExclToast(`Restored ${c.fn} ${c.ln} to reactivation pool`);
+  try {
+    // 2026-06-22 saveDb-migration: scoped POST /customer/:phone/exclusion
+    // {clear:true} replaces the whole-DB PUT. Server-side side-effect: if
+    // the prior exclusion was moved_away, server also clears movedAway —
+    // mirrors the local optimistic update above.
+    const r = await fetch(`${PCPC_API_BR}/customer/${phone}/exclusion`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clear: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+    if (d.reactivationExcluded) c.reactivationExcluded = d.reactivationExcluded;
+    updateContactStats();
+    showExclToast(`Restored ${c.fn} ${c.ln} to reactivation pool`);
+  } catch (e) {
+    c.reactivationExcluded = prevExcluded;
+    c.movedAway            = prevMoved;
+    applyFilters();
+    alert('Could not restore on server: ' + e.message + '\n\nNothing was changed — refresh and try again.');
+  }
 }
 
 function showExclToast(msg) {
@@ -3402,7 +3882,7 @@ function closeAddCustomerModal() {
   document.getElementById('addCustomerModal').classList.add('hidden');
 }
 
-function submitAddCustomer() {
+async function submitAddCustomer() {
   ['mFnErr','mLnErr','mPhoneErr','mAddrErr','mCityErr'].forEach(id => {
     document.getElementById(id).textContent = '';
   });
@@ -3454,7 +3934,15 @@ function submitAddCustomer() {
 
   allCustomers.push(customer);
   if (hasSeal) sealPhones.add(phone);
-  saveDatabase().catch(e => console.warn('Add customer save failed:', e.message));
+  try {
+    await saveDatabase();
+  } catch(e) {
+    allCustomers.splice(allCustomers.indexOf(customer), 1);
+    if (hasSeal) sealPhones.delete(phone);
+    console.warn('Add customer save failed:', e.message);
+    alert('Could not save customer — check connection. Please try again.');
+    return;
+  }
 
   // Update unique count stat
   document.getElementById('sUnique').textContent = allCustomers.length;
@@ -3483,22 +3971,38 @@ function setPhoneFilter(val) {
   applyFilters();
 }
 
-function markPhoneDisconnected(phone) {
+async function markPhoneDisconnected(phone) {
   const c = allCustomers.find(x => x.phone === phone);
   if (!c) return;
+  const prev = c.phoneStatus;
   c.phoneStatus = 'disconnected';
   closeRowMenus();
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
+  try {
+    await saveDatabase();
+  } catch(e) {
+    c.phoneStatus = prev;
+    console.warn('[markPhoneDisconnected] DB save failed:', e.message);
+    showExclToast('⚠️ Phone status not saved');
+    applyFilters();
+  }
 }
 
-function markPhoneActive(phone) {
+async function markPhoneActive(phone) {
   const c = allCustomers.find(x => x.phone === phone);
   if (!c) return;
+  const prev = c.phoneStatus;
   c.phoneStatus = 'active';
   closeRowMenus();
-  saveDatabase().catch(e => console.warn('DB save failed:', e.message));
   applyFilters();
+  try {
+    await saveDatabase();
+  } catch(e) {
+    c.phoneStatus = prev;
+    console.warn('[markPhoneActive] DB save failed:', e.message);
+    showExclToast('⚠️ Phone status not saved');
+    applyFilters();
+  }
 }
 
 // ─── ROW OVERFLOW MENU ───────────────────────────────────────────────────────
@@ -3650,8 +4154,12 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`[reactivation] migrated ${m.migrated}/${m.total} legacy localStorage entries to server (skipped ${m.skipped || 0} — server had newer)`);
       }
     } catch (e) { console.warn('[reactivation] migration failed:', e.message); }
+    // Lane counts + manual-review phone set — server-side eligibility is the
+    // single source of truth (Smart Reactivation 2026-06-21).
+    loadReactivationEligibility().catch(() => {});
     tryLoadDatabase();
   })();
+  updateActiveCampaignBanner();
   initTooltips();
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeAddCustomerModal(); closeUploadSummary(); closeExclModal(); closeRestoreModal(); }

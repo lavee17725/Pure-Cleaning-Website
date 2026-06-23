@@ -419,16 +419,21 @@ function switchTab(tab) {
 }
 
 function renderTab() {
+  // Defense-in-depth (Rule 21 / DL-07): historically a few rows landed without
+  // submittedAt (write path didn't stamp it; backfill ran 2026-06-21 + worker
+  // POST /incoming now auto-stamps). Coerce to '' so a future malformed row
+  // never crashes the page render.
+  const _sa = r => (r && r.submittedAt) ? r.submittedAt : '';
   const byStatus = s => allRequests
     .filter(r => r.status === s)
-    .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+    .sort((a, b) => _sa(b).localeCompare(_sa(a)));
 
   const newList        = byStatus('new');
   const quotedList     = byStatus('quoted').sort((a,b) => (b.quotedAt||'').localeCompare(a.quotedAt||''));
   const waitlistList   = byStatus('waitlist');
   const dismissedList  = allRequests.filter(r => r.status === 'ignored' || r.status === 'dismissed')
-                           .sort((a,b) => b.submittedAt.localeCompare(a.submittedAt));
-  const allList        = [...allRequests].sort((a,b) => b.submittedAt.localeCompare(a.submittedAt));
+                           .sort((a,b) => _sa(b).localeCompare(_sa(a)));
+  const allList        = [...allRequests].sort((a,b) => _sa(b).localeCompare(_sa(a)));
 
   setCount('new',       newList.length,       true);
   setCount('quoted',    quotedList.length,     false);

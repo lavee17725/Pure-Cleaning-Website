@@ -342,7 +342,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   addLine(); // start with one blank line
 
   try {
-    const r = await fetch(`${PCPC_API}/customers`);
+    // 2026-06-22: switched to /customers/summary (1.14 MB vs 4 MB).
+    // Page only reads {personId, firstName, lastName, businessName, email,
+    // phone, customerType, isReferralOnly} — all carried by the summary
+    // shape (audit confirmed). No PUT round-trip on this page; save path is
+    // PATCH /admin/person/:id at line ~488.
+    const r = await fetch(`${PCPC_API}/customers/summary`);
     const d = await r.json();
     allCommercial = (d.customers || []).filter(c =>
       c.customerType === 'commercial' &&

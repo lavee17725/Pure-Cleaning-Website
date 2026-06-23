@@ -184,6 +184,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--text);
     <div id="testRecordsList" style="margin-top:.75rem;"></div>
   </div>
 
+  <!-- Utility: Same-address merge (2026-06-22 Phase 2) -->
+  <div class="util-panel" id="mergePanel">
+    <div class="util-title">🔗 Merge duplicate household records</div>
+    <div class="util-desc">Households where two or more Person records share an address — typically spelling variants, name changes, or spouses entered separately. Pre-checked groups are obvious matches (same surname); manual ones need a yes/no from you. The 3 multi-tenant addresses you flagged (Blatt, Sabal, Stonebridge) are excluded.</div>
+    <button class="util-btn" onclick="loadMergeCandidates()">Review duplicates →</button>
+    <div id="mergeCandidatesList" style="margin-top:.75rem;"></div>
+  </div>
+
   <!-- Utility: Google Reviews -->
   <div class="util-panel" id="reviewsPanel">
     <div class="util-title">⭐ Google Reviews</div>
@@ -236,6 +244,7 @@ const DAILY_DRIVERS = [
   { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
   { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
   { icon: '📊', name: 'Insights',               description: 'Conversion funnel, behavior trends, customer analysis',          url: '/pure_cleaning_insights.html' },
+  { icon: '💰', name: 'Operations / Costs',     description: 'Gas, chlorine, equipment, fixed monthly — COGS capture',          url: '/pure_cleaning_costs.html' },
 ];
 
 const MISC_TOOLS = [
@@ -324,11 +333,106 @@ async function loadIncomingCount() {
 const TEST_NAMES  = ['tyler fumero','darlah fumero','darla fumero'];
 const TEST_PHONES = ['9546103843','9546157770'];
 
+// ── Phase 2 merge tool (2026-06-22) ─────────────────────────────────────
+// Loads same-address duplicate groups from /admin/merge-candidates, renders
+// each with per-person radios (pick the keeper) + a Merge button per group.
+// Pre-checked groups (same surname, no commercial) get the highest-jobs
+// person auto-selected as keeper; manual groups leave selection blank.
+async function loadMergeCandidates() {
+  const el = document.getElementById('mergeCandidatesList');
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Loading…</div>';
+  try {
+    const r = await fetch(`${PCPC_API}/admin/merge-candidates`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const groups = d.groups || [];
+    if (!groups.length) {
+      el.innerHTML = '<div style="font-size:12px;color:var(--muted);">No duplicates found — all clean ✓</div>';
+      return;
+    }
+    const dnmHtml = (d.doNotMerge || []).length
+      ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 10px;background:rgba(0,0,0,.04);border-radius:6px;">
+           <strong>Do-not-merge (excluded):</strong> ${d.doNotMerge.map(a => `${a.street}, ${a.city}`).join(' · ')}
+         </div>`
+      : '';
+    el.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${groups.length} group${groups.length===1?'':'s'} · would retire ${d.sumPersonsToRetire} duplicate record${d.sumPersonsToRetire===1?'':'s'}</div>
+      ${dnmHtml}
+      ${groups.map((g, gi) => _renderMergeGroup(g, gi)).join('')}`;
+  } catch (e) {
+    el.innerHTML = `<div style="font-size:12px;color:#dc2626;">Error: ${e.message}</div>`;
+  }
+}
+
+function _renderMergeGroup(g, gi) {
+  // Pick the "best" candidate by default: highest job count, then highest spend.
+  const best = g.persons.slice().sort((a,b) =>
+    (b.jobs - a.jobs) || (b.lifetimeSpend - a.lifetimeSpend))[0];
+  const flagHtml = g.flagReason
+    ? `<span style="font-size:10px;color:#b45309;background:#fef3c7;border:1px solid #fde68a;padding:2px 6px;border-radius:4px;font-weight:700;margin-left:8px;">⚠ ${g.flagReason}</span>`
+    : `<span style="font-size:10px;color:#065f46;background:#d1fae5;border:1px solid #6ee7b7;padding:2px 6px;border-radius:4px;font-weight:700;margin-left:8px;">✓ auto</span>`;
+  return `
+    <div class="merge-group" data-gi="${gi}" data-pid="${g.propertyId}" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--white);">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px;">📍 ${g.streetAddress}, ${g.city} ${flagHtml}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Pick the record to KEEP — every other record's jobs/properties/invoices get re-pointed to it; their phone numbers carry over as alternates; the duplicates retire (soft-delete with redirect pointer).</div>
+      ${g.persons.map(p => {
+        const nm = ((p.firstName||'') + ' ' + (p.lastName||'')).trim() || p.businessName || '(unnamed)';
+        const checked = (p.personId === best.personId && g.preChecked) ? 'checked' : '';
+        return `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px;cursor:pointer;">
+          <input type="radio" name="mergeKeep-${gi}" value="${p.personId}" ${checked} class="merge-keep-radio">
+          <span style="flex:1;"><strong>${nm}</strong> · ${(p.primaryPhone||'').replace('+1','')} · ${p.customerType||'res'}</span>
+          <span style="font-size:11px;color:var(--muted);">${p.jobs} jobs · $${(p.lifetimeSpend||0).toLocaleString()}${p.lastService ? ' · last ' + p.lastService : ''}</span>
+        </label>`;
+      }).join('')}
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button class="util-btn" style="background:#fef3c7;border-color:#fbbf24;color:#92400e;" onclick="mergeGroup(${gi})">Merge group →</button>
+        <button class="util-btn" onclick="this.closest('.merge-group').style.display='none'">Skip</button>
+      </div>
+      <div class="merge-group-status" style="margin-top:6px;font-size:11px;"></div>
+    </div>`;
+}
+
+async function mergeGroup(gi) {
+  const box = document.querySelector(`.merge-group[data-gi="${gi}"]`);
+  if (!box) return;
+  const status = box.querySelector('.merge-group-status');
+  const picked = box.querySelector('input.merge-keep-radio:checked');
+  if (!picked) { status.style.color = '#dc2626'; status.textContent = 'Pick the keeper first.'; return; }
+  const keepId  = picked.value;
+  const dropIds = [...box.querySelectorAll('input.merge-keep-radio')]
+    .map(r => r.value).filter(id => id !== keepId);
+  if (!dropIds.length) { status.style.color = '#dc2626'; status.textContent = 'No duplicates to merge.'; return; }
+  if (!confirm(`Merge ${dropIds.length} record${dropIds.length===1?'':'s'} into the selected keeper? This re-links every job/invoice/proposal/property link and retires the duplicate Person rows.`)) return;
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Merging…';
+  try {
+    const r = await fetch(`${PCPC_API}/admin/persons/merge`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepId, dropIds }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+    status.style.color = '#065f46';
+    status.textContent = `✓ Merged — ${dropIds.length} retired. Alt contacts carried: ${d.alternateContacts.length}.`;
+    // Disable further interaction with this group
+    box.querySelectorAll('input,button').forEach(b => b.disabled = true);
+    box.style.opacity = '.6';
+  } catch (e) {
+    status.style.color = '#dc2626';
+    status.textContent = 'Merge failed: ' + e.message;
+  }
+}
+
 async function loadTestRecords() {
   const el = document.getElementById('testRecordsList');
   el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Loading…</div>';
   try {
-    const res = await fetch(`${PCPC_API}/customers`);
+    // 2026-06-22: slim /customers/summary instead of full /customers (4MB → ~1MB).
+    // Carries all fields the filter needs: phone, firstName, lastName, isTest,
+    // lifetimeSpend, totalJobs, lastService, personId. The old whole-DB cache
+    // (window._adminDbRecord) is no longer needed — DELETE /admin/person/:id is
+    // scoped per row now (no fetch-mutate-PUT pattern downstream).
+    const res = await fetch(`${PCPC_API}/customers/summary`);
     const data = await res.json();
     const customers = data.customers || [];
     const matches = customers.filter(c => {
@@ -344,11 +448,10 @@ async function loadTestRecords() {
     el.innerHTML = `
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${matches.length} test record(s) found:</div>
       ${matches.map(c => {
-        const expiry = c.testExpiresAt ? ` · expires ${new Date(c.testExpiresAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}` : '';
         const flag = c.isTest ? ' 🧪' : ' (name match)';
         return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-          <input type="checkbox" id="tr-${c.phone}" data-phone="${c.phone}" checked>
-          <label for="tr-${c.phone}" style="flex:1;cursor:pointer;"><strong>${c.firstName||''} ${c.lastName||''}</strong>${flag} · ${c.phone}${expiry} · jobs: ${c.totalJobs||0} · $${(c.lifetimeSpend||0).toLocaleString()}</label>
+          <input type="checkbox" id="tr-${c.phone}" data-phone="${c.phone}" data-personid="${c.personId || ''}" checked>
+          <label for="tr-${c.phone}" style="flex:1;cursor:pointer;"><strong>${c.firstName||''} ${c.lastName||''}</strong>${flag} · ${c.phone} · jobs: ${c.totalJobs||0} · $${(c.lifetimeSpend||0).toLocaleString()}</label>
         </div>`;
       }).join('')}
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -356,47 +459,59 @@ async function loadTestRecords() {
         <button onclick="deleteAllTestRecords()" style="padding:7px 16px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;">Remove all now</button>
         <button onclick="document.getElementById('testRecordsList').innerHTML=''" style="padding:7px 16px;background:var(--cream);color:var(--text-soft);border:1.5px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;">Cancel</button>
       </div>`;
-    window._adminDbRecord = data;
+    // Keep a compact handle for delete handlers — just the matches, not the full DB.
+    window._adminTestMatches = matches;
   } catch(e) { el.innerHTML = `<div style="font-size:12px;color:#dc2626;">Error: ${e.message}</div>`; }
 }
 
+// 2026-06-22: scoped DELETE /admin/person/:id per row (Invoice/Proposal guard
+// shipped earlier today — see handleDeletePerson, will 409 with a clear breakdown
+// if a "test" row turns out to have accounting docs attached). Replaces the
+// fetch-mutate-PUT pattern that round-tripped all 1,250 customers per click and
+// risked clobbering concurrent edits from another device.
+async function _deletePersonsScoped(matches, label) {
+  if (!matches.length) return { deleted: 0, blocked: 0, failed: 0, reasons: [] };
+  let deleted = 0, blocked = 0, failed = 0;
+  const reasons = [];
+  for (const c of matches) {
+    const pid = c.personId || ('person_1' + (c.phone || '').replace(/\D/g,'').slice(-10));
+    try {
+      const r = await fetch(`${PCPC_API}/admin/person/${pid}`, { method: 'DELETE' });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 409) { blocked++; reasons.push(`${c.firstName||''} ${c.lastName||''} (${c.phone}) — has linked records (jobs:${d.jobs||0} invoices:${d.invoices||0} proposals:${d.proposals||0})`); continue; }
+      if (!r.ok || (d.success === false)) { failed++; reasons.push(`${c.firstName||''} ${c.lastName||''} (${c.phone}) — ${d.error || 'HTTP '+r.status}`); continue; }
+      deleted++;
+    } catch (e) {
+      failed++;
+      reasons.push(`${c.firstName||''} ${c.lastName||''} (${c.phone}) — ${e.message}`);
+    }
+  }
+  return { deleted, blocked, failed, reasons };
+}
+
 async function deleteAllTestRecords() {
-  const db = window._adminDbRecord;
-  if (!db) return;
-  const all = (db.customers||[]).filter(c => {
-    if (c.isTest === true) return true;
-    const fullName = ((c.firstName||'') + ' ' + (c.lastName||'')).toLowerCase().trim();
-    return (TEST_NAMES.some(n => fullName.includes(n)) || TEST_PHONES.includes(c.phone)) && !c.lifetimeSpend && !c.totalJobs;
-  });
+  const all = window._adminTestMatches || [];
   if (!all.length) return;
   if (!confirm(`Remove all ${all.length} test record(s) immediately? This cannot be undone.`)) return;
-  const phones = new Set(all.map(c => c.phone));
-  db.customers = (db.customers||[]).filter(c => !phones.has(c.phone));
-  try {
-    await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
-    sessionStorage.removeItem('pcpc_customer_db_cache');
-    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Removed all ${all.length} test record(s).</div>`;
-  } catch(e) {
-    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
-  }
+  const el = document.getElementById('testRecordsList');
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Deleting…</div>';
+  const r = await _deletePersonsScoped(all, 'all');
+  const tail = (r.blocked || r.failed) ? `<div style="font-size:11px;color:#dc2626;margin-top:6px;white-space:pre-line;">${r.reasons.join('\n')}</div>` : '';
+  el.innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Deleted ${r.deleted} · blocked: ${r.blocked} · failed: ${r.failed}</div>${tail}`;
 }
 
 async function deleteSelectedTestRecords() {
-  const checked = [...document.querySelectorAll('#testRecordsList input[type=checkbox]:checked')].map(cb => cb.dataset.phone);
+  const checked = [...document.querySelectorAll('#testRecordsList input[type=checkbox]:checked')];
   if (!checked.length) return;
   if (!confirm(`Delete ${checked.length} record(s)? This cannot be undone.`)) return;
-  const db = window._adminDbRecord;
-  if (!db) return;
-  const before = db.customers.length;
-  db.customers = db.customers.filter(c => !checked.includes(c.phone));
-  const removed = before - db.customers.length;
-  try {
-    await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(db) });
-    sessionStorage.removeItem('pcpc_customer_db_cache');
-    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Deleted ${removed} record(s).</div>`;
-  } catch(e) {
-    document.getElementById('testRecordsList').innerHTML = `<div style="font-size:12px;color:#dc2626;">Delete failed: ${e.message}</div>`;
-  }
+  const all = window._adminTestMatches || [];
+  const phoneSet = new Set(checked.map(cb => cb.dataset.phone));
+  const matches = all.filter(c => phoneSet.has(c.phone));
+  const el = document.getElementById('testRecordsList');
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted);">Deleting…</div>';
+  const r = await _deletePersonsScoped(matches, 'selected');
+  const tail = (r.blocked || r.failed) ? `<div style="font-size:11px;color:#dc2626;margin-top:6px;white-space:pre-line;">${r.reasons.join('\n')}</div>` : '';
+  el.innerHTML = `<div style="font-size:12px;color:var(--green);">✓ Deleted ${r.deleted} · blocked: ${r.blocked} · failed: ${r.failed}</div>${tail}`;
 }
 
 // ── NOTIFICATION CENTER ────────────────────────────────────────────────────────
@@ -712,21 +827,30 @@ async function sendReviewFromAdmin(phone, firstName) {
       .replace(/\{first_name\}/g, fn)
       .replace(/\{name\}/g, fn);
     window.open(`sms:+1${phone}?&body=${encodeURIComponent(body)}`, '_blank');
-    // Mark as asked in review queue
-    fetch(`${PCPC_API}/customers`).then(r => r.json()).then(async data => {
-      const custs = data.customers || [];
-      const idx = custs.findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === phone);
-      if (idx !== -1) {
-        if (!custs[idx].googleReview) custs[idx].googleReview = {};
-        custs[idx].googleReview.status = 'asked';
-        custs[idx].googleReview.lastRequestSentAt = new Date().toISOString();
-        if (custs[idx].reviewQueue) custs[idx].reviewQueue.status = 'sent';
-        await fetch(`${PCPC_API}/customers`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({customers:custs}) });
-        _reviewAlerts = _reviewAlerts.filter(e => e.phone !== phone);
+    // 2026-06-22: scoped POST /customer/:phone/review-request-sent — server
+    // writes to the canonical KV `review_states[phone]` map (the same blob
+    // handleReviewsHub reads at index.js:6175). The old whole-DB PUT wrote
+    // c.googleReview into the customer_db blob — that field is REBUILT from
+    // review_states on every customer-shape read (line 6195), so the write
+    // was a stale dead-end + dropped templateUsedId. c.reviewQueue.status
+    // was the same dead-end (defaulted to null in the D1 rebuild at line 6752).
+    const ph10 = (phone || '').replace(/\D/g,'').slice(-10);
+    fetch(`${PCPC_API}/customer/${ph10}/review-request-sent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ templateUsedId: tpl.id || null }),
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.success) {
+        _reviewAlerts = _reviewAlerts.filter(e => e.phone !== ph10);
         _renderNotifPanel();
         _updateBellDot();
+      } else {
+        console.warn('[askForReview] mark-asked failed:', d && d.error);
       }
-    }).catch(() => {});
+    })
+    .catch(e => console.warn('[askForReview] network:', e.message));
   } catch(e) { alert('Error: ' + e.message); }
 }
 

@@ -134,6 +134,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 @media(max-width:480px){.job-gps-row{font-size:12.5px;}}
 .job-card-upcoming{border-top:3px solid var(--sky);background:var(--white);}
 .job-card-canceled{opacity:.65;}
+/* Profit chip (Cost Hub Phase 2). Honest-on-incomplete: "est. … partial" when an input is missing. */
+.job-profit-row{display:flex;align-items:center;gap:.55rem;margin-top:.55rem;font-size:11.5px;}
+.profit-chip-label{color:#9ca3af;font-weight:500;text-transform:uppercase;letter-spacing:.06em;font-size:10.5px;}
+.profit-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:700;letter-spacing:.02em;}
+.profit-chip-good{background:rgba(29,158,117,.12);color:#0f7556;border:1px solid rgba(29,158,117,.25);}
+.profit-chip-thin{background:rgba(217,119,6,.12);color:#a35009;border:1px solid rgba(217,119,6,.25);}
+.profit-chip-loss{background:rgba(220,38,38,.12);color:#9a1c1c;border:1px solid rgba(220,38,38,.25);}
+.profit-chip-unknown{background:rgba(107,114,128,.08);color:#6b7280;border:1px solid rgba(107,114,128,.18);}
+.profit-chip-placeholder{color:#9ca3af;font-size:11.5px;}
 .show-all-btn{width:100%;margin-top:.75rem;background:var(--white);border:1.5px solid var(--border);border-radius:9px;color:var(--sky);font-size:13px;font-weight:700;padding:.625rem 1rem;cursor:pointer;text-align:center;transition:all .15s;font-family:'DM Sans',sans-serif;}
 .show-all-btn:hover{border-color:var(--sky);background:#eff6ff;}
 .show-all-btn .arrow{display:inline-block;transition:transform .2s;margin-left:.35rem;}
@@ -390,6 +399,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .pi-icon     { font-size:22px; opacity:.45; }
 .pi-lbl      { font-size:11px; font-weight:700; color:var(--muted);
                margin-top:5px; text-align:center; }
+/* 2026-06-22: multi-property tile grouping (one group per house). */
+.pi-group    { margin-bottom:14px; }
+.pi-group:last-child { margin-bottom:0; }
+.pi-group-lbl{ font-size:12px; font-weight:700; color:var(--text);
+               margin-bottom:6px; padding-left:2px; }
 
 /* ── Profile Zones (Phase 1 redesign) ─────────────────────────────────────── */
 .profile-page{max-width:820px;margin:0 auto;padding:1.25rem 1.25rem 3rem;}
@@ -963,17 +977,24 @@ async function saveEmailField() {
   const email = input.value.trim();
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { input.style.borderColor = '#dc2626'; return; }
   input.style.borderColor = '';
+  // 2026-06-22: scoped PATCH /admin/person/:id — was a whole-DB PUT /customers
+  // round-trip (Rule 7 anti-pattern) which could clobber other devices' edits.
+  // Person convention: personId = 'person_1' + phone10 (verified: 0 off-convention
+  // rows in production). Only field touched: email.
+  const ph10 = (_customer.phone || '').replace(/\D/g,'').slice(-10);
+  if (ph10.length !== 10) { alert('Failed to save: invalid phone on customer'); return; }
+  const personId = 'person_1' + ph10;
   try {
-    const resp = await fetch(`${API}/customers`);
-    const data = await resp.json();
-    const customers = data.customers || [];
-    const idx = customers.findIndex(cu => String(cu.phone) === String(_customer.phone));
-    if (idx === -1) throw new Error('Customer not found');
-    customers[idx].email = email || null;
-    await fetch(`${API}/customers`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({customers}) });
-    _customer = customers[idx];
+    const r = await fetch(`${API}/admin/person/${personId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email: email || null }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+    _customer.email = (d.person && d.person.email !== undefined) ? d.person.email : (email || null);
     renderHeroBanner(_customer);
-    renderSidebar(_customer);   // Fix: refresh sidebar "About" so email shows immediately
+    renderSidebar(_customer);
     closeEmailEdit();
   } catch(e) { alert('Failed to save: ' + e.message); }
 }
@@ -1108,6 +1129,16 @@ function _buildJobCard(e) {
   const isUpcoming = e.status === 'scheduled' || e.status === 'needs_scheduling';
   const cardClass = isUpcoming ? ' job-card-upcoming' : (e.status === 'canceled' || e.status === 'no_show') ? ' job-card-canceled' : '';
 
+  // Profit chip placeholder — only for completed jobs that have a jobId. The
+  // chip is loaded after innerHTML by _loadProfitChips() so the card render
+  // stays fast and one-shot.
+  const profitSlot = (e.status === 'completed' && e.jobId)
+    ? `<div class="job-profit-row" data-profit-job-id="${esc(e.jobId)}">
+         <span class="profit-chip-label">Profit</span>
+         <span class="profit-chip-placeholder">…</span>
+       </div>`
+    : '';
+
   return `<div class="job-card${cardClass}">
     <div class="job-card-top">
       <div><span class="job-date">${esc(e.displayDate)}</span>${daysChip}${statusChip}</div>
@@ -1116,7 +1147,43 @@ function _buildJobCard(e) {
     <div class="job-services">${svcHtml}</div>
     ${gpsRowHtml}
     ${metaHtml}
+    ${profitSlot}
   </div>`;
+}
+
+// ── Profit chip loader ───────────────────────────────────────────────
+// Called after Service History renders. Fetches /admin/job-profit per slot
+// and swaps the placeholder for a colored chip. Errors render '—'.
+async function _loadProfitChips() {
+  const slots = document.querySelectorAll('[data-profit-job-id]');
+  if (!slots.length) return;
+  for (const slot of slots) {
+    const jobId = slot.getAttribute('data-profit-job-id');
+    const placeholder = slot.querySelector('.profit-chip-placeholder');
+    if (!placeholder) continue;
+    try {
+      const r = await fetch(`${PCPC_API}/admin/job-profit/${jobId}`);
+      if (!r.ok) { placeholder.textContent = '—'; continue; }
+      const { profit } = await r.json();
+      placeholder.outerHTML = _renderProfitChip(profit);
+    } catch (_) {
+      placeholder.textContent = '—';
+    }
+  }
+}
+
+function _renderProfitChip(p) {
+  if (!p) return '<span class="profit-chip profit-chip-unknown">—</span>';
+  const net    = Number(p.netProfit);
+  const margin = p.margin == null ? null : Math.round(p.margin * 100);
+  const partial = Number(p.partial) === 1;
+  const cls = net < 0 ? 'profit-chip-loss'
+            : (margin != null && margin < 25 ? 'profit-chip-thin' : 'profit-chip-good');
+  const sign  = net < 0 ? '-' : '';
+  const label = `${sign}$${Math.abs(net).toFixed(0)}${margin != null ? ' · ' + margin + '%' : ''}${partial ? ' · est.' : ''}`;
+  const tip = partial && p.missing && p.missing.length
+    ? `Missing inputs: ${p.missing.join(', ')}` : 'Computed';
+  return `<span class="profit-chip ${cls}" title="${esc(tip)}">${esc(label)}</span>`;
 }
 
 function renderServiceHistory(c) {
@@ -1196,6 +1263,7 @@ function renderServiceHistory(c) {
     const pmRaw  = j.paymentMethod || j.payment || null;
     const _jobAddr = (_isPartnerCust && j.workSiteAddress) ? j.workSiteAddress : (j.address || null);
     cards.push(_buildJobCard({
+      jobId:    j.jobId || null,
       displayDate: j.date
         ? new Date(j.date + 'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'})
         : '—',
@@ -1242,6 +1310,7 @@ function renderServiceHistory(c) {
     : '';
 
   el.innerHTML = headingHtml + aggregateHtml + visibleHtml + hiddenHtml + legacyNoteHtml;
+  _loadProfitChips();
 }
 
 function renderContextBlocks(c) {
@@ -1588,23 +1657,25 @@ async function saveNote(){
   if(!text)return;
   const btn=document.querySelector('.btn-save-note');
   btn.disabled=true; btn.textContent='Saving…';
+  // 2026-06-22: scoped POST /admin/person/:id/note — was a whole-DB PUT
+  // /customers round-trip (Rule 7) AND the profileNotes array had no D1 home
+  // (Rule 22 orphan capture). Migration 0031 added Person.profileNotesJson;
+  // the new endpoint server-side appends + verifies (T1.20). The server is
+  // the source of truth for {id, createdAt} so two devices saving back-to-back
+  // can't collide on the same note id.
+  const ph10 = (_customer.phone || '').replace(/\D/g,'').slice(-10);
+  if (ph10.length !== 10) { alert('Failed to save note: invalid phone on customer'); btn.disabled=false; btn.textContent='Save Note'; return; }
+  const personId = 'person_1' + ph10;
   try{
-    // fetch all customers, find ours, update, PUT back
-    const resp=await fetch(`${API}/customers`);
-    const data=await resp.json();
-    const customers=data.customers||[];
-    const idx=customers.findIndex(cu=>String(cu.phone)===String(_customer.phone));
-    if(idx===-1) throw new Error('Customer not found in DB');
-    if(!customers[idx].profileNotes) customers[idx].profileNotes=[];
-    const newNote={
-      id: Math.random().toString(36).slice(2)+Date.now().toString(36),
-      text,
-      author:'Tyler',
-      createdAt:new Date().toISOString()
-    };
-    customers[idx].profileNotes.push(newNote);
-    await fetch(`${API}/customers`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({customers})});
-    _customer=customers[idx];
+    const r = await fetch(`${API}/admin/person/${personId}/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ text }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success || !d.note) throw new Error(d.error || `HTTP ${r.status}`);
+    if (!Array.isArray(_customer.profileNotes)) _customer.profileNotes = [];
+    _customer.profileNotes.push(d.note);
     renderNotes(_customer);
     cancelNote();
   } catch(err){
@@ -1749,18 +1820,26 @@ async function init(){
   }
 
   try{
+    // 2026-06-22 (#17): scoped read — was GET /customers (~4 MB for all 1,250
+    // records) just to find one by phone. Single-endpoint /customer/:phone now
+    // carries the full bridge (quoteStatus, alerts, linkBin/Code, scheduledStatus.
+    // photos + canceled*) after the d1CustomerToKvShape unification, so the
+    // profile loads with the same shape it used to filter out of the bulk blob.
+    const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
+    const ph10 = _nph(phone);
     const [custResp, evtResp]=await Promise.all([
-      fetch(`${API}/customers`),
+      fetch(`${API}/customer/${ph10}`),
       fetch(`${API}/events?phone=${encodeURIComponent(phone)}`)
     ]);
-    if(!custResp.ok) throw new Error('Failed to load customers');
+    if(custResp.status === 404){
+      showError('Customer not found',`No record found for phone number ${fmtPh(phone)}.`);
+      return;
+    }
+    if(!custResp.ok) throw new Error('Failed to load customer (HTTP ' + custResp.status + ')');
     const custData=await custResp.json();
     const evtData=await evtResp.json();
-    const customers=custData.customers||[];
+    const customer=custData.customer || null;
     const events=evtData.events||[];
-
-    const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
-    const customer=customers.find(c=>_nph(c.phone)===_nph(phone));
     if(!customer){
       showError('Customer not found',`No record found for phone number ${fmtPh(phone)}.`);
       return;
@@ -1881,17 +1960,18 @@ function renderExtendedSections(c, events) {
   sections.push(makeXSec('quotes', '📋', 'Quote History', quoteRows.length ? String(quoteRows.length) : null, quoteBody, false));
 
   // ── Property Images (Phase 3: R2 satellite + front/BCPA) ───────────────────
-  // Source: c.properties[0].satelliteImageKey / frontImageKey (D1 Property columns).
-  // Rendered ABOVE the existing KV job-photo gallery — two separate sections,
-  // two separate sources, no collision.
+  // Source: c.properties[].satelliteImageKey / frontImageKey (D1 Property columns).
+  // 2026-06-22: iterate ALL properties so multi-property customers see one
+  // labeled tile group per house (Main Residence / Rental Property / etc.) —
+  // earned because the profile used to render only properties[0] which hid
+  // the other houses entirely for partners and rental-portfolio customers.
   // Thumbnails loaded via authenticated fetch (GET /admin/photos/key/{key}) →
   // objectURL — not bare <img src> which would 401 on an auth-gated endpoint.
   const _primaryProp   = (c.properties || [])[0] || {};
-  const _satKey        = _primaryProp.satelliteImageKey || null;
-  const _frontKey      = _primaryProp.frontImageKey     || null;
-  const _propImgPhone  = (c.phone || '').replace(/\D/g,'').slice(-10); // stable DOM id suffix
+  const _propImgPhone  = (c.phone || '').replace(/\D/g,'').slice(-10);
+  const _propsWithImages = (c.properties || []).filter(p => p && (p.satelliteImageKey || p.frontImageKey));
 
-  if (_satKey || _frontKey) {
+  if (_propsWithImages.length) {
     const _piCard = (key, icon, label, thumbId) => `
       <div class="pi-card" onclick="_openPropImgLb(${JSON.stringify(key)},${JSON.stringify(icon+' '+label)})">
         <div class="pi-thumb" id="${esc(thumbId)}">
@@ -1899,16 +1979,28 @@ function renderExtendedSections(c, events) {
         </div>
         <div class="pi-lbl">${icon} ${label}</div>
       </div>`;
-    const piHtml = `<div class="pi-strip">
-      ${_satKey   ? _piCard(_satKey,   '🛰', 'Satellite',   `pi-sat-${_propImgPhone}`)   : ''}
-      ${_frontKey ? _piCard(_frontKey, '🏠', 'Front / BCPA', `pi-front-${_propImgPhone}`) : ''}
-    </div>`;
+    const _thumbLoaders = [];
+    const _groups = _propsWithImages.map((p, i) => {
+      const idSafe   = (p.propertyId || `idx${i}`).replace(/[^a-z0-9]/gi, '_');
+      const satId    = `pi-sat-${_propImgPhone}-${idSafe}`;
+      const frontId  = `pi-front-${_propImgPhone}-${idSafe}`;
+      const label    = p.propertyLabel || `Property ${i + 1}`;
+      const subAddr  = p.streetAddress ? esc(p.streetAddress) : '';
+      if (p.satelliteImageKey) _thumbLoaders.push([p.satelliteImageKey, satId]);
+      if (p.frontImageKey)     _thumbLoaders.push([p.frontImageKey,     frontId]);
+      const showHeader = _propsWithImages.length > 1;
+      return `<div class="pi-group">
+        ${showHeader ? `<div class="pi-group-lbl">📍 ${esc(label)}${subAddr ? ` <span style="color:var(--muted);font-weight:500;font-size:12px;">· ${subAddr}</span>` : ''}</div>` : ''}
+        <div class="pi-strip">
+          ${p.satelliteImageKey ? _piCard(p.satelliteImageKey, '🛰', showHeader ? `Satellite — ${label}` : 'Satellite',       satId)   : ''}
+          ${p.frontImageKey     ? _piCard(p.frontImageKey,     '🏠', showHeader ? `Front — ${label}`     : 'Front / BCPA', frontId) : ''}
+        </div>
+      </div>`;
+    }).join('');
     sections.push(makeXSec('property-images', '📸', 'Property Images',
-      String((_satKey ? 1 : 0) + (_frontKey ? 1 : 0)), piHtml, true));
-    // Kick off thumbnail loads after the section is in the DOM
+      String(_thumbLoaders.length), _groups, true));
     requestAnimationFrame(() => {
-      if (_satKey)   _loadPropImgThumb(_satKey,   `pi-sat-${_propImgPhone}`);
-      if (_frontKey) _loadPropImgThumb(_frontKey, `pi-front-${_propImgPhone}`);
+      for (const [k, id] of _thumbLoaders) _loadPropImgThumb(k, id);
     });
   }
   // ── end Property Images ────────────────────────────────────────────────────
@@ -2404,21 +2496,29 @@ async function handleProfilePhotoAdd(files, phone) {
     } catch(e) { console.warn('Upload failed:', e); }
   }
   if (!done) return;
-  // Persist photo IDs on customer record (fetch-patch-PUT pattern)
-  try {
-    const resp = await fetch(`${API}/customers`);
-    const data = await resp.json();
-    const customers = data.customers || [];
-    const idx = customers.findIndex(cu => String(cu.phone||'').replace(/\D/g,'').slice(-10) === String(phone||'').replace(/\D/g,'').slice(-10));
-    if (idx !== -1) {
-      const c = customers[idx];
-      if (!c.scheduledStatus) c.scheduledStatus = {};
-      if (!c.scheduledStatus.photos) c.scheduledStatus.photos = [];
-      c.scheduledStatus.photos.push(...uploadedIds);
-      await fetch(`${API}/customers`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ customers }) });
-      _customer = customers[idx];
-    }
-  } catch(e) { console.warn('Failed to persist photo refs:', e); }
+  // 2026-06-22: scoped POST per photoId — was a whole-DB PUT /customers
+  // round-trip (Rule 7). The new endpoint reads/appends/writes/verifies
+  // server-side, collapsing the race window from "two browsers each holding
+  // the DB in JS memory for tens of seconds" to "ms of server processing".
+  // Idempotent: re-tries don't double-add (server skips dupes).
+  const ph10 = String(phone||'').replace(/\D/g,'').slice(-10);
+  let lastVerifiedPhotos = null;
+  for (const photoId of uploadedIds) {
+    try {
+      const r = await fetch(`${API}/customer/${ph10}/scheduled-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ photoId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { console.warn('Failed to persist photoId:', photoId, d.error); continue; }
+      if (Array.isArray(d.photos)) lastVerifiedPhotos = d.photos;
+    } catch(e) { console.warn('Failed to persist photoId:', photoId, e.message); }
+  }
+  if (lastVerifiedPhotos && _customer) {
+    if (!_customer.scheduledStatus) _customer.scheduledStatus = {};
+    _customer.scheduledStatus.photos = lastVerifiedPhotos;
+  }
   showToast(`✓ ${done} photo${done > 1 ? 's' : ''} uploaded`);
   // Re-render profile sections to show new photos
   if (_customer) renderProfile(_customer, []);

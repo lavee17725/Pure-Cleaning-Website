@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <script src="/js/error-tracker.js"></script>
+<!-- pcpc_api.js MUST load before any inline script that touches window.pcpcApi.
+     Synchronous (no defer/async) so the 13 call sites in this file (logComplaint,
+     logEvent analytics, etc.) can rely on it. 5 KB file — load cost is trivial.
+     Fixed 2026-06-21: previously not loaded at all → ReferenceError on every click
+     of complaint/review/arrival/print buttons. -->
+<script src="/pcpc_api.js"></script>
 <script>
 /* Auth gate — do not remove */
 (function(){
@@ -182,6 +188,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{color:var(--muted);margin-top:1px;}
 .js-roof-info{font-size:11px;color:#c2410c;font-weight:600;margin-top:2px;}
+/* Cost Hub Phase 2 — per-job profit chip on completed cards. Honest-on-incomplete: "est. … partial" when input missing. */
+.js-profit{display:flex;align-items:center;gap:5px;margin-top:3px;font-size:11px;line-height:1.4;}
+.js-profit-label{color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:9.5px;}
+.js-profit-placeholder{color:#9ca3af;}
+.js-profit-chip{display:inline-block;padding:1px 7px;border-radius:9px;font-weight:700;font-size:11px;letter-spacing:.02em;}
+.js-profit-good{background:rgba(29,158,117,.13);color:#0f7556;border:1px solid rgba(29,158,117,.25);}
+.js-profit-thin{background:rgba(217,119,6,.13);color:#a35009;border:1px solid rgba(217,119,6,.25);}
+.js-profit-loss{background:rgba(220,38,38,.13);color:#9a1c1c;border:1px solid rgba(220,38,38,.25);}
+.js-profit-unknown{background:rgba(107,114,128,.08);color:#6b7280;border:1px solid rgba(107,114,128,.18);}
 .job-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .job-amount.missing{color:var(--muted);font-weight:400;}
 .jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
@@ -1046,6 +1061,33 @@ body{background:#f0f2f5;}
       <label>Notes (optional)</label>
       <textarea id="jobLogNotes" class="modal-input" rows="2" style="resize:none;" placeholder="Anything notable about this job…"></textarea>
     </div>
+    <!-- ── Seal-job materials (only visible for jobs whose services include sealing) ── -->
+    <!-- Cost Hub Phase 2 — captures sealer gallons + sand bags + $ at completion. -->
+    <!-- Writes CostEntry rows tagged with this jobId so per-job profit knows the cost AND §13 rate-learning knows the consumption. -->
+    <div class="modal-field" id="sealMatField" style="display:none;border-top:1px solid var(--border);padding-top:1rem;margin-top:.25rem;">
+      <label style="display:flex;align-items:center;justify-content:space-between;">
+        <span>🪣 Seal-job materials</span>
+        <span style="font-size:11px;color:var(--muted);">Prefilled from last job</span>
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px;">
+        <div>
+          <label style="font-size:11.5px;">Sealer gallons</label>
+          <input type="number" id="sealGal" class="modal-input" min="0" step="0.1" placeholder="0">
+        </div>
+        <div>
+          <label style="font-size:11.5px;">$/gal</label>
+          <input type="number" id="sealPrice" class="modal-input" min="0" step="0.01" placeholder="0.00">
+        </div>
+        <div>
+          <label style="font-size:11.5px;">Sand bags</label>
+          <input type="number" id="sandBags" class="modal-input" min="0" step="1" placeholder="0">
+        </div>
+        <div>
+          <label style="font-size:11.5px;">$/bag</label>
+          <input type="number" id="sandPrice" class="modal-input" min="0" step="0.01" placeholder="0.00">
+        </div>
+      </div>
+    </div>
     <!-- ── Photos ── -->
     <div class="modal-field" style="border-top:1px solid var(--border);padding-top:1rem;margin-top:.25rem;">
       <label style="display:flex;align-items:center;justify-content:space-between;">
@@ -1560,7 +1602,25 @@ body{background:#f0f2f5;}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 <script>
 const PCPC_API       = 'https://purecleaning-api.tylerfumero.workers.dev';
+
+// Defensive analytics shim — silently no-ops if /pcpc_api.js failed to load.
+// The script is loaded synchronously in <head> (above), so this is belt-and-
+// suspenders: any inline call site that lands before the load (or if the file
+// 404s) is a no-op instead of a hard ReferenceError that kills the click
+// handler chain. The 2 logComplaint calls below stay direct — they're inside
+// try/catch already and the data-write is critical (we want the catch to log
+// the error if the file is missing, not silently drop a complaint).
+function _logEvent(payload) {
+  try {
+    if (window.pcpcApi && typeof window.pcpcApi.logEvent === 'function') {
+      window.pcpcApi.logEvent(payload);
+    }
+  } catch (e) { /* analytics never block UI */ }
+}
 const QUOTE_BASE_CAL = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
+// Cost Hub Phase 2 — calendar chip is off for now (cluttery). Profile + Costs hub still show it.
+// Flip to true to re-enable on calendar cards. One-line re-enable.
+const CAL_PROFIT_CHIP_ENABLED = false;
 // ── Payment request constants ──────────────────────────────────────────────
 const ZELLE_NUMBER  = '954-389-2642';
 const ZELLE_NAME    = 'Ido Fumero';
@@ -2418,6 +2478,47 @@ function render() {
   } else if (currentView === 'month') {
     try { renderMonthView(); } catch(e) { _calPanelErr('monthOuter', 'renderMonthView', e); }
   }
+  // Per-job profit chips load lazily after each render (one fetch per visible completed card).
+  // Lazy load keeps render() fast; chips appear within ~100-300ms.
+  try { _loadCalProfitChips(); } catch(e) { console.warn('profit chips:', e); }
+}
+
+// Profit chip loader for calendar (Cost Hub Phase 2). Walks every
+// [data-profit-job-id] slot, fetches /admin/job-profit, and replaces the
+// placeholder. Per-card, not batch — keeps each card independent so a
+// slow/failed one doesn't block neighbors.
+async function _loadCalProfitChips() {
+  const slots = document.querySelectorAll('.js-profit[data-profit-job-id]');
+  for (const slot of slots) {
+    if (slot.dataset.loaded === '1') continue;       // idempotent
+    slot.dataset.loaded = '1';
+    const jobId = slot.getAttribute('data-profit-job-id');
+    const placeholder = slot.querySelector('.js-profit-placeholder');
+    if (!placeholder) continue;
+    try {
+      const r = await fetch(`${PCPC_API}/admin/job-profit/${jobId}`);
+      if (!r.ok) { placeholder.textContent = '—'; continue; }
+      const { profit } = await r.json();
+      placeholder.outerHTML = _renderCalProfitChip(profit);
+    } catch (_) {
+      placeholder.textContent = '—';
+    }
+  }
+}
+
+function _renderCalProfitChip(p) {
+  if (!p) return '<span class="js-profit-chip js-profit-unknown">—</span>';
+  const net    = Number(p.netProfit);
+  const margin = p.margin == null ? null : Math.round(p.margin * 100);
+  const partial = Number(p.partial) === 1;
+  const cls = net < 0 ? 'js-profit-loss'
+            : (margin != null && margin < 25 ? 'js-profit-thin' : 'js-profit-good');
+  const sign  = net < 0 ? '-' : '';
+  const label = `${sign}$${Math.abs(net).toFixed(0)}${margin != null ? ' · ' + margin + '%' : ''}${partial ? ' · est.' : ''}`;
+  const tip = partial && p.missing && p.missing.length
+    ? `Missing: ${p.missing.join(', ')}` : 'Computed';
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return `<span class="js-profit-chip ${cls}" title="${esc(tip)}">${esc(label)}</span>`;
 }
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
@@ -2593,12 +2694,26 @@ function getJobCoords(c) {
 // fire EXACTLY when route math is still using the office pin — independent
 // of whether workSiteAddress was set (presence of an address ≠ presence of
 // coords). 2026-06-18 — Bug 6 fix.
+//
+// 2026-06-22 refinement (brief): commercial + residential jobs ALWAYS have
+// their bound Property = work site by definition — they were already covered
+// by the partner_referral gate. For partner_referral specifically, also treat
+// the bound property as the worksite when (a) no workSiteAddress is set at
+// all, or (b) workSiteAddress matches the bound Property.streetAddress (the
+// partner is doing work AT their own office). The exclusion now fires only
+// when billing ≠ work site AND the override coord lookup hasn't resolved.
 function _partnerJobMissingWorksite(c) {
   if (!c || c.customerType !== 'partner_referral') return false;
   // Worksite coords resolved → trust route math.
   if (c.worksiteResolved) return false;
-  // Otherwise route math is still using whatever Property.latitude returns —
-  // for partner jobs that's the office. Banner fires.
+  // No explicit worksite → bound Property IS the worksite (no mismatch to flag).
+  const ws  = (c.workSiteAddress || '').trim().toLowerCase();
+  if (!ws) return false;
+  // workSiteAddress matches bound Property.streetAddress → billing == worksite.
+  const bil = (c.address || '').trim().toLowerCase();
+  if (bil && ws === bil) return false;
+  // workSiteAddress differs from billing AND override hasn't resolved →
+  // route math still uses the office pin. Banner fires.
   return true;
 }
 
@@ -3104,7 +3219,7 @@ async function startGeocodingBackfill() {
 
   if (bar) bar.textContent = `✓ Done — ${done} geocoded, ${failed} failed. Reloading…`;
   if (done) {
-    await saveDb().catch(() => {});
+    await saveDb().catch(e => console.warn('[startGeocodingBackfill] KV sync failed:', e.message));
     renderCalGrid(getWeekDates());
   }
   setTimeout(() => {
@@ -3611,6 +3726,7 @@ function jobCardScheduled(c) {
                   cards show ⏱ arrival-departure-duration without requiring a tap on phone.
                   When state is scheduled/in_progress with no actualArrival, gpsHtml === ''
                   so no DOM is emitted. */}
+    ${CAL_PROFIT_CHIP_ENABLED && state === 'completed' && _editJobId ? `<div class="js-profit" data-profit-job-id="${_editJobId}"><span class="js-profit-label">Profit</span> <span class="js-profit-placeholder">…</span></div>` : ''}
     <div class="jc-detail">
     ${(() => {
         // Prefer per-job workSiteAddress first (partner_referral jobs, secondary properties),
@@ -3738,7 +3854,7 @@ function jobCardHistoryExtra(c, jhEntry) {
     ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}','${jobId}')" title="Edit this job's details">✏️ Edit</button>`
     : '';
 
-  return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}" onclick="toggleJobCard(this)">
+  return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}"${jobId ? ` data-job-id="${jobId}"` : ''} onclick="toggleJobCard(this)">
     <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}</span><span>${amtHtml}</span></div>
     <div class="js-meta">${[city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
@@ -4292,10 +4408,16 @@ async function applyRigPick(rig) {
   const c = findCustomer(phone);
   if (!c) return;
   c.scheduledStatus.rig = rig;
-  saveDb().catch(() => {});
-  renderCalGrid(getWeekDates());
-  renderCrewPanel(getWeekDates());
-  showToast(`↔ ${esc(name.trim())} → ${RIG_LABELS[rig]}`);
+  try {
+    await saveDb();
+    renderCalGrid(getWeekDates());
+    renderCrewPanel(getWeekDates());
+    showToast(`↔ ${esc(name.trim())} → ${RIG_LABELS[rig]}`);
+  } catch(e) {
+    c.scheduledStatus.rig = null;
+    showToast(`⚠️ Could not assign rig — ${e.message}`);
+    renderCalGrid(getWeekDates());
+  }
 }
 
 function undoAction(phone, prevStatus) {
@@ -4323,8 +4445,9 @@ function undoAction(phone, prevStatus) {
     render();
   }
   c.scheduledStatus = prevStatus;
-  saveDb().catch(()=>{});
-  showToast('↩ Action undone');
+  saveDb()
+    .then(() => showToast('↩ Action undone'))
+    .catch(e => { console.warn('[undoAction] KV revert failed:', e.message); showToast('↩ Undone (⚠️ KV sync failed — reload to confirm)'); });
 }
 
 // ── Crew quick-edit (inline on calendar job cards) ───────────────────────────
@@ -4363,7 +4486,7 @@ function setDurBtn(phone, value, btn) {
   if (value !== 0) saveQuickEdit(phone, value);
 }
 
-function saveQuickEdit(phone, forceDur) {
+async function saveQuickEdit(phone, forceDur) {
   const c = findCustomer(phone);
   if (!c || !c.scheduledStatus) return;
   const crew = Array.from(document.querySelectorAll('#crew-qe-' + phone + ' .crew-chip.active'))
@@ -4377,9 +4500,14 @@ function saveQuickEdit(phone, forceDur) {
     const hrs = parseFloat(hrsEl?.value || '');
     if (!isNaN(hrs) && hrs > 0) c.scheduledStatus.estimatedDuration = hrs;
   }
-  saveDb().catch(() => {});
   const fb = document.getElementById('crew-qe-saved-' + phone);
-  if (fb) { fb.style.opacity = '1'; setTimeout(() => { fb.style.opacity = '0'; }, 1800); }
+  try {
+    await saveDb();
+    if (fb) { fb.textContent = '✓ Saved'; fb.style.color = ''; fb.style.opacity = '1'; setTimeout(() => { fb.style.opacity = '0'; }, 1800); }
+  } catch(e) {
+    console.warn('[saveQuickEdit] KV save failed:', e.message);
+    if (fb) { fb.textContent = '⚠️ Save failed'; fb.style.color = 'var(--red, #c0392b)'; fb.style.opacity = '1'; }
+  }
 }
 
 // ── CREW POPOVER ──────────────────────────────────────────────────────────────
@@ -4770,9 +4898,13 @@ async function saveJobModal() {
   if (newWin)  c.scheduledStatus.window        = newWin;
   if (newDate) c.scheduledStatus.scheduledDate = newDate;
   c.scheduledStatus.jobNotes = newNotes;
-  saveDb().catch(()=>{});
-  closeJobModal();
-  render();
+  try {
+    await saveDb();
+    closeJobModal();
+    render();
+  } catch(e) {
+    showToast(`⚠️ Save failed — ${e.message}`);
+  }
 }
 
 function togglePaymentFields(val) {
@@ -4788,6 +4920,41 @@ function markComplete() {
   document.getElementById('paymentAmount').value = '';
   ['issueTime','issueEquip','issueScope','issueWeather'].forEach(id => { const el = document.getElementById(id); if(el) el.checked = false; });
   const n = document.getElementById('jobLogNotes'); if (n) n.value = '';
+
+  // ── Seal-job material capture (Cost Hub Phase 2) ────────────────────────
+  // Show sealer/sand inputs only when the current job's services include
+  // sealing OR paver-sealing. Prefill prices from /admin/cost-last so Tyler
+  // confirms-or-edits rather than retyping every time.
+  const _cust = findCustomer(jmPhone);
+  const _ss   = _cust?.scheduledStatus || {};
+  const _jhSvc = _ss.jobNotes || _cust?.quoteStatus?.mainServices || '';
+  const _svcStr = String(_jhSvc).toLowerCase();
+  const _hasSeal = /seal|paver/.test(_svcStr);
+  const _sealField = document.getElementById('sealMatField');
+  if (_sealField) {
+    _sealField.style.display = _hasSeal ? '' : 'none';
+    ['sealGal','sealPrice','sandBags','sandPrice'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    if (_hasSeal) {
+      // Prefill from last-known sealer/sand prices.
+      Promise.all([
+        fetch(`${PCPC_API}/admin/cost-last?type=sealer`).then(r => r.ok ? r.json() : { last: null }),
+        fetch(`${PCPC_API}/admin/cost-last?type=polymeric_sand`).then(r => r.ok ? r.json() : { last: null }),
+      ]).then(([sealRes, sandRes]) => {
+        const sealLast = sealRes?.last;
+        const sandLast = sandRes?.last;
+        if (sealLast && sealLast.quantity && sealLast.amount) {
+          const ppg = (Number(sealLast.amount) / Number(sealLast.quantity)).toFixed(2);
+          const pp = document.getElementById('sealPrice'); if (pp) pp.value = ppg;
+        }
+        if (sandLast && sandLast.quantity && sandLast.amount) {
+          const ppb = (Number(sandLast.amount) / Number(sandLast.quantity)).toFixed(2);
+          const pp = document.getElementById('sandPrice'); if (pp) pp.value = ppb;
+        }
+      }).catch(() => { /* prefill is best-effort */ });
+    }
+  }
   // Pre-fill amount from scheduled job total
   const c = findCustomer(jmPhone);
   if (c?.scheduledStatus?.approvedAmount) document.getElementById('paymentAmount').value = c.scheduledStatus.approvedAmount;
@@ -5153,7 +5320,7 @@ async function uploadPhotos(phone, jobDate, services) {
     if (c?.scheduledStatus) {
       if (!c.scheduledStatus.photos) c.scheduledStatus.photos = [];
       c.scheduledStatus.photos.push(...uploadedIds);
-      saveDb().catch(()=>{});
+      saveDb().catch(e => console.warn('[uploadPhotos] KV sync failed:', e.message));
     }
   }
   _pendingPhotos = [];
@@ -5194,6 +5361,47 @@ function saveJobLog() {
       document.getElementById('amtMismatchApproved2').textContent= fmtAmt(approved);
       document.getElementById('jobLogModal').classList.add('hidden');
       document.getElementById('amtMismatchModal').classList.remove('hidden');
+      return;
+    }
+  }
+
+  // ── Seal-material capture (Cost Hub Phase 2) ─────────────────────────
+  // If the sealer/sand fields are visible AND populated, POST CostEntry
+  // rows tagged with this jobId BEFORE completing. Failures are surfaced
+  // — Tyler can retry — never silently dropped (T1.20).
+  const _sealField = document.getElementById('sealMatField');
+  if (_sealField && _sealField.style.display !== 'none' && jmJobId) {
+    const completingJob = jmJobId ? calendarJobs.find(j => j.jobId === jmJobId) : null;
+    const _ssCompletionDate = completingJob?.scheduledDate
+                           || findCustomer(jmPhone)?.scheduledStatus?.scheduledDate
+                           || isoToday();
+    const sealGal   = parseFloat(document.getElementById('sealGal')?.value || '');
+    const sealPpg   = parseFloat(document.getElementById('sealPrice')?.value || '');
+    const sandBags  = parseFloat(document.getElementById('sandBags')?.value || '');
+    const sandPpb   = parseFloat(document.getElementById('sandPrice')?.value || '');
+    const writes = [];
+    if (!isNaN(sealGal) && sealGal > 0 && !isNaN(sealPpg) && sealPpg > 0) {
+      writes.push({ type: 'sealer', amount: +(sealGal * sealPpg).toFixed(2), quantity: sealGal, unit: 'gallons' });
+    }
+    if (!isNaN(sandBags) && sandBags > 0 && !isNaN(sandPpb) && sandPpb > 0) {
+      writes.push({ type: 'polymeric_sand', amount: +(sandBags * sandPpb).toFixed(2), quantity: sandBags, unit: 'bags' });
+    }
+    if (writes.length) {
+      (async () => {
+        for (const w of writes) {
+          const r = await fetch(`${PCPC_API}/admin/cost-entry`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: _ssCompletionDate, jobId: jmJobId, ...w })
+          });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            alert('Seal material write failed: ' + (j.error || r.status) + '\n\nThe job has NOT been completed. Please retry.');
+            return; // abort completion
+          }
+        }
+        document.getElementById('jobLogModal').classList.add('hidden');
+        _doCompleteJob({ satisfied, endTime, issues, notes, ...payLog });
+      })();
       return;
     }
   }
@@ -5605,7 +5813,7 @@ async function _doCompleteJob(log) {
   }
   // ── End JobCrewAssignment snapshot ───────────────────────────────────────
 
-  saveDb().catch(()=>{});
+  saveDb().catch(e => console.warn('[_doCompleteJob] KV sync failed:', e.message));
   closeJobModal();
   render();
   showToast('✓ Job completed — added to review queue (4-day alert)');
@@ -5650,10 +5858,21 @@ function _doRevertJob(phone, jobId) {
   const ss  = c.scheduledStatus;
   const amt = ss.approvedAmount || 0;
 
-  // Remove calendar_completion jobHistory entry for this job date
+  // 2026-06-23 Bug 4 fix: purge ALL completion-side jh entries for this date,
+  // not just source='calendar_completion'. _doCompleteJob writes additional
+  // synthetic entries for group jobs — rig_segment children (multi-rig splits)
+  // and day_segment children (multi-day splits). Without these in the purge,
+  // they survive the revert and re-render as PHANTOM completed cards via
+  // getExtraCompletedJobsForRig. Standalone jobs have no rig/day segments, so
+  // behavior is unchanged for them.
   const jobDate = ss.scheduledDate || ss.completedDate;
   if (jobDate) {
-    c.jobHistory = (c.jobHistory || []).filter(j => !(j.date === jobDate && j.source === 'calendar_completion'));
+    c.jobHistory = (c.jobHistory || []).filter(j => {
+      if (j.date === jobDate && j.source === 'calendar_completion') return false;
+      if (j.date === jobDate && j.source === 'rig_segment')         return false;
+      if (j.date === jobDate && j.source === 'day_segment')         return false;
+      return true;
+    });
   }
 
   // Roll back aggregates
@@ -5683,16 +5902,38 @@ function _doRevertJob(phone, jobId) {
   // Remove review queue entry if it was for this job
   if (c.reviewQueue?.jobDate === jobDate) delete c.reviewQueue;
 
-  if (jobId) {
-    patchJob(jobId, { state: 'scheduled' })
-      .then(() => refreshCalendarJobs())
-      .catch(e => { console.error('[_doRevertJob] D1 PATCH FAILED:', e.message); showToast('⚠️ Revert D1 sync failed — check reconcile. ' + e.message); });
-  }
-
-  saveDb().then(() => {
-    render();
-    showToast('↩ Job reverted — back to scheduled');
-  }).catch(() => showToast('⚠️ Revert failed — check connection'));
+  // 2026-06-23 Bug 3 fix: PATCH must explicitly null Job.completedAt + paidAt
+  // (both columns are nullable + in _JOB_MUTABLE_FIELDS). Without this, D1
+  // keeps the completion timestamps even after state='scheduled', leaving the
+  // row in an inconsistent state that can re-trigger review-queue logic later.
+  //
+  // 2026-06-23 Bug 1 fix: parallelize the D1 PATCH with the KV write (was
+  // serial). Each completes independently; we await both so the toast only
+  // fires after both stores are confirmed. saveDb() is the temp bridge for
+  // the KV side until the residual KV-only fields (revertLog, deleted ss
+  // sub-keys) get a scoped endpoint — same pattern as the saveFullEdit
+  // migration's "residual KV sync" tail. The user-perceived lag is gone
+  // because both writes run in parallel rather than serial whole-DB PUT.
+  // paymentStatus added 2026-06-23 (post-cowork verification): D1 Job.paymentStatus
+  // is read on every customer rebuild via _d1BuildScheduledStatus, so a stale
+  // 'paid' value resurrects from D1 even after _patchJobKvSync clears the KV
+  // copy. Reset it to the semantic equivalent of "the customer hasn't paid
+  // for THIS attempt" — Job.paymentStatus has a NOT NULL constraint, so we
+  // use 'unpaid' rather than null. paidAt + completedAt are nullable in the
+  // schema and get cleared. paidAmount lives only on KV ss (no D1 column) —
+  // _patchJobKvSync's Bug 2 fix clears the KV side for us.
+  const _revertD1 = jobId
+    ? patchJob(jobId, { state: 'scheduled', completedAt: null, paidAt: null, paymentStatus: 'unpaid' })
+        .then(() => refreshCalendarJobs())
+        .catch(e => {
+          console.error('[_doRevertJob] D1 PATCH FAILED:', e.message);
+          showToast('⚠️ Revert D1 sync failed — ' + e.message);
+        })
+    : Promise.resolve();
+  const _revertKv = saveDb();   // ← residual KV mirror: revertLog, deleted ss sub-keys
+  Promise.all([_revertD1, _revertKv])
+    .then(() => { render(); showToast('↩ Job reverted — back to scheduled'); })
+    .catch(() => showToast('⚠️ Revert failed — check connection'));
 }
 
 // ── DELETE / CANCEL FLOWS ──────────────────────────────────────────────────────
@@ -5773,18 +6014,35 @@ function executeCancelJob(phone, jobId, reason) {
     canceledBy:    'admin',
   });
 
-  // Customer-initiated cancels trigger 6-month cooldown in reactivation
+  // Customer-initiated cancels trigger a reactivation cooldown.
+  // 2026-06-22: was localStorage-only — invisible across devices (cancel on the
+  // iPad, the laptop never saw the cooldown, the customer could get re-texted
+  // from a bulk run on a different browser). Now hits the same server endpoint
+  // bulk_reactivation.html uses (handleReactivationContact at index.js:4905),
+  // which writes to KV reactivation_contacts with a T1.20 verify-before-return.
+  // Server cooldown is REACTIVATION_COOLDOWN_DAYS=90 (was 180 in the local
+  // path) — unified to the server default per brief.
   if (reason === 'customer_canceled' || reason === 'no_show') {
-    try {
-      const contacts = JSON.parse(localStorage.getItem('pcpc_reactivation_contacts') || '{}');
-      const sixMonths = new Date(Date.now() + 6*30*24*60*60*1000);
-      contacts[phone] = { contactedAt: new Date().toISOString(), cooldownUntil: sixMonths.toISOString() };
-      localStorage.setItem('pcpc_reactivation_contacts', JSON.stringify(contacts));
-    } catch(e) {}
+    fetch(`${PCPC_API}/reactivation/contact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, at: new Date().toISOString() }),
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (!d || !d.success) {
+        console.warn('[cancel cooldown] server write failed:', d && d.error);
+        showToast('⚠️ Cooldown not saved server-side — bulk may re-text this customer');
+      }
+    })
+    .catch(e => {
+      console.warn('[cancel cooldown] network error:', e.message);
+      showToast('⚠️ Cooldown not saved server-side — bulk may re-text this customer');
+    });
   }
 
   logEvent('job_canceled', phone, {name, reason, scheduledDate: ss.scheduledDate, service: ss.jobNotes});
-  saveDb().catch(()=>{});
+  saveDb().catch(e => console.warn('[executeCancelJob] KV sync failed:', e.message));
   // render() removed from here — now runs inside patchJob().then() after
   // refreshCalendarJobs() returns. If no jobId (KV-only card), render immediately.
   if (!jobId) render();
@@ -5812,7 +6070,7 @@ function undoDelete(phone) {
   c.quoteLifecycle  = _deletedSnapshot.quoteLifecycle;
   c.quoteHistory    = _deletedSnapshot.quoteHistory;
   _deletedSnapshot = null;
-  saveDb().catch(()=>{});
+  saveDb().catch(e => console.warn('[undoDelete] KV sync failed:', e.message));
   showToast('↩ Action undone');
 }
 
@@ -6113,7 +6371,7 @@ async function saveComplaint() {
     }
   } catch(e) { console.error('Complaint save error', e); }
 
-  pcpcApi.logEvent({ eventType:'complaint_logged', phone, customer:{fn:c?.firstName||'',ln:c?.lastName||''}, complaint, loggedAt:now });
+  _logEvent({ eventType:'complaint_logged', phone, customer:{fn:c?.firstName||'',ln:c?.lastName||''}, complaint, loggedAt:now });
   render();
   showToast('⚠ Complaint logged — review request blocked');
 }
@@ -6252,7 +6510,7 @@ function sendReviewRequestFromPanel(phone, firstName, rowEl) {
   window.open(`sms:+1${phone}?&body=${encodeURIComponent(msg)}`, '_blank');
   const today = isoToday();
   localStorage.setItem(`pcpc_rev_req_${phone}`, JSON.stringify({ date: today, ts: Date.now() }));
-  pcpcApi.logEvent({ eventType:'review_request_sent', phone, customer:{fn:firstName, ph:phone}, sentAt:new Date().toISOString() });
+  _logEvent({ eventType:'review_request_sent', phone, customer:{fn:firstName, ph:phone}, sentAt:new Date().toISOString() });
   // Log to reviews hub schema (fire and forget)
   fetch('https://purecleaning-api.tylerfumero.workers.dev/customer/' + phone + '/review-request-sent', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -6308,7 +6566,7 @@ async function openInvoiceLink(phone, jobId) {
     const d = await res.json();
     _showInvoiceLinkModal(d, phone);
     // Audit log — fire-and-forget
-    pcpcApi.logEvent({
+    _logEvent({
       eventType:  'invoice_link_opened',
       phone,
       customer:   { jobId },
@@ -6444,7 +6702,7 @@ function _showInvoiceLinkModal(d, phone) {
         const full = await fullRes.json();
         const filename = await window.PCPC_InvoiceDocx.download(full);
         showToast('✓ Downloaded ' + filename);
-        pcpcApi.logEvent({
+        _logEvent({
           eventType: 'invoice_docx_downloaded',
           phone, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
           at: new Date().toISOString(),
@@ -6486,7 +6744,7 @@ function _showInvoiceLinkModal(d, phone) {
         d.paidAt     = updated.paidAt;
         render();
         showToast(_wantPaid ? '✓ Marked Paid in Full' : 'Paid-in-Full removed');
-        pcpcApi.logEvent({
+        _logEvent({
           eventType: 'invoice_paid_toggled',
           phone, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
           paid: _wantPaid, at: new Date().toISOString(),
@@ -6505,7 +6763,7 @@ function _showInvoiceLinkModal(d, phone) {
         // the blank tab is harmless and Mom closes it.
         const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(_emailSubject)}&body=${encodeURIComponent(_emailBody)}`;
         window.open(href, '_blank');
-        pcpcApi.logEvent({
+        _logEvent({
           eventType: 'invoice_email_initiated',
           phone, invoiceId: d.invoiceId, invoiceNumber: d.invoiceNumber,
           to: email, startedAt: new Date().toISOString(),
@@ -6540,7 +6798,7 @@ function _showInvoiceLinkModal(d, phone) {
           // Update the in-memory customer record so the profile / other surfaces see it
           // without a full reload, and so the re-render below shows the email button.
           c.email = newEmail;
-          pcpcApi.logEvent({
+          _logEvent({
             eventType: 'customer_email_added',
             phone, source: 'invoice_modal',
             invoiceId: d.invoiceId,
@@ -6656,7 +6914,7 @@ function printInvoice(phone, jhJobId) {
 </div>`;
 
   _openPrintWin(html, `Invoice ${invNum} — ${name}`);
-  pcpcApi.logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
+  _logEvent({ eventType:'invoice_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, invoiceNum:invNum, printedAt:new Date().toISOString() });
 }
 
 function emailInvoice(phone, jhJobId) {
@@ -6732,7 +6990,18 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const addOns   = c.addOns || [];
   const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
   const rigLabel = RIG_LABELS[rig] || rig;
-  const sqft     = c.sqFt || ss.sqFt || (c.jobHistory||[]).find(j=>j.sqFt)?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null;
+  // 2026-06-22 stale-read fix: c.sqFt is D1-canonical post-Phase-1 — it carries
+  // jobShape.sqFt (= job.sqft = Property.sqft) after refreshCalendarJobs(). The
+  // old fallback chain (ss.sqFt → jh.find(j=>j.sqFt) → qs.servicesAgreed.roofSqFt)
+  // pulled from KV mirrors that are never cleared on save, silently re-displaying
+  // the operator's pre-edit value (Tyler's Jill case 2026-06-22 20:14: cleared
+  // sqFt to null, print read ss.sqFt=2500 stale). Trust c.sqFt explicitly —
+  // null/blank means the operator cleared it. Legacy fallback retained ONLY for
+  // KV-only customers (no calJob → printC.sqFt never overridden from jobShape):
+  // when 'sqFt' key isn't on c at all, fall through to property/qs sources.
+  const sqft = ('sqFt' in c)
+    ? (c.sqFt || null)
+    : (c.properties?.[0]?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null);
   const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || c.roofType || null;  // T1.15: ss first
   const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
   const roofLabel   = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
@@ -7048,7 +7317,7 @@ function printJobSheet(phone, date, rig, jobId) {
   } : c;
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
     `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
-  pcpcApi.logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
+  _logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
 }
 
 function printBulkJobSheets(date, rig) {
@@ -7061,7 +7330,7 @@ function printBulkJobSheets(date, rig) {
   }).join('\n');
   const dateStr = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : 'Today';
   _openPrintWin(html, `Job Sheets — ${RIG_LABELS[rig]||rig} · ${dateStr}`);
-  pcpcApi.logEvent({ eventType:'bulk_job_sheets_printed', rig, date, jobCount:jobs.length, printedAt:new Date().toISOString() });
+  _logEvent({ eventType:'bulk_job_sheets_printed', rig, date, jobCount:jobs.length, printedAt:new Date().toISOString() });
 }
 
 // ── REVIEW REQUEST TEXTS ──────────────────────────────────────────────────────
@@ -7110,7 +7379,7 @@ async function sendReviewRequest(phone, firstName, btn) {
   btn.classList.add('sent');
   btn.disabled = true;
   btn.textContent = `✓ Review Requested ${today}`;
-  pcpcApi.logEvent({ eventType: 'review_request_sent', phone, customer: { fn: firstName, ph: phone }, sentAt: new Date().toISOString() });
+  _logEvent({ eventType: 'review_request_sent', phone, customer: { fn: firstName, ph: phone }, sentAt: new Date().toISOString() });
   // Log to reviews hub schema (fire and forget)
   fetch('https://purecleaning-api.tylerfumero.workers.dev/customer/' + phone + '/review-request-sent', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -7213,7 +7482,7 @@ function sendArrivalText(phone, name, slot, date, rig, btn, service) {
   const tapSpan = btn.querySelector('span:last-child');
   if (tapSpan) tapSpan.textContent = '✓ Sent';
   btn.onclick = null;
-  pcpcApi.logEvent({ eventType:'arrival_text_sent', phone, name, rig, slot, date, sentAt: new Date().toISOString() });
+  _logEvent({ eventType:'arrival_text_sent', phone, name, rig, slot, date, sentAt: new Date().toISOString() });
 }
 
 // ── PAYMENT MODAL ────────────────────────────────────────────────────────────
@@ -7241,7 +7510,7 @@ function requestPayment(phone, el, jhJobId) {
   // Log that request was sent — does NOT change job state
   ss.paymentRequestSentAt = new Date().toISOString();
   ss.paymentRequestCount  = (ss.paymentRequestCount || 0) + 1;
-  saveDb().catch(() => {});
+  saveDb().catch(e => { console.warn('[requestPayment] KV save failed:', e.message); showToast('⚠️ Payment request count not saved — check connection'); });
 
   if (el) {
     const orig = el.textContent;
@@ -7460,8 +7729,17 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feAddr').value  = _jh ? (_jh.address || '') : (_jobAddr || c.address || '');
   document.getElementById('feCity').value  = _jh ? (_jh.city    || '') : (_jobCity || c.city    || '');
   updateFeCopyBtn();
-  // Law T1.15: prefer job-specific sqFt, fall back to customer-level
-  document.getElementById('feSqFt').value  = (_jh && _jh.sqFt) || (_calJob && _calJob.sqFt) || ss.sqFt || c.sqFt || svcAgreed.roofSqFt || '';
+  // 2026-06-22 stale-read fix: when editing an active D1 job, _calJob.sqFt is
+  // the canonical D1 value (job.sqft = Property.sqft via /admin/calendar-jobs
+  // JOIN). After refreshCalendarJobs() runs post-save, this carries the
+  // operator's latest edit (incl. explicit null when they cleared the field).
+  // The old chain fell through to KV mirrors that masked clears with stale
+  // pre-edit values. _jh.sqFt is per-job history (a separate concern); when
+  // there's no calJob (KV-only customer), legacy c.sqFt + KV fallback chain.
+  document.getElementById('feSqFt').value =
+    _calJob
+      ? (_calJob.sqFt != null ? _calJob.sqFt : '')
+      : ((_jh && _jh.sqFt) || c.sqFt || svcAgreed.roofSqFt || '');
   document.getElementById('feLeadSrc').value = c.leadSource?.primary || '';
 
   const svc = _jh
@@ -8138,23 +8416,26 @@ async function saveFullEdit() {
   const qs = c.quoteStatus    || (c.quoteStatus = {});
 
   // ── jhEntry mode: editing a specific jobHistory entry (extra card) ──────────
+  // 2026-06-22 saveDb-migration: drops the await saveDb() (4–5s whole-DB PUT)
+  // in favor of consolidated scoped PATCH calls. Every field that was being
+  // persisted via the KV blob now routes to its D1 column:
+  //   Person fields (firstName, lastName, email, internalNotes, alternateContacts)
+  //     → PATCH /admin/person/:id
+  //   Job/jh entry fields (services, amount, date, rigId, paymentMethod,
+  //     workSiteAddress, workSiteCity)
+  //     → PATCH /admin/job/:jobId
+  // Local mirrors on _jh and c stay so the synchronous render() after save
+  // reflects the edit immediately (refresh re-reads canonical D1 values).
   if (_feJhJobId) {
     const _jh = _findJhByJobId(c, _feJhJobId);
+    const _altContactsJh = _feBuildAltContacts();
+    c.alternateContacts = _altContactsJh;            // local mirror
+    let _payerIdJh = 'person_1' + _fePhone;
+    // Local mirror updates (so the synchronous re-render reflects edits).
     if (_jh) {
       c.firstName = fn; c.lastName = ln;
-      if (email) {
-        const _prevEmail1 = c.email || '';
-        c.email = email;
-        if (email !== _prevEmail1) {
-          // Direct D1 write via purpose-built endpoint (belt-and-suspenders alongside PUT /customers)
-          fetch(`${PCPC_API}/admin/person/${encodeURIComponent('person_1'+_fePhone)}`, {
-            method:'PATCH', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ email }),
-          }).catch(e => console.warn('[saveFullEdit jhEntry] email PATCH failed:', e.message));
-        }
-      }
+      if (email) c.email = email;
       c.notes = notes;
-      // addr/city go to the job entry (not billing address)
       if (addr) _jh.address = addr;
       if (city) _jh.city    = city;
       if (svc)  _jh.services = svc;
@@ -8175,14 +8456,41 @@ async function saveFullEdit() {
         logEvent('phone_changed', newPhone, { oldPhone, newPhone, changedBy: 'admin' });
       }
     }
-    // Gap 2: save alternate contacts to KV customer record
-    c.alternateContacts = _feBuildAltContacts();
     const saveBtn = document.getElementById('feSaveBtn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
     const errEl2 = document.getElementById('feError');
     try {
-      await _feSubmitNewPropertyIfReady(newPhone);  // Gap 3: add second property if panel filled
-      await saveDb();
+      // Build the Job patch — every editable field has a D1 column. Pass
+      // null when blank so an operator clearing a value persists the clear
+      // (matches Phase 1 #2 kill-clear-block).
+      const _jobPatch = {};
+      if (svc !== undefined)        _jobPatch.servicesRaw      = svc || null;
+      if (svc !== undefined)        _jobPatch.jobNotes         = svc || null;
+      if (price !== undefined)      _jobPatch.amount           = price || 0;
+      if (date)                     _jobPatch.scheduledDate    = date;
+      if (rig !== undefined)        _jobPatch.rigId            = rig || null;
+      if (fePayMethod)              _jobPatch.paymentMethod    = fePayMethod;
+      if (addr !== undefined)       _jobPatch.workSiteAddress  = addr || null;
+      if (city !== undefined)       _jobPatch.workSiteCity     = city || null;
+      // Person patch — every customer-level field in one call.
+      const _personPatch = {
+        firstName:         fn,
+        lastName:          ln,
+        email:             email || null,
+        internalNotes:     notes || null,
+        alternateContacts: _altContactsJh,
+      };
+      await Promise.all([
+        Object.keys(_jobPatch).length
+          ? patchJob(_feJhJobId, _jobPatch).catch(e =>
+              console.warn('[saveFullEdit jhEntry] job PATCH failed:', e.message))
+          : Promise.resolve(),
+        fetch(`${PCPC_API}/admin/person/${encodeURIComponent(_payerIdJh)}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(_personPatch),
+        }).catch(e => console.warn('[saveFullEdit jhEntry] person PATCH failed:', e.message)),
+        _feSubmitNewPropertyIfReady(newPhone),     // gap 3: add second property if panel filled
+      ]);
       closeFullEditModal();
       render();
     } catch(e) {
@@ -8217,24 +8525,36 @@ async function saveFullEdit() {
       }
     }
     c.notes = notes;
-    if (sqFt) c.sqFt = sqFt;
+    // 2026-06-22 Phase 1 #1+#2: route sqFt through PATCH /admin/property/:id
+    // (Property.sqft is what every read surface uses — KV c.sqFt is a dead
+    // write). The `if (sqFt)` guard is removed so blanking the field also
+    // persists. The PATCH fires after the Job patch completes so we have a
+    // confirmed propertyId from the updated row.
+    c.sqFt = sqFt; // local mirror (KV write); D1 PATCH below is canonical
+    const _sqFtPropertyId = _saveCalJob?.propertyId || null;
     if (leadSrc) c.leadSource = { ...(c.leadSource||{}), primary: leadSrc, label: _LS[leadSrc] || leadSrc };
     // quoteStatus text fields only (not the scheduling fields on scheduledStatus)
     if (svc)   { qs.mainServices = svc; ss.jobNotes = svc; }
     if (price) { qs.mainAmount = price; qs.approvedAmount = price; }
-    // Roof fields always saved when set — not gated on service type.
+    // Roof fields always saved — including blanks (Phase 1 #2 kill clear-block).
     {
       const _rt = document.getElementById('feRoofType').value;
       const _sv = document.querySelector('input[name=feRoofStories]:checked')?.value;
       const _st = _sv ? parseInt(_sv) : null;
-      if (_st) {
-        patchBody.roofStories = _st;   // Bug B2a fix: send to D1 via PATCH (whitelist updated in worker)
-        ss.roofStories = _st;          // Mirror locally so card reflects change without reload
-        if (!qs.servicesAgreed) qs.servicesAgreed = {};
-        if (_rt) qs.servicesAgreed.roofType = _rt;
-      }
-      if (_rt) patchBody.roofType = _rt;  // Fix 2: send to D1 Job (T1.22); Fix 5 in worker also syncs Property
+      // 2026-06-22 Phase 1 #2: always send roofStories (incl. null) so operator
+      // can BLANK the field, not just change it. Mirror local state regardless.
+      patchBody.roofStories = _st;
+      ss.roofStories = _st;
+      if (!qs.servicesAgreed) qs.servicesAgreed = {};
+      if (_rt) qs.servicesAgreed.roofType = _rt;
+      if (_rt) patchBody.roofType = _rt;
       if (_rt) c.roofType = _rt;
+    }
+    // 2026-06-22 Phase 1 #5: paymentMethod from the edit modal also patches D1.
+    // Job.paymentMethod is in _JOB_MUTABLE_FIELDS; the calendar was reading the
+    // KV-only c.paymentMethod which never round-tripped to a read surface.
+    if (typeof fePayMethod !== 'undefined' && fePayMethod) {
+      patchBody.paymentMethod = fePayMethod;
     }
     const _gc = document.getElementById('feGateCode').value.trim() || null;
     c.gateCode = _gc;
@@ -8297,10 +8617,62 @@ async function saveFullEdit() {
           }).catch(e => console.error('propLabel save failed', e.message));
         }
       }
-      // Gap 2: save alternate contacts to KV customer record
-      c.alternateContacts = _feBuildAltContacts();
-      await _feSubmitNewPropertyIfReady(newPhone);  // Gap 3: add second property if panel filled
-      await saveDb();       // customer metadata (scheduledStatus NOT modified → no dual-write trigger)
+      // 2026-06-22 saveDb-migration: consolidated scoped writes. Everything
+      // the calendar edit modal persists now goes through D1 columns via a
+      // SINGLE parallel batch of scoped PATCH calls (Person + Property +
+      // PersonProperty). The whole-DB PUT /customers it used to await is
+      // gone from the critical path — saves drop from ~4500ms → ~300ms
+      // (max of parallel PATCH round-trips).
+      //
+      // KV-only residual fields (leadSource — no D1 column today) get a
+      // fire-and-forget saveDb() AFTER the modal closes. Failure is logged
+      // but doesn't block the UI; leadSource is analytics-only, not
+      // user-facing-on-fail.
+      const _altContacts = _feBuildAltContacts();
+      c.alternateContacts = _altContacts; // local mirror; PATCH is canonical
+      const _personIdFE = _saveCalJob?.payerId || ('person_1' + newPhone);
+      // Local mirror update for ss.sqFt / properties / calendarJobs so any
+      // re-render before refreshCalendarJobs returns reads the operator's
+      // value, not the pre-edit one (stale-read fix; same pattern as before).
+      if (_sqFtPropertyId) {
+        ss.sqFt = sqFt;
+        if (Array.isArray(c.properties)) {
+          for (const pp of c.properties) if (pp.propertyId === _sqFtPropertyId) pp.sqFt = sqFt;
+        }
+        if (c.quoteStatus?.servicesAgreed) c.quoteStatus.servicesAgreed.roofSqFt = sqFt;
+        for (const j of (calendarJobs || [])) {
+          if (j.propertyId === _sqFtPropertyId) j.sqft = sqFt;
+        }
+      }
+      // Fire ALL scoped writes in parallel. Each is a single-customer write;
+      // max round-trip ~300ms vs the old saveDb()'s ~4500ms whole-DB PUT.
+      // One consolidated PATCH per table: Person covers firstName + lastName
+      // + email + internalNotes (notes) + alternateContacts; Property covers
+      // sqft + gateCode.
+      await Promise.all([
+        fetch(`${PCPC_API}/admin/person/${encodeURIComponent(_personIdFE)}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firstName:         fn,
+            lastName:          ln,
+            email:             email || null,
+            internalNotes:     notes || null,
+            alternateContacts: _altContacts,
+          }),
+        }).catch(e => console.warn('[saveFullEdit] person PATCH failed:', e.message)),
+        _sqFtPropertyId
+          ? fetch(`${PCPC_API}/admin/property/${encodeURIComponent(_sqFtPropertyId)}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sqft: sqFt, gateCode: _gc }),
+            }).catch(e => console.warn('[saveFullEdit] property PATCH failed:', e.message))
+          : Promise.resolve(),
+        _feSubmitNewPropertyIfReady(newPhone),     // gap 3: add second property if panel filled
+      ]);
+      // Residual KV-only fields (leadSource — no D1 column today). Fire-and-
+      // forget so the modal closes immediately; failure is logged but won't
+      // block the UI. Eligible for cleanup once leadSource gets a Person
+      // column + scoped endpoint.
+      saveDb().catch(e => console.warn('[saveFullEdit] residual KV sync (leadSource) failed:', e.message));
       await refreshCalendarJobs();
       closeFullEditModal();
       render();
@@ -8335,7 +8707,11 @@ async function saveFullEdit() {
     if (addr) c.address = addr;
     if (city) c.city = city;
   }
-  if (sqFt)  c.sqFt = sqFt;
+  // 2026-06-22 Phase 1 #1+#2: sqFt always saved (incl. null when blanked). KV
+  // fallback path has no Job context, so derive propertyId from c.properties[0]
+  // (primary) for the scoped PATCH below.
+  c.sqFt = sqFt; // local mirror; PATCH below is canonical
+  const _sqFtPropertyIdKv = (c.properties && c.properties[0]?.propertyId) || null;
   c.notes = notes;
   if (leadSrc) {
     c.leadSource = { ...(c.leadSource||{}), primary: leadSrc, label: _LS[leadSrc] || leadSrc };
@@ -8398,7 +8774,8 @@ async function saveFullEdit() {
       const ok = confirm(`${c.firstName || 'Customer'}'s most recent roof job had ${_feLastKnown}-story.\nYou're saving ${stories}-story.\n\nIf this property is genuinely ${stories}-story, click OK.\nTo keep the historical value (${_feLastKnown}-story), click Cancel.`);
       if (!ok) return;
     }
-    if (stories) ss.roofStories = stories;
+    // 2026-06-22 Phase 1 #2: always mirror roofStories (incl. null clear).
+    ss.roofStories = stories;
     if (!qs.servicesAgreed) qs.servicesAgreed = {};
     if (roofType) qs.servicesAgreed.roofType = roofType;
     if (roofType) c.roofType = roofType;
@@ -8415,15 +8792,50 @@ async function saveFullEdit() {
     }).catch(() => {});
   }
 
-  // Gap 2: save alternate contacts to KV customer record
-  c.alternateContacts = _feBuildAltContacts();
+  // 2026-06-22 Phase 1 #3: alternateContacts via scoped PATCH Person.
+  const _altContactsKv = _feBuildAltContacts();
+  c.alternateContacts = _altContactsKv; // local mirror
 
   const saveBtn = document.getElementById('feSaveBtn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
   try {
-    await _feSubmitNewPropertyIfReady(newPhone);  // Gap 3: add second property if panel filled
-    await saveDb();
+    // 2026-06-22 saveDb-migration: KV-fallback path also moves to consolidated
+    // scoped PATCHes. Same model as the D1-native path above — one Person
+    // PATCH covers all Person fields, one Property PATCH covers sqft + gateCode,
+    // all fired in parallel via Promise.all. Local mirror updates protect any
+    // synchronous re-render before refresh completes (stale-read fix).
+    if (_sqFtPropertyIdKv) {
+      ss.sqFt = sqFt;
+      if (Array.isArray(c.properties)) {
+        for (const pp of c.properties) if (pp.propertyId === _sqFtPropertyIdKv) pp.sqFt = sqFt;
+      }
+      if (c.quoteStatus?.servicesAgreed) c.quoteStatus.servicesAgreed.roofSqFt = sqFt;
+      for (const j of (calendarJobs || [])) {
+        if (j.propertyId === _sqFtPropertyIdKv) j.sqft = sqFt;
+      }
+    }
+    await Promise.all([
+      fetch(`${PCPC_API}/admin/person/${encodeURIComponent('person_1' + newPhone)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName:         fn,
+          lastName:          ln,
+          email:             email || null,
+          internalNotes:     notes || null,
+          alternateContacts: _altContactsKv,
+        }),
+      }).catch(e => console.warn('[saveFullEdit kv] person PATCH failed:', e.message)),
+      _sqFtPropertyIdKv
+        ? fetch(`${PCPC_API}/admin/property/${encodeURIComponent(_sqFtPropertyIdKv)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sqft: sqFt, gateCode: _gc2 }),
+          }).catch(e => console.warn('[saveFullEdit kv] property PATCH failed:', e.message))
+        : Promise.resolve(),
+      _feSubmitNewPropertyIfReady(newPhone),  // Gap 3: add second property if panel filled
+    ]);
+    // Residual KV-only fields (leadSource). Fire-and-forget background sync.
+    saveDb().catch(e => console.warn('[saveFullEdit kv] residual KV sync (leadSource) failed:', e.message));
     closeFullEditModal();
     render();
   } catch(e) {
@@ -8719,25 +9131,81 @@ async function confirmTapSchedule() {
     }
     if (_tapStories) c.scheduledStatus.roofStories = _tapStories;
   }
-  // D1 write FIRST (Law T1.20) — calendar reads D1 only for state='scheduled'.
-  // On failure: revert in-memory KV state, show error, do not saveDb().
-  const d1Result = await scheduleJobWithDualWrite({
-    phone:         _tapSchedPhone,
-    scheduledDate: date,
-    amount:        c.scheduledStatus.approvedAmount || 0,
-    rigId:         c.scheduledStatus.rig || null,
-    services:      c.scheduledStatus.jobNotes || c.quoteStatus?.mainServices || '',
-    roofStories:   c.scheduledStatus.roofStories || null,
-    source:        'tap_schedule',
-  });
-  if (!d1Result.success) {
-    c.scheduledStatus = prev;  // revert in-memory state
-    showToast('⚠️ Schedule failed — ' + d1Result.message);
-    return;
+  // Multi-day-parent guard (RC1): an already-split customer's parent + child
+  // rows exist in D1 from handleSplitJob. ss.approvedAmount is the GROUP TOTAL
+  // (e.g. $600 = $200 + $400) — feeding that into the single-row writer would
+  // INSERT OR REPLACE the parent's $200 with $600 and collapse the split.
+  // PATCH the existing parent instead; child amounts stay untouched.
+  // DL-03: scheduledStatus is temporary; never write the group total back as a job amount.
+  // 2026-06-22 saveDb-migration: pull every persistable scheduledStatus field
+  // into the scoped D1 write so the whole-DB PUT /customers can be dropped
+  // from the critical path. window (scheduledTimeWindow), crewCount, and
+  // roofStories are all Job D1 columns + dual-write to KV via _patchJobKvSync.
+  // scheduleNote is operator-only KV-side metadata with no D1 home — covered
+  // by the fire-and-forget saveDb() tail (only fires if a note was set).
+  const _tapWindow    = c.scheduledStatus.window     || null;
+  const _tapCrewCount = c.scheduledStatus.crewCount  || null;
+  const _tapNote      = c.scheduledStatus.scheduleNote || null;
+
+  if (c.scheduledStatus?.isMultiDayParent) {
+    const phN        = _tapSchedPhone.replace(/\D/g, '').slice(-10);
+    const origDate   = c.scheduledStatus.scheduledDate;
+    const parentJobId = `job_person_1${phN}_${origDate.replace(/-/g, '_')}_scheduled`;
+    const patchBody  = { state: 'scheduled' };
+    if (date && date !== origDate)             patchBody.scheduledDate = date;
+    if (c.scheduledStatus.rig !== undefined)   patchBody.rigId = c.scheduledStatus.rig || null;
+    if (c.scheduledStatus.roofStories != null) patchBody.roofStories = c.scheduledStatus.roofStories;
+    if (_tapWindow)                            patchBody.scheduledTimeWindow = _tapWindow;
+    if (_tapCrewCount)                         patchBody.crewCount = _tapCrewCount;
+    try {
+      await patchJob(parentJobId, patchBody);
+    } catch (e) {
+      c.scheduledStatus = prev;
+      showToast('⚠️ Schedule failed — ' + e.message);
+      return;
+    }
+  } else {
+    // D1 write FIRST (Law T1.20) — calendar reads D1 only for state='scheduled'.
+    // On failure: revert in-memory KV state, show error, do not saveDb().
+    const d1Result = await scheduleJobWithDualWrite({
+      phone:         _tapSchedPhone,
+      scheduledDate: date,
+      amount:        c.scheduledStatus.approvedAmount || 0,
+      rigId:         c.scheduledStatus.rig || null,
+      services:      c.scheduledStatus.jobNotes || c.quoteStatus?.mainServices || '',
+      roofStories:   c.scheduledStatus.roofStories || null,
+      source:        'tap_schedule',
+    });
+    if (!d1Result.success) {
+      c.scheduledStatus = prev;  // revert in-memory state
+      showToast('⚠️ Schedule failed — ' + d1Result.message);
+      return;
+    }
+    // After the create lands, follow up with a PATCH to set window + crewCount.
+    // scheduleJobWithDualWrite's POST handler doesn't accept these yet, but the
+    // PATCH path does (scheduledTimeWindow + crewCount in _JOB_MUTABLE_FIELDS,
+    // _patchJobKvSync mirrors them to KV scheduledStatus.window/crewCount).
+    // Fire in parallel so the modal closes fast — failure is non-fatal (window
+    // sync can be re-done on next edit).
+    if (_tapWindow || _tapCrewCount) {
+      const phN     = _tapSchedPhone.replace(/\D/g, '').slice(-10);
+      const newJobId = `job_person_1${phN}_${date}_scheduled`;
+      const _wcPatch = {};
+      if (_tapWindow)    _wcPatch.scheduledTimeWindow = _tapWindow;
+      if (_tapCrewCount) _wcPatch.crewCount           = _tapCrewCount;
+      patchJob(newJobId, _wcPatch).catch(e =>
+        console.warn('[tap-schedule] follow-up window/crewCount PATCH failed:', e.message));
+    }
   }
 
-  // KV write after D1 confirmed
-  await saveDb();
+  // 2026-06-22 saveDb-migration: dropped `await saveDb()` here — D1 writes
+  // above cover every field the read paths need (rebuilt via _patchJobKvSync
+  // for KV scheduledStatus, and via D1 → calendar-jobs on next refresh). The
+  // only KV-only residual is scheduledStatus.scheduleNote — fire-and-forget
+  // saveDb() at the tail catches it without blocking the modal close.
+  if (_tapNote) {
+    saveDb().catch(e => console.warn('[tap-schedule] residual KV sync (scheduleNote) failed:', e.message));
+  }
   await refreshCalendarJobs();
   closeTapScheduleModal();
   render();
@@ -8746,7 +9214,7 @@ async function confirmTapSchedule() {
   showToast(`✓ ${esc(name)} → ${dayLabel} · Day Pool`, 'Undo', () => { undoAction(_tapSchedPhone, prev); });
 }
 
-function dismissMiniQuote(phone) {
+async function dismissMiniQuote(phone) {
   // Target the specific record with pending mini-quote state (may be a duplicate)
   const record = (dbRecord.customers||[]).find(x =>
     (x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
@@ -8754,8 +9222,15 @@ function dismissMiniQuote(phone) {
   );
   if (!record) return;
   record.quoteStatus.state = 'phone_quoted';
-  saveDb().then(() => render());
-  showToast('✓ Removed from Mini Quote queue');
+  try {
+    await saveDb();
+    render();
+    showToast('✓ Removed from Mini Quote queue');
+  } catch(e) {
+    record.quoteStatus.state = 'phone_quoted_pending_mini_quote';
+    console.warn('[dismissMiniQuote] KV save failed:', e.message);
+    showToast('⚠️ Could not dismiss — check connection');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -9082,6 +9557,41 @@ async function handleDropToPool(phone, date, jobId) {
   // ── Path B: quote card (no jobId) scheduled for the first time ───────────────
   const prev = JSON.parse(JSON.stringify(c.scheduledStatus || {}));
 
+  // Multi-day-parent guard (RC1): if the dragged card resolved to a customer
+  // whose ss is a multi-day-parent, the parent + child rows already exist in
+  // D1. ss.approvedAmount is the GROUP TOTAL ($200 + $400 = $600) — passing
+  // it to scheduleJobWithDualWrite would either INSERT a fresh $600 standalone
+  // OR INSERT OR REPLACE collapse the parent's $200 (when baseJobId matches).
+  // PATCH the parent's existing row instead; children stay untouched.
+  // DL-03: never write the group total back as a job amount.
+  if (c.scheduledStatus?.isMultiDayParent && c.scheduledStatus?.scheduledDate) {
+    const phN         = phone.replace(/\D/g, '').slice(-10);
+    const parentDate  = c.scheduledStatus.scheduledDate;
+    const parentJobId = `job_person_1${phN}_${parentDate.replace(/-/g, '_')}_scheduled`;
+    const patchBody   = { state: 'scheduled', rigId: null };
+    if (date !== parentDate) patchBody.scheduledDate = date;
+    try {
+      await patchJob(parentJobId, patchBody);
+    } catch(e) {
+      showToast('⚠️ Could not move job — ' + e.message);
+      render();
+      return;
+    }
+    await refreshCalendarJobs();
+    if (!c.scheduledStatus) c.scheduledStatus = {};
+    c.scheduledStatus.state         = 'scheduled';
+    c.scheduledStatus.scheduledDate = date;
+    c.scheduledStatus.rig           = null;
+    const name    = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim();
+    const dateStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    showToast(`📅 ${esc(name)} → ${dateStr} · Day Pool (rig TBD)`, 'Undo', () => { undoAction(phone, prev); });
+    saveDb().catch(e => console.warn('[handleDropToPool] KV sync failed:', e.message));
+    renderDayPool(date);
+    renderCalGrid(getWeekDates());
+    renderSidebar();
+    return;
+  }
+
   // D1 write FIRST (Law T1.20) — before modifying KV state or re-rendering.
   const d1Result = await scheduleJobWithDualWrite({
     phone,
@@ -9106,7 +9616,7 @@ async function handleDropToPool(phone, date, jobId) {
   const name    = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim();
   const dateStr = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   showToast(`📅 ${esc(name)} → ${dateStr} · Day Pool (rig TBD)`, 'Undo', () => { undoAction(phone, prev); });
-  saveDb().catch(() => {});
+  saveDb().catch(e => console.warn('[handleDropToPool] KV sync failed:', e.message));
   renderDayPool(date);
   renderCalGrid(getWeekDates());
   renderSidebar();

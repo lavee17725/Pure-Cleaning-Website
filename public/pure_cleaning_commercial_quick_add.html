@@ -275,7 +275,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('jobDate').value = localISODate();
 
   try {
-    const r = await fetch(`${PCPC_API}/customers`);
+    // 2026-06-22: switched to /customers/summary (~1.2 MB vs 4 MB). Page reads
+    // only customerType, isReferralOnly, firstName, lastName, businessName,
+    // phone, personId — all in summary shape.
+    const r = await fetch(`${PCPC_API}/customers/summary`);
     const d = await r.json();
     allCommercial = (d.customers || []).filter(c =>
       c.customerType === 'commercial' &&
@@ -419,6 +422,10 @@ async function save() {
 
     if (isNewClient) {
       // ── New commercial customer ──────────────────────────────────────────
+      // 2026-06-22 migration: replaced the legacy GET /customers → mutate →
+      // PUT /customers pattern (which relied on _d1SyncCustomersPut to create
+      // Person + Property in D1) with explicit POST /admin/person + POST
+      // /admin/property calls. Same end-state in D1; no whole-DB blob write.
       const fn  = document.getElementById('ncFirst').value.trim();
       const ln  = document.getElementById('ncLast').value.trim();
       const ph  = document.getElementById('ncPhone').value.replace(/\D/g,'').slice(-10);
@@ -429,38 +436,48 @@ async function save() {
       phone10  = ph;
       personId = 'person_1' + ph;
 
-      // 1. Load current KV blob, add new customer, PUT back
-      const getR = await fetch(`${PCPC_API}/customers`);
-      const db   = await getR.json();
-      const blob = db.customers || db;
-      const customers = Array.isArray(blob) ? blob : (blob.customers || []);
-
-      customers.push({
-        firstName:          fn,
-        lastName:           ln,
-        phone:              ph,
-        email:              em,
-        address:            addr,
-        city:               city,
-        customerType:       'commercial',
-        isCommercialAccount: true,
-        isHomeowner:        false,
-        isReferralOnly:     false,
-        scheduledStatus:    {},
-        jobHistory:         [],
-        totalJobs:          0,
-        lifetimeSpend:      0,
-        alerts:             [],
-      });
-      const putR = await fetch(`${PCPC_API}/customers`, {
-        method:  'PUT',
+      // 1. POST /admin/person — dual-writes Person row to D1 + appends slim
+      //    KV entry. Idempotent on personId (returns alreadyExists on retry).
+      //    customerType='commercial' auto-flags isCommercialAccount=1 and
+      //    isHomeowner=0 server-side (matches the legacy PUT payload).
+      const personR = await fetch(`${PCPC_API}/admin/person`, {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ customers }),
+        body: JSON.stringify({
+          firstName:    fn,
+          lastName:     ln,
+          primaryPhone: ph,
+          email:        em,
+          customerType: 'commercial',
+        }),
       });
-      if (!putR.ok) throw new Error('Failed to create customer (KV write)');
+      if (!personR.ok) {
+        const err = await personR.json().catch(() => ({}));
+        throw new Error(`Person create failed: ${err.error || personR.status}`);
+      }
 
-      // 2. Compute propId (mirrors worker _d1PropId)
-      propertyId = _d1PropId(addr, city);
+      // 2. POST /admin/property — geocoded server-side (now with hardened
+      //    fuzzy-match dedup so distinct addresses Google maps to the same
+      //    place_id never collapse into one row). 'Main Office' label
+      //    distinguishes commercial sites from residential 'Main Residence'.
+      const propR = await fetch(`${PCPC_API}/admin/property`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personId,
+          streetAddress:  addr,
+          city,
+          propertyLabel:  'Main Office',
+          propertyType:   'other',
+          primaryContact: true,
+        }),
+      });
+      if (!propR.ok) {
+        const err = await propR.json().catch(() => ({}));
+        throw new Error(`Property create failed: ${err.error || propR.status}`);
+      }
+      const propData = await propR.json();
+      propertyId = propData.propertyId;
 
     } else {
       // ── Existing commercial customer ─────────────────────────────────────

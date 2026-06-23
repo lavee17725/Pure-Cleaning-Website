@@ -369,7 +369,11 @@ async function init() {
     }
   } catch(e) {}
   try {
-    const res = await fetch(`${PCPC_API_AJ}/customers`);
+    // 2026-06-22: switched to /customers/summary (~1.2 MB vs 4 MB). Page uses
+    // it only for the duplicate-phone match dropdown — reads {phone,
+    // firstName, lastName, address, city, lifetimeSpend, totalJobs} which
+    // are all in the summary shape (audit confirmed).
+    const res = await fetch(`${PCPC_API_AJ}/customers/summary`);
     dbRecord = await res.json();
     try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ data: dbRecord, timestamp: Date.now() })); } catch(e) {}
   } catch(e) { console.warn('[AddJob] DB load failed:', e.message); }
@@ -620,7 +624,8 @@ function saveJob() {
   document.getElementById('successView').style.display = 'block';
   document.getElementById('successMsg').textContent = `${displayName} · $${amount.toLocaleString('en-US',{maximumFractionDigits:0})} · ${routeMsg}`;
 
-  // Apply to in-memory dbRecord and bust cache
+  // Apply to in-memory dbRecord and bust cache (in-memory only — KV is now
+  // written via scoped admin API below, NOT via a whole-DB PUT).
   if (!dbRecord) dbRecord = { customers: [] };
   if (!dbRecord.customers) dbRecord.customers = [];
   if (isExisting) {
@@ -631,9 +636,32 @@ function saveJob() {
   }
   sessionStorage.removeItem(CACHE_KEY);
 
-  // Background write
-  writeToJsonbin(dbRecord).catch(() => {
-    savePendingJob({ customerRecord, isExisting, phone, timestamp: Date.now() });
+  // 2026-06-22 migration: scoped admin API calls replace the full-DB PUT.
+  // Bundle every field needed for the 3-call sequence so the retry queue
+  // can replay it without depending on the in-memory customerRecord.
+  const savePayload = {
+    phone, isExisting,
+    firstName: customerRecord.firstName || '',
+    lastName:  customerRecord.lastName  || '',
+    email:     customerRecord.email     || '',
+    address:   customerRecord.address   || '',
+    city:      customerRecord.city      || '',
+    notes:     customerRecord.notes     || '',
+    isTestRecord: !!customerRecord.isTest,
+    amount,
+    services:  svcs.join(', '),
+    jobNotes:  jobNotesVal,
+    hasSeal,
+    schedulePath,
+    schedDate: schedStatus.scheduledDate || null,
+    schedRig:  schedStatus.rig || null,
+    schedTime: schedStatus.startTime || null,
+    queueReqDate: schedStatus.customerSelectedDate || null,
+    duration:  dur,
+  };
+  saveJobScoped(savePayload).catch((e) => {
+    console.warn('[add_job] scoped save failed, queuing for retry:', e?.message);
+    savePendingJob({ savePayload, timestamp: Date.now() });
     showPendingBanner();
   });
 
@@ -672,13 +700,91 @@ function saveJob() {
   })();
 }
 
-async function writeToJsonbin(db) {
-  const res = await fetch(`${PCPC_API_AJ}/customers`, {
-    method: 'PUT',
+// 2026-06-22: scoped admin API replacement for the legacy writeToJsonbin
+// full-DB PUT. Sequence:
+//   1. NEW customer → POST /admin/person (idempotent on personId)
+//   2. NEW customer → POST /admin/property (dedups by googlePlaceId)
+//   3. EXISTING customer → GET /customer/:phone → take primary property
+//   4. Always → POST /admin/scheduled-job (scheduled or needs_scheduling)
+// Errors throw so the caller can queue for retry; idempotency means a partial
+// success is safe to replay.
+async function saveJobScoped(p) {
+  const personId = `person_1${p.phone}`;
+  let propertyId;
+  if (p.isExisting) {
+    // EXISTING — locate primary property
+    const r = await fetch(`${PCPC_API_AJ}/customer/${p.phone}`);
+    if (!r.ok) throw new Error(`existing-lookup HTTP ${r.status}`);
+    const data = await r.json();
+    const props = data?.customer?.properties || [];
+    const primary = props.find(x => x.primaryContact) || props[0];
+    if (!primary) throw new Error('existing customer has no property on file');
+    propertyId = primary.propertyId;
+  } else {
+    // NEW — create Person
+    const personR = await fetch(`${PCPC_API_AJ}/admin/person`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstName:    p.firstName,
+        lastName:     p.lastName,
+        primaryPhone: p.phone,
+        email:        p.email || null,
+        customerType: 'residential',
+        // Test marker → internalNotes so admin.html regex fallback still detects.
+        // Customer notes go through too — first one wins, but the test marker
+        // is more time-sensitive (auto-cleanup), so prioritize it.
+        internalNotes: p.isTestRecord
+          ? `[TEST EXPIRES ${new Date(Date.now()+86400000).toISOString().slice(0,10)}]`
+          : (p.notes || null),
+      }),
+    });
+    if (!personR.ok) throw new Error(`person-create HTTP ${personR.status}`);
+
+    // Create Property — geocoded server-side when no coords provided.
+    const propR = await fetch(`${PCPC_API_AJ}/admin/property`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personId,
+        streetAddress:  p.address,
+        city:           p.city,
+        propertyLabel:  'Main Residence',
+        primaryContact: true,
+      }),
+    });
+    if (!propR.ok) throw new Error(`property-create HTTP ${propR.status}`);
+    const propData = await propR.json();
+    propertyId = propData.propertyId;
+  }
+
+  // Create Job — direct schedule (state=scheduled with date+rig) OR queue
+  // (state=needs_scheduling, null scheduledDate). Worker handles the state
+  // distinction; scheduledDate optional only when state=needs_scheduling.
+  const jobBody = {
+    payerId:           personId,
+    propertyId,
+    amount:            p.amount,
+    servicesRequested: p.services,    // flat string; worker parses to canonical tags
+    servicesRaw:       p.services,
+    jobNotes:          p.jobNotes || p.services,
+    source:            'manual_phone',
+  };
+  if (p.schedulePath === 'direct') {
+    jobBody.state         = 'scheduled';
+    jobBody.scheduledDate = p.schedDate;
+    jobBody.rigId         = p.schedRig;
+  } else {
+    jobBody.state                = 'needs_scheduling';
+    jobBody.customerSelectedDate = p.queueReqDate;
+  }
+  const jobR = await fetch(`${PCPC_API_AJ}/admin/scheduled-job`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(db)
+    body: JSON.stringify(jobBody),
   });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!jobR.ok) throw new Error(`job-create HTTP ${jobR.status}`);
+  return await jobR.json();
 }
 
 function savePendingJob(job) {
@@ -690,24 +796,25 @@ function savePendingJob(job) {
 }
 
 async function checkPendingJobs() {
+  // 2026-06-22: pending jobs now store the `savePayload` bundle (not the
+  // full customerRecord) so retry replays through the scoped API. Older
+  // pending entries (legacy customerRecord shape) are dropped — they'd PUT
+  // a full DB shape against an endpoint that may no longer accept it.
   try {
     const pend = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
     if (!pend.length) return;
-    // Try to flush pending
-    const res = await fetch(`${PCPC_API_AJ}/customers`);
-    const db = await res.json();
-    if (!db.customers) db.customers = [];
+    const remaining = [];
     for (const job of pend) {
-      if (job.isExisting) {
-        const idx = db.customers.findIndex(c => c.phone === job.phone);
-        if (idx >= 0) db.customers[idx] = job.customerRecord;
-      } else {
-        if (!db.customers.find(c => c.phone === job.phone)) db.customers.push(job.customerRecord);
-      }
+      if (!job.savePayload) continue;  // drop legacy shape
+      try { await saveJobScoped(job.savePayload); }
+      catch (e) { remaining.push(job); console.warn('[add_job] retry failed:', e?.message); }
     }
-    await writeToJsonbin(db);
-    localStorage.removeItem(PENDING_KEY);
-    dbRecord = db;
+    if (remaining.length) {
+      localStorage.setItem(PENDING_KEY, JSON.stringify(remaining));
+      showPendingBanner();
+    } else {
+      localStorage.removeItem(PENDING_KEY);
+    }
   } catch(e) { showPendingBanner(); }
 }
 

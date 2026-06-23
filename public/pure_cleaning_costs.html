@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Pure Cleaning · Operations / Costs</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: #f6f7f9;
+    color: #1d2330;
+    margin: 0;
+    padding: 0;
+  }
+  .topbar {
+    background: #0e1626;
+    color: #fff;
+    padding: 14px 22px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .topbar h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0.2px; }
+  .topbar a { color: #94a8d8; text-decoration: none; font-size: 13px; }
+  .topbar a:hover { color: #fff; }
+  main {
+    max-width: 1100px;
+    margin: 24px auto;
+    padding: 0 16px;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid #e2e6ee;
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 16px;
+    background: transparent;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    font: 600 14px 'DM Sans', system-ui, sans-serif;
+    color: #586278;
+    white-space: nowrap;
+  }
+  .tab.active { color: #0e1626; border-bottom-color: #2c63ff; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card {
+    background: #fff;
+    border: 1px solid #e2e6ee;
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 14px; font-size: 16px; font-weight: 700; }
+  .card .sub { color: #586278; font-size: 13px; margin-top: -10px; margin-bottom: 14px; }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr auto;
+    gap: 10px;
+    align-items: end;
+    margin-bottom: 10px;
+  }
+  .row .full { grid-column: 1 / -1; }
+  .row label {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 12px; color: #586278; font-weight: 500;
+  }
+  .row input, .row select, .row textarea {
+    font: 14px 'DM Sans', system-ui, sans-serif;
+    padding: 8px 10px;
+    border: 1px solid #d3d8e2;
+    border-radius: 6px;
+    background: #fff;
+  }
+  .row input:focus, .row select:focus, .row textarea:focus {
+    outline: 2px solid #2c63ff; outline-offset: -1px;
+  }
+  button.primary {
+    background: #2c63ff; color: #fff;
+    border: 0; border-radius: 6px;
+    padding: 9px 16px;
+    font: 600 14px 'DM Sans', system-ui, sans-serif;
+    cursor: pointer;
+  }
+  button.primary:hover { background: #1a4ce0; }
+  button.primary:disabled { background: #8a9bc7; cursor: not-allowed; }
+  button.secondary {
+    background: #fff; color: #2c63ff;
+    border: 1px solid #2c63ff;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font: 600 13px 'DM Sans', system-ui, sans-serif;
+    cursor: pointer;
+  }
+  button.ghost {
+    background: transparent; color: #586278;
+    border: 1px solid #d3d8e2;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font: 500 13px 'DM Sans', system-ui, sans-serif;
+    cursor: pointer;
+  }
+  button.danger {
+    background: #fff; color: #c4324a;
+    border: 1px solid #e5b5be;
+    border-radius: 6px;
+    padding: 7px 11px;
+    font: 600 12px 'DM Sans', system-ui, sans-serif;
+    cursor: pointer;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    background: #f2f4f8;
+    padding: 9px 10px;
+    font-weight: 600;
+    color: #3f485a;
+    border-bottom: 1px solid #e2e6ee;
+  }
+  td {
+    padding: 9px 10px;
+    border-bottom: 1px solid #eef0f5;
+    vertical-align: middle;
+  }
+  tr:hover td { background: #fafbfd; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.active   { background: #e3f1e3; color: #1d6d2c; }
+  .badge.broken   { background: #fceaec; color: #9d2336; }
+  .badge.retired  { background: #ebeef5; color: #586278; }
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: #1d2330; color: #fff;
+    padding: 12px 18px; border-radius: 8px;
+    font-size: 14px; font-weight: 500;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .2s, transform .2s;
+    pointer-events: none; z-index: 2000;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .empty {
+    text-align: center; padding: 30px 20px;
+    color: #8893a8; font-size: 14px;
+  }
+  .rig-block {
+    border: 1px solid #e2e6ee;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+    background: #fafbfd;
+  }
+  .rig-block h3 {
+    margin: 0 0 10px;
+    font-size: 14px; font-weight: 700;
+    color: #2c63ff;
+  }
+  .helper {
+    font-size: 12px; color: #586278;
+    background: #f4f7fb;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 3px solid #2c63ff;
+    margin-bottom: 14px;
+  }
+  .right { text-align: right; }
+  .small { font-size: 12px; color: #586278; }
+  .nowrap { white-space: nowrap; }
+  @media (max-width: 700px) {
+    .row { grid-template-columns: 1fr 1fr; }
+    .row .full, .row label[data-span="full"] { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Operations / Costs</h1>
+  <a href="/pure_cleaning_admin.html">← Admin</a>
+  <span style="flex:1"></span>
+  <span class="small" style="color:#94a8d8;">Phase 1 · capture only</span>
+</div>
+
+<main>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-panel="daily">Daily entry</button>
+    <button class="tab" data-panel="equipment">Equipment</button>
+    <button class="tab" data-panel="fixed">Fixed monthly</button>
+    <button class="tab" data-panel="profit">Profit</button>
+    <button class="tab" data-panel="labor">Labor config</button>
+    <button class="tab" data-panel="recent">Recent entries</button>
+  </div>
+
+  <!-- ─── DAILY ENTRY ────────────────────────────────────────────────── -->
+  <section class="panel active" id="panel-daily">
+    <div class="card">
+      <h2>Daily per-rig costs</h2>
+      <div class="helper">
+        Gas receipt + chlorine gallons (auto-priced at $2/gal — editable on the row) per rig per day.
+        Tyler's per-job chlorine split happens later in Phase 2 (allocation engine).
+      </div>
+      <label class="small" style="display:flex; flex-direction:column; gap:4px; max-width:200px; margin-bottom:14px;">
+        <span>Date</span>
+        <input type="date" id="dailyDate" value="">
+      </label>
+
+      <div id="rigBlocks">
+        <!-- 3 rig blocks injected here -->
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Add one-off cost</h2>
+      <div class="sub">Equipment part, sealer, sand, truck repair, etc. (anything that isn't gas/chlorine for the day)</div>
+      <div class="row">
+        <label><span>Date</span><input type="date" id="ooDate"></label>
+        <label><span>Category</span><select id="ooType"></select></label>
+        <label><span>Rig (optional)</span>
+          <select id="ooRig"><option value="">—</option><option value="rig1">Rig 1</option><option value="rig2">Rig 2</option><option value="rig3">Rig 3</option></select>
+        </label>
+        <label><span>Amount $</span><input type="number" id="ooAmount" placeholder="Enter amount" step="0.01" min="0"></label>
+        <button class="primary" onclick="saveOneOff()">Save</button>
+      </div>
+      <div class="row">
+        <label data-span="full"><span>Quantity (optional — e.g. 2 gal, 3 bags)</span><input type="number" id="ooQty" placeholder="Quantity" step="0.01" min="0"></label>
+        <label data-span="full"><span>Note (optional)</span><input type="text" id="ooNote" placeholder="What for / where"></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── EQUIPMENT ─────────────────────────────────────────────────── -->
+  <section class="panel" id="panel-equipment">
+    <div class="card">
+      <h2>Add equipment</h2>
+      <div class="sub">Key by serial last-4 or a descriptive label. Lifespan = Bouncie active hours over install → break (Phase 2).</div>
+      <div class="row">
+        <label><span>Label / serial last-4</span><input type="text" id="eqLabel" placeholder="e.g. 4471 or hose-rig1"></label>
+        <label><span>Type</span>
+          <select id="eqType">
+            <option value="large_machine">Large machine</option>
+            <option value="small_machine">Small machine</option>
+            <option value="gun">Gun</option>
+            <option value="hose">Hose</option>
+            <option value="hover_cover_part">Hover-cover wear part</option>
+            <option value="ball_valve">Ball valve</option>
+            <option value="chlorine_injector">Chlorine injector</option>
+            <option value="pump">Pump</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label><span>Rig (optional)</span>
+          <select id="eqRig"><option value="">—</option><option value="rig1">Rig 1</option><option value="rig2">Rig 2</option><option value="rig3">Rig 3</option></select>
+        </label>
+        <label><span>Installed</span><input type="date" id="eqInstall"></label>
+        <button class="primary" onclick="saveEquipment()">Add</button>
+      </div>
+      <div class="row">
+        <label data-span="full"><span>Purchase cost $ (optional)</span><input type="number" id="eqCost" placeholder="Enter amount" step="0.01" min="0"></label>
+        <label data-span="full"><span>Note (optional)</span><input type="text" id="eqNote" placeholder="Where bought / model #"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Active &amp; recent equipment</h2>
+      <div id="equipmentList"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- ─── FIXED MONTHLY ─────────────────────────────────────────────── -->
+  <section class="panel" id="panel-fixed">
+    <div class="card">
+      <h2>Fixed monthly costs</h2>
+      <div class="helper">
+        Pre-fills last month's amounts; confirm or edit. One row per category. Saving inserts or updates this month's CostEntry rows dated YYYY-MM-01.
+      </div>
+      <label class="small" style="display:flex; flex-direction:column; gap:4px; max-width:200px; margin-bottom:14px;">
+        <span>Month</span>
+        <input type="month" id="fixedMonth" value="">
+      </label>
+      <div id="fixedList"><div class="empty">Loading…</div></div>
+      <div style="margin-top:12px; text-align:right;">
+        <button class="primary" id="fixedSaveBtn" onclick="saveFixedMonthly()">Save all</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PROFIT ──────────────────────────────────────────────────────── -->
+  <section class="panel" id="panel-profit">
+    <div class="card">
+      <h2>Per-job profit (recent completed jobs)</h2>
+      <div class="helper">
+        Each chip below is computed from gas + chlorine + sealer/sand + equipment wear + labor + fixed-monthly allocation. <strong>"est. — partial"</strong> means at least one input is missing for that job/day — the number is honest about what it doesn't know.
+      </div>
+      <label class="small" style="display:flex; flex-direction:column; gap:4px; max-width:200px; margin-bottom:14px;">
+        <span>Date</span>
+        <input type="date" id="profitDate" value="">
+      </label>
+      <button class="secondary" onclick="recomputeProfitDay()" style="margin-bottom:14px;">↻ Recompute this day</button>
+      <div id="profitList"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- ─── LABOR CONFIG ──────────────────────────────────────────────── -->
+  <section class="panel" id="panel-labor">
+    <div class="card">
+      <h2>Standard hours &amp; rates (per season)</h2>
+      <div class="helper">
+        <strong>Per-job labor</strong> = job on-site hours × Σ(each assigned crew member's hourly rate).
+        <strong>Hourly rate</strong> = day-rate ÷ standardHours. Tuning standardHours scales the per-job cost
+        for the whole season. After editing, click "Recompute cached profits" — every cached row picks up
+        the new model.
+      </div>
+      <div id="laborCfgList"><div class="empty">Loading…</div></div>
+      <div style="margin-top:14px; text-align:right;">
+        <button class="secondary" onclick="recomputeAllCachedProfits()">↻ Recompute cached profits</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── RECENT ENTRIES ────────────────────────────────────────────── -->
+  <section class="panel" id="panel-recent">
+    <div class="card">
+      <h2>Recent cost entries</h2>
+      <div class="sub">Last 100 entries across all categories.</div>
+      <div id="recentList"><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast"></div>
+
+<!-- Chlorine split modal -->
+<div id="csModal" style="position:fixed; inset:0; background:rgba(15,22,38,0.6); display:none; align-items:center; justify-content:center; z-index:1500; padding:16px;">
+  <div style="background:#fff; border-radius:10px; padding:20px; max-width:760px; width:100%; max-height:90vh; overflow:auto;">
+    <h2 id="csTitle" style="margin:0 0 14px; font-size:16px;">Chlorine split</h2>
+    <div id="csBody"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+      <button class="ghost" onclick="closeChlorineSplit()">Cancel</button>
+      <button class="primary" onclick="saveChlorineSplit()">Save split</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  #csModal.show { display: flex; }
+</style>
+
+<script>
+const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const RIGS = ['rig1', 'rig2', 'rig3'];
+let CATEGORIES = []; // loaded from /admin/cost-categories
+let PER_JOB_CATS = [];
+let FIXED_CATS = [];
+
+// ── Toast ────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────
+document.getElementById('tabs').addEventListener('click', e => {
+  if (!e.target.classList.contains('tab')) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  e.target.classList.add('active');
+  const id = 'panel-' + e.target.dataset.panel;
+  document.getElementById(id).classList.add('active');
+  if (e.target.dataset.panel === 'equipment') loadEquipment();
+  if (e.target.dataset.panel === 'fixed')     loadFixedMonthly();
+  if (e.target.dataset.panel === 'recent')    loadRecent();
+  if (e.target.dataset.panel === 'profit')    loadProfit();
+  if (e.target.dataset.panel === 'labor')     loadLaborConfig();
+});
+
+// ── Date defaults ────────────────────────────────────────────────────
+const today = new Date();
+const todayStr = today.toISOString().slice(0, 10);
+const thisMonthStr = todayStr.slice(0, 7);
+document.getElementById('dailyDate').value = todayStr;
+document.getElementById('ooDate').value    = todayStr;
+document.getElementById('eqInstall').value  = todayStr;
+document.getElementById('fixedMonth').value = thisMonthStr;
+document.getElementById('profitDate').value = todayStr;
+
+document.getElementById('fixedMonth').addEventListener('change', loadFixedMonthly);
+
+// ── Load categories on boot ──────────────────────────────────────────
+async function loadCategories() {
+  const r = await fetch(`${PCPC_API}/admin/cost-categories`);
+  const j = await r.json();
+  CATEGORIES = j.categories || [];
+  PER_JOB_CATS = CATEGORIES.filter(c => c.kind === 'per_job_variable');
+  FIXED_CATS   = CATEGORIES.filter(c => c.kind === 'fixed_monthly');
+
+  // Populate one-off category dropdown — exclude gas/chlorine (which have dedicated rig rows)
+  const ooType = document.getElementById('ooType');
+  ooType.innerHTML = '';
+  for (const c of CATEGORIES) {
+    if (c.kind === 'fixed_monthly') continue;
+    if (c.categoryId === 'gas' || c.categoryId === 'chlorine') continue;
+    const opt = document.createElement('option');
+    opt.value = c.categoryId;
+    opt.textContent = c.name + (c.kind === 'occasional' ? ' (occasional)' : '');
+    ooType.appendChild(opt);
+  }
+
+  renderRigBlocks();
+}
+
+// ── Daily per-rig entry blocks ───────────────────────────────────────
+function renderRigBlocks() {
+  const wrap = document.getElementById('rigBlocks');
+  wrap.innerHTML = '';
+  for (const rig of RIGS) {
+    const block = document.createElement('div');
+    block.className = 'rig-block';
+    block.innerHTML = `
+      <h3>${rig.toUpperCase()}</h3>
+      <div class="row">
+        <label><span>Gas receipt $</span><input type="number" id="gas-${rig}" placeholder="Enter amount" step="0.01" min="0"></label>
+        <label><span>Chlorine gallons</span><input type="number" id="chlorGal-${rig}" placeholder="Gallons" step="0.1" min="0"></label>
+        <label><span>$/gal</span><input type="number" id="chlorPrice-${rig}" value="2.00" step="0.01" min="0"></label>
+        <label><span>Note (optional)</span><input type="text" id="note-${rig}" placeholder="Optional"></label>
+        <button class="primary" onclick="saveDailyRig('${rig}')">Save ${rig.toUpperCase()}</button>
+      </div>
+    `;
+    wrap.appendChild(block);
+  }
+}
+
+async function saveDailyRig(rig) {
+  const date    = document.getElementById('dailyDate').value;
+  const gas     = parseFloat(document.getElementById(`gas-${rig}`).value);
+  const gal     = parseFloat(document.getElementById(`chlorGal-${rig}`).value);
+  const ppg     = parseFloat(document.getElementById(`chlorPrice-${rig}`).value || 2);
+  const note    = document.getElementById(`note-${rig}`).value.trim();
+
+  if (!date) { showToast('Pick a date'); return; }
+
+  let savedAny = false;
+
+  if (!isNaN(gas) && gas > 0) {
+    const r = await fetch(`${PCPC_API}/admin/cost-entry`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ date, type:'gas', rigId:rig, amount:gas, unit:'receipt', note: note || null })
+    });
+    if (r.ok) { savedAny = true; } else { const j = await r.json().catch(()=>({})); showToast('Gas error: ' + (j.error||r.status)); return; }
+  }
+
+  if (!isNaN(gal) && gal > 0) {
+    const amount = +(gal * ppg).toFixed(2);
+    const r = await fetch(`${PCPC_API}/admin/cost-entry`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        date, type:'chlorine', rigId:rig, amount, quantity:gal, unit:'gallons',
+        note: note ? `${note} (${ppg.toFixed(2)}/gal)` : `${ppg.toFixed(2)}/gal`
+      })
+    });
+    if (r.ok) { savedAny = true; } else { const j = await r.json().catch(()=>({})); showToast('Chlorine error: ' + (j.error||r.status)); return; }
+  }
+
+  if (savedAny) {
+    document.getElementById(`gas-${rig}`).value = '';
+    document.getElementById(`chlorGal-${rig}`).value = '';
+    document.getElementById(`note-${rig}`).value = '';
+    showToast(`✓ ${rig.toUpperCase()} saved`);
+    // If chlorine was logged, pop the split-across-jobs modal so Tyler can
+    // type gallons-per-job while it's fresh.
+    if (!isNaN(gal) && gal > 0) {
+      openChlorineSplit(rig, date);
+    }
+  } else {
+    showToast('Nothing to save — enter gas $ or chlorine gallons');
+  }
+}
+
+// ── Chlorine split modal ─────────────────────────────────────────────
+let _csState = { date: null, rigId: null, bundle: null };
+
+async function openChlorineSplit(rigId, date) {
+  _csState = { date, rigId, bundle: null };
+  const r = await fetch(`${PCPC_API}/admin/job-chlorine?date=${date}&rigId=${rigId}`);
+  if (!r.ok) { showToast('Failed to load split bundle'); return; }
+  const b = await r.json();
+  _csState.bundle = b;
+  document.getElementById('csTitle').textContent =
+    `Chlorine split — ${rigId.toUpperCase()} · ${date}`;
+  document.getElementById('csModal').classList.add('show');
+  renderChlorineSplit();
+}
+
+function renderChlorineSplit() {
+  const b = _csState.bundle;
+  const body = document.getElementById('csBody');
+  if (!b || !b.jobs.length) {
+    body.innerHTML = `
+      <div class="empty">
+        No completed jobs on this rig+date yet — the chlorine fill is saved.
+        Re-open this split from the Profit tab once jobs are completed.
+      </div>`;
+    return;
+  }
+  if (!b.fills.length) {
+    body.innerHTML = '<div class="empty">No chlorine fills found for this day.</div>';
+    return;
+  }
+  const fillsTotalGal = b.fills.reduce((s, f) => s + (f.quantity || 0), 0);
+  const totalsByJob = {};
+  for (const a of (b.allocations || [])) totalsByJob[a.jobId] = (totalsByJob[a.jobId] || 0) + (a.gallons || 0);
+
+  let html = `<div class="helper">
+    Available: <strong>${fillsTotalGal.toFixed(1)} gal</strong> across
+    ${b.fills.length} fill${b.fills.length === 1 ? '' : 's'}.
+    System will learn gallons-per-service from these splits.
+  </div>`;
+  html += `<table><thead><tr><th>Customer</th><th>Revenue</th><th>Duration</th>`;
+  for (const f of b.fills) {
+    html += `<th class="right">Fill (${f.quantity != null ? f.quantity.toFixed(1) + ' gal' : '?'})</th>`;
+  }
+  html += `<th class="right">Total gal</th></tr></thead><tbody>`;
+
+  for (const j of b.jobs) {
+    const dur = j.actualDuration ? (j.actualDuration / 60).toFixed(1) + 'h' : '—';
+    html += `<tr data-job="${j.jobId}">`;
+    html += `<td><strong>${escapeHtml(j.customerName)}</strong></td>`;
+    html += `<td class="right small">$${j.amount.toFixed(2)}</td>`;
+    html += `<td class="small nowrap">${dur}</td>`;
+    let jobTotal = 0;
+    for (const f of b.fills) {
+      const ex = (b.allocations || []).find(a => a.jobId === j.jobId && a.costEntryId === f.costEntryId);
+      const v = ex ? ex.gallons : '';
+      if (ex) jobTotal += ex.gallons;
+      html += `<td class="right"><input type="number" step="0.1" min="0" data-job="${j.jobId}" data-fill="${f.costEntryId}" value="${v}" placeholder="0" style="width:75px; padding:4px 6px; border:1px solid #d3d8e2; border-radius:5px; text-align:right; font-size:13px;"></td>`;
+    }
+    html += `<td class="right small" id="csTotal-${j.jobId}">${jobTotal.toFixed(1)}</td>`;
+    html += `</tr>`;
+  }
+  html += `</tbody></table>`;
+  body.innerHTML = html;
+
+  // Live row totals
+  body.querySelectorAll('input[data-job]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const jid = inp.dataset.job;
+      let t = 0;
+      body.querySelectorAll(`input[data-job="${jid}"]`).forEach(i => { t += parseFloat(i.value) || 0; });
+      const el = document.getElementById(`csTotal-${jid}`);
+      if (el) el.textContent = t.toFixed(1);
+    });
+  });
+}
+
+function closeChlorineSplit() {
+  document.getElementById('csModal').classList.remove('show');
+  _csState = { date: null, rigId: null, bundle: null };
+}
+
+async function saveChlorineSplit() {
+  const inputs = document.querySelectorAll('#csBody input[data-job]');
+  let saved = 0, failed = 0;
+  for (const inp of inputs) {
+    const gal = parseFloat(inp.value);
+    const jobId       = inp.dataset.job;
+    const costEntryId = inp.dataset.fill;
+    if (isNaN(gal) || gal < 0) continue;
+    // Send everything including zeros so deletions propagate.
+    const r = await fetch(`${PCPC_API}/admin/job-chlorine`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ jobId, costEntryId, gallons: gal })
+    });
+    if (r.ok) saved++; else failed++;
+  }
+  if (failed) showToast(`Saved ${saved}, ${failed} failed`);
+  else showToast(`✓ ${saved} allocation${saved === 1 ? '' : 's'} saved`);
+  closeChlorineSplit();
+  if (document.querySelector('.tab.active').dataset.panel === 'profit') loadProfit();
+}
+
+// ── One-off cost ─────────────────────────────────────────────────────
+async function saveOneOff() {
+  const date = document.getElementById('ooDate').value;
+  const type = document.getElementById('ooType').value;
+  const rig  = document.getElementById('ooRig').value || null;
+  const amt  = parseFloat(document.getElementById('ooAmount').value);
+  const qty  = parseFloat(document.getElementById('ooQty').value);
+  const note = document.getElementById('ooNote').value.trim();
+
+  if (!date) { showToast('Pick a date'); return; }
+  if (!type) { showToast('Pick a category'); return; }
+  if (isNaN(amt) || amt <= 0) { showToast('Enter amount'); return; }
+
+  const body = { date, type, amount: amt };
+  if (rig) body.rigId = rig;
+  if (!isNaN(qty) && qty > 0) body.quantity = qty;
+  if (note) body.note = note;
+
+  const r = await fetch(`${PCPC_API}/admin/cost-entry`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+  document.getElementById('ooAmount').value = '';
+  document.getElementById('ooQty').value = '';
+  document.getElementById('ooNote').value = '';
+  showToast('✓ Cost entry saved');
+}
+
+// ── Equipment ────────────────────────────────────────────────────────
+async function saveEquipment() {
+  const label    = document.getElementById('eqLabel').value.trim();
+  const type     = document.getElementById('eqType').value;
+  const rig      = document.getElementById('eqRig').value || null;
+  const install  = document.getElementById('eqInstall').value;
+  const cost     = parseFloat(document.getElementById('eqCost').value);
+  const note     = document.getElementById('eqNote').value.trim();
+
+  if (!label)   { showToast('Enter a label / serial'); return; }
+  if (!install) { showToast('Pick install date'); return; }
+
+  const body = { label, type, installAt: install };
+  if (rig) body.rigId = rig;
+  if (!isNaN(cost) && cost >= 0) body.purchaseCost = cost;
+  if (note) body.note = note;
+
+  const r = await fetch(`${PCPC_API}/admin/equipment`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+
+  document.getElementById('eqLabel').value = '';
+  document.getElementById('eqCost').value = '';
+  document.getElementById('eqNote').value = '';
+  showToast('✓ Equipment added');
+  loadEquipment();
+}
+
+async function loadEquipment() {
+  const wrap = document.getElementById('equipmentList');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await fetch(`${PCPC_API}/admin/equipment`);
+  const j = await r.json();
+  const rows = j.equipment || [];
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No equipment registered yet.</div>'; return; }
+
+  let html = '<table><thead><tr><th>Label</th><th>Type</th><th>Rig</th><th>Installed</th><th>Broken</th><th>$</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+  for (const e of rows) {
+    html += `<tr>
+      <td><strong>${escapeHtml(e.label)}</strong>${e.note ? '<div class="small">' + escapeHtml(e.note) + '</div>' : ''}</td>
+      <td class="small nowrap">${escapeHtml(e.type)}</td>
+      <td class="small">${escapeHtml(e.rigId || '—')}</td>
+      <td class="small nowrap">${e.installAt || '—'}</td>
+      <td class="small nowrap">${e.brokenAt || '—'}</td>
+      <td class="right small">${e.purchaseCost != null ? '$' + Number(e.purchaseCost).toFixed(2) : '—'}</td>
+      <td><span class="badge ${e.status}">${e.status}</span></td>
+      <td class="nowrap">
+        ${e.status === 'active' ? `<button class="danger" onclick="markBroken('${e.equipmentId}')">Mark broken</button>` : ''}
+        ${e.status === 'broken' ? `<button class="ghost" onclick="retireEquipment('${e.equipmentId}')">Retire</button>` : ''}
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function markBroken(id) {
+  if (!confirm('Mark this equipment as broken? (Today\'s date will be stamped.)')) return;
+  const r = await fetch(`${PCPC_API}/admin/equipment/${id}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status: 'broken' })
+  });
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+  showToast('✓ Marked broken');
+  loadEquipment();
+}
+
+async function retireEquipment(id) {
+  if (!confirm('Retire this equipment? (Removed from active count.)')) return;
+  const r = await fetch(`${PCPC_API}/admin/equipment/${id}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status: 'retired' })
+  });
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+  showToast('✓ Retired');
+  loadEquipment();
+}
+
+// ── Fixed monthly ────────────────────────────────────────────────────
+async function loadFixedMonthly() {
+  const month = document.getElementById('fixedMonth').value;
+  if (!month) return;
+  const wrap = document.getElementById('fixedList');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await fetch(`${PCPC_API}/admin/fixed-monthly/${month}`);
+  const j = await r.json();
+  const cats = j.categories || [];
+  if (!cats.length) { wrap.innerHTML = '<div class="empty">No fixed categories defined.</div>'; return; }
+
+  let html = `<div class="small" style="margin-bottom:10px;">Prefilled from <strong>${j.lastMonth}</strong>. Edit any line, then save.</div>`;
+  html += '<table><thead><tr><th>Category</th><th>Last month</th><th>This month</th></tr></thead><tbody>';
+  for (const c of cats) {
+    const last    = c.last    ? Number(c.last.amount).toFixed(2)    : '';
+    const current = c.current ? Number(c.current.amount).toFixed(2) : last;
+    html += `<tr>
+      <td><strong>${escapeHtml(c.name)}</strong></td>
+      <td class="small right">${last ? '$' + last : '—'}</td>
+      <td class="right"><input type="number" data-cat="${c.categoryId}" value="${current}" step="0.01" min="0" placeholder="0.00" style="width:120px; padding:6px 8px; border:1px solid #d3d8e2; border-radius:6px; text-align:right;"></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function saveFixedMonthly() {
+  const month = document.getElementById('fixedMonth').value;
+  if (!month) return;
+  const inputs = document.querySelectorAll('#fixedList input[data-cat]');
+  const entries = [];
+  for (const inp of inputs) {
+    if (inp.value === '') continue;
+    entries.push({ categoryId: inp.dataset.cat, amount: parseFloat(inp.value) });
+  }
+  const btn = document.getElementById('fixedSaveBtn');
+  btn.disabled = true;
+  const r = await fetch(`${PCPC_API}/admin/fixed-monthly/${month}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ entries })
+  });
+  btn.disabled = false;
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+  const j = await r.json();
+  showToast(`✓ Saved — ${j.inserted} new, ${j.updated} updated`);
+  loadFixedMonthly();
+}
+
+// ── Profit chip helper (also used by customer profile via /js/profit-chip.js, kept inline here) ──
+function profitChip(p) {
+  if (!p) return '<span class="badge retired" title="not computed">—</span>';
+  const net = Number(p.netProfit);
+  const margin = p.margin == null ? null : Math.round(p.margin * 100);
+  const partial = Number(p.partial) === 1;
+  const colorClass = net < 0 ? 'broken' : (margin != null && margin < 25 ? 'retired' : 'active');
+  const sign = net < 0 ? '-' : '';
+  const abs  = Math.abs(net).toFixed(2);
+  const tip  = partial && p.missing && p.missing.length
+    ? `Missing: ${p.missing.join(', ')}` : 'Computed';
+  const label = partial
+    ? `est. ${sign}$${abs}${margin != null ? ' · ' + margin + '%' : ''} · partial`
+    : `${sign}$${abs}${margin != null ? ' · ' + margin + '%' : ''}`;
+  return `<span class="badge ${colorClass}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`;
+}
+
+document.getElementById('profitDate').addEventListener('change', loadProfit);
+
+async function loadProfit() {
+  const date = document.getElementById('profitDate').value;
+  if (!date) return;
+  const wrap = document.getElementById('profitList');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+
+  // Step 1: list all completed jobs for this date from the day-route API.
+  const r = await fetch(`${PCPC_API}/admin/day-route?date=${date}`);
+  if (!r.ok) { wrap.innerHTML = '<div class="empty">Day-route load failed.</div>'; return; }
+  const dr = await r.json();
+  const segs = (dr.segments || []).filter(s => s.kind === 'job' && s.status === 'completed' && s.jobId);
+  if (!segs.length) { wrap.innerHTML = `<div class="empty">No completed jobs on ${date}.</div>`; return; }
+
+  // Idle-capacity strip (per-rig per-day; never per-job)
+  const idleR = await fetch(`${PCPC_API}/admin/idle-capacity?date=${date}`);
+  let idleHtml = '';
+  if (idleR.ok) {
+    const idle = await idleR.json();
+    if (idle.days && idle.days.length) {
+      idleHtml = '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">';
+      for (const d of idle.days) {
+        const idleCls = d.idleCapacityCost > 5 ? 'broken' : d.idleCapacityCost < -5 ? 'active' : 'retired';
+        const idleLbl = d.idleCapacityCost > 0 ? `+$${d.idleCapacityCost.toFixed(0)} idle`
+                       : d.idleCapacityCost < 0 ? `−$${Math.abs(d.idleCapacityCost).toFixed(0)} over` : 'balanced';
+        idleHtml += `<div class="rig-block" style="margin:0; min-width:220px; flex:1;">
+          <h3>${d.rigId.toUpperCase()} <span class="small" style="font-weight:400; color:#6b7280;">· ${d.season}${d.halfDay ? ' · ½-day' : ''}</span></h3>
+          <div class="small">Paid: <strong>$${d.actualPaid.toFixed(2)}</strong></div>
+          <div class="small">Standard: <strong>$${d.standardCharged.toFixed(2)}</strong></div>
+          <div style="margin-top:6px;"><span class="badge ${idleCls}">${idleLbl}</span>${d.utilizationPct != null ? ` <span class="small">${d.utilizationPct}% util</span>` : ''}</div>
+          ${d.partial ? '<div class="small" style="color:#a35009; margin-top:4px;">⚠ partial — missing crew/hrs</div>' : ''}
+        </div>`;
+      }
+      idleHtml += '</div>';
+    }
+  }
+
+  // Step 2: load profit per job in parallel
+  const profits = await Promise.all(segs.map(async s => {
+    const pr = await fetch(`${PCPC_API}/admin/job-profit/${s.jobId}`);
+    if (!pr.ok) return { jobId: s.jobId, error: pr.status };
+    const pj = await pr.json();
+    return pj.profit;
+  }));
+
+  let html = idleHtml;
+  html += '<table><thead><tr><th>Customer</th><th>Rig</th><th>Revenue</th><th>Labor</th><th>Gas</th><th>Chlorine</th><th>Seal</th><th>Equip</th><th>Fixed</th><th>Net</th></tr></thead><tbody>';
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    const p = profits[i];
+    if (!p || p.error) {
+      html += `<tr><td>${escapeHtml(s.customerName || s.address || s.jobId)}</td><td colspan="9" class="small">profit unavailable</td></tr>`;
+      continue;
+    }
+    html += `<tr>
+      <td><strong>${escapeHtml(s.customerName || s.address || '(job ' + s.jobId.slice(-6) + ')')}</strong></td>
+      <td class="small">${escapeHtml(s.rigId || '—')}</td>
+      <td class="right small">$${Number(p.revenue).toFixed(2)}</td>
+      <td class="right small">$${Number(p.laborCost).toFixed(2)}</td>
+      <td class="right small">$${Number(p.gasCost).toFixed(2)}</td>
+      <td class="right small">$${Number(p.chlorineCost).toFixed(2)}</td>
+      <td class="right small">$${Number(p.sealMaterialCost).toFixed(2)}</td>
+      <td class="right small">$${Number(p.equipmentCost).toFixed(2)}</td>
+      <td class="right small">$${Number(p.fixedCost).toFixed(2)}</td>
+      <td class="right">${profitChip(p)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ── Labor config tab ────────────────────────────────────────────────
+async function loadLaborConfig() {
+  const wrap = document.getElementById('laborCfgList');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await fetch(`${PCPC_API}/admin/labor-config`);
+  if (!r.ok) { wrap.innerHTML = '<div class="empty">Failed to load labor config.</div>'; return; }
+  const j = await r.json();
+  if (!j.configs || !j.configs.length) { wrap.innerHTML = '<div class="empty">No labor config seeded.</div>'; return; }
+
+  let html = '';
+  for (const cfg of j.configs) {
+    const namedJson = JSON.stringify(cfg.dayRateNamed || {}, null, 0);
+    const exampleHr = (cfg.dayRateDefault / cfg.standardHours).toFixed(2);
+    const jonatHr   = ((cfg.dayRateNamed?.jonathan || cfg.dayRateDefault) / cfg.standardHours).toFixed(2);
+    const halfHr    = (cfg.halfDayRate / cfg.standardHours).toFixed(2);
+    html += `<div class="rig-block" style="margin-bottom:14px;">
+      <h3>${cfg.season.toUpperCase()} <span class="small" style="font-weight:400; color:#6b7280;">${cfg.season === 'summer' ? '(Apr–Oct)' : '(Nov–Mar)'}</span></h3>
+      <div class="row">
+        <label><span>Standard hours / day</span><input type="number" id="lc-${cfg.season}-hrs" step="0.1" min="1" max="12" value="${cfg.standardHours}"></label>
+        <label><span>Default day-rate $</span><input type="number" id="lc-${cfg.season}-day" step="1" min="0" value="${cfg.dayRateDefault}"></label>
+        <label><span>Half-day pay $</span><input type="number" id="lc-${cfg.season}-half" step="1" min="0" value="${cfg.halfDayRate}"></label>
+        <button class="primary" onclick="saveLaborConfig('${cfg.season}')">Save</button>
+      </div>
+      <div class="row">
+        <label data-span="full"><span>Named day-rates (JSON map of name → $)</span>
+          <input type="text" id="lc-${cfg.season}-named" value='${namedJson.replace(/'/g, "&#39;")}'>
+        </label>
+      </div>
+      <div class="small" style="color:#586278; margin-top:6px;">
+        Implied hourly rates: default <strong>$${exampleHr}/hr</strong> · Jonathan <strong>$${jonatHr}/hr</strong> · half-day <strong>$${halfHr}/hr</strong>
+      </div>
+      ${cfg.notes ? `<div class="small" style="margin-top:6px; color:#586278;"><em>${escapeHtml(cfg.notes)}</em></div>` : ''}
+    </div>`;
+  }
+  wrap.innerHTML = html;
+}
+
+async function saveLaborConfig(season) {
+  const standardHours = parseFloat(document.getElementById(`lc-${season}-hrs`).value);
+  const dayRateDefault = parseFloat(document.getElementById(`lc-${season}-day`).value);
+  const halfDayRate = parseFloat(document.getElementById(`lc-${season}-half`).value);
+  const namedRaw = document.getElementById(`lc-${season}-named`).value.trim();
+  if (isNaN(standardHours) || standardHours <= 0) { showToast('standardHours must be > 0'); return; }
+  let dayRateNamed = null;
+  try { dayRateNamed = JSON.parse(namedRaw); }
+  catch (_) { showToast('Named day-rates must be valid JSON'); return; }
+  const r = await fetch(`${PCPC_API}/admin/labor-config/${season}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ standardHours, dayRateDefault, halfDayRate, dayRateNamed })
+  });
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+  showToast(`✓ ${season} config saved — click "Recompute cached profits" to apply`);
+  loadLaborConfig();
+}
+
+async function recomputeAllCachedProfits() {
+  if (!confirm('Recompute every cached JobProfit row under the current labor config?')) return;
+  const r = await fetch(`${PCPC_API}/admin/job-profit/recompute`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cached: true })
+  });
+  if (!r.ok) { showToast('Recompute failed'); return; }
+  const j = await r.json();
+  showToast(`✓ Recomputed ${j.count} cached row${j.count===1?'':'s'}`);
+}
+
+async function recomputeProfitDay() {
+  const date = document.getElementById('profitDate').value;
+  if (!date) return;
+  const btn = event.target;
+  btn.disabled = true;
+  const r = await fetch(`${PCPC_API}/admin/job-profit/recompute`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ date })
+  });
+  btn.disabled = false;
+  if (!r.ok) { showToast('Recompute failed'); return; }
+  const j = await r.json();
+  showToast(`✓ Recomputed ${j.count} job${j.count===1?'':'s'}`);
+  loadProfit();
+}
+
+// ── Recent entries ──────────────────────────────────────────────────
+async function loadRecent() {
+  const wrap = document.getElementById('recentList');
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  const r = await fetch(`${PCPC_API}/admin/cost-entries?limit=100`);
+  const j = await r.json();
+  const rows = j.entries || [];
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">No entries yet — start logging from the Daily tab.</div>'; return; }
+
+  let html = '<table><thead><tr><th>Date</th><th>Category</th><th>Rig</th><th>Qty</th><th>Amount</th><th>Note</th><th></th></tr></thead><tbody>';
+  for (const e of rows) {
+    html += `<tr>
+      <td class="nowrap small">${e.date}</td>
+      <td class="nowrap">${escapeHtml(e.type)}</td>
+      <td class="small">${escapeHtml(e.rigId || '—')}</td>
+      <td class="right small">${e.quantity != null ? Number(e.quantity).toFixed(1) + (e.unit ? ' ' + e.unit : '') : '—'}</td>
+      <td class="right"><strong>$${Number(e.amount).toFixed(2)}</strong></td>
+      <td class="small">${escapeHtml(e.note || '')}</td>
+      <td><button class="danger" onclick="deleteEntry('${e.costEntryId}')">Delete</button></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function deleteEntry(id) {
+  if (!confirm('Delete this cost entry?')) return;
+  const r = await fetch(`${PCPC_API}/admin/cost-entry/${id}`, { method:'DELETE' });
+  if (!r.ok) { const j = await r.json().catch(()=>({})); showToast('Error: ' + (j.error||r.status)); return; }
+  showToast('✓ Deleted');
+  loadRecent();
+}
+
+// ── Utils ────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadCategories();
+</script>
+
+</body>
+</html>
