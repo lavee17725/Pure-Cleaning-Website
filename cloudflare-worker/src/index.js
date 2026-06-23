@@ -41,7 +41,54 @@ const KV_KEYS = {
 // computes cooldownUntil itself — it just reads what handleReactivationContact
 // stored. Single constant; if it ever changes, server writes carry the new value
 // forward on the next text-send.
-const REACTIVATION_COOLDOWN_DAYS = 120;
+// 90 days = 3 months. Confirmed via the 2026-06-21 "smart reactivation"
+// brief — was 120 (4mo); dropped so a customer is eligible again at the same
+// cadence as a "due for next clean" reminder. Eligibility hides anyone whose
+// cooldownUntil is in the future.
+// ── Heavy-read response cache (2026-06-22 ship-the-cache step) ──────────────
+// Tyler diagnosed: 5 parallel /customers requests serialized at 8-12s each
+// (4 MB payload built from scratch — Person+PersonProperty+Property+Job + KV
+// blob — every call). Module-level cache with short TTL drops the parallel-
+// load p99 to <1s. Explicit invalidation on every mutation path so an edit
+// is never hidden for 30s (Tyler's explicit ask — no cross-device staleness).
+//
+// Cache scope:
+//   /customers                       — 30s TTL (4 MB payload)
+//   /admin/reactivation/eligibility  — 30s TTL (277 KB payload)
+//
+// Per-isolate state. Cloudflare typically runs <20 isolates per colo per worker
+// under steady load, so hit rate is >80% for a 30s TTL with normal traffic.
+// Not strongly consistent across colos — that's fine for 30s TTL with
+// explicit invalidation; cross-device staleness is bounded by explicit purge.
+const _heavyReadCache = {
+  customers:   { ts: 0, body: null },
+  summary:     { ts: 0, body: null },  // Phase 0 (2026-06-22) slim list endpoint
+  eligibility: { ts: 0, body: null },
+};
+const _CACHE_TTL_MS = 30_000;
+
+function _cacheGet(key) {
+  const e = _heavyReadCache[key];
+  if (!e || !e.body) return null;
+  if (Date.now() - e.ts > _CACHE_TTL_MS) return null;
+  return e.body;
+}
+function _cachePut(key, body) {
+  _heavyReadCache[key] = { ts: Date.now(), body };
+}
+// Invalidate cache. Called from every write path that affects /customers shape.
+// Cheap (single object reset) — safe to over-call.
+function _invalidateCustomersCache() {
+  _heavyReadCache.customers.ts   = 0;
+  _heavyReadCache.summary.ts     = 0;
+  _heavyReadCache.eligibility.ts = 0;
+}
+
+const REACTIVATION_COOLDOWN_DAYS = 90;
+// After this many texts with NO new completed job, the customer drops out of
+// auto-eligibility into the "manual review" bucket. The operator decides
+// whether to escalate (call), park, or opt-out. Per 2026-06-21 brief.
+const REACTIVATION_RETRY_CAP = 3;
 
 const DEFAULT_SERVICE_FREQUENCY = {
   primary: [
@@ -907,9 +954,48 @@ export default {
       // ── End auth gate ─────────────────────────────────────────────────────────
 
       if (path === 'customers') {
-        if (request.method === 'PUT') return await handleCustomersPut(request, env, corsHeaders);
-        if (request.method === 'GET') return jsonResponse(await d1AllCustomersToKvShape(env), corsHeaders);
+        if (request.method === 'PUT') {
+          _invalidateCustomersCache();
+          return await handleCustomersPut(request, env, corsHeaders);
+        }
+        if (request.method === 'GET') {
+          const cached = _cacheGet('customers');
+          if (cached) {
+            return new Response(cached, {
+              status: 200,
+              headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', ...corsHeaders },
+            });
+          }
+          const fresh = await d1AllCustomersToKvShape(env);
+          const body  = JSON.stringify(fresh);
+          _cachePut('customers', body);
+          return new Response(body, {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', 'X-Cache': 'MISS', ...corsHeaders },
+          });
+        }
         return await handleResource(request, env, KV_KEYS.customers, corsHeaders);
+      }
+
+      // Phase 0 (2026-06-22): slim list endpoint for the directory + other
+      // list-only consumers. ~85% smaller payload than /customers. Additive —
+      // existing /customers contract unchanged. See `_d1ToSummaryShape`.
+      if (path === 'customers/summary' && request.method === 'GET') {
+        const cached = _cacheGet('summary');
+        if (cached) {
+          return new Response(cached, {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', ...corsHeaders },
+          });
+        }
+        const fresh = await d1AllCustomersToKvShape(env);
+        const slim  = _d1ToSummaryShape(fresh);
+        const body  = JSON.stringify(slim);
+        _cachePut('summary', body);
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'X-Cache': 'MISS', ...corsHeaders },
+        });
       }
 
       if (path === 'incoming') {
@@ -1270,6 +1356,23 @@ export default {
           return await handleCustomerRestore(request, env, cPhone, corsHeaders);
         if (action === 'permanent-delete' && request.method === 'POST')
           return await handleCustomerHardDelete(request, env, cPhone, corsHeaders);
+        // 2026-06-22: scoped replacement for the whole-DB PUT /customers pattern
+        // customer_profile.html used to append a photoId to scheduledStatus.photos.
+        // Body: { photoId }. Server reads → finds the one customer → appends →
+        // writes back → verifies the photoId landed (T1.20). Per-request blob
+        // write is still required by KV's atomic nature, but the race window
+        // shrinks from "two browsers each holding the DB in JS memory for
+        // tens of seconds" to "milliseconds of server processing".
+        if (action === 'scheduled-photo' && request.method === 'POST')
+          return await handleAddScheduledPhoto(request, env, cPhone, corsHeaders);
+        // 2026-06-22 saveDb-migration: scoped replacements for the bulk page's
+        // mark/restore movedAway + reactivationExcluded flows. body { location?,
+        // reason?, label?, clear? }. Server-side single-customer KV write with
+        // verify-after; bulk's saveDatabase() (whole-DB PUT) no longer in path.
+        if (action === 'moved-away' && request.method === 'POST')
+          return await handleSetMovedAway(request, env, cPhone, corsHeaders);
+        if (action === 'exclusion' && request.method === 'POST')
+          return await handleSetReactivationExclusion(request, env, cPhone, corsHeaders);
       }
 
       if (path === 'admin/cron-heartbeat' && request.method === 'GET') {
@@ -1305,6 +1408,15 @@ export default {
 
       if (path === 'admin/review-states' && request.method === 'GET')
         return jsonResponse(await env.DATA.get('review_states', 'json') || {}, corsHeaders);
+
+      // DELETE /admin/review-state/{phone} — remove a single entry from the
+      // review_states map. 2026-06-22: added for test-residue cleanup
+      // (5550000077) and operator-correction cases. Verified-delete: re-reads
+      // the map before returning success.
+      if (path.startsWith('admin/review-state/') && request.method === 'DELETE') {
+        const ph = path.slice('admin/review-state/'.length);
+        return await handleReviewStateDelete(env, ph, corsHeaders);
+      }
 
       if (path === 'admin/reconcile-kv-d1' && request.method === 'GET')
         return await handleReconcileKvD1(env, corsHeaders);
@@ -1955,6 +2067,92 @@ export default {
         return await handlePersonReminders(env, pid, corsHeaders);
       }
 
+      // ── Cost Hub Phase 1 (protected) ──────────────────────────────────────
+      // GET    /admin/cost-categories[?kind=]            — list active categories
+      // POST   /admin/cost-entry                          — create CostEntry
+      // GET    /admin/cost-entries[?from=&to=&rigId=&type=&jobId=&limit=]
+      // PATCH  /admin/cost-entry/:id                      — update mutable fields
+      // DELETE /admin/cost-entry/:id                      — remove
+      // GET    /admin/cost-last?type=sealer               — last-known entry for prefill
+      // GET    /admin/fixed-monthly/:YYYY-MM              — fixed rows + prefill from prior month
+      // POST   /admin/fixed-monthly/:YYYY-MM              — bulk upsert fixed entries
+      // GET    /admin/equipment[?status=&rigId=]          — list equipment
+      // POST   /admin/equipment                           — create
+      // PATCH  /admin/equipment/:id                       — update (incl. broken/retired)
+      if (path === 'admin/cost-categories' && request.method === 'GET') {
+        return await handleCostCategoriesList(env, corsHeaders, url);
+      }
+      if (path === 'admin/cost-entry' && request.method === 'POST') {
+        return await handleCostEntryCreate(request, env, corsHeaders);
+      }
+      if (path === 'admin/cost-entries' && request.method === 'GET') {
+        return await handleCostEntriesList(env, corsHeaders, url);
+      }
+      if (path === 'admin/cost-last' && request.method === 'GET') {
+        return await handleCostLastByType(env, corsHeaders, url);
+      }
+      if (path.startsWith('admin/cost-entry/') && request.method === 'PATCH') {
+        const cid = path.slice('admin/cost-entry/'.length);
+        return await handleCostEntryPatch(request, env, cid, corsHeaders);
+      }
+      if (path.startsWith('admin/cost-entry/') && request.method === 'DELETE') {
+        const cid = path.slice('admin/cost-entry/'.length);
+        return await handleCostEntryDelete(env, cid, corsHeaders);
+      }
+      if (path.startsWith('admin/fixed-monthly/') && request.method === 'GET') {
+        const yyyymm = path.slice('admin/fixed-monthly/'.length);
+        return await handleFixedMonthlyGet(env, yyyymm, corsHeaders);
+      }
+      if (path.startsWith('admin/fixed-monthly/') && request.method === 'POST') {
+        const yyyymm = path.slice('admin/fixed-monthly/'.length);
+        return await handleFixedMonthlyUpsert(request, env, yyyymm, corsHeaders);
+      }
+      if (path === 'admin/equipment' && request.method === 'GET') {
+        return await handleEquipmentList(env, corsHeaders, url);
+      }
+      if (path === 'admin/equipment' && request.method === 'POST') {
+        return await handleEquipmentCreate(request, env, corsHeaders);
+      }
+      if (path.startsWith('admin/equipment/') && request.method === 'PATCH') {
+        const eid = path.slice('admin/equipment/'.length);
+        return await handleEquipmentPatch(request, env, eid, corsHeaders);
+      }
+
+      // ── Cost Hub Phase 2 — allocation + per-job profit (protected) ──────
+      // GET  /admin/job-profit/:jobId[?fresh=1]      — cached profit (or recompute when fresh=1)
+      // POST /admin/job-profit/recompute              — body { jobId | date[+rigId] }
+      // POST /admin/job-chlorine                      — body { jobId, costEntryId, gallons }
+      // GET  /admin/job-chlorine?date=&rigId=         — split-UI bundle (fills + jobs + allocations)
+      if (path === 'admin/job-profit/recompute' && request.method === 'POST') {
+        return await handleJobProfitRecompute(request, env, corsHeaders);
+      }
+      if (path.startsWith('admin/job-profit/') && request.method === 'GET') {
+        const jid = path.slice('admin/job-profit/'.length);
+        return await handleJobProfitGet(env, jid, corsHeaders, url);
+      }
+      if (path === 'admin/job-chlorine' && request.method === 'POST') {
+        return await handleJobChlorineUpsert(request, env, corsHeaders);
+      }
+      if (path === 'admin/job-chlorine' && request.method === 'GET') {
+        return await handleJobChlorineBundle(env, corsHeaders, url);
+      }
+
+      // ── Labor config + idle-capacity (Phase 2 revision) ─────────────────
+      // GET  /admin/labor-config            — list both season rows
+      // PUT  /admin/labor-config/:season    — edit standardHours / dayRate / halfDayRate / notes
+      // GET  /admin/idle-capacity?date=&rigId=          — single-day breakdown
+      // GET  /admin/idle-capacity?from=&to=[&rigId=]    — daily rows + totals
+      if (path === 'admin/labor-config' && request.method === 'GET') {
+        return await handleLaborConfigList(env, corsHeaders);
+      }
+      if (path.startsWith('admin/labor-config/') && request.method === 'PUT') {
+        const season = path.slice('admin/labor-config/'.length);
+        return await handleLaborConfigPut(request, env, season, corsHeaders);
+      }
+      if (path === 'admin/idle-capacity' && request.method === 'GET') {
+        return await handleIdleCapacity(env, corsHeaders, url);
+      }
+
       // ── Worker hours: date range summary (protected) ──────────────────────────
       if (path === 'admin/worker-hours' && request.method === 'GET') {
         const today   = new Date().toISOString().slice(0, 10);
@@ -1991,6 +2189,20 @@ export default {
       if (path === 'admin/property' && request.method === 'POST') {
         return await handleCreateProperty(request, env, corsHeaders);
       }
+      // POST /admin/person — create new Person + dual-write KV. 2026-06-22 added
+      // for the add_job migration off full-DB PUT. Reusable for commercial_quick_add.
+      if (path === 'admin/person' && request.method === 'POST') {
+        return await handleCreatePerson(request, env, corsHeaders);
+      }
+      // POST /admin/quote-state — patch customer.quoteStatus in KV. 2026-06-22
+      // for quotes.html migration off the 5x full-DB PUTs.
+      if (path === 'admin/quote-state' && request.method === 'POST') {
+        return await handleQuoteStatePatch(request, env, corsHeaders);
+      }
+      // POST /admin/quote-state/bulk-age — server-side auto-age scan.
+      if (path === 'admin/quote-state/bulk-age' && request.method === 'POST') {
+        return await handleQuoteStateBulkAge(request, env, corsHeaders);
+      }
 
       // ── POST /admin/places/resolve — placeId → structured address ──
       // Body: { placeId }
@@ -2008,12 +2220,78 @@ export default {
         return await handlePatchPersonProperty(request, env, corsHeaders);
       }
 
+      // PATCH /admin/property/{propertyId} — edit street/city/zip/state with auto re-geocode.
+      // Used by the customer-directory edit tool (Cleanup-Spec migration 2026-06-21) to correct
+      // historical addresses across every job linked to this Property. KV refresh propagates
+      // to every Person that holds a PersonProperty link.
+      if (path.startsWith('admin/property/') && request.method === 'PATCH') {
+        const propId = path.slice('admin/property/'.length);
+        return await handlePatchProperty(request, env, propId, corsHeaders);
+      }
+      // POST /admin/property-merge — fold spelling-twin Property rows.
+      // Body: { dropPropertyId, keepPropertyId }. Re-points all Jobs + PersonProperty
+      // links, then deletes the DROP row. Snapshot-protected (Rule 6).
+      if (path === 'admin/property-merge' && request.method === 'POST') {
+        return await handlePropertyMerge(request, env, corsHeaders);
+      }
+      // ── Phase 2 identity tools (2026-06-22) ────────────────────────────────
+      // POST /admin/person/:pid/change-primary-phone  body { newPhone }
+      // Creates new Person at new phone, re-links every FK (Job/PersonProperty/
+      // Invoice/Proposal/Reminder/Communication) from old → new, marks old
+      // retired with replacedBy=newPersonId. Audit-preserving — old row remains
+      // for forensic lookups via replacedBy chain.
+      if (path.startsWith('admin/person/') && path.endsWith('/change-primary-phone') && request.method === 'POST') {
+        const pid = path.slice('admin/person/'.length, -'/change-primary-phone'.length);
+        return await handleChangePrimaryPhone(request, pid, env, corsHeaders);
+      }
+      // POST /admin/persons/merge  body { keepId, dropIds: [...] }
+      // Re-links every FK from dropIds → keepId, carries each drop's primary
+      // phone (and any alt contacts) into keepId.alternateContactsJson, marks
+      // drops retired with replacedBy=keepId. Writes a MergeLog row with the
+      // full relink + alt-add payload so the merge is undoable.
+      if (path === 'admin/persons/merge' && request.method === 'POST') {
+        return await handlePersonsMerge(request, env, corsHeaders);
+      }
+      // POST /admin/persons/unmerge  body { mergeId }
+      // Reverses a prior merge using its MergeLog entry: re-links every row
+      // back to its original dropId, un-retires the Persons, strips the
+      // alt-phone entries this merge added. Stamps MergeLog.undoneAt.
+      if (path === 'admin/persons/unmerge' && request.method === 'POST') {
+        return await handlePersonsUnmerge(request, env, corsHeaders);
+      }
+      // GET /admin/merge-log — audit list of every merge (active + undone).
+      if (path === 'admin/merge-log' && request.method === 'GET') {
+        return await handleGetMergeLog(env, corsHeaders);
+      }
+      // GET /admin/merge-candidates — same-address duplicates surface, with
+      // do-not-merge list filtered out (Tyler's 3 confirmed multi-tenant rows).
+      if (path === 'admin/merge-candidates' && request.method === 'GET') {
+        return await handleMergeCandidates(env, corsHeaders);
+      }
+      // DELETE /admin/person/{personId} — guarded hard-delete. Refuses when the
+      // Person has jobs or referrals (409). Used for throwaway test records.
+      // (Note: /admin/person-merge wired below at line ~2247 already.)
+      if (path.startsWith('admin/person/') && request.method === 'DELETE') {
+        const pid = path.slice('admin/person/'.length);
+        return await handleDeletePerson(env, pid, corsHeaders);
+      }
+
       if (path === 'admin/address-gate' && request.method === 'POST') {
         return await handleAddressGate(request, env, corsHeaders);
       }
 
       if (path === 'admin/retype-customer' && request.method === 'POST') {
         return await handleRetypeCustomer(request, env, corsHeaders);
+      }
+
+      // ── POST /admin/person/{personId}/note — append a profile note ──────────
+      // 2026-06-22: scoped replacement for the whole-DB PUT /customers pattern
+      // customer_profile.html used to write profileNotes. Server reads current
+      // profileNotesJson, appends a new entry, writes it back, and verifies
+      // before returning the new note. T1.20 verify-before-return.
+      if (path.startsWith('admin/person/') && path.endsWith('/note') && request.method === 'POST') {
+        const pid = path.slice('admin/person/'.length, -'/note'.length);
+        return await handleAddPersonNote(request, pid, env, corsHeaders);
       }
 
       // ── PATCH /admin/person/{personId} — update contact fields + refresh KV ──
@@ -2113,11 +2391,83 @@ export default {
       if (path === 'reactivation/contact'  && request.method === 'POST') {
         return await handleReactivationContact(request, env, corsHeaders);
       }
+      // DELETE /reactivation/contact/{phone} — remove a single entry from the
+      // reactivation_contacts map. 2026-06-22: added for test-residue cleanup
+      // (5550000099) and operator-correction cases (e.g. accidentally marked
+      // contacted). Verified-delete: re-reads the map before returning success.
+      if (path.startsWith('reactivation/contact/') && request.method === 'DELETE') {
+        const ph = path.slice('reactivation/contact/'.length);
+        return await handleReactivationContactDelete(env, ph, corsHeaders);
+      }
       if (path === 'reactivation/optout'   && request.method === 'POST') {
         return await handleReactivationOptout(request, env, corsHeaders);
       }
+      // POST /reactivation/restore-optout body { phone }
+      // 2026-06-22 (#3): operator clears an opt-out set in error. Cleans all
+      // three stores (KV customer_db, KV reactivation_contacts, D1 doNotContact)
+      // with verify-after-write parity to handleReactivationOptout.
+      if (path === 'reactivation/restore-optout' && request.method === 'POST') {
+        return await handleReactivationRestoreOptout(request, env, corsHeaders);
+      }
+      // POST /admin/incoming/backfill-submittedAt — one-shot recovery for
+      // any KV `incoming.requests[]` row that landed without submittedAt.
+      // Sets submittedAt = createdAt (preferred) else now. Idempotent.
+      if (path === 'admin/incoming/backfill-submittedAt' && request.method === 'POST') {
+        if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+        const existing = (await env.DATA.get(KV_KEYS.incoming, 'json')) || {};
+        const rows = Array.isArray(existing.requests) ? existing.requests : [];
+        const now = new Date().toISOString();
+        let fixed = 0, alreadyOK = 0;
+        const fixedSample = [];
+        for (const r of rows) {
+          if (r.submittedAt) { alreadyOK++; continue; }
+          const stamp = r.createdAt || now;
+          r.submittedAt = stamp;
+          fixed++;
+          if (fixedSample.length < 10) {
+            fixedSample.push({ id: r.id || null, status: r.status || null, stamped: stamp, source: r.source || null });
+          }
+        }
+        if (fixed > 0) {
+          existing.requests = rows;
+          await env.DATA.put(KV_KEYS.incoming, JSON.stringify(existing));
+        }
+        return jsonResponse({
+          success: true,
+          total: rows.length,
+          fixed,
+          alreadyOK,
+          fixedSample,
+        }, corsHeaders);
+      }
+      // POST /admin/optout-backfill?dry=1 — one-shot compliance recovery of
+      // KV-only opt-outs into D1.doNotContact. Snapshot-protected (Rule 6).
+      // Without ?dry=1, also refreshes KV per affected customer.
+      if (path === 'admin/optout-backfill' && request.method === 'POST') {
+        return await handleOptoutBackfill(request, env, corsHeaders);
+      }
       if (path === 'reactivation/undo'     && request.method === 'POST') {
         return await handleReactivationUndo(request, env, corsHeaders);
+      }
+      // GET /admin/reactivation/eligibility — 3 lanes + manual-review bucket.
+      // Server-side eligibility is the only source of truth for "who is due"
+      // so opt-outs/cooldowns/segment can't drift between page and worker.
+      if (path === 'admin/reactivation/eligibility' && request.method === 'GET') {
+        const cached = _cacheGet('eligibility');
+        if (cached) {
+          return new Response(cached, {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', ...corsHeaders },
+          });
+        }
+        const resp = await handleReactivationEligibility(env, corsHeaders);
+        // Side-cache: tee the body for the next 30s. resp.clone() so the
+        // returned response stream remains readable.
+        try {
+          const body = await resp.clone().text();
+          _cachePut('eligibility', body);
+        } catch (_) { /* non-fatal */ }
+        return resp;
       }
 
       // ── Person duplicate review endpoints ────────────────────────────────────
@@ -4425,6 +4775,211 @@ async function handlePropertyCoordinatesUpdate(request, env, propertyId, corsHea
 
 function _norm10(p)         { return String(p || '').replace(/\D/g,'').slice(-10); }
 
+// GET /admin/reactivation/eligibility
+//
+// Server-side eligibility computation for the bulk-reactivation page. Returns
+// three mutually-exclusive lanes + a manual-review bucket. The page no longer
+// needs to derive any of these locally — the worker is the single source of
+// truth for who is "due" so opt-outs, cooldowns, and segment filters can't
+// drift between page and server.
+//
+// Eligibility (lane='residential'):
+//   ✓ customerType='residential' (excludes partner_referral, commercial)
+//   ✓ !c.deleted, !c.movedAway, !c.isReferralOnly, !optOut
+//   ✓ phone is real (not REFERRAL_ prefix, 10 digits)
+//   ✓ ≥1 completed job (lastService is set)
+//   ✓ last completed ≥ 6 months ago
+//   ✓ no active cooldown (cooldownUntil unset or past)
+//   ✓ contactCount < REACTIVATION_RETRY_CAP, OR a NEW completed job exists
+//     since firstContactAt (the retry-cap reset condition)
+//
+// Lane='commercial' / 'partner' — same eligibility skeleton but on the
+// matching customerType segment. Partner lane explicitly never includes
+// partner-referred end-customer rows (those don't have customerType=
+// partner_referral — only the partner THEMSELVES does, by design).
+//
+// needsManualReview bucket = residentials past REACTIVATION_RETRY_CAP with
+// no booking since firstContactAt. Surfaced separately so the operator can
+// triage instead of auto-blasting again.
+// Mirror of pure_cleaning_tier_utils.js `getRebookWindow` roof-detection.
+// Server-side eligibility uses the same signal so client + server agree.
+// Walks jobHistory[].services, scheduledStatus.jobNotes, quoteStatus.mainServices.
+const _ROOF_RE = /\broof\b/i;
+function _isRoofCustomer(c) {
+  const jh = c.jobHistory || [];
+  const allSvc = [
+    ...jh.map(j => j.services || ''),
+    (c.scheduledStatus || {}).jobNotes      || '',
+    (c.quoteStatus     || {}).mainServices  || '',
+  ].join(' ');
+  return _ROOF_RE.test(allSvc);
+}
+
+async function handleReactivationEligibility(env, corsHeaders) {
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const [dbBlob, contactsMap] = await Promise.all([
+    env.DATA.get(KV_KEYS.customers, 'json'),
+    env.DATA.get(KV_KEYS.reactivationContacts, 'json'),
+  ]);
+  const customers = (dbBlob?.customers || []);
+  const contacts  = contactsMap || {};
+  const nowMs     = Date.now();
+  const sixMonthsAgoMs   = nowMs - (183 * 86400000);  // ~6 months
+  const eighteenMonthsAgoMs = nowMs - (548 * 86400000); // ~18 months
+
+  const lanes = {
+    residential: [],            // BACKWARDS-COMPAT: union of tier1Due + tier2GroundsUpsell
+    tier1Due: [],               // Tier 1: ground ≥6mo OR roof ≥18mo → standard message
+    tier2GroundsUpsell: [],     // Tier 2: roof 6–18mo → grounds-focused template
+    commercial: [],
+    partner: [],
+    needsManualReview: [],
+  };
+  // Diagnostic counters — surface in response so the page can show why a
+  // customer was excluded.
+  const counters = {
+    total: customers.length,
+    excluded_deleted: 0, excluded_optOut: 0, excluded_movedAway: 0,
+    excluded_referralPhone: 0, excluded_referralOnly: 0,
+    excluded_noPhone: 0, excluded_noService: 0, excluded_tooRecent: 0,
+    excluded_cooldown: 0, excluded_retryCap_to_review: 0,
+    residential_eligible: 0, commercial_eligible: 0, partner_eligible: 0,
+    // Tier breakdown for residential (2026-06-22)
+    tier1_ground: 0, tier1_roof: 0, tier2_grounds_upsell: 0,
+  };
+
+  for (const c of customers) {
+    if (c.deleted)        { counters.excluded_deleted++; continue; }
+    if (c.optOut)         { counters.excluded_optOut++;  continue; }
+    if (c.movedAway)      { counters.excluded_movedAway++; continue; }
+    if (c.isReferralOnly) { counters.excluded_referralOnly++; continue; }
+    const ph10 = _norm10(c.phone);
+    if ((c.phone || '').startsWith('REFERRAL_')) { counters.excluded_referralPhone++; continue; }
+    if (ph10.length !== 10)                       { counters.excluded_noPhone++;       continue; }
+    if (!c.lastService)                           { counters.excluded_noService++;     continue; }
+
+    const lastSvcMs = new Date(c.lastService + 'T12:00:00').getTime();
+    if (!Number.isFinite(lastSvcMs))              { counters.excluded_noService++;     continue; }
+    if (lastSvcMs > sixMonthsAgoMs)               { counters.excluded_tooRecent++;     continue; }
+
+    const rec = contacts[ph10] || null;
+    // 2026-06-22 (#7) second-line TCPA: even if c.optOut is false (e.g. KV
+    // blob was rebuilt and the flag was dropped), an entry in the contacts
+    // map with optOut:true is authoritative. handleReactivationOptout writes
+    // both stores in lockstep — if they ever diverge, ALWAYS honor the no-text
+    // signal. Belt-and-suspenders defense; never re-text an opted-out customer.
+    if (rec && rec.optOut)                        { counters.excluded_optOut++;        continue; }
+    if (rec && rec.cooldownUntil) {
+      const cdMs = new Date(rec.cooldownUntil).getTime();
+      if (Number.isFinite(cdMs) && cdMs > nowMs)  { counters.excluded_cooldown++;      continue; }
+    }
+
+    // Retry-cap gate: ≥3 texts AND no new completed job since firstContactAt
+    // → push to manual review bucket (still surfaced, but operator must triage).
+    // 2026-06-22: exclude csv_backfill entries from the reset condition. Those
+    // are synthetic historical rows backdated to before the contact campaign;
+    // matching them against firstContactAt would falsely "reset" the cap (DL-04).
+    const cnt = Number(rec?.contactCount || 0);
+    let pastCap = false;
+    if (rec && cnt >= REACTIVATION_RETRY_CAP && rec.firstContactAt) {
+      const firstMs = new Date(rec.firstContactAt).getTime();
+      const completedSince = (c.jobHistory || []).some(j =>
+        j.status === 'completed' && j.date &&
+        j.source !== 'csv_backfill' &&
+        new Date(j.date + 'T12:00:00').getTime() >= firstMs
+      );
+      pastCap = !completedSince;
+    }
+
+    const isRoof = _isRoofCustomer(c);
+    const slim = {
+      phone:           ph10,
+      firstName:       c.firstName    || '',
+      lastName:        c.lastName     || '',
+      businessName:    c.businessName || null,
+      city:            c.city         || '',
+      lastService:     c.lastService,
+      monthsSince:     Math.round((nowMs - lastSvcMs) / (30 * 86400000)),
+      lifetimeSpend:   c.lifetimeSpend || 0,
+      totalJobs:       (c.jobHistory || []).filter(j => j.status === 'completed').length,
+      customerType:    c.customerType || 'residential',
+      isReferralSource: !!c.isReferralSource,
+      serviceType:     isRoof ? 'roof' : 'ground',
+      contactCount:    cnt,
+      firstContactAt:  rec?.firstContactAt || null,
+      lastContactedAt: rec?.contactedAt    || null,
+    };
+
+    if (pastCap) {
+      lanes.needsManualReview.push(slim);
+      counters.excluded_retryCap_to_review++;
+      continue;
+    }
+
+    // Lane + tier classification.
+    const ct = (c.customerType || 'residential').toLowerCase();
+    if (ct === 'partner_referral') {
+      lanes.partner.push(slim);
+      counters.partner_eligible++;
+    } else if (ct === 'commercial' || c.isCommercialAccount) {
+      lanes.commercial.push(slim);
+      counters.commercial_eligible++;
+    } else {
+      // Residential: split by roof/ground × age into Tier 1 (Due Now) or
+      // Tier 2 (Grounds Upsell). The 6-month floor above already excluded
+      // anyone too recent (incl. roof customers under 6mo).
+      //   ground (any age ≥6mo)               → Tier 1
+      //   roof ≥18mo                          → Tier 1
+      //   roof 6mo ≤ age < 18mo               → Tier 2 (grounds-only upsell)
+      // Boundary uses the SAME rounded monthsSince the operator sees in the
+      // UI. A customer rendered as "18 months since last service" lands in
+      // Tier 1 (Due Now). Using ms-precision boundaries instead would have
+      // operator-visible "mo=18" customers in Tier 2, which contradicts the
+      // service-interval intent.
+      let tier;
+      if (!isRoof) {
+        tier = 'tier1Due';
+        counters.tier1_ground++;
+      } else if (slim.monthsSince >= 18) {
+        tier = 'tier1Due';
+        counters.tier1_roof++;
+      } else {
+        tier = 'tier2GroundsUpsell';
+        counters.tier2_grounds_upsell++;
+      }
+      slim.tier = tier;
+      lanes[tier].push(slim);
+      lanes.residential.push(slim);   // backwards-compat union
+      counters.residential_eligible++;
+    }
+  }
+
+  // Stable-ish sort: oldest service first (most overdue → top of the list).
+  for (const k of ['residential', 'tier1Due', 'tier2GroundsUpsell', 'commercial', 'partner', 'needsManualReview']) {
+    lanes[k].sort((a, b) => (a.lastService || '').localeCompare(b.lastService || ''));
+  }
+
+  return jsonResponse({
+    cooldownDays: REACTIVATION_COOLDOWN_DAYS,
+    retryCap:     REACTIVATION_RETRY_CAP,
+    counters,
+    lanes: {
+      residential:        lanes.residential.length,
+      tier1Due:           lanes.tier1Due.length,
+      tier2GroundsUpsell: lanes.tier2GroundsUpsell.length,
+      commercial:         lanes.commercial.length,
+      partner:            lanes.partner.length,
+      needsManualReview:  lanes.needsManualReview.length,
+    },
+    residential:        lanes.residential,
+    tier1Due:           lanes.tier1Due,
+    tier2GroundsUpsell: lanes.tier2GroundsUpsell,
+    commercial:         lanes.commercial,
+    partner:            lanes.partner,
+    needsManualReview:  lanes.needsManualReview,
+  }, corsHeaders);
+}
+
 async function handleReactivationContactsGet(env, corsHeaders) {
   if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
   const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
@@ -4434,11 +4989,51 @@ async function handleReactivationContactsGet(env, corsHeaders) {
   }, corsHeaders);
 }
 
+// DELETE /reactivation/contact/{phone}
+// Remove one entry from the reactivation_contacts map. Returns the previous
+// record (if any) plus a verify-after-delete check. Idempotent — deleting a
+// nonexistent entry returns { success: true, alreadyAbsent: true }.
+async function handleReactivationContactDelete(env, phone, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const ph = _norm10(phone);
+  if (ph.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+  const prev = map[ph] || null;
+  if (!prev) return jsonResponse({ success: true, alreadyAbsent: true, phone: ph }, corsHeaders);
+  delete map[ph];
+  await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
+  // T1.20 verify-after-delete
+  const verify = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+  if (verify[ph]) return jsonResponse({ success: false, error: 'verify_failed', phone: ph }, corsHeaders, 500);
+  return jsonResponse({ success: true, phone: ph, removed: prev }, corsHeaders);
+}
+
+// DELETE /admin/review-state/{phone}
+// Remove one entry from the review_states map. Mirrors the reactivation-contact
+// delete pattern — verified, idempotent, returns prior state.
+async function handleReviewStateDelete(env, phone, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const ph = _norm10(phone);
+  if (ph.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const states = (await env.DATA.get('review_states', 'json')) || {};
+  const prev = states[ph] || null;
+  if (!prev) return jsonResponse({ success: true, alreadyAbsent: true, phone: ph }, corsHeaders);
+  delete states[ph];
+  await env.DATA.put('review_states', JSON.stringify(states));
+  const verify = (await env.DATA.get('review_states', 'json')) || {};
+  if (verify[ph]) return jsonResponse({ success: false, error: 'verify_failed', phone: ph }, corsHeaders, 500);
+  return jsonResponse({ success: true, phone: ph, removed: prev }, corsHeaders);
+}
+
 // POST /reactivation/contact  body { phone, at? }
 // Records a text-send → computes cooldownUntil = at + COOLDOWN_DAYS → verifies → returns
 // the saved record. Last write wins (single Tyler operator → no conflict scenario worth
 // solving for tonight).
 async function handleReactivationContact(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
   let body = {};
   try { body = await request.json(); } catch {}
@@ -4448,13 +5043,22 @@ async function handleReactivationContact(request, env, corsHeaders) {
   const atMs  = new Date(atIso).getTime();
   if (!Number.isFinite(atMs)) return jsonResponse({ error: 'invalid at timestamp' }, corsHeaders, 400);
   const cooldownUntilMs = atMs + REACTIVATION_COOLDOWN_DAYS * 86400000;
-  const record = {
-    contactedAt:   new Date(atMs).toISOString(),
-    cooldownUntil: new Date(cooldownUntilMs).toISOString(),
-  };
   try {
     const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
-    map[phone] = { ...(map[phone] || {}), ...record };
+    // Retry counter: increment contactCount on every text. The eligibility
+    // endpoint drops anyone past REACTIVATION_RETRY_CAP with no completed job
+    // since their first text. Per 2026-06-21 brief.
+    const prev = map[phone] || {};
+    const prevCount = Number(prev.contactCount || 0);
+    const record = {
+      contactedAt:   new Date(atMs).toISOString(),
+      cooldownUntil: new Date(cooldownUntilMs).toISOString(),
+      contactCount:  prevCount + 1,
+      // Stamp first-text timestamp once so eligibility can compare against
+      // "jobs completed AFTER first text".
+      firstContactAt: prev.firstContactAt || new Date(atMs).toISOString(),
+    };
+    map[phone] = { ...prev, ...record };
     await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
     // T1.20 verify-before-return
     const verify = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
@@ -4468,11 +5072,22 @@ async function handleReactivationContact(request, env, corsHeaders) {
 }
 
 // POST /reactivation/optout  body { phone, reason?, at? }
-// Sets customer.optOut on KV `customer_db` (canonical store for owner-mutated
-// flags) AND flags the phone in reactivation_contacts so the bulk page reads
-// it without crossing to /customers. Verifies BOTH writes before returning success.
+// Sets customer.optOut on KV `customer_db` (display + reactivation_contacts map)
+// AND Person.doNotContact=1 in D1 (canonical for reads — d1CustomerToKvShape
+// derives optOut from doNotContact). DUAL-WRITE so the opt-out doesn't get
+// dropped on next KV rebuild. Verifies all three writes before returning success.
 async function handleReactivationOptout(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  // 2026-06-22 (#8): never silently succeed when D1 is unbound. Person.doNotContact
+  // is the canonical TCPA gate — without it, the next KV rebuild from D1 strips
+  // c.optOut and the customer becomes contactable again. Hard-fail rather than
+  // return a misleading success.
+  if (!env.DB) return jsonResponse({
+    error: 'D1 not bound — opt-out would be KV-only and would be stripped on next rebuild',
+    severity: 'critical',
+  }, corsHeaders, 503);
   let body = {};
   try { body = await request.json(); } catch {}
   const phone  = _norm10(body.phone);
@@ -4480,37 +5095,181 @@ async function handleReactivationOptout(request, env, corsHeaders) {
   const atIso  = body.at && typeof body.at === 'string' ? body.at : new Date().toISOString();
   const reason = body.reason && typeof body.reason === 'string' ? body.reason : 'customer_request';
   try {
-    // 1. Mutate customer.optOut in /customers KV
+    // 1. Mutate customer.optOut in /customers KV (display source)
     const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
     const cust = (db.customers || []).find(c => _norm10(c.phone) === phone);
     if (!cust) return jsonResponse({ success: false, error: 'customer_not_found', phone }, corsHeaders, 404);
     cust.optOut = { reason, at: atIso };
     await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
-    // 2. Flag in reactivation_contacts
+
+    // 2. Flag in reactivation_contacts (bulk-reactivation page read path)
     const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
     map[phone] = { ...(map[phone] || {}), optOut: true, optOutAt: atIso, optOutReason: reason };
     await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
-    // 3. Verify BOTH writes
+
+    // 3. Set Person.doNotContact=1 in D1 (canonical — d1CustomerToKvShape reads
+    //    this on every KV rebuild). Without this, the opt-out gets stripped the
+    //    next time the customer payload regenerates from D1.
+    let d1Updated = false;
+    if (env.DB) {
+      const personId = `person_1${phone}`;
+      try {
+        const res = await env.DB.prepare(
+          `UPDATE Person SET doNotContact=1, modifiedAt=? WHERE personId=?`
+        ).bind(new Date().toISOString(), personId).run();
+        d1Updated = (res.meta?.changes || 0) > 0;
+      } catch (e) {
+        await _logD1Failure(env, `handleReactivationOptout:d1:${personId}`, e.message);
+      }
+    }
+
+    // 4. Verify ALL writes — KV (both keys) + D1
     const verifyDb = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
     const verifyC  = (verifyDb.customers || []).find(c => _norm10(c.phone) === phone);
     const verifyMap = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
     if (!verifyC || !verifyC.optOut || !verifyMap[phone] || verifyMap[phone].optOut !== true) {
       return jsonResponse({ success: false, error: 'optout_verify_failed' }, corsHeaders, 500);
     }
+    let d1Verified = false;
+    if (env.DB) {
+      const p = await env.DB.prepare('SELECT doNotContact FROM Person WHERE personId=?')
+        .bind(`person_1${phone}`).first();
+      d1Verified = Number(p?.doNotContact) === 1;
+    }
     return jsonResponse({
-      success: true,
+      success:       true,
       phone,
-      optOut: verifyC.optOut,
+      optOut:        verifyC.optOut,
       contactRecord: verifyMap[phone],
+      d1DoNotContact: d1Verified,
     }, corsHeaders);
   } catch (e) {
     return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
   }
 }
 
+// POST /admin/optout-backfill — one-shot recovery of KV-only opt-outs.
+// Scans:
+//   (i)  every customer_db entry where c.optOut is truthy
+//   (ii) every reactivation_contacts entry where v.optOut === true
+// Unions the phone set, sets Person.doNotContact=1 in D1 for each (skipping
+// rows already at 1), refreshes KV per affected Person via d1CustomerToKvShape
+// so the display surface reflects D1 truth. Idempotent — safe to re-run.
+async function handleOptoutBackfill(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  if (!env.DB)   return jsonResponse({ error: 'D1 not bound' }, corsHeaders, 503);
+
+  // Dry-run flag — read sources, count, but write nothing. Useful before
+  // committing the compliance fix.
+  const url = new URL(request.url);
+  const dryRun = url.searchParams.get('dry') === '1';
+
+  const optoutPhones = new Set();
+  const sourceTrace  = {};  // phone → ['kv_customer','kv_reactivation']
+
+  // Source 1: customer_db
+  try {
+    const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    for (const c of (db.customers || [])) {
+      const ph = _norm10(c.phone);
+      if (ph.length !== 10) continue;
+      if (c.optOut) {
+        optoutPhones.add(ph);
+        (sourceTrace[ph] ||= []).push('kv_customer');
+      }
+    }
+  } catch (e) {
+    return jsonResponse({ error: 'customer_db read failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // Source 2: reactivation_contacts
+  try {
+    const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    for (const [ph, v] of Object.entries(map)) {
+      const phN = _norm10(ph);
+      if (phN.length !== 10) continue;
+      if (v && v.optOut === true) {
+        optoutPhones.add(phN);
+        (sourceTrace[phN] ||= []).push('kv_reactivation');
+      }
+    }
+  } catch (e) {
+    return jsonResponse({ error: 'reactivation_contacts read failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  const phones = [...optoutPhones];
+  if (dryRun) {
+    return jsonResponse({
+      dryRun: true,
+      kvOptoutsFound: phones.length,
+      sample: phones.slice(0, 20).map(ph => ({ phone: ph, sources: sourceTrace[ph] })),
+    }, corsHeaders);
+  }
+
+  let alreadyD1 = 0, d1Updated = 0, d1Missing = 0, kvRefreshed = 0;
+  const errors = [];
+  const now = new Date().toISOString();
+
+  // KV blob to refresh after D1 updates
+  let kvDb = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+
+  for (const ph of phones) {
+    const personId = `person_1${ph}`;
+    try {
+      const cur = await env.DB.prepare('SELECT doNotContact FROM Person WHERE personId=?').bind(personId).first();
+      if (!cur) {
+        d1Missing++;
+        errors.push({ phone: ph, error: 'person_not_in_d1' });
+        continue;
+      }
+      if (Number(cur.doNotContact) === 1) {
+        alreadyD1++;
+      } else {
+        await env.DB.prepare('UPDATE Person SET doNotContact=1, modifiedAt=? WHERE personId=?')
+          .bind(now, personId).run();
+        d1Updated++;
+      }
+      // KV refresh: rebuild this customer's payload from D1 so the display matches.
+      const updatedCustomer = await d1CustomerToKvShape(ph, env).catch(() => null);
+      if (updatedCustomer) {
+        const idx = (kvDb.customers || []).findIndex(c => _norm10(c.phone) === ph);
+        if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+        else kvDb.customers.push(updatedCustomer);
+        kvRefreshed++;
+      }
+    } catch (e) {
+      errors.push({ phone: ph, error: e.message });
+      await _logD1Failure(env, `handleOptoutBackfill:${personId}`, e.message);
+    }
+  }
+
+  if (kvRefreshed) await env.DATA.put(KV_KEYS.customers, JSON.stringify(kvDb));
+
+  // Final D1 count for caller sanity check
+  const finalRow = await env.DB.prepare('SELECT COUNT(*) AS n FROM Person WHERE doNotContact=1').first();
+
+  return jsonResponse({
+    success:        true,
+    kvOptoutsFound: phones.length,
+    alreadyInD1:    alreadyD1,
+    d1Updated,
+    d1Missing,
+    kvRefreshed,
+    d1FinalCount:   Number(finalRow?.n || 0),
+    errorCount:     errors.length,
+    errors:         errors.slice(0, 25),
+  }, corsHeaders);
+}
+
 // POST /reactivation/undo  body { phone }
-// Deletes the contact/cooldown record. Does NOT clear an opt-out (that's TCPA-permanent
+// Deletes the contact/cooldown record. Does NOT clear an opt-out (TCPA-permanent
 // — separate restore flow for that, intentionally not in this endpoint).
+// 2026-06-22 (#6): preserve contactCount + firstContactAt even when no opt-out
+// flag is present — those drive the retry-cap gate, and undoing a single
+// cooldown should NOT reset the cap (operator could otherwise circumvent the
+// 3-text limit by undoing + re-sending).
 async function handleReactivationUndo(request, env, corsHeaders) {
   if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
   let body = {};
@@ -4519,11 +5278,11 @@ async function handleReactivationUndo(request, env, corsHeaders) {
   if (phone.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
   try {
     const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
-    // Preserve any opt-out flag — only clear cooldown fields
+    // Strip cooldown markers but keep retry-cap counters + opt-out + first-contact stamp.
     if (map[phone]) {
       const { contactedAt, cooldownUntil, ...rest } = map[phone];
-      if (rest.optOut) map[phone] = rest;
-      else             delete map[phone];
+      if (Object.keys(rest).length > 0) map[phone] = rest;  // keep contactCount/firstContactAt/optOut/etc.
+      else                              delete map[phone];   // truly empty record — nothing worth preserving
     }
     await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
     const verify = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
@@ -4531,6 +5290,73 @@ async function handleReactivationUndo(request, env, corsHeaders) {
       return jsonResponse({ success: false, error: 'undo_verify_failed' }, corsHeaders, 500);
     }
     return jsonResponse({ success: true, phone, remaining: verify[phone] || null }, corsHeaders);
+  } catch (e) {
+    return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /reactivation/restore-optout  body { phone }
+// 2026-06-22: clears the opt-out across all three stores — KV customer_db,
+// KV reactivation_contacts, and D1 Person.doNotContact. Mirror of
+// handleReactivationOptout's three-write semantics + T1.20 verify. Used by
+// the bulk-reactivation page's restoreOptOut button when an operator
+// determines an opt-out was set in error.
+async function handleReactivationRestoreOptout(request, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  if (!env.DB)   return jsonResponse({
+    error: 'D1 not bound — restore would be KV-only and would re-flip on next rebuild',
+    severity: 'critical',
+  }, corsHeaders, 503);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const phone = _norm10(body.phone);
+  if (phone.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const atIso = new Date().toISOString();
+
+  try {
+    // 1. Clear customer_db blob
+    const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    const cust = (db.customers || []).find(c => _norm10(c.phone) === phone);
+    if (cust && cust.optOut) {
+      cust.optOut = null;
+      await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+    }
+
+    // 2. Clear reactivation_contacts opt-out flag (keep cooldown/retry-cap metadata)
+    const map = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    if (map[phone] && map[phone].optOut) {
+      const { optOut, optOutAt, optOutReason, ...rest } = map[phone];
+      if (Object.keys(rest).length > 0) map[phone] = rest;
+      else                              delete map[phone];
+      await env.DATA.put(KV_KEYS.reactivationContacts, JSON.stringify(map));
+    }
+
+    // 3. Clear D1 Person.doNotContact
+    const personId = `person_1${phone}`;
+    let d1Cleared = false;
+    try {
+      const res = await env.DB.prepare(
+        `UPDATE Person SET doNotContact=0, modifiedAt=? WHERE personId=?`
+      ).bind(atIso, personId).run();
+      d1Cleared = (res.meta?.changes || 0) > 0;
+    } catch (e) {
+      await _logD1Failure(env, `handleReactivationRestoreOptout:d1:${personId}`, e.message);
+      return jsonResponse({ success: false, error: 'd1_clear_failed', detail: e.message }, corsHeaders, 500);
+    }
+
+    // 4. Verify all three stores — KV blob + contacts map + D1
+    const verifyDb  = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    const verifyC   = (verifyDb.customers || []).find(c => _norm10(c.phone) === phone);
+    const verifyMap = (await env.DATA.get(KV_KEYS.reactivationContacts, 'json')) || {};
+    const kvClean   = (!verifyC || !verifyC.optOut) && !(verifyMap[phone]?.optOut);
+    const p = await env.DB.prepare('SELECT doNotContact FROM Person WHERE personId=?').bind(personId).first();
+    const d1Verified = Number(p?.doNotContact) === 0;
+    if (!kvClean || !d1Verified) {
+      return jsonResponse({ success: false, error: 'restore_verify_failed', kvClean, d1Verified }, corsHeaders, 500);
+    }
+    return jsonResponse({ success: true, phone, d1DoNotContact: d1Verified, contactRecord: verifyMap[phone] || null }, corsHeaders);
   } catch (e) {
     return jsonResponse({ success: false, error: e.message }, corsHeaders, 500);
   }
@@ -4721,6 +5547,38 @@ async function handleImportRollback(request, env, corsHeaders) {
   return jsonResponse({ success: true, restoredFrom: key, customerCount: (backup.customers||[]).length }, corsHeaders);
 }
 
+// Cloudflare Turnstile siteverify wrapper. Returns one of:
+//   'valid'   — Cloudflare confirmed token is good. Process the submission.
+//   'invalid' — Cloudflare confirmed token is bad / spent / spoofed. Reject.
+//   'skip'    — Outage / network blip / unset secret. Per Tyler's brief, fail
+//               open — never drop a real lead because of a service blip.
+async function _verifyTurnstile(env, token, ip) {
+  if (!env.TURNSTILE_SECRET_KEY) {
+    // Secret not provisioned in this environment — defensive log + fail open.
+    try { await _logD1Failure(env, '_verifyTurnstile', 'TURNSTILE_SECRET_KEY missing'); } catch (_) {}
+    return 'skip';
+  }
+  if (!token || typeof token !== 'string') return 'invalid';
+  try {
+    const form = new FormData();
+    form.append('secret',   env.TURNSTILE_SECRET_KEY);
+    form.append('response', token);
+    if (ip && ip !== 'unknown') form.append('remoteip', ip);
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST', body: form,
+    });
+    if (!res.ok) {
+      try { await _logD1Failure(env, '_verifyTurnstile', `siteverify HTTP ${res.status}`); } catch (_) {}
+      return 'skip';  // outage — fail open
+    }
+    const j = await res.json();
+    return j && j.success === true ? 'valid' : 'invalid';
+  } catch (e) {
+    try { await _logD1Failure(env, '_verifyTurnstile', `siteverify fetch error: ${e.message}`); } catch (_) {}
+    return 'skip';  // outage — fail open
+  }
+}
+
 // ── POST /incoming — rate limit + honeypot + validation ──────────────────────
 async function handleIncomingSubmit(request, env, corsHeaders) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -4753,11 +5611,29 @@ async function handleIncomingSubmit(request, env, corsHeaders) {
     if (firstName.length < 2)  return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
     if (lastName.length  < 2)  return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
     if (!city)                 return jsonResponse({ error: 'Please fill out all fields correctly.' }, corsHeaders, 400);
+
+    // Cloudflare Turnstile — required for the main quote form only. Reschedule
+    // + waitlist sub-forms don't render the widget (they're not the bot target).
+    // Fail-OPEN on outage per Tyler's brief — never drop a real lead because
+    // siteverify itself blipped. Only reject on a CONFIRMED-invalid token.
+    const tsResult = await _verifyTurnstile(env, body.turnstileToken, ip);
+    if (tsResult === 'invalid') {
+      return jsonResponse({
+        error: 'verification_failed',
+        message: 'Please refresh the page and try again. If this keeps happening, call us at (954) 389-2642.',
+      }, corsHeaders, 403);
+    }
+    // 'valid' OR 'skip' (outage) → continue.
   }
 
-  // Save
-  if (!body.id)        body.id        = generateId();
-  if (!body.createdAt) body.createdAt = new Date().toISOString();
+  // Save. submittedAt is REQUIRED — pure_cleaning_incoming.html sorts on it
+  // (3 callsites). Without it the entire Incoming page crashed
+  // (`Cannot read properties of undefined (reading 'localeCompare')`) on
+  // every device, 11 times in an hour on 2026-06-21. Rule 21 / DL-07: the
+  // write must guarantee every field the read assumes.
+  if (!body.id)          body.id          = generateId();
+  if (!body.createdAt)   body.createdAt   = new Date().toISOString();
+  if (!body.submittedAt) body.submittedAt = body.createdAt;
   const existing = await env.DATA.get(KV_KEYS.incoming, 'json') || {};
   if (!existing.requests) existing.requests = [];
   existing.requests.push(body);
@@ -4775,6 +5651,8 @@ async function handleIncomingSubmit(request, env, corsHeaders) {
 //   small-payload PUTs (smoke tests, migration scripts, manual curl). Use ?force=true to override.
 //   NOT applied to /import/rollback (intentional full replacement via separate handler).
 async function handleCustomersPut(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'Invalid JSON' }, corsHeaders, 400);
 
@@ -5424,6 +6302,11 @@ function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
   if (c.deleted) return false;
   if (c.isReferralOnly) return false;
   if (c.customerType === 'partner_referral') return false;
+  // 2026-06-22 Deploy 2: commercial accounts excluded from the review hub.
+  // Residential-only by default — commercial review asks are a different
+  // workflow (proposal-attached, B2B context) and shouldn't be auto-queued
+  // alongside residential one-off jobs. Matches the partner_referral pattern.
+  if (c.customerType === 'commercial' || c.isCommercialAccount) return false;
   if (c.optOut) return false;
   if ((c.phone || '').startsWith('REFERRAL_')) return false;
   if (c.neverAskReview === true) return false;
@@ -6073,6 +6956,23 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
     accessNotes:            primaryProp.accessNotes  || null,
     customerType:           p.customerType   || 'residential',
     partnerNotes:           p.partnerNotes   || null,
+    // 2026-06-22 migration 0031: profile notes (customer-facing, free-text,
+    // appended via POST /admin/person/:id/note). Was KV-only via whole-DB PUT
+    // before this; D1 column gives it a canonical home and per-row write safety.
+    profileNotes: (() => {
+      if (!p.profileNotesJson) return [];
+      try { const arr = JSON.parse(p.profileNotesJson); return Array.isArray(arr) ? arr : []; }
+      catch { return []; }
+    })(),
+    // 2026-06-22 migration 0032 (Phase 1 #3): alternate contacts as D1-canonical.
+    // Array of { name, phone, label, relation }. Empty array when unset so
+    // callers don't have to null-check. KV bridge for alternateContacts is now
+    // dead — every read flows through this projection.
+    alternateContacts: (() => {
+      if (!p.alternateContactsJson) return [];
+      try { const arr = JSON.parse(p.alternateContactsJson); return Array.isArray(arr) ? arr : []; }
+      catch { return []; }
+    })(),
     bouncieMetrics:         null, // populated by computeBouncieMetrics() after construction
     reviewQueue:            null,
     quoteStatus:            null,
@@ -6117,9 +7017,192 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
   };
 }
 
+// ── Phase 0 (2026-06-22): GET /customers/summary ─────────────────────────────
+// Slim list-view shape for the customer directory + other list-only consumers.
+// 4 MB → ~600 KB (typical) by dropping jobHistory, full scheduledStatus, full
+// quoteStatus, properties[], complaints[], photos[], measurements, etc.
+//
+// The shape preserves the existing field-access patterns the directory uses
+// today: c.scheduledStatus.state, c.quoteStatus.mainServices, c.lastService,
+// c.totalJobs, c.lifetimeSpend, etc. — so the client migration is a one-liner
+// (change the fetch URL, nothing else).
+//
+// Derived flags (hasRoofHistory, hasSealHistory, isTipper) are computed once
+// here from the FULL shape so the client never needs to walk jobHistory.
+// Trade-off: this endpoint still builds the full shape internally (same D1
+// queries as /customers), then trims — the wire-size + JSON parse savings
+// land on the client (which is where Tyler felt the pain). A pure-D1 slim
+// query is a future optimization (Phase 5).
+// Mirror of pure_cleaning_customer_directory.html `_computeAvgTPW(c)` (line 350).
+// Pre-compute server-side so the directory can drop the client-side walk over
+// c.bouncieMetrics. Same weighted-average logic, same label text, so when the
+// directory swaps to /customers/summary the values are byte-identical to what
+// the client used to produce.
+function _fmtMin(m) {
+  const h = Math.floor(m / 60), mins = m % 60;
+  return h > 0 ? `${h}h ${mins}m` : `${mins}m`;
+}
+function _d1ComputeLaborLabels(c) {
+  const bm = c.bouncieMetrics;
+  const empty = {
+    avgLaborPerJob:        null,
+    _avgTPWLabel:          '—',
+    _avgTPWLabelCard:      '',
+    _avgSoloEquivLabel:    '',
+    _avgTotalLaborLabel:   '',
+  };
+  if (!bm || typeof bm !== 'object' || !Object.keys(bm).length) return empty;
+  const entries = Object.values(bm);
+  let totalWeighted = 0, totalCount = 0;
+  let totalSEWeighted = 0, totalSECount = 0;
+  let totalTLWeighted = 0, totalTLCount = 0;
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    totalWeighted += (e.avgDurationMinutes || 0) * (e.matchedJobCount || 1);
+    totalCount    += (e.matchedJobCount || 1);
+    if (e.avgSoloEquivMinutes != null && e.singleRigCount) {
+      totalSEWeighted += e.avgSoloEquivMinutes * e.singleRigCount;
+      totalSECount    += e.singleRigCount;
+    }
+    if (e.avgTotalLaborMinutes != null && e.multiRigCount) {
+      totalTLWeighted += e.avgTotalLaborMinutes * e.multiRigCount;
+      totalTLCount    += e.multiRigCount;
+    }
+  }
+  if (totalCount <= 0) return empty;
+  const avg   = Math.round(totalWeighted / totalCount);
+  const label = totalCount >= 2 ? 'Avg' : 'Last';
+  const str   = `${label}: ${_fmtMin(avg)}`;
+  const avgSE = totalSECount > 0 ? Math.round(totalSEWeighted / totalSECount) : null;
+  const avgTL = totalTLCount > 0 ? Math.round(totalTLWeighted / totalTLCount) : null;
+  return {
+    avgLaborPerJob:      avg,
+    _avgTPWLabel:        str,
+    _avgTPWLabelCard:    str,
+    _avgSoloEquivLabel:  avgSE != null ? `Solo-equiv: ${_fmtMin(avgSE)} (single-rig)` : '',
+    _avgTotalLaborLabel: avgTL != null ? `Total labor: ${_fmtMin(avgTL)} (multi-rig)` : '',
+  };
+}
+
+function _d1ToSummaryShape(full) {
+  const customers = (full && full.customers) ? full.customers : [];
+  const slim = customers.map(c => {
+    const jh = c.jobHistory || [];
+    const ss = c.scheduledStatus || {};
+    const qs = c.quoteStatus     || {};
+    // Roof-history flag — used by getRebookWindow to extend the rebook window
+    // for roof customers (18-36 mo vs 6-18 mo). Walk jh once here so the client
+    // can drop the c.jobHistory dependency.
+    const _allSvc = [
+      ...jh.map(j => j.services || ''),
+      ss.jobNotes     || '',
+      qs.mainServices || '',
+    ].join(' ');
+    const hasRoofHistory = /\broof\b/i.test(_allSvc);
+    const _ph10 = (c.phone || '').replace(/\D/g, '').slice(-10);
+    return {
+      // Identity + contact
+      phone:           c.phone           || '',
+      // personId = derived 'person_1' + 10-digit phone (mirrors _d1PersonId).
+      // Surfaced for pages that PATCH /admin/person/:id from list views
+      // (proposal_builder, etc.) — avoids per-page derivation.
+      personId:        _ph10.length === 10 ? `person_1${_ph10}` : null,
+      firstName:       c.firstName       || '',
+      lastName:        c.lastName        || '',
+      businessName:    c.businessName    || null,
+      email:           c.email           || null,
+      altPhone:        c.altPhone        || null,
+      // 2026-06-22 Phase 2 search-by-any-number: every distinct 10-digit
+      // alternate (legacy altPhone + every alternateContacts[].phone) joined
+      // into one searchable string so the directory's existing phone-search
+      // includes alt numbers without an extra index lookup. Includes phone
+      // numbers carried over from merged records and from a former primary
+      // after a change-primary-phone migration.
+      altPhoneDigits:  (() => {
+        const seen = new Set();
+        const add = v => {
+          const d = (v || '').toString().replace(/\D/g, '').slice(-10);
+          if (d.length === 10) seen.add(d);
+        };
+        add(c.altPhone);
+        for (const a of (c.alternateContacts || [])) add(a?.phone);
+        return Array.from(seen).join(' ');
+      })(),
+      // Address (top-level — properties[] dropped from summary)
+      address:         c.address         || '',
+      city:            c.city            || '',
+      zip:             c.zip             || null,
+      // Classification
+      customerType:        c.customerType        || 'residential',
+      isCommercialAccount: !!c.isCommercialAccount,
+      isReferralSource:    !!c.isReferralSource,
+      isReferralOnly:      !!c.isReferralOnly,
+      // Status flags
+      optOut:        c.optOut        || null,
+      movedAway:     c.movedAway     || null,
+      deleted:       c.deleted       || false,
+      isTest:        c.isTest        || false,
+      hasComplaints: !!c.hasComplaints,
+      complaintCount: c.complaintCount || 0,
+      isTipper:      !!c.isTipper,
+      troubleFlag:   c.troubleFlag   || null,
+      // Pre-computed totals
+      totalJobs:        c.totalJobs        || jh.filter(j => j.status === 'completed').length || 0,
+      lifetimeSpend:    c.lifetimeSpend    || 0,
+      lastService:      c.lastService      || null,
+      // Derived (pre-walked)
+      hasRoofHistory,
+      hasSealHistory:   !!c.hasSealHistory,
+      // Pre-computed labor labels — exact mirror of the directory's
+      // `_computeAvgTPW(c)` output (avgLaborPerJob, _avgTPWLabel,
+      // _avgTPWLabelCard, _avgSoloEquivLabel, _avgTotalLaborLabel). Lets the
+      // directory drop the client-side walk over c.bouncieMetrics.
+      ..._d1ComputeLaborLabels(c),
+      // Minimal sub-objects: enough fields for directory + quotes.html.
+      // 2026-06-22 quotes migration expanded both subsets.
+      scheduledStatus: ss && (ss.state || ss.scheduledDate) ? {
+        state:          ss.state          || null,
+        scheduledDate:  ss.scheduledDate  || null,
+        approvedAmount: ss.approvedAmount || null,
+        jobNotes:       ss.jobNotes       || null,
+        rig:            ss.rig            || null,
+        canceledDate:   ss.canceledDate   || null,
+        canceledReason: ss.canceledReason || null,
+      } : null,
+      quoteStatus: qs && qs.state ? {
+        state:           qs.state           || null,
+        mainServices:    qs.mainServices    || null,
+        sentDate:        qs.sentDate        || null,
+        sentAt:          qs.sentAt          || null,
+        viewedDate:      qs.viewedDate      || null,
+        approvedDate:    qs.approvedDate    || null,
+        lostDate:        qs.lostDate        || null,
+        lostReason:      qs.lostReason      || null,
+        deleted:         !!qs.deleted,
+        reminderSkipped: !!qs.reminderSkipped,
+        confirmedBy:     qs.confirmedBy     || null,
+        confirmedAt:     qs.confirmedAt     || null,
+        confirmedDate:   qs.confirmedDate   || null,
+      } : null,
+      // Quote-page extras (KV-only display fields)
+      alerts:    Array.isArray(c.alerts) ? c.alerts : [],
+      linkBin:   c.linkBin   || null,
+      linkCode:  c.linkCode  || null,
+      reactivationExcluded: c.reactivationExcluded || null,
+      // Phone status (used by directory filter)
+      phoneStatus:     c.phoneStatus     || null,
+      preferredPaymentMethod: c.preferredPaymentMethod || null,
+    };
+  });
+  return { version: 'summary_v1', count: slim.length, customers: slim };
+}
+
 async function d1AllCustomersToKvShape(env) {
   const [persons, propLinks, jobs, reviewStates, truckDriveTimes, kvDb, geoPrecisionMap] = await Promise.all([
-    env.DB.prepare('SELECT * FROM Person').all().then(r => r.results || []),
+    // 2026-06-22 Phase 2 identity tools: retired rows (change-primary-phone /
+    // merge sources) must never appear in /customers reads — they exist for
+    // audit trail only via the replacedBy pointer.
+    env.DB.prepare('SELECT * FROM Person WHERE retiredAt IS NULL').all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT pp.personId, pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType,' +
       'p.streetAddress, p.city, p.state, p.zip,' +
@@ -6177,15 +7260,48 @@ async function d1AllCustomersToKvShape(env) {
     jobsByPayer[j.payerId].push(j);
   }
 
-  // TEMP KV bridge: build phone → {alternateContacts, altPhone} lookup
+  // TEMP KV bridge: phone → KV-only fields that have no D1 column.
+  // 2026-06-22 quotes-migration: expanded to carry quoteStatus, alerts,
+  // linkBin, linkCode (used by quotes.html + the quote-link tracker).
+  // Without this bridge, every read of /customers rebuilds from D1 and drops
+  // these KV-only fields — which silently broke quotes.html quote state on
+  // every page reload (only survived via session-cache for 60s). The fix
+  // makes the scoped /admin/quote-state writes durable across reads.
   const _ph10 = p => (p||'').replace(/\D/g,'').slice(-10);
-  const kvAltMap = new Map();
+  const kvBridgeMap = new Map();
   for (const kc of (kvDb.customers || [])) {
     const kph = _ph10(kc.phone);
-    if (kph && (kc.alternateContacts || kc.altPhone)) {
-      kvAltMap.set(kph, { alternateContacts: kc.alternateContacts || null, altPhone: kc.altPhone || null });
-    }
+    if (!kph) continue;
+    // Only build an entry if at least one bridged field is present — avoids
+    // a Map blowout for the 1200+ customers that have no KV-only state.
+    const hasAny = kc.alternateContacts || kc.altPhone ||
+                   kc.quoteStatus || (Array.isArray(kc.alerts) && kc.alerts.length) ||
+                   kc.linkBin || kc.linkCode ||
+                   (kc.scheduledStatus && (
+                     kc.scheduledStatus.canceledDate || kc.scheduledStatus.canceledReason ||
+                     (Array.isArray(kc.scheduledStatus.photos) && kc.scheduledStatus.photos.length)
+                   ));
+    if (!hasAny) continue;
+    kvBridgeMap.set(kph, {
+      alternateContacts: kc.alternateContacts || null,
+      altPhone:          kc.altPhone          || null,
+      quoteStatus:       kc.quoteStatus       || null,
+      alerts:            Array.isArray(kc.alerts) ? kc.alerts : null,
+      linkBin:           kc.linkBin           || null,
+      linkCode:          kc.linkCode          || null,
+      // canceled subset of scheduledStatus — D1-built scheduledStatus doesn't
+      // carry these; surface them via post-build merge below.
+      canceledDate:      kc.scheduledStatus?.canceledDate   || null,
+      canceledReason:    kc.scheduledStatus?.canceledReason || null,
+      // 2026-06-22: scheduledStatus.photos was a Rule 21 read/write split —
+      // POST /customer/:phone/scheduled-photo writes here, but D1-built
+      // scheduledStatus dropped it on every rebuild. Carry it through.
+      photos:            Array.isArray(kc.scheduledStatus?.photos) ? kc.scheduledStatus.photos : null,
+    });
   }
+  // Keep the old name as an alias for the few call-sites below that still
+  // reference `kvAltMap` (alternateContacts/altPhone subset).
+  const kvAltMap = kvBridgeMap;
 
   // TruckEvent drive-time lookup: jobId → { driveInMinutes, driveOutMinutes }
   const driveTimeByJobId = new Map();
@@ -6212,11 +7328,28 @@ async function d1AllCustomersToKvShape(env) {
         }
       }
     }
-    // TEMP KV bridge: merge alternateContacts + altPhone from KV if present
+    // TEMP KV bridge: merge KV-only fields with no D1 column.
+    // 2026-06-22 quotes-migration expanded: quoteStatus, alerts, linkBin/linkCode,
+    // and scheduledStatus.canceled* are now carried across the D1 rebuild so
+    // /customers + /customers/summary preserve them across reads.
     const kvAlt = kvAltMap.get(ph);
     if (kvAlt) {
       if (kvAlt.alternateContacts) customer.alternateContacts = kvAlt.alternateContacts;
-      if (kvAlt.altPhone) customer.altPhone = kvAlt.altPhone;
+      if (kvAlt.altPhone)          customer.altPhone          = kvAlt.altPhone;
+      if (kvAlt.quoteStatus)       customer.quoteStatus       = kvAlt.quoteStatus;
+      if (kvAlt.alerts)            customer.alerts            = kvAlt.alerts;
+      if (kvAlt.linkBin)           customer.linkBin           = kvAlt.linkBin;
+      if (kvAlt.linkCode)          customer.linkCode          = kvAlt.linkCode;
+      // Merge canceled fields + photos onto D1-built scheduledStatus without
+      // losing the D1-derived state/scheduledDate/rig/etc.
+      if (kvAlt.canceledDate || kvAlt.canceledReason || kvAlt.photos) {
+        customer.scheduledStatus = {
+          ...(customer.scheduledStatus || {}),
+          ...(kvAlt.canceledDate   ? { canceledDate:   kvAlt.canceledDate   } : {}),
+          ...(kvAlt.canceledReason ? { canceledReason: kvAlt.canceledReason } : {}),
+          ...(kvAlt.photos         ? { photos:         kvAlt.photos         } : {}),
+        };
+      }
     }
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
     // Multi-property calendar display is now driven by GET /admin/calendar-jobs (Phase 2A).
@@ -6231,7 +7364,11 @@ async function d1CustomerToKvShape(phone, env) {
   const personId = _d1PersonId(ph);
 
   const [personRow, propLinks, pjobs, truckDriveTimes] = await Promise.all([
-    env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=?').bind('+1'+ph).first(),
+    // 2026-06-22 Phase 2 identity tools: only return active rows. A lookup by
+    // a retired phone returns null — caller can follow the replacedBy chain
+    // via the audit endpoint if needed (rare; usually the operator now uses
+    // the new number).
+    env.DB.prepare('SELECT * FROM Person WHERE primaryPhone=? AND retiredAt IS NULL').bind('+1'+ph).first(),
     env.DB.prepare(
       'SELECT pp.propertyId, pp.primaryContact, pp.propertyLabel, pp.propertyType, p.streetAddress, p.city, p.state, p.zip,' +
       'p.latitude, p.longitude, p.geocodeSource, p.gateCode, p.accessNotes,' +
@@ -6317,13 +7454,44 @@ async function d1CustomerToKvShape(phone, env) {
       ? (() => { try { return JSON.parse(pp.photoKeys); } catch { return []; } })()
       : [],                                            // Customer photo upload: lead-captured R2 keys
   }));
-  // TEMP KV bridge: merge alternateContacts + altPhone from KV (no D1 column yet).
-  // Remove once Person.alternateContactsJson column is added.
+  // Property picker ordering (Cleanup-Spec 2026-06-21): primaryContact first,
+  // then by propertyLabel for a stable display order. Mirrors the
+  // partner_property_picker.csv ranking — the migration sets primaryContact=1
+  // on the first row of each phone group, which IS the file's "Primary
+  // contact site" row.
+  customer.properties.sort((a, b) => {
+    if (a.primaryContact !== b.primaryContact) return a.primaryContact ? -1 : 1;
+    return (a.propertyLabel || '').localeCompare(b.propertyLabel || '');
+  });
+  // TEMP KV bridge: merge KV-only fields with no D1 column.
+  // 2026-06-22 (#17): unified with d1AllCustomersToKvShape — the single-customer
+  // mapper used to bridge only alternateContacts + altPhone, so GET /customer/:phone
+  // silently dropped quoteStatus, alerts, linkBin, linkCode, scheduledStatus.photos,
+  // and scheduledStatus.canceled* on every read. Profile/quote pages working off
+  // the single endpoint never saw those fields. Now matches bulk shape exactly.
+  // Remove this whole block once the relevant D1 columns are added (
+  // Person.alternateContactsJson, Job.cancellationReason already exists, etc.).
   const kvDbSingle = await env.DATA.get('customer_db', 'json').then(d => d || { customers: [] });
   const kvC = (kvDbSingle.customers || []).find(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
   if (kvC) {
     if (kvC.alternateContacts) customer.alternateContacts = kvC.alternateContacts;
     if (kvC.altPhone)          customer.altPhone          = kvC.altPhone;
+    if (kvC.quoteStatus)       customer.quoteStatus       = kvC.quoteStatus;
+    if (Array.isArray(kvC.alerts) && kvC.alerts.length) customer.alerts = kvC.alerts;
+    if (kvC.linkBin)           customer.linkBin           = kvC.linkBin;
+    if (kvC.linkCode)          customer.linkCode          = kvC.linkCode;
+    const kvSs        = kvC.scheduledStatus || {};
+    const kvPhotos    = Array.isArray(kvSs.photos) && kvSs.photos.length ? kvSs.photos : null;
+    const canceledDt  = kvSs.canceledDate   || null;
+    const canceledRs  = kvSs.canceledReason || null;
+    if (kvPhotos || canceledDt || canceledRs) {
+      customer.scheduledStatus = {
+        ...(customer.scheduledStatus || {}),
+        ...(kvPhotos   ? { photos:         kvPhotos   } : {}),
+        ...(canceledDt ? { canceledDate:   canceledDt } : {}),
+        ...(canceledRs ? { canceledReason: canceledRs } : {}),
+      };
+    }
   }
   return customer;
 }
@@ -7886,6 +9054,1270 @@ async function handlePersonReminders(env, personId, corsHeaders) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// COST HUB — Phase 1 (capture only, no allocation math yet)
+//   Schema:   migration 0028 (CostEntry, CostCategory, Equipment)
+//   Design:   docs/QUOTING-ENGINE.md §16
+//   Phase 2:  allocation engine → per-job profit (Bouncie miles+hours)
+//   Phase 3:  weekly/monthly P&L + per-job profit chip on calendar
+//
+// All routes below are mounted under the admin auth gate (line ~903).
+// All writes are D1-only — these tables don't exist in KV (Rule 19: D1 is
+// canonical for new data; dual-write only applies to legacy customer data).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /admin/cost-categories?kind=
+// Lists active CostCategory rows, optionally filtered by kind. Powers the
+// dropdowns + the "fixed monthly" prefill list.
+async function handleCostCategoriesList(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const kind = (url.searchParams.get('kind') || '').trim();
+  const ALLOWED_KINDS = new Set(['per_job_variable', 'fixed_monthly', 'occasional']);
+  if (kind && !ALLOWED_KINDS.has(kind))
+    return jsonResponse({ error: 'kind must be per_job_variable | fixed_monthly | occasional' }, corsHeaders, 400);
+  try {
+    const stmt = kind
+      ? env.DB.prepare('SELECT categoryId, name, kind, defaultUnit, defaultPrice FROM CostCategory WHERE active = 1 AND kind = ? ORDER BY kind, name').bind(kind)
+      : env.DB.prepare('SELECT categoryId, name, kind, defaultUnit, defaultPrice FROM CostCategory WHERE active = 1 ORDER BY kind, name');
+    const rows = (await stmt.all())?.results || [];
+    return jsonResponse({ categories: rows }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCostCategoriesList', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /admin/cost-entry
+// Body: { date, type, amount, rigId?, jobId?, quantity?, unit?, note?, receiptUrl?, enteredBy? }
+// Creates a CostEntry. `type` must match a CostCategory.categoryId.
+async function handleCostEntryCreate(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { date, type, amount, rigId, jobId, quantity, unit, note, receiptUrl, enteredBy } = body;
+
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return jsonResponse({ error: 'date required (YYYY-MM-DD)' }, corsHeaders, 400);
+  if (!type || typeof type !== 'string')
+    return jsonResponse({ error: 'type required' }, corsHeaders, 400);
+  if (amount == null || isNaN(Number(amount)))
+    return jsonResponse({ error: 'amount required (number)' }, corsHeaders, 400);
+  const amt = Number(amount);
+  if (amt < 0) return jsonResponse({ error: 'amount must be >= 0' }, corsHeaders, 400);
+
+  // Verify the category exists — friendlier than a silent orphan.
+  const cat = await env.DB.prepare('SELECT categoryId FROM CostCategory WHERE categoryId = ?').bind(type).first();
+  if (!cat) return jsonResponse({ error: 'unknown type (no matching CostCategory)', type }, corsHeaders, 404);
+
+  let qty = null;
+  if (quantity != null && quantity !== '') {
+    const q = Number(quantity);
+    if (isNaN(q) || q < 0) return jsonResponse({ error: 'quantity must be a non-negative number' }, corsHeaders, 400);
+    qty = q;
+  }
+
+  const now = new Date().toISOString();
+  const costEntryId = `ce_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO CostEntry
+         (costEntryId, date, type, rigId, jobId, amount, quantity, unit, note, receiptUrl, enteredBy, enteredAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      costEntryId, date, type,
+      (rigId || '').trim() || null,
+      (jobId || '').trim() || null,
+      amt, qty,
+      (unit || '').trim() || null,
+      (note || '').trim() || null,
+      (receiptUrl || '').trim() || null,
+      (enteredBy || 'tyler').trim(),
+      now, now
+    ).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleCostEntryCreate', e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success: true,
+    costEntryId,
+    date, type,
+    rigId:    (rigId || '').trim() || null,
+    jobId:    (jobId || '').trim() || null,
+    amount:   amt,
+    quantity: qty,
+    unit:     (unit || '').trim() || null,
+    note:     (note || '').trim() || null,
+    receiptUrl: (receiptUrl || '').trim() || null,
+    enteredBy:  (enteredBy || 'tyler').trim(),
+    enteredAt:  now,
+    modifiedAt: now,
+  }, corsHeaders);
+}
+
+// GET /admin/cost-entries?from=YYYY-MM-DD&to=YYYY-MM-DD&rigId=&type=&jobId=&limit=
+// Lists CostEntry rows with optional filters. Default limit 500.
+async function handleCostEntriesList(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const from   = url.searchParams.get('from');
+  const to     = url.searchParams.get('to');
+  const rigId  = url.searchParams.get('rigId');
+  const type   = url.searchParams.get('type');
+  const jobId  = url.searchParams.get('jobId');
+  const limit  = Math.min(parseInt(url.searchParams.get('limit') || '500', 10) || 500, 2000);
+
+  const conditions = [];
+  const binds = [];
+  if (from)  { conditions.push('date >= ?'); binds.push(from); }
+  if (to)    { conditions.push('date <= ?'); binds.push(to); }
+  if (rigId) { conditions.push('rigId = ?'); binds.push(rigId); }
+  if (type)  { conditions.push('type = ?');  binds.push(type); }
+  if (jobId) { conditions.push('jobId = ?'); binds.push(jobId); }
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+  try {
+    const stmt = env.DB.prepare(
+      `SELECT costEntryId, date, type, rigId, jobId, amount, quantity, unit, note, receiptUrl, enteredBy, enteredAt, modifiedAt
+         FROM CostEntry
+         ${where}
+         ORDER BY date DESC, enteredAt DESC
+         LIMIT ?`
+    ).bind(...binds, limit);
+    const rows = (await stmt.all())?.results || [];
+    return jsonResponse({ entries: rows, count: rows.length }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCostEntriesList', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// PATCH /admin/cost-entry/:costEntryId
+// Body: any of { amount, quantity, unit, note, receiptUrl, rigId, jobId, date }
+async function handleCostEntryPatch(request, env, costEntryId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!costEntryId) return jsonResponse({ error: 'costEntryId required' }, corsHeaders, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare('SELECT costEntryId FROM CostEntry WHERE costEntryId = ?').bind(costEntryId).first();
+  if (!existing) return jsonResponse({ error: 'cost entry not found', costEntryId }, corsHeaders, 404);
+
+  const MUTABLE = ['date', 'amount', 'quantity', 'unit', 'note', 'receiptUrl', 'rigId', 'jobId'];
+  const sets = [];
+  const binds = [];
+  for (const f of MUTABLE) {
+    if (!(f in body)) continue;
+    let v = body[f];
+    if (f === 'amount') {
+      if (v == null || isNaN(Number(v))) return jsonResponse({ error: 'amount must be number' }, corsHeaders, 400);
+      v = Number(v); if (v < 0) return jsonResponse({ error: 'amount must be >= 0' }, corsHeaders, 400);
+    } else if (f === 'quantity') {
+      if (v == null || v === '') { v = null; }
+      else { const q = Number(v); if (isNaN(q) || q < 0) return jsonResponse({ error: 'quantity must be >= 0' }, corsHeaders, 400); v = q; }
+    } else if (f === 'date') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return jsonResponse({ error: 'date must be YYYY-MM-DD' }, corsHeaders, 400);
+    } else if (typeof v === 'string') {
+      v = v.trim() || null;
+    }
+    sets.push(`${f} = ?`);
+    binds.push(v);
+  }
+  if (!sets.length) return jsonResponse({ error: 'no mutable fields in body' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  sets.push('modifiedAt = ?'); binds.push(now);
+  binds.push(costEntryId);
+
+  try {
+    await env.DB.prepare(`UPDATE CostEntry SET ${sets.join(', ')} WHERE costEntryId = ?`).bind(...binds).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleCostEntryPatch', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  const fresh = await env.DB.prepare('SELECT * FROM CostEntry WHERE costEntryId = ?').bind(costEntryId).first();
+  return jsonResponse({ success: true, entry: fresh }, corsHeaders);
+}
+
+// DELETE /admin/cost-entry/:costEntryId
+async function handleCostEntryDelete(env, costEntryId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!costEntryId) return jsonResponse({ error: 'costEntryId required' }, corsHeaders, 400);
+  try {
+    const res = await env.DB.prepare('DELETE FROM CostEntry WHERE costEntryId = ?').bind(costEntryId).run();
+    return jsonResponse({ success: true, costEntryId, deleted: res?.meta?.changes || 0 }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCostEntryDelete', e.message);
+    return jsonResponse({ error: 'D1 delete failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// GET /admin/cost-last?type=sealer
+// Returns the most recent CostEntry for the given type — used to PREFILL
+// the next seal-job sealer/sand prompt with last-known prices.
+async function handleCostLastByType(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const type = (url.searchParams.get('type') || '').trim();
+  if (!type) return jsonResponse({ error: 'type query param required' }, corsHeaders, 400);
+  try {
+    const row = await env.DB.prepare(
+      `SELECT costEntryId, date, type, amount, quantity, unit, rigId, jobId, note, enteredAt
+         FROM CostEntry
+        WHERE type = ?
+        ORDER BY date DESC, enteredAt DESC
+        LIMIT 1`
+    ).bind(type).first();
+    return jsonResponse({ last: row || null }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleCostLastByType', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// GET /admin/fixed-monthly/:yyyymm
+// Returns the fixed_monthly CostCategory rows zipped with this month's
+// existing CostEntry rows (if any) AND last month's amounts for PREFILL.
+// Shape: { month, categories: [{ categoryId, name, defaultPrice, current?: {amount, costEntryId}, last?: {amount} }] }
+async function handleFixedMonthlyGet(env, yyyymm, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yyyymm))
+    return jsonResponse({ error: 'month must be YYYY-MM' }, corsHeaders, 400);
+
+  const [y, m] = yyyymm.split('-').map(Number);
+  const lastY = m === 1 ? y - 1 : y;
+  const lastM = m === 1 ? 12 : m - 1;
+  const lastYM = `${lastY}-${String(lastM).padStart(2, '0')}`;
+  const thisStart = `${yyyymm}-01`;
+  const thisEnd   = `${yyyymm}-31`;
+  const lastStart = `${lastYM}-01`;
+  const lastEnd   = `${lastYM}-31`;
+
+  try {
+    const cats = (await env.DB.prepare(
+      `SELECT categoryId, name, defaultPrice FROM CostCategory WHERE active = 1 AND kind = 'fixed_monthly' ORDER BY name`
+    ).all())?.results || [];
+    const thisEntries = (await env.DB.prepare(
+      `SELECT costEntryId, type, amount FROM CostEntry WHERE date >= ? AND date <= ? AND type IN (SELECT categoryId FROM CostCategory WHERE kind = 'fixed_monthly')`
+    ).bind(thisStart, thisEnd).all())?.results || [];
+    const lastEntries = (await env.DB.prepare(
+      `SELECT type, amount FROM CostEntry WHERE date >= ? AND date <= ? AND type IN (SELECT categoryId FROM CostCategory WHERE kind = 'fixed_monthly')`
+    ).bind(lastStart, lastEnd).all())?.results || [];
+
+    const thisByType = new Map(thisEntries.map(e => [e.type, e]));
+    const lastByType = new Map(lastEntries.map(e => [e.type, e]));
+
+    return jsonResponse({
+      month: yyyymm,
+      lastMonth: lastYM,
+      categories: cats.map(c => ({
+        categoryId:   c.categoryId,
+        name:         c.name,
+        defaultPrice: c.defaultPrice,
+        current: thisByType.has(c.categoryId)
+                   ? { amount: thisByType.get(c.categoryId).amount, costEntryId: thisByType.get(c.categoryId).costEntryId }
+                   : null,
+        last:    lastByType.has(c.categoryId)
+                   ? { amount: lastByType.get(c.categoryId).amount }
+                   : null,
+      })),
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleFixedMonthlyGet', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /admin/fixed-monthly/:yyyymm
+// Body: { entries: [{ categoryId, amount }] }
+// Upsert behavior: for each {categoryId, amount}, if a CostEntry already exists
+// for that month+type, UPDATE its amount; otherwise INSERT a new row dated
+// YYYY-MM-01. Skips entries with null/empty amount.
+async function handleFixedMonthlyUpsert(request, env, yyyymm, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yyyymm))
+    return jsonResponse({ error: 'month must be YYYY-MM' }, corsHeaders, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || !Array.isArray(body.entries))
+    return jsonResponse({ error: 'body.entries must be array' }, corsHeaders, 400);
+
+  const thisStart = `${yyyymm}-01`;
+  const thisEnd   = `${yyyymm}-31`;
+  const now = new Date().toISOString();
+
+  const validCats = new Set(
+    ((await env.DB.prepare(`SELECT categoryId FROM CostCategory WHERE kind = 'fixed_monthly'`).all())?.results || [])
+      .map(r => r.categoryId)
+  );
+
+  const existing = new Map(
+    ((await env.DB.prepare(
+      `SELECT costEntryId, type FROM CostEntry WHERE date >= ? AND date <= ? AND type IN (SELECT categoryId FROM CostCategory WHERE kind = 'fixed_monthly')`
+    ).bind(thisStart, thisEnd).all())?.results || []).map(r => [r.type, r.costEntryId])
+  );
+
+  let inserted = 0, updated = 0, skipped = 0;
+  for (const e of body.entries) {
+    if (!e || !e.categoryId || !validCats.has(e.categoryId)) { skipped++; continue; }
+    if (e.amount == null || e.amount === '' || isNaN(Number(e.amount))) { skipped++; continue; }
+    const amt = Number(e.amount);
+    if (amt < 0) { skipped++; continue; }
+    try {
+      if (existing.has(e.categoryId)) {
+        await env.DB.prepare('UPDATE CostEntry SET amount = ?, modifiedAt = ? WHERE costEntryId = ?')
+          .bind(amt, now, existing.get(e.categoryId)).run();
+        updated++;
+      } else {
+        const id = `ce_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+        await env.DB.prepare(
+          `INSERT INTO CostEntry (costEntryId, date, type, amount, enteredBy, enteredAt, modifiedAt)
+           VALUES (?, ?, ?, ?, 'tyler', ?, ?)`
+        ).bind(id, `${yyyymm}-01`, e.categoryId, amt, now, now).run();
+        inserted++;
+      }
+    } catch (err) {
+      await _logD1Failure(env, 'handleFixedMonthlyUpsert', err.message);
+      skipped++;
+    }
+  }
+
+  return jsonResponse({ success: true, month: yyyymm, inserted, updated, skipped }, corsHeaders);
+}
+
+// ── Equipment ──────────────────────────────────────────────────────────────
+// GET /admin/equipment?status=&rigId=
+async function handleEquipmentList(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const status = (url.searchParams.get('status') || '').trim();
+  const rigId  = (url.searchParams.get('rigId')  || '').trim();
+  const conds = [], binds = [];
+  if (status) { conds.push('status = ?'); binds.push(status); }
+  if (rigId)  { conds.push('rigId = ?');  binds.push(rigId); }
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT equipmentId, label, type, rigId, installAt, brokenAt, purchaseCost, status, note, createdAt, modifiedAt
+         FROM Equipment ${where}
+         ORDER BY status ASC, installAt DESC`
+    ).bind(...binds).all())?.results || [];
+    return jsonResponse({ equipment: rows, count: rows.length }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleEquipmentList', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /admin/equipment
+// Body: { label, type, installAt, rigId?, purchaseCost?, note? }
+async function handleEquipmentCreate(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { label, type, installAt, rigId, purchaseCost, note } = body;
+  if (!label || typeof label !== 'string' || !label.trim())
+    return jsonResponse({ error: 'label required (serial last-4 or descriptor)' }, corsHeaders, 400);
+  if (!type || typeof type !== 'string' || !type.trim())
+    return jsonResponse({ error: 'type required' }, corsHeaders, 400);
+  if (!installAt || !/^\d{4}-\d{2}-\d{2}$/.test(installAt))
+    return jsonResponse({ error: 'installAt required (YYYY-MM-DD)' }, corsHeaders, 400);
+
+  let cost = null;
+  if (purchaseCost != null && purchaseCost !== '') {
+    cost = Number(purchaseCost);
+    if (isNaN(cost) || cost < 0) return jsonResponse({ error: 'purchaseCost must be >= 0' }, corsHeaders, 400);
+  }
+
+  const now = new Date().toISOString();
+  const equipmentId = `eq_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO Equipment
+         (equipmentId, label, type, rigId, installAt, brokenAt, purchaseCost, status, note, createdAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, 'active', ?, ?, ?)`
+    ).bind(
+      equipmentId,
+      label.trim(),
+      type.trim(),
+      (rigId || '').trim() || null,
+      installAt,
+      cost,
+      (note || '').trim() || null,
+      now, now
+    ).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleEquipmentCreate', e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success: true,
+    equipmentId,
+    label: label.trim(),
+    type:  type.trim(),
+    rigId: (rigId || '').trim() || null,
+    installAt,
+    brokenAt:     null,
+    purchaseCost: cost,
+    status:       'active',
+    note:         (note || '').trim() || null,
+    createdAt:    now,
+    modifiedAt:   now,
+  }, corsHeaders);
+}
+
+// PATCH /admin/equipment/:equipmentId
+// Body: any of { label, type, rigId, brokenAt, purchaseCost, status, note }
+// Setting status to 'broken' without an explicit brokenAt auto-stamps today.
+async function handleEquipmentPatch(request, env, equipmentId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!equipmentId) return jsonResponse({ error: 'equipmentId required' }, corsHeaders, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare('SELECT * FROM Equipment WHERE equipmentId = ?').bind(equipmentId).first();
+  if (!existing) return jsonResponse({ error: 'equipment not found', equipmentId }, corsHeaders, 404);
+
+  const MUTABLE = ['label', 'type', 'rigId', 'brokenAt', 'purchaseCost', 'status', 'note', 'installAt', 'estimatedLifetimeHours'];
+  const sets = [], binds = [];
+  for (const f of MUTABLE) {
+    if (!(f in body)) continue;
+    let v = body[f];
+    if (f === 'purchaseCost' || f === 'estimatedLifetimeHours') {
+      if (v == null || v === '') { v = null; }
+      else { const n = Number(v); if (isNaN(n) || n < 0) return jsonResponse({ error: `${f} must be >= 0` }, corsHeaders, 400); v = n; }
+    } else if (f === 'brokenAt' || f === 'installAt') {
+      if (v == null || v === '') { v = null; }
+      else if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return jsonResponse({ error: `${f} must be YYYY-MM-DD or null` }, corsHeaders, 400);
+    } else if (f === 'status') {
+      if (!['active', 'broken', 'retired'].includes(v))
+        return jsonResponse({ error: 'status must be active | broken | retired' }, corsHeaders, 400);
+    } else if (typeof v === 'string') {
+      v = v.trim() || null;
+    }
+    sets.push(`${f} = ?`);
+    binds.push(v);
+  }
+  // Convenience: status=broken without brokenAt → stamp today.
+  if (body.status === 'broken' && !('brokenAt' in body) && !existing.brokenAt) {
+    sets.push('brokenAt = ?'); binds.push(new Date().toISOString().slice(0, 10));
+  }
+  if (!sets.length) return jsonResponse({ error: 'no mutable fields in body' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  sets.push('modifiedAt = ?'); binds.push(now);
+  binds.push(equipmentId);
+
+  try {
+    await env.DB.prepare(`UPDATE Equipment SET ${sets.join(', ')} WHERE equipmentId = ?`).bind(...binds).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleEquipmentPatch', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  const fresh = await env.DB.prepare('SELECT * FROM Equipment WHERE equipmentId = ?').bind(equipmentId).first();
+  return jsonResponse({ success: true, equipment: fresh }, corsHeaders);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// END Cost Hub — Phase 1
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COST HUB — Phase 2: allocation engine → per-job profit
+//   Schema:   migration 0029 (JobProfit, JobChlorineAllocation,
+//             Equipment.estimatedLifetimeHours, Job.halfDayCrew)
+//   Design:   docs/QUOTING-ENGINE.md §16
+//
+// computeJobProfit(jobId) → 6-way allocation cached on JobProfit:
+//   1. GAS     — rig's daily gas $ × this job's share of
+//                (milesFromPreviousJob + onSiteHrs) across rig's day-jobs.
+//   2. CHLORINE — gallons × $/gal split by Tyler's manual JobChlorineAllocation.
+//   3. SEALER + SAND — direct: CostEntry rows with this jobId.
+//   4. EQUIPMENT WEAR — for each Equipment row active during the job day on
+//                this rig: (purchaseCost / estimatedLifetimeHours) × this job's
+//                share of (rig's onSiteHrs) for the day.
+//   5. LABOR   — rig's day-pay (sum of crew day-rates from the rig's day-jobs)
+//                × this job's share of onSiteHrs across the rig's day-jobs.
+//                Half-day rate $75 when any job on (rig, date) has halfDayCrew=1.
+//   6. FIXED   — month's fixed total × (this job's revenue / month's completed
+//                revenue).
+//
+// HONEST-on-incomplete (T1.21): if any input is missing for the job/day,
+// `partial=1` and `missing=[input names]`. UI chip labels the value
+// "est. — costs partial" rather than falsely-precise.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Per-crewmember rate helpers. The 2026-06-19 LABOR REVISION (Phase 2 §16)
+// replaced the day-split allocation with a STANDARD HOURLY RATE model: each
+// guy's hourly rate = (his day-rate / standardHours), per-season-configurable.
+// Per-job labor = job.onSiteHrs × Σ(crew hourly rates). Day-level UNDER/over-
+// utilization surfaces as the new idleCapacityCost metric — never on a job.
+function _seasonForDate(dateYYYYMMDD) {
+  if (!dateYYYYMMDD) return 'summer';
+  const m = parseInt(dateYYYYMMDD.slice(5, 7), 10);
+  // Apr–Oct = summer; Nov–Mar = winter. (FL heat is the operative variable.)
+  return (m >= 4 && m <= 10) ? 'summer' : 'winter';
+}
+
+// Loads (and parses dayRateNamed JSON) — caller can cache. Falls back to
+// hardcoded defaults if the LaborConfig table is missing the row (defensive).
+async function _loadLaborConfigForSeason(env, season) {
+  const row = await env.DB.prepare(
+    `SELECT season, standardHours, dayRateDefault, dayRateNamed, halfDayRate
+       FROM LaborConfig WHERE season = ?`
+  ).bind(season).first();
+  if (!row) {
+    return {
+      season,
+      standardHours:  season === 'winter' ? 5 : 4.5,
+      dayRateDefault: 150,
+      dayRateNamed:   { jonathan: 160 },
+      halfDayRate:    75,
+    };
+  }
+  let named = {};
+  try { named = JSON.parse(row.dayRateNamed || '{}'); } catch (_) { named = { jonathan: 160 }; }
+  return {
+    season:         row.season,
+    standardHours:  Number(row.standardHours),
+    dayRateDefault: Number(row.dayRateDefault),
+    dayRateNamed:   named,
+    halfDayRate:    Number(row.halfDayRate),
+  };
+}
+
+function _crewDayRate(name, halfDay, cfg) {
+  const k = String(name || '').toLowerCase().trim();
+  const namedRate = cfg.dayRateNamed?.[k];
+  const full = namedRate != null ? Number(namedRate) : cfg.dayRateDefault;
+  return halfDay ? cfg.halfDayRate : full;
+}
+
+function _crewHourlyRate(name, halfDay, cfg) {
+  // Per Tyler's brief 2026-06-19: "his day-rate ÷ standardHours …
+  // half-day pay ÷ standardHours." LITERAL: denominator is full standardHours
+  // even when pay is halved — so a half-day worker's per-hour cost is half a
+  // full-day worker's. That's the explicit choice (a half-day's pay scaled
+  // linearly into the same time window).
+  const pay = _crewDayRate(name, halfDay, cfg);
+  return cfg.standardHours > 0 ? pay / cfg.standardHours : 0;
+}
+
+// Given a list of completed-job rows on (rig, date), compute per-job shares.
+// `weightFn(j)` returns a positive number; jobs with weight 0/null contribute
+// nothing AND mark partial=true on the missing-input flag passed in.
+function _shareByWeight(dayJobs, targetJobId, weightFn) {
+  let total = 0;
+  let target = 0;
+  for (const j of dayJobs) {
+    const w = weightFn(j);
+    if (w == null || isNaN(w) || w <= 0) continue;
+    total += w;
+    if (j.jobId === targetJobId) target += w;
+  }
+  if (total <= 0) return null;        // signal "no allocatable weight"
+  return target / total;
+}
+
+// Core math. Returns { revenue, laborCost, gasCost, chlorineCost,
+// sealMaterialCost, equipmentCost, fixedCost, netProfit, margin, partial,
+// missing[] }. Never throws — surfaces every gap as a `missing` entry.
+async function _computeJobProfit(env, jobId) {
+  if (!env.DB) throw new Error('D1 not available');
+  const job = await env.DB.prepare(
+    `SELECT jobId, payerId, propertyId, scheduledDate, state, amount, rigId,
+            actualDuration, milesFromPreviousJob, halfDayCrew,
+            servicesRequested, servicesPerformed
+       FROM Job WHERE jobId = ?`
+  ).bind(jobId).first();
+  if (!job) throw new Error('job not found');
+
+  const missing = [];
+  const date  = job.scheduledDate;
+  const rigId = job.rigId;
+  const revenue = Number(job.amount) || 0;
+  const onSiteHrs = (job.actualDuration != null) ? Number(job.actualDuration) / 60 : null;
+
+  // ── Sibling day-jobs on the same rig (drives gas/chlorine/equipment/labor shares)
+  let dayJobs = [];
+  if (rigId && date) {
+    dayJobs = ((await env.DB.prepare(
+      `SELECT jobId, amount, actualDuration, milesFromPreviousJob, halfDayCrew
+         FROM Job
+        WHERE rigId = ? AND scheduledDate = ? AND state = 'completed'`
+    ).bind(rigId, date).all())?.results) || [];
+  }
+  // Make sure THIS job is in dayJobs even if its state hasn't flipped to
+  // completed yet (so the chip works mid-day for in-progress reviews).
+  if (!dayJobs.find(j => j.jobId === jobId)) {
+    dayJobs.push({
+      jobId, amount: job.amount, actualDuration: job.actualDuration,
+      milesFromPreviousJob: job.milesFromPreviousJob, halfDayCrew: job.halfDayCrew,
+    });
+  }
+
+  // ── 1. GAS — share = (miles + onSiteHrs) / sum across rig's day-jobs ──
+  let gasCost = 0;
+  if (rigId && date) {
+    const gasRows = ((await env.DB.prepare(
+      `SELECT amount FROM CostEntry WHERE date = ? AND rigId = ? AND type = 'gas'`
+    ).bind(date, rigId).all())?.results) || [];
+    const totalGas = gasRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    if (totalGas <= 0) { missing.push('gas'); }
+    else {
+      const share = _shareByWeight(dayJobs, jobId, j => {
+        const mi  = j.milesFromPreviousJob != null ? Number(j.milesFromPreviousJob) : 0;
+        const hrs = j.actualDuration       != null ? Number(j.actualDuration) / 60 : 0;
+        const w = mi + hrs;
+        return w > 0 ? w : null;
+      });
+      if (share == null) { missing.push('gas_share'); }
+      else { gasCost = totalGas * share; }
+    }
+  } else { missing.push('gas'); }
+
+  // ── 2. CHLORINE — Tyler's manual split via JobChlorineAllocation ──
+  let chlorineCost = 0;
+  if (rigId && date) {
+    // All chlorine CostEntries for this rig+date. Compute $/gal per entry,
+    // multiply by this job's allocated gallons.
+    const chlorRows = ((await env.DB.prepare(
+      `SELECT costEntryId, amount, quantity FROM CostEntry
+        WHERE date = ? AND rigId = ? AND type = 'chlorine'`
+    ).bind(date, rigId).all())?.results) || [];
+    if (!chlorRows.length) { missing.push('chlorine'); }
+    else {
+      let anyAlloc = false;
+      for (const c of chlorRows) {
+        const qty = Number(c.quantity || 0);
+        const amt = Number(c.amount || 0);
+        if (qty <= 0 || amt <= 0) continue;
+        const pricePerGal = amt / qty;
+        const alloc = await env.DB.prepare(
+          `SELECT gallons FROM JobChlorineAllocation WHERE jobId = ? AND costEntryId = ?`
+        ).bind(jobId, c.costEntryId).first();
+        if (alloc && alloc.gallons != null) {
+          chlorineCost += Number(alloc.gallons) * pricePerGal;
+          anyAlloc = true;
+        }
+      }
+      if (!anyAlloc) missing.push('chlorine_allocation');
+    }
+  } else { missing.push('chlorine'); }
+
+  // ── 3. SEALER + SAND — direct CostEntry where jobId matches ──
+  // Both types treated as a single sealMaterial bucket per JobProfit cache;
+  // §13 will read by type for rate-learning. servicesRequested can be either
+  // a JSON array (new path) or a flat comma-string (csv_backfill + legacy
+  // phone-quote rows) — handle both. The string "Pavers / Joint Sand" pattern
+  // is intentionally matched by /paver/ since sealing implies sand.
+  let sealMaterialCost = 0;
+  let hasSealService = false;
+  const _svcRaw = job.servicesRequested || '';
+  if (_svcRaw.trim().startsWith('[')) {
+    try {
+      const svcs = JSON.parse(_svcRaw);
+      hasSealService = Array.isArray(svcs) && svcs.some(s => {
+        const t = (typeof s === 'string' ? s : (s?.type || s?.service || '')).toLowerCase();
+        return t.includes('seal') || t.includes('paver');
+      });
+    } catch (_) { /* malformed — leave hasSealService=false */ }
+  } else {
+    hasSealService = /seal|paver/i.test(_svcRaw);
+  }
+  if (hasSealService) {
+    const sealRows = ((await env.DB.prepare(
+      `SELECT amount FROM CostEntry WHERE jobId = ? AND type IN ('sealer','polymeric_sand')`
+    ).bind(jobId).all())?.results) || [];
+    if (!sealRows.length) { missing.push('seal_material'); }
+    else { sealMaterialCost = sealRows.reduce((s, r) => s + Number(r.amount || 0), 0); }
+  }
+
+  // ── 4. EQUIPMENT WEAR — $/hr per equipment × this job's share of rig hrs ──
+  // Filter: status != 'retired' (operator removed it; doesn't allocate further),
+  // AND installed by the job date, AND (still active OR brokenAt >= job date).
+  // 'broken' equipment still allocates up to its brokenAt — that's the wear it
+  // contributed before breaking.
+  let equipmentCost = 0;
+  if (rigId && date && onSiteHrs != null) {
+    const eqRows = ((await env.DB.prepare(
+      `SELECT equipmentId, purchaseCost, estimatedLifetimeHours, installAt, brokenAt
+         FROM Equipment
+        WHERE rigId = ?
+          AND status != 'retired'
+          AND installAt <= ?
+          AND (brokenAt IS NULL OR brokenAt >= ?)`
+    ).bind(rigId, date, date).all())?.results) || [];
+    let rateSum = 0;
+    let unknownAny = false;
+    for (const eq of eqRows) {
+      const pc  = Number(eq.purchaseCost || 0);
+      const elh = Number(eq.estimatedLifetimeHours || 0);
+      if (pc > 0 && elh > 0) rateSum += pc / elh;
+      else if (pc > 0)        unknownAny = true; // no denominator — can't price
+    }
+    if (rateSum > 0) {
+      equipmentCost = rateSum * onSiteHrs;
+    }
+    if (unknownAny) missing.push('equipment_lifetime');
+    if (!eqRows.length) missing.push('equipment_registry');
+  } else if (onSiteHrs == null) {
+    missing.push('equipment_hours');
+  }
+
+  // ── 5. LABOR — onSiteHrs × Σ(this job's crew hourly rates) ──
+  // 2026-06-19 LABOR REVISION: per-job labor = this job's actual on-site
+  // hours × the sum of hourly rates of THIS JOB'S assigned crew (not the
+  // rig's day-pay split). Hourly rate = day-rate / standardHours (seasonal).
+  // Day-level under/over-utilization is now its own metric (idleCapacityCost)
+  // — never folded into a job's labor cost.
+  const season = _seasonForDate(date);
+  let laborCost = 0;
+  if (rigId && date && onSiteHrs != null) {
+    const cfg = await _loadLaborConfigForSeason(env, season);
+    // This job's crew — read from KV jobHistory[].crew[] for THIS job (most
+    // populated source today). Fall back to JobCrewAssignment if KV missed.
+    const crewSet = new Set();
+    try {
+      const db = await env.DATA.get(KV_KEYS.customers, 'json');
+      const customers = (db?.customers || []);
+      for (const c of customers) {
+        for (const jh of (c.jobHistory || [])) {
+          if (jh.jobId !== jobId) continue;
+          for (const cm of (jh.crew || [])) {
+            const key = String(cm).toLowerCase().trim();
+            if (key) crewSet.add(key);
+          }
+        }
+      }
+    } catch (_) {}
+    if (!crewSet.size) {
+      const jca = ((await env.DB.prepare(
+        `SELECT cm.name FROM JobCrewAssignment a
+           JOIN CrewMember cm ON cm.crewMemberId = a.crewMemberId
+          WHERE a.jobId = ?`
+      ).bind(jobId).all())?.results) || [];
+      for (const r of jca) {
+        const k = String(r.name || '').toLowerCase().trim();
+        if (k) crewSet.add(k);
+      }
+    }
+    // Half-day flag — operator sets it on any one job in the (rig, date) for
+    // the whole day. We apply the rig's half-day flag uniformly to crew.
+    const halfDay = dayJobs.some(j => Number(j.halfDayCrew) === 1);
+    if (!crewSet.size) {
+      missing.push('labor_crew');
+    } else {
+      let hourlySum = 0;
+      for (const name of crewSet) hourlySum += _crewHourlyRate(name, halfDay, cfg);
+      laborCost = onSiteHrs * hourlySum;
+    }
+  } else {
+    if (onSiteHrs == null) missing.push('labor_hours');
+    if (!rigId)            missing.push('labor_rig');
+  }
+
+  // ── 6. FIXED — month's fixed total × (revenue / month's completed revenue) ──
+  let fixedCost = 0;
+  if (date) {
+    const ym = date.slice(0, 7);
+    const monthStart = `${ym}-01`;
+    const monthEnd   = `${ym}-31`;
+    const fxRow = await env.DB.prepare(
+      `SELECT COALESCE(SUM(amount),0) AS total
+         FROM CostEntry
+        WHERE date >= ? AND date <= ?
+          AND type IN (SELECT categoryId FROM CostCategory WHERE kind = 'fixed_monthly')`
+    ).bind(monthStart, monthEnd).first();
+    const totalFixed = Number(fxRow?.total || 0);
+    if (totalFixed <= 0) { missing.push('fixed'); }
+    else {
+      const revRow = await env.DB.prepare(
+        `SELECT COALESCE(SUM(amount),0) AS rev
+           FROM Job
+          WHERE state = 'completed' AND scheduledDate >= ? AND scheduledDate <= ?`
+      ).bind(monthStart, monthEnd).first();
+      const monthRev = Number(revRow?.rev || 0);
+      if (monthRev > 0 && revenue > 0) {
+        fixedCost = totalFixed * (revenue / monthRev);
+      } else if (revenue > 0) {
+        missing.push('fixed_share');
+      }
+    }
+  } else { missing.push('fixed_date'); }
+
+  const totalCost = laborCost + gasCost + chlorineCost + sealMaterialCost + equipmentCost + fixedCost;
+  const netProfit = revenue - totalCost;
+  const margin    = revenue > 0 ? netProfit / revenue : null;
+
+  return {
+    jobId,
+    revenue:          Math.round(revenue * 100) / 100,
+    laborCost:        Math.round(laborCost * 100) / 100,
+    gasCost:          Math.round(gasCost * 100) / 100,
+    chlorineCost:     Math.round(chlorineCost * 100) / 100,
+    sealMaterialCost: Math.round(sealMaterialCost * 100) / 100,
+    equipmentCost:    Math.round(equipmentCost * 100) / 100,
+    fixedCost:        Math.round(fixedCost * 100) / 100,
+    netProfit:        Math.round(netProfit * 100) / 100,
+    margin:           margin == null ? null : Math.round(margin * 1000) / 1000,
+    partial:          missing.length > 0 ? 1 : 0,
+    missing,
+    season,
+  };
+}
+
+// UPSERT into JobProfit cache. Returns the freshly-cached row.
+async function _cacheJobProfit(env, profit) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO JobProfit
+       (jobId, revenue, laborCost, gasCost, chlorineCost, sealMaterialCost,
+        equipmentCost, fixedCost, netProfit, margin, partial, missing, season, computedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(jobId) DO UPDATE SET
+       revenue=excluded.revenue, laborCost=excluded.laborCost,
+       gasCost=excluded.gasCost, chlorineCost=excluded.chlorineCost,
+       sealMaterialCost=excluded.sealMaterialCost,
+       equipmentCost=excluded.equipmentCost, fixedCost=excluded.fixedCost,
+       netProfit=excluded.netProfit, margin=excluded.margin,
+       partial=excluded.partial, missing=excluded.missing,
+       season=excluded.season, computedAt=excluded.computedAt`
+  ).bind(
+    profit.jobId, profit.revenue, profit.laborCost, profit.gasCost,
+    profit.chlorineCost, profit.sealMaterialCost, profit.equipmentCost,
+    profit.fixedCost, profit.netProfit, profit.margin,
+    profit.partial, JSON.stringify(profit.missing || []),
+    profit.season || null, now
+  ).run();
+  return { ...profit, computedAt: now };
+}
+
+// ── ROUTE handlers ──────────────────────────────────────────────────────────
+
+// GET /admin/job-profit/:jobId[?fresh=1]
+// Returns cached profit; with ?fresh=1 recomputes first.
+async function handleJobProfitGet(env, jobId, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!jobId)  return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+
+  const fresh = url.searchParams.get('fresh') === '1';
+  try {
+    if (fresh) {
+      const p = await _computeJobProfit(env, jobId);
+      const cached = await _cacheJobProfit(env, p);
+      return jsonResponse({ profit: { ...cached, missing: p.missing } }, corsHeaders);
+    }
+    const row = await env.DB.prepare(
+      `SELECT * FROM JobProfit WHERE jobId = ?`
+    ).bind(jobId).first();
+    if (row) {
+      return jsonResponse({
+        profit: {
+          ...row,
+          missing: row.missing ? JSON.parse(row.missing) : [],
+        },
+      }, corsHeaders);
+    }
+    // No cache yet — compute on the fly.
+    const p = await _computeJobProfit(env, jobId);
+    const cached = await _cacheJobProfit(env, p);
+    return jsonResponse({ profit: { ...cached, missing: p.missing } }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleJobProfitGet', e.message);
+    return jsonResponse({ error: 'compute failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// POST /admin/job-profit/recompute
+// Body: { jobId? | date? | rigId? }
+//   - jobId           → recompute single
+//   - date            → recompute every completed job on that date
+//   - date + rigId    → recompute every completed job on that (rig, date)
+async function handleJobProfitRecompute(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  let jobIds = [];
+  if (body.jobId) jobIds = [body.jobId];
+  else if (body.date) {
+    const date = body.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      return jsonResponse({ error: 'date must be YYYY-MM-DD' }, corsHeaders, 400);
+    const rows = ((await env.DB.prepare(
+      body.rigId
+        ? `SELECT jobId FROM Job WHERE state='completed' AND scheduledDate=? AND rigId=?`
+        : `SELECT jobId FROM Job WHERE state='completed' AND scheduledDate=?`
+    ).bind(...(body.rigId ? [date, body.rigId] : [date])).all())?.results) || [];
+    jobIds = rows.map(r => r.jobId);
+  } else if (body.cached === true) {
+    // Recompute every row already in the JobProfit cache. Used after a labor-
+    // config change so all stale rows pick up the new model. Bounded by what
+    // was previously cached (no silent fan-out across all 1,800 completed jobs).
+    const rows = ((await env.DB.prepare(`SELECT jobId FROM JobProfit`).all())?.results) || [];
+    jobIds = rows.map(r => r.jobId);
+  } else {
+    return jsonResponse({ error: 'body.jobId, body.date, or body.cached:true required' }, corsHeaders, 400);
+  }
+
+  const results = [];
+  for (const jid of jobIds) {
+    try {
+      const p = await _computeJobProfit(env, jid);
+      await _cacheJobProfit(env, p);
+      results.push({ jobId: jid, ok: true, partial: p.partial, netProfit: p.netProfit });
+    } catch (e) {
+      results.push({ jobId: jid, ok: false, error: e.message });
+    }
+  }
+  return jsonResponse({ success: true, count: results.length, results }, corsHeaders);
+}
+
+// POST /admin/job-chlorine
+// Body: { jobId, costEntryId, gallons }
+// Upsert Tyler's manual chlorine split for one (job, chlorine-fill) pair.
+async function handleJobChlorineUpsert(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const { jobId, costEntryId, gallons } = body;
+  if (!jobId)       return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
+  if (!costEntryId) return jsonResponse({ error: 'costEntryId required' }, corsHeaders, 400);
+  const g = Number(gallons);
+  if (isNaN(g) || g < 0) return jsonResponse({ error: 'gallons must be >= 0' }, corsHeaders, 400);
+
+  // Verify the parent chlorine entry exists.
+  const ce = await env.DB.prepare(`SELECT type FROM CostEntry WHERE costEntryId = ?`).bind(costEntryId).first();
+  if (!ce) return jsonResponse({ error: 'costEntryId not found' }, corsHeaders, 404);
+  if (ce.type !== 'chlorine') return jsonResponse({ error: 'costEntryId is not a chlorine entry' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  try {
+    if (g === 0) {
+      await env.DB.prepare(
+        `DELETE FROM JobChlorineAllocation WHERE jobId = ? AND costEntryId = ?`
+      ).bind(jobId, costEntryId).run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO JobChlorineAllocation (jobId, costEntryId, gallons, createdAt, modifiedAt)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(jobId, costEntryId) DO UPDATE SET
+           gallons=excluded.gallons, modifiedAt=excluded.modifiedAt`
+      ).bind(jobId, costEntryId, g, now, now).run();
+    }
+  } catch (e) {
+    await _logD1Failure(env, 'handleJobChlorineUpsert', e.message);
+    return jsonResponse({ error: 'D1 write failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // Auto-recompute this job's profit so the chip reflects the new split.
+  try {
+    const p = await _computeJobProfit(env, jobId);
+    await _cacheJobProfit(env, p);
+  } catch (_) { /* non-fatal — the split persisted */ }
+
+  return jsonResponse({ success: true, jobId, costEntryId, gallons: g }, corsHeaders);
+}
+
+// GET /admin/job-chlorine?date=YYYY-MM-DD&rigId=
+// Returns the chlorine CostEntries for (rig, date) + the day's completed jobs
+// + Tyler's existing allocations. Powers the chlorine-split modal.
+async function handleJobChlorineBundle(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const date  = url.searchParams.get('date');
+  const rigId = url.searchParams.get('rigId');
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return jsonResponse({ error: 'date=YYYY-MM-DD required' }, corsHeaders, 400);
+  if (!rigId) return jsonResponse({ error: 'rigId required' }, corsHeaders, 400);
+
+  try {
+    const fills = ((await env.DB.prepare(
+      `SELECT costEntryId, amount, quantity, note
+         FROM CostEntry
+        WHERE date = ? AND rigId = ? AND type = 'chlorine'
+        ORDER BY enteredAt ASC`
+    ).bind(date, rigId).all())?.results) || [];
+
+    const jobs = ((await env.DB.prepare(
+      `SELECT j.jobId, j.amount, j.actualDuration, j.servicesRequested,
+              p.firstName, p.lastName, p.businessName
+         FROM Job j LEFT JOIN Person p ON p.personId = j.payerId
+        WHERE j.rigId = ? AND j.scheduledDate = ? AND j.state = 'completed'
+        ORDER BY j.amount DESC`
+    ).bind(rigId, date).all())?.results) || [];
+
+    // Allocations existing for these jobs+fills.
+    let allocations = [];
+    if (jobs.length && fills.length) {
+      const jobIds = jobs.map(j => `'${j.jobId.replace(/'/g, "''")}'`).join(',');
+      const fillIds = fills.map(f => `'${f.costEntryId.replace(/'/g, "''")}'`).join(',');
+      allocations = ((await env.DB.prepare(
+        `SELECT jobId, costEntryId, gallons FROM JobChlorineAllocation
+          WHERE jobId IN (${jobIds}) AND costEntryId IN (${fillIds})`
+      ).all())?.results) || [];
+    }
+
+    return jsonResponse({
+      date, rigId,
+      fills: fills.map(f => ({
+        costEntryId: f.costEntryId,
+        amount:      Number(f.amount),
+        quantity:    f.quantity != null ? Number(f.quantity) : null,
+        pricePerGal: (f.quantity && Number(f.quantity) > 0) ? +(Number(f.amount) / Number(f.quantity)).toFixed(2) : null,
+        note:        f.note || null,
+      })),
+      jobs: jobs.map(j => ({
+        jobId:        j.jobId,
+        amount:       Number(j.amount),
+        actualDuration: j.actualDuration,
+        services:     j.servicesRequested ? (() => { try { return JSON.parse(j.servicesRequested); } catch (_) { return []; } })() : [],
+        customerName: j.businessName || `${j.firstName || ''} ${j.lastName || ''}`.trim() || '(unknown)',
+      })),
+      allocations: allocations.map(a => ({ jobId: a.jobId, costEntryId: a.costEntryId, gallons: Number(a.gallons) })),
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleJobChlorineBundle', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── LABOR CONFIG (Phase 2 revision) ─────────────────────────────────────────
+// GET /admin/labor-config — list both season rows.
+async function handleLaborConfigList(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const rows = ((await env.DB.prepare(
+      `SELECT season, standardHours, dayRateDefault, dayRateNamed, halfDayRate, notes, updatedAt
+         FROM LaborConfig ORDER BY season`
+    ).all())?.results) || [];
+    return jsonResponse({
+      configs: rows.map(r => ({
+        ...r,
+        dayRateNamed: (() => { try { return JSON.parse(r.dayRateNamed || '{}'); } catch (_) { return {}; } })(),
+      })),
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleLaborConfigList', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// PUT /admin/labor-config/:season
+// Body: any of { standardHours, dayRateDefault, dayRateNamed, halfDayRate, notes }
+// Edits one season's labor config. After the write, the caller is expected to
+// POST /admin/job-profit/recompute { cached: true } to refresh every cached
+// row under the new model.
+async function handleLaborConfigPut(request, env, season, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!['summer', 'winter'].includes(season))
+    return jsonResponse({ error: 'season must be summer | winter' }, corsHeaders, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare(`SELECT season FROM LaborConfig WHERE season = ?`).bind(season).first();
+  if (!existing) return jsonResponse({ error: 'season config not found', season }, corsHeaders, 404);
+
+  const MUTABLE = ['standardHours', 'dayRateDefault', 'halfDayRate', 'dayRateNamed', 'notes'];
+  const sets = [], binds = [];
+  for (const f of MUTABLE) {
+    if (!(f in body)) continue;
+    let v = body[f];
+    if (f === 'standardHours' || f === 'dayRateDefault' || f === 'halfDayRate') {
+      const n = Number(v);
+      if (isNaN(n) || n <= 0) return jsonResponse({ error: `${f} must be > 0` }, corsHeaders, 400);
+      v = n;
+    } else if (f === 'dayRateNamed') {
+      // accept either {name: rate} object OR a JSON-string of one
+      if (typeof v === 'object' && v) v = JSON.stringify(v);
+      else if (typeof v === 'string') {
+        try { JSON.parse(v); } catch (_) { return jsonResponse({ error: 'dayRateNamed must be valid JSON' }, corsHeaders, 400); }
+      } else return jsonResponse({ error: 'dayRateNamed must be object or JSON string' }, corsHeaders, 400);
+    } else if (typeof v === 'string') {
+      v = v.trim() || null;
+    }
+    sets.push(`${f} = ?`); binds.push(v);
+  }
+  if (!sets.length) return jsonResponse({ error: 'no mutable fields in body' }, corsHeaders, 400);
+
+  const now = new Date().toISOString().slice(0, 10);
+  sets.push('updatedAt = ?'); binds.push(now);
+  binds.push(season);
+
+  try {
+    await env.DB.prepare(`UPDATE LaborConfig SET ${sets.join(', ')} WHERE season = ?`).bind(...binds).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleLaborConfigPut', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  const fresh = await _loadLaborConfigForSeason(env, season);
+  return jsonResponse({ success: true, config: fresh, recomputeHint: 'POST /admin/job-profit/recompute {"cached":true}' }, corsHeaders);
+}
+
+// ── IDLE CAPACITY (Phase 2 revision) ────────────────────────────────────────
+// idleCapacityCost(rig, date) = (actual labor paid that day)
+//                             − (Σ standard labor charged to that day's jobs)
+//
+// "Actual paid"        = the union of crew across the rig's day-jobs × their
+//                        day-rate (Jonathan / others / half-day).
+// "Standard charged"   = Σ over the rig's day-jobs of (job.onSiteHrs × Σ that
+//                        job's crew hourly rates).
+// Positive = un-utilized capacity ($X of paid time wasn't billable).
+// Negative = over-utilization (crew billed more standard hrs than they were
+//            paid for — productive day).
+//
+// GET  /admin/idle-capacity?date=YYYY-MM-DD[&rigId=]  — single-day per-rig breakdown
+// GET  /admin/idle-capacity?from=&to=[&rigId=]        — daily rows across a range
+async function handleIdleCapacity(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const date  = url.searchParams.get('date');
+  const from  = url.searchParams.get('from');
+  const to    = url.searchParams.get('to');
+  const rigId = url.searchParams.get('rigId');
+
+  let dates = [];
+  if (date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      return jsonResponse({ error: 'date must be YYYY-MM-DD' }, corsHeaders, 400);
+    dates = [date];
+  } else if (from && to) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to))
+      return jsonResponse({ error: 'from/to must be YYYY-MM-DD' }, corsHeaders, 400);
+    // Get distinct dates with completed jobs in the range
+    const params = rigId ? [from, to, rigId] : [from, to];
+    const stmt = rigId
+      ? `SELECT DISTINCT scheduledDate FROM Job WHERE state='completed' AND scheduledDate >= ? AND scheduledDate <= ? AND rigId = ? ORDER BY scheduledDate`
+      : `SELECT DISTINCT scheduledDate FROM Job WHERE state='completed' AND scheduledDate >= ? AND scheduledDate <= ? ORDER BY scheduledDate`;
+    const rows = ((await env.DB.prepare(stmt).bind(...params).all())?.results) || [];
+    dates = rows.map(r => r.scheduledDate);
+  } else {
+    return jsonResponse({ error: 'date OR (from + to) required' }, corsHeaders, 400);
+  }
+
+  // Pull KV once for crew lookup.
+  let kvDb = null;
+  try { kvDb = await env.DATA.get(KV_KEYS.customers, 'json'); } catch (_) {}
+  const customers = (kvDb?.customers || []);
+
+  // jobId → crew[] map. Same union-of-jh logic as the labor block in
+  // _computeJobProfit — accumulate across every matching jh entry (a job
+  // can have a main entry + rig_segment children sharing the same jobId,
+  // and we want crew from any of them). Also fall back to JobCrewAssignment.
+  const _crewByJobId = new Map();
+  for (const c of customers) {
+    for (const jh of (c.jobHistory || [])) {
+      if (!jh.jobId) continue;
+      const cr = (jh.crew || []);
+      if (!cr.length) continue;
+      if (!_crewByJobId.has(jh.jobId)) _crewByJobId.set(jh.jobId, new Set());
+      const set = _crewByJobId.get(jh.jobId);
+      for (const cm of cr) {
+        const k = String(cm).toLowerCase().trim();
+        if (k) set.add(k);
+      }
+    }
+  }
+  // Convert sets → arrays (callers expect array).
+  for (const [k, v] of _crewByJobId) _crewByJobId.set(k, [...v]);
+
+  const out = [];
+  for (const d of dates) {
+    const cfg = await _loadLaborConfigForSeason(env, _seasonForDate(d));
+    // All completed jobs on this date (or this rig + date)
+    const params = rigId ? [d, rigId] : [d];
+    const stmt = rigId
+      ? `SELECT jobId, rigId, actualDuration, halfDayCrew FROM Job WHERE state='completed' AND scheduledDate=? AND rigId=?`
+      : `SELECT jobId, rigId, actualDuration, halfDayCrew FROM Job WHERE state='completed' AND scheduledDate=?`;
+    const jobs = ((await env.DB.prepare(stmt).bind(...params).all())?.results) || [];
+
+    // Group by rig
+    const byRig = new Map();
+    for (const j of jobs) {
+      if (!j.rigId) continue;
+      if (!byRig.has(j.rigId)) byRig.set(j.rigId, []);
+      byRig.get(j.rigId).push(j);
+    }
+
+    // Per-job crew lookup with JobCrewAssignment fallback (mirrors
+    // _computeJobProfit so the two surfaces agree).
+    async function _crewForJob(jId) {
+      const fromKv = _crewByJobId.get(jId);
+      if (fromKv && fromKv.length) return fromKv;
+      const jca = ((await env.DB.prepare(
+        `SELECT cm.name FROM JobCrewAssignment a
+           JOIN CrewMember cm ON cm.crewMemberId = a.crewMemberId
+          WHERE a.jobId = ?`
+      ).bind(jId).all())?.results) || [];
+      return jca.map(r => String(r.name || '').toLowerCase().trim()).filter(Boolean);
+    }
+
+    for (const [rig, rigJobs] of byRig) {
+      const halfDay = rigJobs.some(j => Number(j.halfDayCrew) === 1);
+      // Pre-resolve crew per job (KV or fallback).
+      const crewPerJob = new Map();
+      for (const j of rigJobs) crewPerJob.set(j.jobId, await _crewForJob(j.jobId));
+
+      // Union of crew across the rig's day-jobs = the crew that was on the rig that day
+      const crewUnion = new Set();
+      for (const cr of crewPerJob.values()) for (const name of cr) crewUnion.add(name);
+      let actualPaid = 0;
+      for (const name of crewUnion) actualPaid += _crewDayRate(name, halfDay, cfg);
+
+      // Sum standard labor charged to each of the rig's day-jobs
+      let standardCharged = 0;
+      let partialMissing = false;
+      for (const j of rigJobs) {
+        if (j.actualDuration == null) { partialMissing = true; continue; }
+        const hrs = Number(j.actualDuration) / 60;
+        const crew = crewPerJob.get(j.jobId) || [];
+        if (!crew.length) { partialMissing = true; continue; }
+        let hourlySum = 0;
+        for (const name of crew) hourlySum += _crewHourlyRate(name, halfDay, cfg);
+        standardCharged += hrs * hourlySum;
+      }
+
+      const idle = actualPaid - standardCharged;
+      out.push({
+        date:             d,
+        season:           cfg.season,
+        rigId:            rig,
+        crewCount:        crewUnion.size,
+        crew:             [...crewUnion],
+        halfDay,
+        completedJobs:    rigJobs.length,
+        actualPaid:       Math.round(actualPaid * 100) / 100,
+        standardCharged:  Math.round(standardCharged * 100) / 100,
+        idleCapacityCost: Math.round(idle * 100) / 100,
+        utilizationPct:   actualPaid > 0 ? Math.round((standardCharged / actualPaid) * 1000) / 10 : null,
+        partial:          partialMissing,
+      });
+    }
+  }
+  out.sort((a, b) => a.date === b.date ? a.rigId.localeCompare(b.rigId) : a.date.localeCompare(b.date));
+  return jsonResponse({
+    days: out,
+    totals: {
+      actualPaid:       Math.round(out.reduce((s, r) => s + r.actualPaid, 0) * 100) / 100,
+      standardCharged:  Math.round(out.reduce((s, r) => s + r.standardCharged, 0) * 100) / 100,
+      idleCapacityCost: Math.round(out.reduce((s, r) => s + r.idleCapacityCost, 0) * 100) / 100,
+    },
+  }, corsHeaders);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// END Cost Hub — Phase 2
+// ═══════════════════════════════════════════════════════════════════════════
+
 // ── POST /admin/scheduled-job ─────────────────────────────────────────────────
 // Law T1.18: CREATE paths dual-write KV + D1.
 // Called by submitScheduleNow() immediately after saveDb() (KV write).
@@ -7943,6 +10375,8 @@ function _parseServiceTags(flatStr) {
 }
 
 async function handleCreateScheduledJob(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
@@ -7955,7 +10389,14 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     source, roofStories, crewCount, sqFt, roofType,
     serviceTags,  // structured array from quote_builder_v2 (Part 1b, T1.22)
     parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent,
+    state,  // 2026-06-22 add_job migration: 'needs_scheduling' OK with null scheduledDate
+    customerSelectedDate,  // queue-path requested date (no commit yet)
   } = body;
+  // State validation. Default 'scheduled' for backward compat. add_job's
+  // queue path uses 'needs_scheduling' with null scheduledDate.
+  const _jobState = state || 'scheduled';
+  if (!_JOB_VALID_STATES.has(_jobState))
+    return jsonResponse({ error: `state must be one of: ${[..._JOB_VALID_STATES].join(', ')}` }, corsHeaders, 400);
 
   // Part 1b/1c: servicesRequested → JSON array.
   // Precedence: explicit serviceTags (quote builder) > parse flat string (Mom's path) > flat string fallback.
@@ -7969,23 +10410,44 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
 
   if (!payerId)           return jsonResponse({ error: 'payerId required' }, corsHeaders, 400);
   if (!propertyId)        return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
-  if (!scheduledDate)     return jsonResponse({ error: 'scheduledDate required' }, corsHeaders, 400);
+  // scheduledDate required UNLESS state='needs_scheduling' (queue path — 2026-06-22).
+  if (!scheduledDate && _jobState !== 'needs_scheduling')
+    return jsonResponse({ error: 'scheduledDate required (or set state=needs_scheduling for queue)' }, corsHeaders, 400);
   if (amount == null)     return jsonResponse({ error: 'amount required' }, corsHeaders, 400);
   if (!servicesRequested) return jsonResponse({ error: 'servicesRequested required' }, corsHeaders, 400);
 
-  // Deterministic jobId: payerId + date. For same-payer same-day DIFFERENT-property jobs
-  // (multi-property customers), suffix _p2, _p3 etc. to avoid INSERT OR REPLACE collision.
-  // Same property = legitimate re-submit → base jobId + INSERT OR REPLACE (existing behaviour).
-  const baseJobId = `job_${payerId}_${scheduledDate}_scheduled`;
+  // Deterministic jobId: payerId + date (or 'queued_<ts>' when no date yet).
+  // For same-payer same-day DIFFERENT-property jobs (multi-property customers),
+  // suffix _p2, _p3 etc. to avoid INSERT OR REPLACE collision.
   const now       = new Date().toISOString();
+  const baseJobId = scheduledDate
+    ? `job_${payerId}_${scheduledDate}_scheduled`
+    : `job_${payerId}_queued_${now.replace(/\D/g, '').slice(0, 14)}`;
   const src       = source || 'new_customer_form';
 
   let jobId = baseJobId;
   try {
     const existing = await env.DB.prepare(
-      'SELECT propertyId FROM Job WHERE jobId=?'
+      'SELECT propertyId, isMultiDayParent, parentJobId, amount FROM Job WHERE jobId=?'
     ).bind(baseJobId).first();
-    if (existing && existing.propertyId !== propertyId) {
+    // Defense-in-depth (RC3): refuse to INSERT OR REPLACE over a multi-day
+    // group row (parent OR child). A bare INSERT here would either collapse
+    // the parent's day-1 amount with a group total OR overwrite a child's
+    // day-N slice. Block early — the caller almost always means a new
+    // standalone job; suffix it. The exception is when the caller explicitly
+    // passes parentJobId/dayNumber (the split-creation path is via
+    // handleSplitJob, not this route).
+    if (existing && (existing.isMultiDayParent || existing.parentJobId) && !parentJobId && !isMultiDayParent) {
+      let suffix = 2;
+      while (true) {
+        const candidate = `${baseJobId}_p${suffix}`;
+        const taken = await env.DB.prepare(
+          'SELECT jobId FROM Job WHERE jobId=?'
+        ).bind(candidate).first();
+        if (!taken) { jobId = candidate; break; }
+        suffix++;
+      }
+    } else if (existing && existing.propertyId !== propertyId) {
       // Different property on same payer+date — find next free suffix
       let suffix = 2;
       while (true) {
@@ -8018,7 +10480,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
           parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      jobId, payerId, propertyId, scheduledDate, 'scheduled', amount, 'pending',
+      jobId, payerId, propertyId, scheduledDate || null, _jobState, amount, 'pending',
       _svcTagsVal, servicesRaw || servicesRequested, jobNotes || servicesRequested,
       rigId || null,
       workSiteAddress || null, workSiteCity || null, workSiteZip || null,
@@ -8169,6 +10631,8 @@ async function handleCompleteJobGroup(request, env, jobId, corsHeaders) {
 // days.length >= 2   → reconcile: update parent as Day 1, INSERT OR REPLACE _d2.._dN,
 //                      cancel any existing children with dayNumber > N
 async function handleSplitJob(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
@@ -8442,6 +10906,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'workSitePlaceId', 'workSiteGoogleVerified',
   'endCustomerName', 'endCustomerPhone', 'partnerRate',
   'crewCount',
+  'halfDayCrew',   // 2026-06-22: column shipped in migration 0029 but whitelist was never updated; PATCH was rejecting it with 400, blocking labor math from capturing half-day crews
   'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
   'roofType',      // DL-01: roof material type, written at completion and pencil edit
   'dayPhase',      // Phase 2C: multi-day phase label editable via PATCH
@@ -8460,9 +10925,15 @@ const _JOB_MUTABLE_FIELDS = new Set([
 
 const _JOB_VALID_STATES = new Set([
   'scheduled', 'in_progress', 'completed', 'cancelled', 'rescheduled', 'no_show',
+  // 2026-06-22 add_job migration: queue path (operator hasn't picked a date yet).
+  // scheduledDate is null when state='needs_scheduling'; the queue UI promotes
+  // it to 'scheduled' once the date+rig are picked.
+  'needs_scheduling',
 ]);
 
 async function handlePatchJob(request, env, jobId, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   if (!jobId) return jsonResponse({ error: 'jobId required' }, corsHeaders, 400);
 
@@ -8497,7 +10968,12 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
 
   const now = new Date().toISOString();
 
-  // Auto-timestamps on state transitions
+  // Auto-timestamps on state transitions.
+  // 2026-06-23 Bug 3 note: revert sends {state:'scheduled', completedAt:null,
+  // paidAt:null} — explicit null binds SQL NULL correctly (both columns are
+  // in _JOB_MUTABLE_FIELDS, both nullable). The auto-stamp only fires for
+  // state='completed' or 'cancelled', NEVER for 'scheduled', so a revert
+  // can't accidentally re-stamp the field it just cleared.
   const updates = { ...body };
   if (updates.state === 'cancelled' && !updates.cancelledAt) updates.cancelledAt = now;
   if (updates.state === 'completed' && !updates.completedAt) updates.completedAt = now;
@@ -8594,9 +11070,21 @@ async function _patchJobKvSync(job, patchedFields, env, now) {
       if (job.state === 'completed') {
         ss.completedAt   = job.completedAt || now;
         ss.completedDate = (job.completedAt || now).slice(0, 10);
-      } else if (job.state === 'rescheduled' || job.state === 'cancelled') {
+      } else if (job.state === 'rescheduled' || job.state === 'cancelled' || job.state === 'scheduled') {
+        // 2026-06-23 Bug 2 fix: 'scheduled' added to the clear-completion
+        // branch. _doRevertJob transitions completed→scheduled; without
+        // 'scheduled' here, KV's ss.completedAt/completedDate/paymentStatus/
+        // paidAt/paidAmount survived the revert, leaving the customer's
+        // scheduledStatus in a half-completed state (and re-triggering review-
+        // queue logic on the next eligibility scan).
+        // paymentStatus = 'unpaid' (not null) — mirrors D1's NOT NULL
+        // constraint on Job.paymentStatus so the KV ↔ D1 rebuild stays
+        // consistent on the next /customer read.
         ss.completedAt   = null;
         ss.completedDate = null;
+        ss.paymentStatus = 'unpaid';
+        ss.paidAt        = null;
+        ss.paidAmount    = null;
       }
     }
     cust.scheduledStatus = ss;
@@ -10790,7 +13278,278 @@ async function handlePlacesResolve(request, env, corsHeaders) {
 
 // ── Property creation: Property + PersonProperty link ─────────────────────────
 
+// ── POST /admin/quote-state ──────────────────────────────────────────────────
+// Shallow-merges a `quoteStatus` patch onto KV customer_db.customers[i].
+// Used by pure_cleaning_quotes.html for the 5 saveDb sites (markBooked,
+// confirmLost, resendQuote, delete, auto-age single fallback). KV-only —
+// quoteStatus has no D1 table; pure display state for the quotes hub.
+//
+// Body: { phone: "10-digit", patch: { state?, sentDate?, sentAt?, viewedDate?,
+//         approvedDate?, lostDate?, lostReason?, deleted?, deletedAt?,
+//         reminderSkipped?, confirmedBy?, confirmedAt?, confirmedDate?,
+//         mainServices? } }
+//
+// Whitelist on the patch — any non-allowed field is dropped silently so a
+// stale client can't push KV-shape fields that don't belong on quoteStatus.
+//
+// Verifies the merged write before returning success (T1.20).
+const _QUOTE_STATE_PATCH_FIELDS = new Set([
+  'state', 'sentDate', 'sentAt', 'viewedDate',
+  'approvedDate', 'lostDate', 'lostReason',
+  'deleted', 'deletedAt', 'reminderSkipped',
+  'confirmedBy', 'confirmedAt', 'confirmedDate',
+  'mainServices',
+]);
+async function handleQuoteStatePatch(request, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const phone = _norm10(body.phone);
+  if (phone.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  if (!body.patch || typeof body.patch !== 'object')
+    return jsonResponse({ error: 'patch object required' }, corsHeaders, 400);
+
+  // Whitelist patch fields
+  const cleanPatch = {};
+  for (const k of Object.keys(body.patch)) {
+    if (_QUOTE_STATE_PATCH_FIELDS.has(k)) cleanPatch[k] = body.patch[k];
+  }
+  if (!Object.keys(cleanPatch).length)
+    return jsonResponse({ error: 'patch must contain at least one allowed field' }, corsHeaders, 400);
+
+  try {
+    const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    const idx = (db.customers || []).findIndex(c => _norm10(c.phone) === phone);
+    if (idx < 0) return jsonResponse({ error: 'customer not found', phone }, corsHeaders, 404);
+    const cust = db.customers[idx];
+    cust.quoteStatus = { ...(cust.quoteStatus || {}), ...cleanPatch };
+    db.customers[idx] = cust;
+    await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+
+    // T1.20 verify
+    const verify = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    const vCust = (verify.customers || []).find(c => _norm10(c.phone) === phone);
+    const vQs = vCust?.quoteStatus || {};
+    for (const k of Object.keys(cleanPatch)) {
+      if (JSON.stringify(vQs[k]) !== JSON.stringify(cleanPatch[k])) {
+        return jsonResponse({ error: 'verify failed', field: k, expected: cleanPatch[k], got: vQs[k] }, corsHeaders, 500);
+      }
+    }
+    return jsonResponse({ success: true, phone, quoteStatus: vQs }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, `handleQuoteStatePatch:${phone}`, e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── POST /admin/quote-state/bulk-age ─────────────────────────────────────────
+// Server-side replacement for the page's init-time auto-age scan. Iterates
+// KV customer_db once; marks any quote with quoteStatus.sentDate older than
+// staleDays AND state NOT IN (approved, lost) as lost.
+//
+// Body: { staleDays?: 14, newState?: 'lost', reason?: 'no response' }
+// Returns: { success, scanned, aged, aged_phones[] }
+async function handleQuoteStateBulkAge(request, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const body = await request.json().catch(() => ({}));
+  const staleDays = Number(body.staleDays) > 0 ? Number(body.staleDays) : 14;
+  const newState  = (body.newState  || 'lost').toString();
+  const reason    = (body.reason    || 'no response').toString();
+  const todayIso  = new Date().toISOString().slice(0, 10);
+  const cutoffMs  = Date.now() - (staleDays * 86400000);
+
+  try {
+    const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+    let aged = 0;
+    const agedPhones = [];
+    for (const c of (db.customers || [])) {
+      const qs = c.quoteStatus;
+      if (!qs || qs.state === 'approved' || qs.state === 'lost') continue;
+      const sentIso = qs.sentDate || (qs.sentAt ? qs.sentAt.slice(0, 10) : null);
+      if (!sentIso) continue;
+      const sentMs = new Date(sentIso + 'T12:00:00').getTime();
+      if (!Number.isFinite(sentMs) || sentMs > cutoffMs) continue;
+      c.quoteStatus = { ...qs, state: newState, lostDate: todayIso, lostReason: reason };
+      aged++;
+      if (agedPhones.length < 50) agedPhones.push(_norm10(c.phone));
+    }
+    if (aged > 0) {
+      await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+    }
+    return jsonResponse({
+      success: true,
+      scanned: (db.customers || []).length,
+      aged,
+      agedPhonesSample: agedPhones,
+      cutoffDate: new Date(cutoffMs).toISOString().slice(0, 10),
+      newState, reason,
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleQuoteStateBulkAge', e.message);
+    return jsonResponse({ error: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── POST /admin/person ───────────────────────────────────────────────────────
+// Create a new Person row with dual-write to KV customer_db.
+//
+// Used by: add_job (2026-06-22 migration), commercial_quick_add (Phase 2),
+// new_customer flow (when extending).
+//
+// Body: { firstName, lastName, primaryPhone, email?, businessName?,
+//         customerType? = 'residential', internalNotes? }
+//
+// PersonId is deterministic: `person_1<10-digit-phone>`. Idempotent — if a
+// Person row already exists at that ID, returns 200 with the existing row
+// (no field overwrite — caller must use PATCH /admin/person/:id to update).
+//
+// Validates phone uniqueness against E.164 + the deterministic personId.
+// Stores phone in E.164 format (+1XXXXXXXXXX) per Rule 17.
+async function handleCreatePerson(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const firstName    = (body.firstName    || '').trim();
+  const lastName     = (body.lastName     || '').trim();
+  const businessName = (body.businessName || '').trim() || null;
+  const email        = (body.email        || '').trim() || null;
+  const customerType = body.customerType || 'residential';
+  const internalNotes = (body.internalNotes || '').trim() || null;
+
+  const VALID_CUSTOMER_TYPES = new Set(['residential', 'commercial', 'partner_referral']);
+  if (!VALID_CUSTOMER_TYPES.has(customerType))
+    return jsonResponse({ error: 'customerType must be residential | commercial | partner_referral' }, corsHeaders, 400);
+
+  // Phone: accept 10-digit, 11-digit (leading 1), or +1-prefixed forms.
+  const rawPhone = (body.primaryPhone || '').toString();
+  const ph10 = rawPhone.replace(/\D/g, '').slice(-10);
+  if (ph10.length !== 10) return jsonResponse({ error: 'primaryPhone must be 10 digits (US)' }, corsHeaders, 400);
+
+  // At least one human field — refuse blank-name commercial records, etc.
+  if (!firstName && !lastName && !businessName)
+    return jsonResponse({ error: 'firstName, lastName, or businessName required' }, corsHeaders, 400);
+
+  const personId   = `person_1${ph10}`;
+  const e164Phone  = `+1${ph10}`;
+  const now        = new Date().toISOString();
+
+  try {
+    // Idempotent: if row already exists, return it (don't overwrite — caller
+    // should use PATCH to update fields on an existing Person).
+    const existing = await env.DB.prepare(
+      'SELECT personId, firstName, lastName, businessName, primaryPhone, email, customerType FROM Person WHERE personId=?'
+    ).bind(personId).first();
+    if (existing) {
+      return jsonResponse({
+        success: true,
+        alreadyExists: true,
+        person: existing,
+      }, corsHeaders);
+    }
+
+    // Insert. Source = 'admin_api_create' so the row is distinguishable from
+    // migration_skeleton / kv_dual_write / csv_backfill records.
+    await env.DB.prepare(
+      `INSERT INTO Person (
+         personId, firstName, lastName, businessName, primaryPhone, email,
+         customerType, isCommercialAccount, isHomeowner, isReferralOnly,
+         isReferralSource, doNotContact,
+         internalNotes, createdAt, modifiedAt,
+         migratedFrom, migrationVersion, migratedAt, migrationConfidence
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      personId, firstName, lastName, businessName, e164Phone, email,
+      customerType,
+      customerType === 'commercial' ? 1 : 0,    // isCommercialAccount
+      customerType === 'residential' ? 1 : 0,   // isHomeowner default
+      0,                                        // isReferralOnly
+      customerType === 'partner_referral' ? 1 : 0,  // isReferralSource
+      0,                                        // doNotContact
+      internalNotes,
+      now, now,
+      'admin_api_create', 'v1', now, 'high',
+    ).run();
+
+    // KV dual-write: append a slim entry to customer_db so the directory list
+    // (which still reads /customers or /customers/summary) sees the new
+    // customer immediately. d1AllCustomersToKvShape() will rebuild the canonical
+    // shape on next /customers read, but adding it here means /customers is
+    // consistent the instant this returns.
+    try {
+      const kvDb = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+      const ph10s = String(ph10);
+      const idx = (kvDb.customers || []).findIndex(c => (c.phone || '').replace(/\D/g, '').slice(-10) === ph10s);
+      const slim = {
+        phone:        ph10s,
+        firstName, lastName, businessName, email,
+        customerType,
+        isCommercialAccount: customerType === 'commercial',
+        totalJobs: 0, lifetimeSpend: 0, lastService: null,
+        scheduledStatus: null, quoteStatus: null,
+        jobHistory: [], properties: [],
+        source: 'admin_api_create',
+        createdAt: now,
+      };
+      if (idx >= 0) kvDb.customers[idx] = { ...kvDb.customers[idx], ...slim };
+      else kvDb.customers.push(slim);
+      await env.DATA.put(KV_KEYS.customers, JSON.stringify(kvDb));
+    } catch (e) {
+      await _logD1Failure(env, `handleCreatePerson:kvDualWrite:${personId}`, e.message);
+      // Non-fatal — D1 is canonical (Rule 19), KV catches up on next read.
+    }
+
+    const fresh = await env.DB.prepare('SELECT * FROM Person WHERE personId=?').bind(personId).first();
+    return jsonResponse({ success: true, alreadyExists: false, person: fresh, personId }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, `handleCreatePerson:${personId}`, e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// Fuzzy match for street addresses — used as a guard alongside googlePlaceId
+// dedup so distinct addresses Google maps to the same place_id (vague typed
+// addresses, multi-tenant commercial buildings, alias addresses) don't get
+// silently collapsed into one Property row.
+//
+// Normalization strips:
+//   - cardinal directions (N/S/E/W and the spelled-out forms)
+//   - street-type suffixes (St, Ave, Dr, Ct, Rd, etc.)
+//   - punctuation
+//   - extra whitespace
+// Match is "equal after normalization" OR "one is a substring of the other"
+// (handles partial address typed by operator vs Google's full canonical form).
+function _normalizeStreetForFuzzy(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\b(north|south|east|west|northeast|northwest|southeast|southwest)\b/g, ' ')
+    .replace(/\b(n|s|e|w|ne|nw|se|sw)\b\.?/g, ' ')
+    .replace(/\b(street|st|avenue|ave|drive|dr|road|rd|court|ct|lane|ln|boulevard|blvd|circle|cir|place|pl|way|terrace|terr|parkway|pkwy|highway|hwy|trail|trl|loop)\b\.?/g, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function _streetsFuzzyMatch(a, b) {
+  if (!a || !b) return false;
+  const na = _normalizeStreetForFuzzy(a);
+  const nb = _normalizeStreetForFuzzy(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  // Containment match: handles partial-typed address vs Google's full
+  // formatted address. Min length 4 to avoid stub collisions ("123" matching "1234").
+  if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
+  return false;
+}
+
 async function handleCreateProperty(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
@@ -10819,11 +13578,16 @@ async function handleCreateProperty(request, env, corsHeaders) {
     let propertyId;
     let dedupedExisting = false;
 
-    // Dedup by googlePlaceId: if place_id matches an existing Property, reuse it
+    // Dedup by googlePlaceId — HARDENED 2026-06-22 against place_id collisions
+    // (Google returns same id for distinct addresses on vague typing or shared
+    // multi-tenant lots). Reuse only when BOTH googlePlaceId matches AND the
+    // street address fuzzy-matches the existing record. Otherwise treat as a
+    // distinct property and let the fresh-insert branch run.
     if (googlePlaceId) {
-      const existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE googlePlaceId=?')
-        .bind(googlePlaceId).first();
-      if (existing) {
+      const existing = await env.DB.prepare(
+        'SELECT propertyId, streetAddress FROM Property WHERE googlePlaceId=?'
+      ).bind(googlePlaceId).first();
+      if (existing && _streetsFuzzyMatch(existing.streetAddress, streetAddress)) {
         propertyId = existing.propertyId;
         dedupedExisting = true;
       }
@@ -10831,17 +13595,88 @@ async function handleCreateProperty(request, env, corsHeaders) {
 
     if (!propertyId) {
       propertyId = _d1PropId(streetAddress, city);
-      const googleVerified = googlePlaceId ? 1 : 0;
-      await env.DB.prepare(
-        `INSERT OR IGNORE INTO Property
-           (propertyId, googlePlaceId, formattedAddress, streetAddress, city, state, zip,
-            latitude, longitude, googleVerified, createdAt, modifiedAt)
-         VALUES (?, ?, ?, ?, ?, 'FL', ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        propertyId, googlePlaceId || null, formattedAddress || null,
-        streetAddress.trim(), city.trim(), zip || null,
-        latitude || null, longitude || null, googleVerified, now, now
-      ).run();
+      // Try existing Property at that deterministic ID before inserting — this
+      // is the migration's idempotency hinge (re-running the cleanup script
+      // never duplicates).
+      const existingByPid = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+        .bind(propertyId).first();
+      if (existingByPid) {
+        dedupedExisting = true;
+      } else {
+        // Geocode when caller didn't pass coords (Cleanup-Spec migration path
+        // for the 268 properties — most are new and the script doesn't pre-resolve
+        // place IDs). ROOFTOP preferred; medium/low still beats null.
+        let _resolvedLat = latitude  || null;
+        let _resolvedLng = longitude || null;
+        let _resolvedPlaceId = googlePlaceId || null;
+        let _resolvedFormatted = formattedAddress || null;
+        let _resolvedSource = null, _resolvedPrecision = null, _resolvedAt = null;
+        if (!_resolvedLat || !_resolvedLng) {
+          try {
+            const geo = await geocodeAddress(`${streetAddress.trim()}, ${city.trim()}, FL`, env);
+            if (geo) {
+              _resolvedLat = geo.lat;
+              _resolvedLng = geo.lng;
+              _resolvedPlaceId = _resolvedPlaceId || geo.placeId || null;
+              _resolvedFormatted = _resolvedFormatted || geo.formattedAddress || null;
+              _resolvedSource = geo.source || null;
+              _resolvedPrecision = geo.locationType || null;
+              _resolvedAt = geo.geocodedAt || null;
+            }
+          } catch (e) { /* fail-soft */ }
+        }
+        const googleVerified = _resolvedPlaceId ? 1 : 0;
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO Property
+             (propertyId, googlePlaceId, formattedAddress, streetAddress, city, state, zip,
+              latitude, longitude, googleVerified, geocodeSource, geocodePrecision,
+              createdAt, modifiedAt)
+           VALUES (?, ?, ?, ?, ?, 'FL', ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          propertyId, _resolvedPlaceId, _resolvedFormatted,
+          streetAddress.trim(), city.trim(), zip || null,
+          _resolvedLat, _resolvedLng, googleVerified,
+          _resolvedSource, _resolvedPrecision,
+          now, now
+        ).run();
+        // INSERT OR IGNORE silently swallows UNIQUE (googlePlaceId) conflicts.
+        // Recovery flow — HARDENED 2026-06-22:
+        //   (a) If our row didn't land AND there's a sibling with the same
+        //       place_id BUT the streets fuzzy-match → genuine reuse (same place).
+        //   (b) If sibling exists BUT streets DON'T match → Google collision.
+        //       Re-INSERT with googlePlaceId=NULL so we get our own row instead
+        //       of latching onto someone else's property.
+        const landed = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+          .bind(propertyId).first();
+        if (!landed && _resolvedPlaceId) {
+          const sib = await env.DB.prepare(
+            'SELECT propertyId, streetAddress FROM Property WHERE googlePlaceId=?'
+          ).bind(_resolvedPlaceId).first();
+          if (sib && _streetsFuzzyMatch(sib.streetAddress, streetAddress)) {
+            propertyId = sib.propertyId;
+            dedupedExisting = true;
+          } else if (sib) {
+            // (b) Place-ID collision — same Google place_id but distinct street.
+            // Save WITHOUT googlePlaceId so our row coexists with the sibling.
+            // googleVerified=0 reflects "we couldn't uniquely verify" — the lat/lng
+            // still come from the geocode but the place_id isn't trusted.
+            await env.DB.prepare(
+              `INSERT INTO Property
+                 (propertyId, googlePlaceId, formattedAddress, streetAddress, city, state, zip,
+                  latitude, longitude, googleVerified, geocodeSource, geocodePrecision,
+                  createdAt, modifiedAt)
+               VALUES (?, NULL, ?, ?, ?, 'FL', ?, ?, ?, 0, ?, ?, ?, ?)`
+            ).bind(
+              propertyId, _resolvedFormatted,
+              streetAddress.trim(), city.trim(), zip || null,
+              _resolvedLat, _resolvedLng,
+              _resolvedSource, _resolvedPrecision,
+              now, now
+            ).run();
+            // dedupedExisting stays false — this is a fresh row
+          }
+        }
+      }
     }
 
     // Demote any existing primary if the new property is being set as primary
@@ -10885,6 +13720,8 @@ async function handleCreateProperty(request, env, corsHeaders) {
 // Whitelisted: email, firstName, lastName, businessName, primaryPhone.
 // Stamps modifiedAt. Returns the updated Person row.
 async function handlePatchPerson(request, personId, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   if (!personId) return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
 
@@ -10898,10 +13735,64 @@ async function handlePatchPerson(request, personId, env, corsHeaders) {
   // that must resurface when Mom/Tyler open the profile. billingNotes added
   // alongside — it's the only Person-level free-text field that feeds the
   // invoice paymentTerms fallback (line ~6651) and proposal payment terms.
-  const ALLOWED = ['email', 'firstName', 'lastName', 'businessName', 'internalNotes', 'billingNotes'];
+  // aliases: JSON-array of prior-name variants (set during the 2026-06-21 cleanup-spec
+  //   migration so the canonical contact_name overwrites the in-use name without losing
+  //   the historical variant for search/recognition).
+  // doNotContact: 0|1 — promoted to writable so the edit tool + migration can mark
+  //   deceased / opted-out contacts (e.g. Arnie / Universal Pressure Cleaning).
+  // customerType: 'residential' | 'commercial' | 'partner_referral' — drives the
+  //   reactivation lane + Rule 11 partner outreach exclusion.
+  // isCommercialAccount: 0|1 — separate from customerType (commercial revenue can
+  //   live on a residential row historically; reconciled by the worksheet).
+  // isReferralSource: 0|1 — DL-06 partner outreach exclusion key. Set this on
+  //   every partner so blast paths actually filter them out.
+  // 2026-06-22 Phase 1 #3: alternateContacts (JSON array of {name, phone, label, relation}),
+  // preferredPaymentMethod (lifetime preference — distinct from per-job Job.paymentMethod).
+  const ALLOWED = ['email', 'firstName', 'lastName', 'businessName',
+                   'internalNotes', 'billingNotes', 'aliases', 'doNotContact',
+                   'customerType', 'isCommercialAccount', 'isReferralSource',
+                   'alternateContacts', 'preferredPaymentMethod'];
   const fields = {};
   for (const k of ALLOWED) {
-    if (k in body) fields[k] = body[k] ?? null;
+    if (!(k in body)) continue;
+    if (k === 'aliases') {
+      // accept array or pre-stringified JSON
+      if (body[k] == null) { fields[k] = null; continue; }
+      if (Array.isArray(body[k])) { fields[k] = JSON.stringify(body[k]); continue; }
+      if (typeof body[k] === 'string') {
+        try { JSON.parse(body[k]); fields[k] = body[k]; continue; }
+        catch (_) { return jsonResponse({ error: 'aliases must be JSON array' }, corsHeaders, 400); }
+      }
+      return jsonResponse({ error: 'aliases must be array or JSON string' }, corsHeaders, 400);
+    }
+    // 2026-06-22 Phase 1 #3: alternateContacts → alternateContactsJson column.
+    // Accept array (canonical) or null/empty (clears). Per-entry shape isn't
+    // enforced here — frontend builders (_feBuildAltContacts etc.) own that.
+    if (k === 'alternateContacts') {
+      if (body[k] == null) { fields['alternateContactsJson'] = null; delete fields[k]; continue; }
+      if (Array.isArray(body[k])) {
+        fields['alternateContactsJson'] = body[k].length ? JSON.stringify(body[k]) : null;
+        delete fields[k];
+        continue;
+      }
+      return jsonResponse({ error: 'alternateContacts must be array or null' }, corsHeaders, 400);
+    }
+    if (k === 'doNotContact' || k === 'isCommercialAccount' || k === 'isReferralSource') {
+      const v = body[k];
+      if (v === true || v === 1 || v === '1') { fields[k] = 1; continue; }
+      if (v === false || v === 0 || v === '0' || v == null) { fields[k] = 0; continue; }
+      return jsonResponse({ error: `${k} must be 0 or 1` }, corsHeaders, 400);
+    }
+    if (k === 'customerType') {
+      const v = body[k];
+      if (v == null) { fields[k] = null; continue; }
+      const VALID = new Set(['residential', 'commercial', 'partner_referral']);
+      if (typeof v !== 'string' || !VALID.has(v))
+        return jsonResponse({ error: `customerType must be one of: residential, commercial, partner_referral` }, corsHeaders, 400);
+      fields[k] = v;
+      continue;
+    }
+    fields[k] = body[k] ?? null;
   }
   if (!Object.keys(fields).length)
     return jsonResponse({ error: `no writable fields provided; allowed: ${ALLOWED.join(', ')}` }, corsHeaders, 400);
@@ -10923,6 +13814,28 @@ async function handlePatchPerson(request, personId, env, corsHeaders) {
     if (personId.startsWith('person_1') && personId.length >= 18) {
       const ph = personId.slice('person_1'.length);
       if (ph.length === 10) {
+        // 2026-06-22 Phase 1 #3: pre-sync KV alternateContacts before the
+        // d1CustomerToKvShape rebuild. The shape mapper applies a KV bridge
+        // for legacy alternateContacts data — without this pre-clear, the
+        // rebuild would re-apply the OLD KV array on top of our fresh D1
+        // write, silently undoing add/delete operations. Dual-write keeps
+        // both stores agreeing so the bridge is a no-op going forward.
+        if ('alternateContacts' in body && env.DATA) {
+          try {
+            const kvDb0 = (await env.DATA.get('customer_db', 'json')) || { customers: [] };
+            const cust0 = (kvDb0.customers || []).find(c =>
+              (c.phone || '').replace(/\D/g, '').slice(-10) === ph
+            );
+            if (cust0) {
+              cust0.alternateContacts = Array.isArray(body.alternateContacts) && body.alternateContacts.length
+                ? body.alternateContacts
+                : null;
+              await env.DATA.put('customer_db', JSON.stringify(kvDb0));
+            }
+          } catch (e) {
+            console.warn('[handlePatchPerson] alternateContacts KV pre-sync failed:', e.message);
+          }
+        }
         const updatedCustomer = await d1CustomerToKvShape(ph, env).catch(() => null);
         if (updatedCustomer && env.DATA) {
           const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
@@ -11454,6 +14367,8 @@ async function handlePatchInvoice(request, invoiceId, env, corsHeaders) {
 // Body: { phones: ['9546660001', ...], customerType: 'partner_referral' }
 // Bypasses PUT /customers sync path; safe to call after correcting mislabeled records.
 async function handleRetypeCustomer(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
   const { phones, customerType } = body;
@@ -11495,19 +14410,199 @@ async function handleRetypeCustomer(request, env, corsHeaders) {
   return jsonResponse({ success: true, updated, failed }, corsHeaders);
 }
 
+// ── POST /admin/person/:personId/note ────────────────────────────────────────
+// 2026-06-22: scoped append for customer-facing profile notes. Replaces the
+// whole-DB PUT /customers pattern customer_profile.html used (cross-device
+// clobber risk + KV-only storage, no D1 home).
+//
+// Body: { text, author? }
+// Server generates the {id, createdAt} fields. Reads current
+// Person.profileNotesJson, parses (or starts []), appends, writes back,
+// then re-reads to verify the new entry landed (T1.20). Returns the new note.
+async function handleAddPersonNote(request, personId, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DB)       return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!personId)     return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const text   = (body.text || '').trim();
+  const author = (body.author || 'Tyler').trim() || 'Tyler';
+  if (!text) return jsonResponse({ error: 'text required' }, corsHeaders, 400);
+
+  const exists = await env.DB.prepare('SELECT profileNotesJson FROM Person WHERE personId=?').bind(personId).first();
+  if (!exists) return jsonResponse({ error: 'person not found', personId }, corsHeaders, 404);
+
+  let arr = [];
+  if (exists.profileNotesJson) {
+    try { const parsed = JSON.parse(exists.profileNotesJson); arr = Array.isArray(parsed) ? parsed : []; }
+    catch { arr = []; }
+  }
+  const newNote = {
+    id:        Math.random().toString(36).slice(2) + Date.now().toString(36),
+    text,
+    author,
+    createdAt: new Date().toISOString(),
+  };
+  arr.push(newNote);
+
+  const now = new Date().toISOString();
+  try {
+    await env.DB.prepare('UPDATE Person SET profileNotesJson=?, modifiedAt=? WHERE personId=?')
+      .bind(JSON.stringify(arr), now, personId).run();
+  } catch (e) {
+    await _logD1Failure(env, `handleAddPersonNote:${personId}`, e.message).catch(()=>{});
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // T1.20 verify-before-return
+  const verify = await env.DB.prepare('SELECT profileNotesJson FROM Person WHERE personId=?').bind(personId).first();
+  let verifyArr = [];
+  try { verifyArr = JSON.parse(verify?.profileNotesJson || '[]'); } catch {}
+  const landed = Array.isArray(verifyArr) && verifyArr.some(n => n && n.id === newNote.id);
+  if (!landed) {
+    return jsonResponse({ success: false, error: 'verify_failed', personId }, corsHeaders, 500);
+  }
+
+  return jsonResponse({ success: true, personId, note: newNote, totalNotes: verifyArr.length }, corsHeaders);
+}
+
+// ── POST /customer/:phone/scheduled-photo ────────────────────────────────────
+// 2026-06-22: scoped append for KV scheduledStatus.photos. Replaces the
+// whole-DB PUT /customers pattern customer_profile.html used after a /photos
+// upload. Body: { photoId }.  Still a KV blob write (KV is one blob), but
+// the race window collapses from "two browsers each holding the DB in JS
+// memory for tens of seconds" to "milliseconds of server processing".
+async function handleAddScheduledPhoto(request, env, phone, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const ph10 = _norm10(phone);
+  if (ph10.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+
+  const body = await request.json().catch(() => null);
+  const photoId = body && typeof body.photoId === 'string' ? body.photoId.trim() : '';
+  if (!photoId) return jsonResponse({ error: 'photoId required' }, corsHeaders, 400);
+
+  let db;
+  try { db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] }; }
+  catch (e) { return jsonResponse({ error: 'KV read failed', detail: e.message }, corsHeaders, 500); }
+
+  const idx = (db.customers || []).findIndex(c => _norm10(c.phone) === ph10);
+  if (idx === -1) return jsonResponse({ error: 'customer not found', phone: ph10 }, corsHeaders, 404);
+
+  const c = db.customers[idx];
+  if (!c.scheduledStatus) c.scheduledStatus = {};
+  if (!Array.isArray(c.scheduledStatus.photos)) c.scheduledStatus.photos = [];
+  // Idempotent: skip if already present (re-tries don't duplicate)
+  if (!c.scheduledStatus.photos.includes(photoId)) {
+    c.scheduledStatus.photos.push(photoId);
+  }
+
+  try { await env.DATA.put(KV_KEYS.customers, JSON.stringify(db)); }
+  catch (e) { return jsonResponse({ error: 'KV write failed', detail: e.message }, corsHeaders, 500); }
+
+  // T1.20 verify-before-return
+  const verify = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+  const vc = (verify.customers || []).find(x => _norm10(x.phone) === ph10);
+  const landed = vc && Array.isArray(vc.scheduledStatus?.photos) && vc.scheduledStatus.photos.includes(photoId);
+  if (!landed) {
+    return jsonResponse({ success: false, error: 'verify_failed', phone: ph10 }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success: true,
+    phone: ph10,
+    photoId,
+    photos: vc.scheduledStatus.photos,
+  }, corsHeaders);
+}
+
+// ── POST /customer/{phone}/moved-away ───────────────────────────────────────
+// 2026-06-22 saveDb-migration: scoped replacement for bulk_reactivation.html's
+// mark/restoreMovedAway flow. Body { location?, clear? }. Updates c.movedAway
+// on the customer_db blob's single entry. T1.20 verify-after-write.
+async function handleSetMovedAway(request, env, phone, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const ph = _norm10(phone);
+  if (ph.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const body = await request.json().catch(() => ({}));
+  const clear = body.clear === true;
+  const location = (body.location || '').toString().trim() || null;
+
+  const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+  const cust = (db.customers || []).find(c => _norm10(c.phone) === ph);
+  if (!cust) return jsonResponse({ error: 'customer not found', phone: ph }, corsHeaders, 404);
+  if (clear) cust.movedAway = null;
+  else       cust.movedAway = { at: new Date().toISOString(), location };
+  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  const verifyDb = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+  const v = (verifyDb.customers || []).find(c => _norm10(c.phone) === ph);
+  const landed = clear ? (v && !v.movedAway) : (v && v.movedAway && v.movedAway.at);
+  if (!landed) return jsonResponse({ success: false, error: 'verify_failed' }, corsHeaders, 500);
+  return jsonResponse({ success: true, phone: ph, movedAway: v.movedAway || null }, corsHeaders);
+}
+
+// ── POST /customer/{phone}/exclusion ────────────────────────────────────────
+// 2026-06-22 saveDb-migration: scoped replacement for bulk_reactivation.html's
+// promptExcl / confirmRestore flows. Body { reason?, label?, excluded?, clear? }.
+async function handleSetReactivationExclusion(request, env, phone, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DATA) return jsonResponse({ error: 'KV not bound' }, corsHeaders, 503);
+  const ph = _norm10(phone);
+  if (ph.length !== 10) return jsonResponse({ error: 'phone required (10 digits)' }, corsHeaders, 400);
+  const body  = await request.json().catch(() => ({}));
+  const clear = body.clear === true;
+  const reason = (body.reason || '').toString().trim() || null;
+  const label  = (body.label  || '').toString().trim() || null;
+  const now    = new Date().toISOString();
+
+  const db = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+  const cust = (db.customers || []).find(c => _norm10(c.phone) === ph);
+  if (!cust) return jsonResponse({ error: 'customer not found', phone: ph }, corsHeaders, 404);
+  if (clear) {
+    if (cust.reactivationExcluded) {
+      cust.reactivationExcluded = { ...cust.reactivationExcluded, excluded: false, restoredAt: now, restoredBy: 'tyler' };
+    }
+    if (cust.reactivationExcluded?.reason === 'moved_away') cust.movedAway = null;
+  } else {
+    cust.reactivationExcluded = { excluded: true, reason: reason || 'manual', label, excludedAt: now, excludedBy: 'tyler' };
+  }
+  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  const verifyDb = (await env.DATA.get(KV_KEYS.customers, 'json')) || { customers: [] };
+  const v = (verifyDb.customers || []).find(c => _norm10(c.phone) === ph);
+  const landed = clear
+    ? (v && (!v.reactivationExcluded || v.reactivationExcluded.excluded === false))
+    : (v && v.reactivationExcluded && v.reactivationExcluded.excluded === true);
+  if (!landed) return jsonResponse({ success: false, error: 'verify_failed' }, corsHeaders, 500);
+  return jsonResponse({ success: true, phone: ph,
+    reactivationExcluded: v.reactivationExcluded || null,
+    movedAway:            v.movedAway            || null,
+  }, corsHeaders);
+}
+
 // ── PATCH /admin/person-property ─────────────────────────────────────────────
 // Updates the label for a specific person+property link in PersonProperty.
 // Body: { personId, propertyId, propertyLabel }
 // Refreshes KV after D1 write so the label surfaces immediately on the calendar.
 async function handlePatchPersonProperty(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
-  const { personId, propertyId, propertyLabel } = body;
+  const { personId, propertyId, propertyLabel, primaryContact, propertyType } = body;
   if (!personId)   return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
   if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
-  if (propertyLabel === undefined || propertyLabel === null)
-    return jsonResponse({ error: 'propertyLabel required' }, corsHeaders, 400);
+  // At least one mutable field must be present.
+  if (propertyLabel === undefined && primaryContact === undefined && propertyType === undefined)
+    return jsonResponse({ error: 'propertyLabel, primaryContact, or propertyType required' }, corsHeaders, 400);
+
+  const VALID_TYPES = ['main_residence','rental','vacation','investment','other'];
+  if (propertyType !== undefined && propertyType !== null && !VALID_TYPES.includes(propertyType))
+    return jsonResponse({ error: `propertyType must be one of: ${VALID_TYPES.join(', ')}` }, corsHeaders, 400);
 
   try {
     // Confirm the PersonProperty link exists
@@ -11516,10 +14611,32 @@ async function handlePatchPersonProperty(request, env, corsHeaders) {
     ).bind(personId, propertyId).first();
     if (!link) return jsonResponse({ error: 'PersonProperty link not found' }, corsHeaders, 404);
 
-    // PersonProperty has no modifiedAt column — update label only
+    // Demote any existing primary FIRST when this row is being promoted; ordering
+    // matters so we never end up with two primaries mid-write.
+    if (primaryContact === true || primaryContact === 1) {
+      await env.DB.prepare(
+        'UPDATE PersonProperty SET primaryContact=0 WHERE personId=? AND propertyId<>?'
+      ).bind(personId, propertyId).run();
+    }
+
+    const sets = [];
+    const vals = [];
+    if (propertyLabel !== undefined) {
+      sets.push('propertyLabel=?');
+      vals.push(propertyLabel == null ? null : String(propertyLabel).trim());
+    }
+    if (primaryContact !== undefined) {
+      sets.push('primaryContact=?');
+      vals.push((primaryContact === true || primaryContact === 1 || primaryContact === '1') ? 1 : 0);
+    }
+    if (propertyType !== undefined) {
+      sets.push('propertyType=?');
+      vals.push(propertyType || null);
+    }
+    vals.push(personId, propertyId);
     await env.DB.prepare(
-      `UPDATE PersonProperty SET propertyLabel=? WHERE personId=? AND propertyId=?`
-    ).bind(propertyLabel.trim(), personId, propertyId).run();
+      `UPDATE PersonProperty SET ${sets.join(', ')} WHERE personId=? AND propertyId=?`
+    ).bind(...vals).run();
 
     // KV refresh — mirror handleCreateProperty pattern (Law T1.13)
     const person = await env.DB.prepare(
@@ -11541,11 +14658,865 @@ async function handlePatchPersonProperty(request, env, corsHeaders) {
       }
     }
 
-    return jsonResponse({ success: true, personId, propertyId, propertyLabel: propertyLabel.trim() }, corsHeaders);
+    const fresh = await env.DB.prepare(
+      'SELECT personId, propertyId, propertyLabel, primaryContact, propertyType FROM PersonProperty WHERE personId=? AND propertyId=?'
+    ).bind(personId, propertyId).first();
+    return jsonResponse({ success: true, link: fresh }, corsHeaders);
   } catch(e) {
     await _logD1Failure(env, `handlePatchPersonProperty:${personId}:${propertyId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
+}
+
+// ── DELETE /admin/person/{personId} ─────────────────────────────────────────
+// Hard-delete a Person. Guard: 0 jobs (payerId OR referredById) AND 0 properties.
+// Use case: throwaway test records (worksheet `delete` action, 2026-06-21).
+async function handleDeletePerson(env, personId, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!personId) return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
+
+  const person = await env.DB.prepare('SELECT personId, primaryPhone FROM Person WHERE personId=?').bind(personId).first();
+  if (!person) return jsonResponse({ success: true, alreadyDeleted: true, personId }, corsHeaders);
+
+  // Guard against accidental data loss on real customers.
+  // 2026-06-22: extended to Invoice + Proposal — silently cascading those would
+  // orphan accounting documents (an Invoice with no Person row has no way to
+  // re-attach the bill-to; same for a Proposal). Always surface the block.
+  const [{ n: jobs }, { n: refs }, { n: props }, { n: invoices }, { n: proposals }] = await Promise.all([
+    env.DB.prepare('SELECT COUNT(*) AS n FROM Job WHERE payerId=?'         ).bind(personId).first(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM Job WHERE referredById=?'    ).bind(personId).first(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM PersonProperty WHERE personId=?').bind(personId).first(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM Invoice WHERE personId=?'    ).bind(personId).first(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM Proposal WHERE personId=?'   ).bind(personId).first(),
+  ]);
+  if (Number(jobs) > 0 || Number(refs) > 0 || Number(invoices) > 0 || Number(proposals) > 0) {
+    return jsonResponse({
+      error: 'person has linked records — delete blocked to prevent orphaning accounting documents',
+      jobs: Number(jobs),
+      referredJobs: Number(refs),
+      invoices: Number(invoices),
+      proposals: Number(proposals),
+      personId,
+    }, corsHeaders, 409);
+  }
+
+  const stmts = [
+    env.DB.prepare('DELETE FROM PersonProperty WHERE personId=?').bind(personId),
+    env.DB.prepare('DELETE FROM Communication WHERE personId=?').bind(personId),
+    env.DB.prepare('DELETE FROM Reminder WHERE personId=?').bind(personId),
+    env.DB.prepare('DELETE FROM Person WHERE personId=?').bind(personId),
+  ];
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handleDeletePerson:${personId}`, e.message);
+    return jsonResponse({ error: 'D1 batch failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // KV cleanup
+  try {
+    const ph = (person.primaryPhone || '').replace(/\D/g, '').slice(-10);
+    if (ph.length === 10) {
+      const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+      kvDb.customers = (kvDb.customers || []).filter(c => (c.phone || '').replace(/\D/g, '').slice(-10) !== ph);
+      await env.DATA.put('customer_db', JSON.stringify(kvDb));
+    }
+  } catch (e) {
+    await _logD1Failure(env, `handleDeletePerson:kvRefresh:${personId}`, e.message);
+  }
+
+  return jsonResponse({
+    success: true, personId,
+    propertyLinksDeleted: Number(props),
+  }, corsHeaders);
+}
+
+// ── POST /admin/property-merge ──────────────────────────────────────────────
+// Merge two Property rows that point at the same physical address (spelling
+// twins, e.g. "Ct" vs "Court"). The DROP row's references migrate to the KEEP
+// row; DROP is deleted last. Snapshot-protected — caller must POST /import/snapshot
+// before this. Body: { dropPropertyId, keepPropertyId }
+//
+// Steps (atomic D1 batch):
+//   (a) UPDATE Job SET propertyId = KEEP WHERE propertyId = DROP — all jobs
+//       re-point in one statement.
+//   (b) For each PersonProperty linking the DROP property:
+//         if PersonProperty(personId, KEEP) already exists → DELETE the DROP
+//           link (avoid PRIMARY KEY collision; keep the row already on KEEP);
+//         else → UPDATE PersonProperty SET propertyId = KEEP.
+//   (c) DELETE FROM Property WHERE propertyId = DROP — now unreferenced.
+//
+// KV refresh runs AFTER D1 batch commits, once per affected Person, so the
+// ── Phase 2 identity tools (2026-06-22) ────────────────────────────────────
+// Do-not-merge addresses Tyler explicitly flagged after reviewing the candidate
+// list (two HOAs at Blatt, multi-resident at Sabal Way, three different
+// payers at Stonebridge — these are genuinely separate accounts that share a
+// physical address). Detector filters these out so the review UI never
+// surfaces them as merge candidates.
+const DO_NOT_MERGE_ADDRESSES = [
+  { street: '16541 Blatt Blvd',         city: 'Weston' },
+  { street: '505 sabal Way',            city: 'Weston' },
+  { street: '12529 S Stonebridge Cir',  city: 'Davie'  },
+];
+
+// Tables + columns that reference Person.personId and must be re-linked on
+// change-primary-phone / merge. Each entry: { table, col, pk }. pk is the
+// table's primary key — captured per-row in MergeLog.relinkedRows so unmerge
+// can reverse the exact same UPDATE. PersonProperty uses propertyId because
+// (personId, propertyId) is the composite PK; when personId changes, the
+// propertyId stays fixed and uniquely identifies the row inside this merge.
+const PERSON_FK_REFS = [
+  { table: 'Job',             col: 'payerId',      pk: 'jobId'           },
+  { table: 'Job',             col: 'referredById', pk: 'jobId'           },
+  { table: 'PersonProperty',  col: 'personId',     pk: 'propertyId'      },
+  { table: 'Invoice',         col: 'personId',     pk: 'invoiceId'       },
+  { table: 'Proposal',        col: 'personId',     pk: 'proposalId'      },
+  { table: 'Reminder',        col: 'personId',     pk: 'reminderId'      },
+  { table: 'Communication',   col: 'personId',     pk: 'communicationId' },
+];
+
+// POST /admin/person/{personId}/change-primary-phone   body { newPhone }
+//
+// Phone IS the identity in this system (personId = 'person_1' + 10-digit phone),
+// so a phone change can't be a simple UPDATE — it requires creating a new
+// Person row at the new phone, re-pointing every FK to the new personId, and
+// retiring the old row with a replacedBy pointer for audit.
+//
+// All writes in one D1 batch so we never leave the data half-migrated.
+async function handleChangePrimaryPhone(request, oldPersonId, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const newPhone = _norm10(body.newPhone);
+  if (newPhone.length !== 10)
+    return jsonResponse({ error: 'newPhone must be 10 digits' }, corsHeaders, 400);
+  const newPersonId = `person_1${newPhone}`;
+  const newE164     = `+1${newPhone}`;
+
+  // Old Person must exist and be active
+  const oldRow = await env.DB.prepare(
+    'SELECT * FROM Person WHERE personId=? AND retiredAt IS NULL'
+  ).bind(oldPersonId).first();
+  if (!oldRow) return jsonResponse({ error: 'old person not found or already retired', oldPersonId }, corsHeaders, 404);
+  if (oldRow.personId === newPersonId)
+    return jsonResponse({ error: 'new phone equals current phone', newPhone }, corsHeaders, 400);
+
+  // New phone must NOT already belong to an active Person (collision = use merge instead)
+  const collision = await env.DB.prepare(
+    'SELECT personId, firstName, lastName FROM Person WHERE personId=? AND retiredAt IS NULL'
+  ).bind(newPersonId).first();
+  if (collision) return jsonResponse({
+    error: 'new_phone_already_in_use',
+    message: `${collision.firstName||''} ${collision.lastName||''}`.trim() + ' is already at this phone — use merge instead',
+    existing: collision,
+  }, corsHeaders, 409);
+
+  const now = new Date().toISOString();
+
+  // Carry the OLD primary phone into the new row's alternateContactsJson so
+  // searches by the old number still surface this customer.
+  let altsJson = null;
+  try {
+    const existingAlts = oldRow.alternateContactsJson ? JSON.parse(oldRow.alternateContactsJson) : [];
+    const merged = Array.isArray(existingAlts) ? existingAlts.slice() : [];
+    // Strip any entry that matches the NEW phone (no self-reference)
+    const filtered = merged.filter(a => _norm10(a?.phone) !== newPhone);
+    // Append the OLD primary phone as an alternate
+    filtered.push({
+      name:     `${oldRow.firstName||''} ${oldRow.lastName||''}`.trim() || null,
+      phone:    _norm10(oldRow.primaryPhone),
+      label:    'former primary',
+      relation: 'self',
+      addedAt:  now,
+    });
+    altsJson = filtered.length ? JSON.stringify(filtered) : null;
+  } catch { altsJson = oldRow.alternateContactsJson; }
+
+  // Build the INSERT for the new Person — copy every preserve-worthy column.
+  // alternateContactsJson is the merged version above (with old phone added).
+  const stmts = [];
+  stmts.push(env.DB.prepare(
+    `INSERT INTO Person (personId, firstName, lastName, businessName, aliases,
+       primaryPhone, alternatePhones, email, preferredContact, isHomeowner,
+       isReferralSource, isCommercialAccount, isReferralOnly, preferredPaymentMethod,
+       doNotContact, doNotService, billingNotes, internalNotes,
+       createdAt, modifiedAt, migratedFrom, migrationVersion, migratedAt, migrationConfidence, migrationNotes,
+       preferredCrewMemberId, customerType, partnerNotes,
+       profileNotesJson, alternateContactsJson)
+     VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?,?,?, ?,?,?,?,?,?,?, ?,?,?, ?,?)`
+  ).bind(
+    newPersonId, oldRow.firstName, oldRow.lastName, oldRow.businessName, oldRow.aliases,
+    newE164, oldRow.alternatePhones, oldRow.email, oldRow.preferredContact, oldRow.isHomeowner,
+    oldRow.isReferralSource, oldRow.isCommercialAccount, oldRow.isReferralOnly, oldRow.preferredPaymentMethod,
+    oldRow.doNotContact, oldRow.doNotService, oldRow.billingNotes, oldRow.internalNotes,
+    oldRow.createdAt || now, now, oldRow.migratedFrom, oldRow.migrationVersion, oldRow.migratedAt, oldRow.migrationConfidence, oldRow.migrationNotes,
+    oldRow.preferredCrewMemberId, oldRow.customerType, oldRow.partnerNotes,
+    oldRow.profileNotesJson, altsJson,
+  ));
+
+  // Re-link every FK
+  for (const { table, col } of PERSON_FK_REFS) {
+    stmts.push(env.DB.prepare(`UPDATE ${table} SET ${col}=? WHERE ${col}=?`).bind(newPersonId, oldPersonId));
+  }
+  // Retire old row with redirect pointer
+  stmts.push(env.DB.prepare(
+    `UPDATE Person SET replacedBy=?, retiredAt=?, retiredReason='phone_change', modifiedAt=? WHERE personId=?`
+  ).bind(newPersonId, now, now, oldPersonId));
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handleChangePrimaryPhone:${oldPersonId}->${newPersonId}`, e.message);
+    return jsonResponse({ error: 'D1 batch failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success:        true,
+    oldPersonId,
+    newPersonId,
+    newPhone,
+    fksRelinked:    PERSON_FK_REFS.map(r => `${r.table}.${r.col}`),
+    note:           `Old record retired with replacedBy=${newPersonId}; old phone preserved as alternate contact on new row.`,
+  }, corsHeaders);
+}
+
+// POST /admin/persons/merge  body { keepId, dropIds: [...] }
+//
+// Fold multiple Person rows into one canonical record. The keep row inherits
+// every drop's primaryPhone as an alternateContact, every FK gets re-pointed
+// to keep, drops get retired with replacedBy=keepId. Cannot drop the keep
+// (would orphan the merge); cannot merge into a retired row; cannot include
+// dropIds that are themselves already retired.
+async function handlePersonsMerge(request, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const keepId  = body.keepId;
+  const dropIds = Array.isArray(body.dropIds) ? body.dropIds.filter(Boolean) : [];
+  if (!keepId)           return jsonResponse({ error: 'keepId required' }, corsHeaders, 400);
+  if (!dropIds.length)   return jsonResponse({ error: 'dropIds[] required (min 1)' }, corsHeaders, 400);
+  if (dropIds.includes(keepId))
+    return jsonResponse({ error: 'keepId cannot be in dropIds' }, corsHeaders, 400);
+
+  // Validate keep + drops all exist and are active
+  const placeholders = [keepId, ...dropIds].map(() => '?').join(',');
+  const rows = (await env.DB.prepare(
+    `SELECT * FROM Person WHERE personId IN (${placeholders})`
+  ).bind(keepId, ...dropIds).all()).results || [];
+
+  const keepRow = rows.find(r => r.personId === keepId);
+  if (!keepRow)               return jsonResponse({ error: 'keepId not found', keepId }, corsHeaders, 404);
+  if (keepRow.retiredAt)      return jsonResponse({ error: 'keepId is already retired', keepId }, corsHeaders, 409);
+  const dropRows = dropIds.map(id => rows.find(r => r.personId === id));
+  for (let i = 0; i < dropIds.length; i++) {
+    if (!dropRows[i])           return jsonResponse({ error: 'dropId not found', dropId: dropIds[i] }, corsHeaders, 404);
+    if (dropRows[i].retiredAt)  return jsonResponse({ error: 'dropId already retired', dropId: dropIds[i] }, corsHeaders, 409);
+  }
+
+  const now = new Date().toISOString();
+
+  // 2026-06-22 undo: capture every row that's about to be re-linked, BEFORE
+  // the batch UPDATE runs. The MergeLog row written below preserves enough
+  // info to reverse each UPDATE row-for-row via handlePersonsUnmerge.
+  //
+  // PersonProperty is special-cased: its composite PK (personId, propertyId,
+  // relationship) means re-pointing a drop's row to keep can collide with an
+  // existing keep row at the same property. When that happens we DELETE the
+  // drop's row (capturing the full row data so unmerge can re-INSERT it) and
+  // skip the UPDATE — same end-state for the merged customer, no PK violation.
+  const relinkedRows = [];
+  const deletedPPs   = [];  // [{ dropId, row: { personId, propertyId, ... } }]
+  for (const dropId of dropIds) {
+    for (const { table, col, pk } of PERSON_FK_REFS) {
+      if (table === 'PersonProperty') continue;  // handled below
+      const found = (await env.DB.prepare(
+        `SELECT ${pk} AS pkVal FROM ${table} WHERE ${col}=?`
+      ).bind(dropId).all()).results || [];
+      for (const r of found) {
+        relinkedRows.push({ dropId, table, col, pk, pkVal: r.pkVal });
+      }
+    }
+    // PersonProperty: detect composite-PK collisions vs the keep
+    const dropPPs = (await env.DB.prepare(
+      'SELECT * FROM PersonProperty WHERE personId=?'
+    ).bind(dropId).all()).results || [];
+    for (const pp of dropPPs) {
+      const collision = await env.DB.prepare(
+        'SELECT 1 AS x FROM PersonProperty WHERE personId=? AND propertyId=? AND relationship=?'
+      ).bind(keepId, pp.propertyId, pp.relationship).first();
+      if (collision) {
+        // Duplicate link — drop's row gets DELETEd. Capture full row data so
+        // unmerge re-INSERTs it byte-for-byte.
+        deletedPPs.push({ dropId, row: pp });
+      } else {
+        // Safe to re-link
+        relinkedRows.push({
+          dropId, table: 'PersonProperty', col: 'personId', pk: 'propertyId', pkVal: pp.propertyId,
+          relationship: pp.relationship,  // bonus context for unmerge clarity
+        });
+      }
+    }
+  }
+
+  // Build the merged alternateContactsJson: keep's existing alts + each drop's
+  // primary phone + each drop's existing alts. Dedup on the phone digits.
+  let mergedAlts = [];
+  try { mergedAlts = keepRow.alternateContactsJson ? JSON.parse(keepRow.alternateContactsJson) : []; }
+  catch { mergedAlts = []; }
+  if (!Array.isArray(mergedAlts)) mergedAlts = [];
+  // Snapshot the keep's existing alt-phone digit set so unmerge can strip
+  // ONLY the entries this merge added (not earlier alts).
+  const haveDigits = new Set(mergedAlts.map(a => _norm10(a?.phone)).filter(p => p.length === 10));
+  const preMergeAltDigits = new Set(haveDigits);
+  // Don't re-add the keep's own primary
+  haveDigits.add(_norm10(keepRow.primaryPhone));
+
+  for (const drop of dropRows) {
+    const dropDigits = _norm10(drop.primaryPhone);
+    if (dropDigits.length === 10 && !haveDigits.has(dropDigits)) {
+      mergedAlts.push({
+        name:     `${drop.firstName||''} ${drop.lastName||''}`.trim() || drop.businessName || null,
+        phone:    dropDigits,
+        label:    'from merged record',
+        relation: 'merged',
+        sourcePersonId: drop.personId,
+        addedAt:  now,
+      });
+      haveDigits.add(dropDigits);
+    }
+    // Inherit each drop's own alt contacts
+    try {
+      const dropAlts = drop.alternateContactsJson ? JSON.parse(drop.alternateContactsJson) : [];
+      if (Array.isArray(dropAlts)) {
+        for (const a of dropAlts) {
+          const d = _norm10(a?.phone);
+          if (d.length === 10 && !haveDigits.has(d)) {
+            mergedAlts.push({ ...a, sourcePersonId: drop.personId });
+            haveDigits.add(d);
+          }
+        }
+      }
+    } catch {}
+  }
+  const altsJson = mergedAlts.length ? JSON.stringify(mergedAlts) : null;
+  // The digits this merge added to keep (for unmerge to strip).
+  const addedAltDigits = Array.from(haveDigits).filter(d =>
+    d !== _norm10(keepRow.primaryPhone) && !preMergeAltDigits.has(d));
+
+  const stmts = [];
+  // Update keep with merged alts
+  stmts.push(env.DB.prepare(
+    `UPDATE Person SET alternateContactsJson=?, modifiedAt=? WHERE personId=?`
+  ).bind(altsJson, now, keepId));
+
+  // Re-link every FK from each drop → keep. PersonProperty handled per-row
+  // below (collision-aware: UPDATE non-collisions, DELETE duplicates).
+  for (const dropId of dropIds) {
+    for (const { table, col } of PERSON_FK_REFS) {
+      if (table === 'PersonProperty') continue;  // handled below
+      stmts.push(env.DB.prepare(`UPDATE ${table} SET ${col}=? WHERE ${col}=?`).bind(keepId, dropId));
+    }
+    stmts.push(env.DB.prepare(
+      `UPDATE Person SET replacedBy=?, retiredAt=?, retiredReason='merge', modifiedAt=? WHERE personId=?`
+    ).bind(keepId, now, now, dropId));
+  }
+  // PersonProperty per-row: UPDATE for non-collisions, DELETE for duplicates
+  for (const r of relinkedRows) {
+    if (r.table !== 'PersonProperty') continue;
+    stmts.push(env.DB.prepare(
+      'UPDATE PersonProperty SET personId=? WHERE personId=? AND propertyId=? AND relationship=?'
+    ).bind(keepId, r.dropId, r.pkVal, r.relationship));
+  }
+  for (const d of deletedPPs) {
+    stmts.push(env.DB.prepare(
+      'DELETE FROM PersonProperty WHERE personId=? AND propertyId=? AND relationship=?'
+    ).bind(d.dropId, d.row.propertyId, d.row.relationship));
+  }
+
+  // Write the audit log row. Use the same batch so a partial merge can't
+  // happen — either everything (re-links + retire + log) commits, or nothing does.
+  // deletedPPs travels in the relinkedRows JSON as a separate sub-field so
+  // unmerge can re-INSERT the original PersonProperty rows the merge had to
+  // discard due to composite-PK collisions.
+  const mergeId = `merge_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const auditPayload = { rows: relinkedRows, deletedPPs };
+  stmts.push(env.DB.prepare(
+    `INSERT INTO MergeLog (mergeId, keepId, dropIds, relinkedRows, addedAlts, createdAt, createdBy, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    mergeId, keepId, JSON.stringify(dropIds),
+    JSON.stringify(auditPayload),
+    JSON.stringify(addedAltDigits),
+    now, 'tyler',
+    body.notes || null,
+  ));
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handlePersonsMerge:${keepId}<-${dropIds.join(',')}`, e.message);
+    return jsonResponse({ error: 'D1 batch failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success:                true,
+    mergeId,
+    keepId,
+    dropIds,
+    alternateContacts:      mergedAlts,
+    fksRelinked:            PERSON_FK_REFS.map(r => `${r.table}.${r.col}`),
+    relinkedRowCount:       relinkedRows.length,
+    deletedPersonPropertyDupes: deletedPPs.length,
+    addedAltDigits,
+  }, corsHeaders);
+}
+
+// POST /admin/persons/unmerge  body { mergeId }
+// Reverses a previous handlePersonsMerge by:
+//   1. Re-linking every logged row back to its original dropId
+//   2. Un-retiring each dropped Person (clears retiredAt/replacedBy/retiredReason)
+//   3. Stripping the alt-phone entries this merge added to keepId.alternateContactsJson
+//   4. Stamping MergeLog.undoneAt so the merge can't be unmerged twice
+async function handlePersonsUnmerge(request, env, corsHeaders) {
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  const mergeId = body?.mergeId;
+  if (!mergeId) return jsonResponse({ error: 'mergeId required' }, corsHeaders, 400);
+
+  const log = await env.DB.prepare(
+    'SELECT * FROM MergeLog WHERE mergeId=?'
+  ).bind(mergeId).first();
+  if (!log)          return jsonResponse({ error: 'mergeId not found', mergeId }, corsHeaders, 404);
+  if (log.undoneAt)  return jsonResponse({ error: 'merge already undone', mergeId, undoneAt: log.undoneAt }, corsHeaders, 409);
+
+  let dropIds = [];
+  let auditPayload = {};
+  let addedAlts = [];
+  try {
+    dropIds = JSON.parse(log.dropIds || '[]');
+    auditPayload = JSON.parse(log.relinkedRows || '{}');
+    addedAlts = JSON.parse(log.addedAlts || '[]');
+  } catch (e) {
+    return jsonResponse({ error: 'MergeLog payload corrupt', detail: e.message }, corsHeaders, 500);
+  }
+  // Back-compat: pre-collision-fix merges stored the array directly, not
+  // wrapped in { rows, deletedPPs }. Detect and adapt.
+  const relinkedRows = Array.isArray(auditPayload) ? auditPayload : (auditPayload.rows || []);
+  const deletedPPs   = Array.isArray(auditPayload) ? [] : (auditPayload.deletedPPs || []);
+
+  const now = new Date().toISOString();
+  const stmts = [];
+
+  // 1. Reverse each FK re-link, row by row. PersonProperty rows include a
+  // relationship key in the rowKey (composite PK). Guard each UPDATE with
+  // col=keepId so we don't accidentally touch a row that's been re-pointed
+  // by an unrelated operation since the merge.
+  for (const r of relinkedRows) {
+    if (!r || !r.table || !r.col || !r.pk || r.pkVal == null || !r.dropId) continue;
+    if (r.table === 'PersonProperty' && r.relationship) {
+      stmts.push(env.DB.prepare(
+        `UPDATE PersonProperty SET personId=? WHERE propertyId=? AND personId=? AND relationship=?`
+      ).bind(r.dropId, r.pkVal, log.keepId, r.relationship));
+    } else {
+      stmts.push(env.DB.prepare(
+        `UPDATE ${r.table} SET ${r.col}=? WHERE ${r.pk}=? AND ${r.col}=?`
+      ).bind(r.dropId, r.pkVal, log.keepId));
+    }
+  }
+  // 1b. Re-INSERT every PersonProperty row that was deleted as a composite-PK
+  // duplicate during the merge. INSERT OR IGNORE to be defensive against
+  // partial re-runs.
+  for (const d of deletedPPs) {
+    if (!d || !d.row) continue;
+    const r = d.row;
+    stmts.push(env.DB.prepare(
+      `INSERT OR IGNORE INTO PersonProperty (personId, propertyId, relationship, primaryContact, startedAt, endedAt, notes, propertyLabel, propertyType)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(d.dropId, r.propertyId, r.relationship,
+           r.primaryContact ?? null, r.startedAt ?? null, r.endedAt ?? null,
+           r.notes ?? null, r.propertyLabel ?? null, r.propertyType ?? null));
+  }
+
+  // 2. Un-retire each dropped Person
+  for (const dropId of dropIds) {
+    stmts.push(env.DB.prepare(
+      `UPDATE Person SET replacedBy=NULL, retiredAt=NULL, retiredReason=NULL, modifiedAt=?
+        WHERE personId=? AND replacedBy=?`
+    ).bind(now, dropId, log.keepId));
+  }
+
+  // 3. Strip the alt-phone entries this merge added to keep. Read current
+  // alts, filter out the matching digits, write back.
+  const keepRow = await env.DB.prepare(
+    'SELECT alternateContactsJson FROM Person WHERE personId=?'
+  ).bind(log.keepId).first();
+  let keepAlts = [];
+  try { keepAlts = keepRow?.alternateContactsJson ? JSON.parse(keepRow.alternateContactsJson) : []; }
+  catch { keepAlts = []; }
+  if (!Array.isArray(keepAlts)) keepAlts = [];
+  const stripSet = new Set(addedAlts || []);
+  const remainingAlts = keepAlts.filter(a => !stripSet.has(_norm10(a?.phone)));
+  const remainingJson = remainingAlts.length ? JSON.stringify(remainingAlts) : null;
+  stmts.push(env.DB.prepare(
+    `UPDATE Person SET alternateContactsJson=?, modifiedAt=? WHERE personId=?`
+  ).bind(remainingJson, now, log.keepId));
+
+  // 4. Stamp the log as undone (no second unmerge)
+  stmts.push(env.DB.prepare(
+    `UPDATE MergeLog SET undoneAt=? WHERE mergeId=?`
+  ).bind(now, mergeId));
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handlePersonsUnmerge:${mergeId}`, e.message);
+    return jsonResponse({ error: 'D1 batch failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  return jsonResponse({
+    success:          true,
+    mergeId,
+    keepId:           log.keepId,
+    restoredDropIds:  dropIds,
+    relinkedBack:     relinkedRows.length,
+    altDigitsStripped: addedAlts.length,
+  }, corsHeaders);
+}
+
+// GET /admin/merge-log — list every merge with undo status (for an admin UI).
+async function handleGetMergeLog(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const rows = (await env.DB.prepare(
+    'SELECT mergeId, keepId, dropIds, addedAlts, createdAt, createdBy, undoneAt, notes FROM MergeLog ORDER BY createdAt DESC LIMIT 200'
+  ).all()).results || [];
+  // Parse JSON columns for the response
+  const parsed = rows.map(r => ({
+    ...r,
+    dropIds:   (() => { try { return JSON.parse(r.dropIds || '[]'); }   catch { return []; } })(),
+    addedAlts: (() => { try { return JSON.parse(r.addedAlts || '[]'); } catch { return []; } })(),
+    status:    r.undoneAt ? 'undone' : 'active',
+  }));
+  return jsonResponse({ merges: parsed, count: parsed.length }, corsHeaders);
+}
+
+// GET /admin/merge-candidates
+// Surfaces every Property that has 2+ ACTIVE Person rows linked through
+// PersonProperty (a same-address duplicate cluster), filtered against the
+// do-not-merge list. Returns groups + per-Person summary for the UI's
+// pre-check (jobs, last service, name) so Mom can scan a one-screen review.
+async function handleMergeCandidates(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+
+  // Same-address clusters, excluding do-not-merge addresses
+  const dnmPairs = DO_NOT_MERGE_ADDRESSES
+    .map(a => `(LOWER(p.streetAddress) = LOWER('${a.street.replace(/'/g,"''")}')
+                AND LOWER(p.city) = LOWER('${a.city.replace(/'/g,"''")}'))`).join(' OR ');
+  const sql = `
+    SELECT p.propertyId, p.streetAddress, p.city, p.state, p.zip,
+           pp.personId,
+           per.firstName, per.lastName, per.businessName, per.primaryPhone,
+           per.customerType, per.email,
+           (SELECT COUNT(*) FROM Job WHERE payerId = per.personId AND state != 'cancelled') AS jobs,
+           (SELECT MAX(scheduledDate) FROM Job WHERE payerId = per.personId AND state = 'completed') AS lastService,
+           (SELECT SUM(amount) FROM Job WHERE payerId = per.personId AND state = 'completed') AS lifetimeSpend
+      FROM Property p
+      JOIN PersonProperty pp ON pp.propertyId = p.propertyId
+      JOIN Person per        ON per.personId  = pp.personId
+     WHERE p.streetAddress IS NOT NULL AND p.streetAddress != ''
+       AND per.retiredAt IS NULL
+       AND p.propertyId IN (
+         SELECT pp2.propertyId FROM PersonProperty pp2
+         JOIN Person per2 ON per2.personId = pp2.personId AND per2.retiredAt IS NULL
+         GROUP BY pp2.propertyId HAVING COUNT(DISTINCT pp2.personId) >= 2
+       )
+       AND NOT (${dnmPairs})
+     ORDER BY p.propertyId, per.personId`;
+
+  let rows = [];
+  try { rows = (await env.DB.prepare(sql).all()).results || []; }
+  catch (e) { return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500); }
+
+  // Group by propertyId
+  const groups = new Map();
+  for (const r of rows) {
+    if (!groups.has(r.propertyId)) {
+      groups.set(r.propertyId, {
+        propertyId:    r.propertyId,
+        streetAddress: r.streetAddress,
+        city:          r.city,
+        state:         r.state,
+        zip:           r.zip,
+        persons:       [],
+      });
+    }
+    groups.get(r.propertyId).persons.push({
+      personId:      r.personId,
+      firstName:     r.firstName,
+      lastName:      r.lastName,
+      businessName:  r.businessName,
+      primaryPhone:  r.primaryPhone,
+      customerType:  r.customerType,
+      email:         r.email,
+      jobs:          Number(r.jobs || 0),
+      lastService:   r.lastService || null,
+      lifetimeSpend: Number(r.lifetimeSpend || 0),
+    });
+  }
+
+  // Pre-check obvious household matches: same lastName OR all-blank surnames.
+  // (Mom can override per-row.) Commercial / partner / mismatched names go un-prechecked.
+  const out = [];
+  for (const g of groups.values()) {
+    const lastNames = g.persons.map(p => (p.lastName || '').trim().toLowerCase()).filter(Boolean);
+    const sameSurname = lastNames.length > 1 && new Set(lastNames).size === 1;
+    const hasCommercial = g.persons.some(p => p.customerType === 'commercial' || p.customerType === 'partner_referral');
+    g.preChecked = sameSurname && !hasCommercial;
+    g.flagReason = hasCommercial
+      ? 'commercial/partner — confirm manually'
+      : (sameSurname ? null : 'different surnames — confirm manually');
+    out.push(g);
+  }
+
+  return jsonResponse({
+    groups:         out,
+    doNotMerge:     DO_NOT_MERGE_ADDRESSES,
+    totalCandidates: out.length,
+    sumPersonsToRetire: out.reduce((s, g) => s + Math.max(0, g.persons.length - 1), 0),
+  }, corsHeaders);
+}
+
+// merged shape lands on every linked customer atomically with the D1 change.
+//
+// Used by the 2026-06-21 spelling-twin dedup (10 pairs identified post-cleanup-spec).
+async function handlePropertyMerge(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const { dropPropertyId, keepPropertyId } = body;
+  if (!dropPropertyId || !keepPropertyId)
+    return jsonResponse({ error: 'dropPropertyId + keepPropertyId required' }, corsHeaders, 400);
+  if (dropPropertyId === keepPropertyId)
+    return jsonResponse({ error: 'drop and keep must differ' }, corsHeaders, 400);
+
+  // Pre-flight: both must exist. (Idempotent re-run support: if DROP is already
+  // gone AND KEEP exists, return success with deduped=true so callers can sweep
+  // a partial-run state cleanly.)
+  const [dropRow, keepRow] = await Promise.all([
+    env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?').bind(dropPropertyId).first(),
+    env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?').bind(keepPropertyId).first(),
+  ]);
+  if (!keepRow) return jsonResponse({ error: 'keepPropertyId not found' }, corsHeaders, 404);
+  if (!dropRow) return jsonResponse({ success: true, alreadyMerged: true, dropPropertyId, keepPropertyId }, corsHeaders);
+
+  // Inspect DROP refs BEFORE writing — needed for KV refresh person list and
+  // for collision detection.
+  const ppRows = ((await env.DB.prepare(
+    'SELECT personId FROM PersonProperty WHERE propertyId=?'
+  ).bind(dropPropertyId).all())?.results) || [];
+
+  // Find which DROP-linked persons already have a KEEP link → those need
+  // their DROP row DELETED (else PK collision on UPDATE).
+  const collisionPersons = new Set();
+  const updatePersons    = new Set();
+  for (const r of ppRows) {
+    const exists = await env.DB.prepare(
+      'SELECT 1 FROM PersonProperty WHERE personId=? AND propertyId=?'
+    ).bind(r.personId, keepPropertyId).first();
+    if (exists) collisionPersons.add(r.personId);
+    else        updatePersons.add(r.personId);
+  }
+
+  // Count jobs touched (informational; the batch UPDATE returns it too)
+  const jobCountRow = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM Job WHERE propertyId=?'
+  ).bind(dropPropertyId).first();
+  const jobsToRepoint = Number(jobCountRow?.n || 0);
+
+  // ── D1 batch (a) + (b) + (c) ───────────────────────────────────────────
+  const stmts = [];
+  // (a) re-point all jobs
+  stmts.push(env.DB.prepare('UPDATE Job SET propertyId=? WHERE propertyId=?').bind(keepPropertyId, dropPropertyId));
+  // (b1) delete DROP links that collide with existing KEEP links
+  for (const pid of collisionPersons) {
+    stmts.push(env.DB.prepare('DELETE FROM PersonProperty WHERE personId=? AND propertyId=?').bind(pid, dropPropertyId));
+  }
+  // (b2) re-point DROP links to KEEP for persons that DIDN'T already have it
+  for (const pid of updatePersons) {
+    stmts.push(env.DB.prepare('UPDATE PersonProperty SET propertyId=? WHERE personId=? AND propertyId=?').bind(keepPropertyId, pid, dropPropertyId));
+  }
+  // (c) delete the now-unreferenced DROP Property row
+  stmts.push(env.DB.prepare('DELETE FROM Property WHERE propertyId=?').bind(dropPropertyId));
+
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    await _logD1Failure(env, `handlePropertyMerge:${dropPropertyId}→${keepPropertyId}`, e.message);
+    return jsonResponse({ error: 'D1 batch failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // KV refresh — every affected Person gets a re-sync.
+  let kvRefreshed = 0;
+  try {
+    const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+    const allPersons = new Set([...collisionPersons, ...updatePersons]);
+    for (const pid of allPersons) {
+      if (!pid.startsWith('person_1')) continue;
+      const ph = pid.slice('person_1'.length);
+      if (ph.length !== 10) continue;
+      const updatedCustomer = await d1CustomerToKvShape(ph, env);
+      if (!updatedCustomer) continue;
+      const idx = (kvDb.customers || []).findIndex(c =>
+        (c.phone || '').replace(/\D/g, '').slice(-10) === ph
+      );
+      if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+      else kvDb.customers.push(updatedCustomer);
+      kvRefreshed++;
+    }
+    if (kvRefreshed) await env.DATA.put('customer_db', JSON.stringify(kvDb));
+  } catch (e) {
+    await _logD1Failure(env, `handlePropertyMerge:kvRefresh:${dropPropertyId}`, e.message);
+    // non-fatal — D1 is canonical (Rule 19)
+  }
+
+  return jsonResponse({
+    success:         true,
+    dropPropertyId,
+    keepPropertyId,
+    jobsRepointed:   jobsToRepoint,
+    linksRepointed:  updatePersons.size,
+    linksDeleted:    collisionPersons.size,
+    kvRefreshed,
+  }, corsHeaders);
+}
+
+// ── PATCH /admin/property/{propertyId} ──────────────────────────────────────
+// Edit Property fields directly: streetAddress, city, state, zip, propertyType.
+// When streetAddress OR city changes, re-geocode and update lat/lng/googlePlaceId/
+// formattedAddress/geocodeSource/geocodePrecision so the calendar pin + roof
+// satellite tile re-pull are correct.
+//
+// KV refresh: every PersonProperty linked to this propertyId gets re-synced so
+// the address change is visible immediately on every linked customer.
+//
+// Used by:
+//   (a) Customer-directory edit tool (Cleanup-Spec migration 2026-06-21).
+//   (b) Operator manual-fix path for any historical address error — DL-02
+//       (system-wide adjustability: a master record edit reaches every dependent view).
+async function handlePatchProperty(request, env, propertyId, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  if (!propertyId) return jsonResponse({ error: 'propertyId required' }, corsHeaders, 400);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare(
+    'SELECT * FROM Property WHERE propertyId=?'
+  ).bind(propertyId).first();
+  if (!existing) return jsonResponse({ error: 'Property not found', propertyId }, corsHeaders, 404);
+
+  // 2026-06-22 Phase 1 #1: sqft writable so the calendar's Sq Ft input can
+  // round-trip to Property.sqft (was previously KV-only c.sqFt and never read
+  // anywhere). zip already mutable — extends to the geocode-driven path too.
+  // gateCode added 2026-06-22 saveDb-migration: gate code lived in KV-only
+  // c.gateCode + Property.gateCode (set via _d1SyncPropertyUpdate); scoped PATCH
+  // path lets calendar edits persist directly without whole-DB PUT.
+  const MUTABLE = ['streetAddress', 'city', 'state', 'zip', 'sqft', 'gateCode', 'accessNotes'];
+  const sets = [], vals = [];
+  for (const f of MUTABLE) {
+    if (!(f in body)) continue;
+    let v = body[f];
+    if (typeof v === 'string') v = v.trim() || null;
+    // sqft: coerce to integer or null (accepts numeric strings, blanks → clear)
+    if (f === 'sqft') {
+      if (v == null || v === '') v = null;
+      else {
+        const n = parseInt(v, 10);
+        v = Number.isFinite(n) && n > 0 ? n : null;
+      }
+    }
+    sets.push(`${f}=?`);
+    vals.push(v);
+  }
+  if (!sets.length) return jsonResponse({ error: 'no mutable fields provided' }, corsHeaders, 400);
+
+  // Re-geocode when streetAddress or city changed — otherwise the pin/satellite
+  // tile silently drift. Best-effort: a geocoder outage shouldn't block the edit.
+  const newStreet = 'streetAddress' in body ? (body.streetAddress || '').trim() : existing.streetAddress;
+  const newCity   = 'city'          in body ? (body.city          || '').trim() : existing.city;
+  const addressChanged = ('streetAddress' in body && body.streetAddress !== existing.streetAddress) ||
+                         ('city'          in body && body.city          !== existing.city);
+  let geocoded = null;
+  if (addressChanged && newStreet && newCity) {
+    try {
+      geocoded = await geocodeAddress(`${newStreet}, ${newCity}, FL`, env);
+    } catch (e) { /* fail-soft; the edit lands without coords */ }
+    if (geocoded) {
+      // ROOFTOP preferred; medium/low still better than stale lat/lng from old address
+      sets.push('latitude=?');           vals.push(geocoded.lat);
+      sets.push('longitude=?');          vals.push(geocoded.lng);
+      sets.push('googlePlaceId=?');      vals.push(geocoded.placeId || null);
+      sets.push('formattedAddress=?');   vals.push(geocoded.formattedAddress || null);
+      sets.push('googleVerified=?');     vals.push(geocoded.placeId ? 1 : 0);
+      sets.push('geocodeSource=?');      vals.push(geocoded.source || null);
+      sets.push('geocodePrecision=?');   vals.push(geocoded.locationType || null);
+    }
+  }
+
+  const now = new Date().toISOString();
+  sets.push('modifiedAt=?'); vals.push(now);
+  vals.push(propertyId);
+
+  try {
+    await env.DB.prepare(
+      `UPDATE Property SET ${sets.join(', ')} WHERE propertyId=?`
+    ).bind(...vals).run();
+  } catch (e) {
+    await _logD1Failure(env, `handlePatchProperty:${propertyId}`, e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+
+  // KV refresh — every Person linked to this Property gets a re-sync so the address
+  // change is visible immediately on every linked customer. Most Properties link to
+  // ONE Person; for multi-owner shared properties we walk the link table.
+  try {
+    const linked = ((await env.DB.prepare(
+      'SELECT DISTINCT p.primaryPhone FROM Person p JOIN PersonProperty pp ON pp.personId=p.personId WHERE pp.propertyId=?'
+    ).bind(propertyId).all())?.results) || [];
+    if (linked.length) {
+      const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+      for (const row of linked) {
+        const ph = (row.primaryPhone || '').replace(/\D/g, '').slice(-10);
+        if (ph.length !== 10) continue;
+        const updatedCustomer = await d1CustomerToKvShape(ph, env);
+        if (!updatedCustomer) continue;
+        const idx = (kvDb.customers || []).findIndex(c =>
+          (c.phone || '').replace(/\D/g, '').slice(-10) === ph
+        );
+        if (idx >= 0) kvDb.customers[idx] = updatedCustomer;
+        else kvDb.customers.push(updatedCustomer);
+      }
+      await env.DATA.put('customer_db', JSON.stringify(kvDb));
+    }
+  } catch (e) {
+    await _logD1Failure(env, `handlePatchProperty:kvRefresh:${propertyId}`, e.message);
+    // non-fatal — D1 is canonical (Rule 19), KV will catch up on next read-through
+  }
+
+  const fresh = await env.DB.prepare('SELECT * FROM Property WHERE propertyId=?').bind(propertyId).first();
+  return jsonResponse({ success: true, property: fresh, regeocoded: !!geocoded }, corsHeaders);
 }
 
 // ── POST /admin/address-gate ─────────────────────────────────────────────────
@@ -11563,6 +15534,8 @@ const _CANONICAL_PROP_LABELS = new Set([
 ]);
 
 async function handleAddressGate(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
@@ -12302,60 +16275,109 @@ async function handlePersonMergeCandidates(env, corsHeaders) {
 // Executes the 5-statement merge pattern: repoint jobs + properties, delete orphan.
 // Body: { canonicalPersonId, orphanPersonId, reason }
 async function handlePersonMerge(request, env, corsHeaders) {
+  // Cache invalidation (2026-06-22): any customer-shape mutation purges the heavy read cache.
+  _invalidateCustomersCache();
   const body = await request.json().catch(() => null);
   if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
-  const { canonicalPersonId, orphanPersonId, reason } = body;
-  if (!canonicalPersonId || !orphanPersonId) return jsonResponse({ error: 'canonicalPersonId + orphanPersonId required' }, corsHeaders, 400);
-  if (canonicalPersonId === orphanPersonId) return jsonResponse({ error: 'same personId' }, corsHeaders, 400);
+  // Accept BOTH naming conventions:
+  //   {canonicalPersonId, orphanPersonId}      — original duplicate-review UI
+  //   {keepPersonId,      dropPersonId}        — 2026-06-21 classification migration
+  const keepId = body.canonicalPersonId || body.keepPersonId;
+  const dropId = body.orphanPersonId    || body.dropPersonId;
+  const reason = body.reason || 'merge_endpoint';
+  if (!keepId || !dropId)
+    return jsonResponse({ error: '(canonicalPersonId|keepPersonId) + (orphanPersonId|dropPersonId) required' }, corsHeaders, 400);
+  if (keepId === dropId) return jsonResponse({ error: 'same personId' }, corsHeaders, 400);
+
+  // Read drop's phone BEFORE deletion (so we can clean its KV row even after batch commits).
+  const [drop, keep] = await Promise.all([
+    env.DB.prepare('SELECT personId, primaryPhone, firstName, lastName, businessName, aliases FROM Person WHERE personId=?').bind(dropId).first(),
+    env.DB.prepare('SELECT personId, primaryPhone, businessName, aliases FROM Person WHERE personId=?').bind(keepId).first(),
+  ]);
+  if (!keep) return jsonResponse({ error: 'keeper (canonical) person not found' }, corsHeaders, 404);
+  if (!drop) return jsonResponse({ success: true, alreadyMerged: true, keepPersonId: keepId, dropPersonId: dropId }, corsHeaders);
+
+  // Carry-over: keeper.businessName ← drop's if keeper is empty
+  const personUpdates = {};
+  if (drop.businessName && !keep.businessName) personUpdates.businessName = drop.businessName;
+
+  // Carry-over: merge alias arrays + the drop's display name itself
+  let keepAliases = [];
+  try { keepAliases = keep.aliases ? JSON.parse(keep.aliases) : []; } catch (_) {}
+  if (!Array.isArray(keepAliases)) keepAliases = [];
+  let dropAliases = [];
+  try { dropAliases = drop.aliases ? JSON.parse(drop.aliases) : []; } catch (_) {}
+  if (!Array.isArray(dropAliases)) dropAliases = [];
+  const dropDisplay = (drop.businessName || `${drop.firstName || ''} ${drop.lastName || ''}`.trim()).trim();
+  const beforeAliasJson = JSON.stringify(keepAliases);
+  for (const a of [...dropAliases, dropDisplay]) {
+    if (a && !keepAliases.includes(a)) keepAliases.push(a);
+  }
+  if (JSON.stringify(keepAliases) !== beforeAliasJson) personUpdates.aliases = JSON.stringify(keepAliases);
+
+  const now = new Date().toISOString();
 
   try {
-    // Step 1: Repoint jobs
-    const j = await env.DB.prepare('UPDATE Job SET payerId=? WHERE payerId=?').bind(canonicalPersonId, orphanPersonId).run();
-    // Step 2: Move non-duplicate PersonProperty links
+    // Step 1: re-point Job.payerId
+    const j = await env.DB.prepare('UPDATE Job SET payerId=?, modifiedAt=? WHERE payerId=?').bind(keepId, now, dropId).run();
+    // Step 1b: re-point Job.referredById (partner attribution — preserves who referred what)
+    const jr = await env.DB.prepare('UPDATE Job SET referredById=?, modifiedAt=? WHERE referredById=?').bind(keepId, now, dropId).run();
+    // Step 2: move non-colliding PersonProperty links
     const pp = await env.DB.prepare(
       `UPDATE PersonProperty SET personId=? WHERE personId=? AND propertyId NOT IN (SELECT propertyId FROM PersonProperty WHERE personId=?)`
-    ).bind(canonicalPersonId, orphanPersonId, canonicalPersonId).run();
-    // Step 3: Delete remaining orphan PersonProperty
-    const ppDel = await env.DB.prepare('DELETE FROM PersonProperty WHERE personId=?').bind(orphanPersonId).run();
-    // Step 4: Delete orphan Person
-    const pDel = await env.DB.prepare('DELETE FROM Person WHERE personId=?').bind(orphanPersonId).run();
+    ).bind(keepId, dropId, keepId).run();
+    // Step 3: delete colliding PersonProperty (those where the keeper already has the link)
+    const ppDel = await env.DB.prepare('DELETE FROM PersonProperty WHERE personId=?').bind(dropId).run();
+    // Step 3b: move Communication + Reminder rows to the keeper (audit-preserving)
+    await env.DB.prepare('UPDATE Communication SET personId=? WHERE personId=?').bind(keepId, dropId).run().catch(()=>{});
+    await env.DB.prepare('UPDATE Reminder      SET personId=? WHERE personId=?').bind(keepId, dropId).run().catch(()=>{});
+    // Step 3c: carry-over to keeper Person (businessName + aliases)
+    if (Object.keys(personUpdates).length) {
+      const sets = Object.keys(personUpdates).map(k => `${k}=?`).join(', ');
+      const vals = [...Object.values(personUpdates), now, keepId];
+      await env.DB.prepare(`UPDATE Person SET ${sets}, modifiedAt=? WHERE personId=?`).bind(...vals).run();
+    }
+    // Step 4: delete orphan Person row
+    const pDel = await env.DB.prepare('DELETE FROM Person WHERE personId=?').bind(dropId).run();
 
     // Clear skip key if it existed
-    const skipKey = `person_merge_skipped:${[canonicalPersonId, orphanPersonId].sort().join(':')}`;
+    const skipKey = `person_merge_skipped:${[keepId, dropId].sort().join(':')}`;
     await env.DATA.delete(skipKey).catch(() => {});
 
     // Log
-    await _logD1Failure(env, `person_merge_tier2_3_2026_05_25`,
-      `merged orphan=${orphanPersonId} into canonical=${canonicalPersonId} reason=${reason||'review_ui'} jobs=${j.meta?.changes||0}`);
+    await _logD1Failure(env, `person_merge_2026_06_21`,
+      `merged drop=${dropId} into keep=${keepId} reason=${reason} jobs=${j.meta?.changes||0} refs=${jr.meta?.changes||0}`);
 
-    // Refresh canonical KV via d1CustomerToKvShape
-    const canon = await env.DB.prepare('SELECT primaryPhone FROM Person WHERE personId=?').bind(canonicalPersonId).first();
-    if (canon?.primaryPhone) {
-      const ph = canon.primaryPhone.replace(/\D/g,'').slice(-10);
-      const updC = await d1CustomerToKvShape(ph, env);
-      if (updC) {
-        const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
-        const idx = (kvDb.customers||[]).findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === ph);
-        if (idx >= 0) kvDb.customers[idx] = updC; else kvDb.customers.push(updC);
-        // Also remove orphan from KV customers list if it exists
-        const orphanPh = (await env.DB.prepare('SELECT primaryPhone FROM Person WHERE personId=?').bind(orphanPersonId).first().catch(()=>null))?.primaryPhone;
-        if (orphanPh) {
-          const oph = orphanPh.replace(/\D/g,'').slice(-10);
-          const oi = (kvDb.customers||[]).findIndex(c => (c.phone||'').replace(/\D/g,'').slice(-10) === oph);
-          if (oi >= 0) kvDb.customers.splice(oi, 1);
-        }
-        await env.DATA.put('customer_db', JSON.stringify(kvDb));
+    // Refresh KV: keeper rebuilds, dropper removed (use phone captured BEFORE deletion)
+    const kvDb = await env.DATA.get('customer_db', 'json') || { customers: [] };
+    const dropPh = (drop.primaryPhone || '').replace(/\D/g, '').slice(-10);
+    if (dropPh.length === 10) {
+      kvDb.customers = (kvDb.customers || []).filter(c => (c.phone || '').replace(/\D/g, '').slice(-10) !== dropPh);
+    }
+    const keepPh = (keep.primaryPhone || '').replace(/\D/g, '').slice(-10);
+    if (keepPh.length === 10) {
+      const updated = await d1CustomerToKvShape(keepPh, env);
+      if (updated) {
+        const idx = (kvDb.customers || []).findIndex(c => (c.phone || '').replace(/\D/g, '').slice(-10) === keepPh);
+        if (idx >= 0) kvDb.customers[idx] = updated;
+        else kvDb.customers.push(updated);
       }
     }
+    await env.DATA.put('customer_db', JSON.stringify(kvDb));
 
     return jsonResponse({
-      success: true, canonicalPersonId, orphanPersonId,
-      jobsRelinked: j.meta?.changes || 0,
-      propertiesRelinked: pp.meta?.changes || 0,
-      propertiesDeleted: ppDel.meta?.changes || 0,
+      success: true,
+      canonicalPersonId: keepId, orphanPersonId: dropId,   // legacy shape
+      keepPersonId: keepId,      dropPersonId: dropId,     // new shape
+      jobsRelinked:         j.meta?.changes  || 0,
+      referralsRepointed:   jr.meta?.changes || 0,
+      propertiesRelinked:   pp.meta?.changes || 0,
+      propertiesDeleted:    ppDel.meta?.changes || 0,
+      businessNameMerged:   !!personUpdates.businessName,
+      aliasesMerged:        !!personUpdates.aliases,
     }, corsHeaders);
   } catch(e) {
-    await _logD1Failure(env, `person_merge_error:${canonicalPersonId}`, e.message);
+    await _logD1Failure(env, `person_merge_error:${keepId}`, e.message);
     return jsonResponse({ error: e.message }, corsHeaders, 500);
   }
 }
