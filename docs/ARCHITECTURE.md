@@ -277,6 +277,21 @@ Applies to: any change touching the schema, the worker handler, or the calendar 
 
 Before/after on all data repairs. Print the before state, get confirmation, apply, print after state, run assertions.
 
+### Revert Path — 4-Store Consistency (2026-06-23)
+
+A completed-job revert must clear completion state across **four stores in lockstep**, or the row sits in a half-completed state and re-triggers downstream logic (review queue, phantom segment cards, ML feature drift):
+
+| Store | What the revert clears | Where |
+|---|---|---|
+| D1 Job row | `state='scheduled'`, `completedAt=NULL`, `paidAt=NULL`, `paymentStatus='unpaid'` | `PATCH /admin/job/:id {state, completedAt:null, paidAt:null, paymentStatus:'unpaid'}` (calendar `_doRevertJob`). paymentStatus must reset because `_d1BuildScheduledStatus` reads it on every KV rebuild — without clearing D1, the KV-side cleared value gets resurrected to 'paid'. Use the string `'unpaid'` not `null` — Job.paymentStatus has a NOT NULL constraint (schema rejects null). |
+| KV `customer_db` blob | `ss.completedAt`, `ss.completedDate`, `ss.paymentStatus`, `ss.paidAt`, `ss.paidAmount` | `_patchJobKvSync` — the clear-completion branch must include `state==='scheduled'` alongside `rescheduled`/`cancelled` |
+| KV `jobHistory[]` for the customer | Remove every entry on this date with `source` in `{calendar_completion, rig_segment, day_segment}` | `_doRevertJob`'s jh filter — segment children are easy to miss because they only exist on group jobs |
+| Aggregates | `lifetimeSpend -= amount`, `totalJobs -= 1`, `lastService` recomputed, `reviewQueue` removed | `_doRevertJob` local mutation; saveDb mirror |
+
+**Invariant**: after revert, the same record must round-trip back to identical state if completed again — no leftover timestamps, no phantom cards, no duplicate-guard trips.
+
+**verify-deploy markers** (line 79–82 of `pure_cleaning_calendar.html` section): `j.source === 'rig_segment'`, `j.source === 'day_segment'`, `completedAt: null, paidAt: null`. Missing any of these = a regression of one of the four bugs from 2026-06-23 cowork.
+
 ### Post-Fix Protocol (Section 9)
 
 **Triggers** (any one → document and verify before closing session):
@@ -532,6 +547,22 @@ cp .env.local.example .env.local
 **Established:** May 10, 2026 — browser verification silently skipped on its first run, defeating its purpose.
 
 **Status:** ✅ Enforced — verify-browser.js exits(1) when no credentials
+
+---
+
+### LAW 15: NO SILENT FIRE-AND-FORGET ON PRIMARY WRITES (T1.20)
+
+**Rule:** A `saveDb()` / `saveDatabase()` call that is the **primary or only** persistence of a user action MUST be `await`ed inside a `try/catch`, and on failure MUST surface the failure to the operator (toast / inline feedback / alert) AND roll back the in-memory mutation. Success UI (success screen, "Saved" flash, quote link, modal close) must NOT render until the write resolves. `.catch(()=>{})` on a primary write is banned — it shows false success for a customer/job that never persisted.
+
+**Residual writes are exempt from the await, not the logging.** When the primary write is a verified D1 PATCH / dual-write (already error-handled upstream) and `saveDb()` only mirrors a secondary KV field, the call may stay non-blocking — but it must `.catch(e => console.warn('[context] KV sync failed:', e.message))`, never swallow silently. The `[context]` label is the enclosing function so a failure is traceable in the console.
+
+**The trap:** the worst instance (new_customer `submitDigitalPath`) ran `showSuccess()` + handed Tyler the quote link, THEN fired `saveDb()` fire-and-forget. A failed write meant the customer was never persisted but Tyler had already sent the link.
+
+**Enforcement:** verify-deploy.js markers in the calendar / new_customer / bulk_reactivation HTML_FILES entries (search `WO1 / Task #26`). Each marker is an error string or `[context]` label proving a hardened caller still surfaces/logs failure. Reverting one to a silent `.catch(()=>{})` deletes its marker → check goes red.
+
+**Established:** 2026-06-23 — WO1 / Task #26 hardened 9 risky fire-and-forget callers (await + surface + rollback) and standardized 7 residual callers to logged catches across `pure_cleaning_calendar.html`, `pure_cleaning_new_customer.html`, `pure_cleaning_bulk_reactivation.html`.
+
+**Status:** ✅ Enforced (markers) · codifies CLAUDE.md Rule 20 (T1.20)
 
 ---
 

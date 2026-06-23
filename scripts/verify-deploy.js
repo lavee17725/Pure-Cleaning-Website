@@ -76,11 +76,25 @@ const HTML_FILES = [
       'renderRigCommuteBanners',                          // Regression: home commute banners per rig
       'rig-commute-banner',                               // Regression: commute banner CSS class
       'window.location.href',                             // Regression: Day Route opens in same tab
+      // 2026-06-23 Revert path (Section-9 trigger fix, DL-03 / T1.21):
+      "j.source === 'rig_segment'",                       // Regression: revert purge includes rig_segment children (Bug 4)
+      "j.source === 'day_segment'",                       // Regression: revert purge includes day_segment children (Bug 4)
+      "completedAt: null, paidAt: null, paymentStatus: 'unpaid'",  // Regression: revert PATCH clears D1 completion fields; paymentStatus='unpaid' because Job.paymentStatus NOT NULL (Bug 3 + cowork addendum)
+      // 2026-06-23 WO1 / Task #26 — fire-and-forget saveDb() hardening (T1.20):
+      // primary/only-write callers now await + surface failure; residual KV-sync
+      // callers now log instead of swallowing. If any of these revert to a silent
+      // .catch(()=>{}), the marker disappears and this check goes red.
+      '[undoAction] KV revert failed',          // Fix B: undoAction logs + warns on KV revert failure
+      '[requestPayment] KV save failed',         // Fix F: requestPayment logs + toasts (non-blocking)
+      '[dismissMiniQuote] KV save failed',       // Fix G: dismissMiniQuote awaits + reverts state on failure
+      'Could not assign rig',                    // Fix A: applyRigPick legacy branch awaits + reverts rig
+      '[handleDropToPool] KV sync failed',       // Residual: drag-to-pool KV sync logged
+      '[_doCompleteJob] KV sync failed',         // Residual: completion KV sync logged
     ],
   },
   {
     file: 'pure_cleaning_customer_directory.html',
-    markers: ['function applyAll', 'TIER_RANK', 'function filterByTier'],
+    markers: ['function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName'],
   },
   {
     file: 'pure_cleaning_customer_profile.html',
@@ -136,6 +150,9 @@ const HTML_FILES = [
       'dns-chip-followup',
       'quoteLifecycle: c.quoteLifecycle',
       'quoteHistory:   c.quoteHistory',
+      // 2026-06-23 WO1 / Task #26 — fire-and-forget saveDatabase() hardening (T1.20):
+      'Could not save customer — check connection',  // Fix I: submitAddCustomer awaits + rolls back on failure
+      '[markPhoneDisconnected] DB save failed',       // Fix J: markPhone* awaits + reverts phoneStatus on failure
     ],
   },
   {
@@ -161,6 +178,10 @@ const HTML_FILES = [
       'jhSection',             // Job history container
       'alternateContacts',     // alternateContacts persisted to customer record
       'existing_customer_updated', // audit event on existing customer update
+      // 2026-06-23 WO1 / Task #26 — highest-risk fix: customer create now awaits
+      // saveDb() BEFORE showSuccess(). If this reverts to fire-and-forget, Tyler
+      // could see the success screen + link for a customer that never persisted.
+      'Customer not saved — check connection', // Fix H: await saveDb() before showSuccess; abort on failure
     ],
   },
 ];
@@ -745,6 +766,67 @@ function extractApiPaths(html) {
   return paths;
 }
 
+// ── Edit-modal write-path registry (2026-06-22 Phase 1 guardrail) ──────────
+// Every field exposed in an admin edit modal must have a documented write
+// path: a scoped PATCH endpoint that persists the value. Without this check,
+// fields silently "save" to KV-only dead writes (the c.sqFt / c.notes pattern
+// we just untangled). For each registry entry, the live deployed page must
+// contain BOTH the field's DOM id AND the endpoint prefix it routes through.
+//
+// Adding a new edit field? Add the {file, fieldId, endpoint} row here in the
+// same commit, or the deploy fails. Removing a field? Drop the row.
+const EDIT_MODAL_WRITES = [
+  // ── calendar.html — full edit modal (saveFullEdit, D1-native + KV paths) ──
+  { file: 'pure_cleaning_calendar.html', fieldId: 'feSqFt',        endpoint: '/admin/property/',   target: 'Property.sqft' },
+  // Note: revert path doesn't surface a DOM edit-modal field — the regression
+  // markers above (rig_segment / day_segment / completedAt:null) cover it.
+  { file: 'pure_cleaning_calendar.html', fieldId: 'feRoofType',    endpoint: '/admin/job/',        target: 'Job.roofType → Property.roofType' },
+  { file: 'pure_cleaning_calendar.html', fieldId: 'feRoofStories', endpoint: '/admin/job/',        target: 'Job.roofStories' },
+  { file: 'pure_cleaning_calendar.html', fieldId: 'fePayMethod',   endpoint: '/admin/job/',        target: 'Job.paymentMethod' },
+  { file: 'pure_cleaning_calendar.html', fieldId: 'feEmail',       endpoint: '/admin/person/',     target: 'Person.email' },
+  { file: 'pure_cleaning_calendar.html', fieldId: 'fePropLabel',   endpoint: '/admin/person-property', target: 'PersonProperty.propertyLabel' },
+  // ── customer_profile.html — inline edits ──────────────────────────────────
+  { file: 'pure_cleaning_customer_profile.html', fieldId: 'heroEmailInput', endpoint: '/admin/person/', target: 'Person.email' },
+  { file: 'pure_cleaning_customer_profile.html', fieldId: 'noteTextarea',   endpoint: '/admin/person/', target: 'Person.profileNotesJson (via /note)' },
+  // ── customer_directory.html — quick edit modal ────────────────────────────
+  { file: 'pure_cleaning_customer_directory.html', fieldId: 'editFn',  endpoint: '/admin/person/', target: 'Person.firstName' },
+  { file: 'pure_cleaning_customer_directory.html', fieldId: 'editLn',  endpoint: '/admin/person/', target: 'Person.lastName' },
+  { file: 'pure_cleaning_customer_directory.html', fieldId: 'editBn',  endpoint: '/admin/person/', target: 'Person.businessName' },
+  { file: 'pure_cleaning_customer_directory.html', fieldId: 'editEm',  endpoint: '/admin/person/', target: 'Person.email' },
+];
+
+async function checkEditModalWrites() {
+  // Group registry by file so we fetch each HTML once.
+  const byFile = {};
+  for (const entry of EDIT_MODAL_WRITES) {
+    if (!byFile[entry.file]) byFile[entry.file] = [];
+    byFile[entry.file].push(entry);
+  }
+  for (const [file, entries] of Object.entries(byFile)) {
+    let html = '';
+    try {
+      const r = await fetch(`${GITHUB_PAGES}/${file}`, CACHE_BUST);
+      if (!r.ok) { fail(`Edit-modal writes — ${file}`, `HTTP ${r.status}`); continue; }
+      html = await r.text();
+    } catch (e) { fail(`Edit-modal writes — ${file}`, e.message); continue; }
+    for (const { fieldId, endpoint, target } of entries) {
+      // Field's input/select MUST exist — match id= (single input) or name=
+      // (radio group, e.g. feRoofStories has three radios sharing the name).
+      const fieldRe = new RegExp(`(?:id|name)=["']${fieldId}["']`);
+      if (!fieldRe.test(html)) {
+        fail(`Edit-modal writes — ${file}: field "${fieldId}"`, `DOM id/name missing — registry says it writes ${target}`);
+        continue;
+      }
+      // Endpoint prefix MUST appear in the same file's JS
+      if (!html.includes(endpoint)) {
+        fail(`Edit-modal writes — ${file}: field "${fieldId}"`, `endpoint ${endpoint} missing — saves would not reach ${target}`);
+        continue;
+      }
+      pass(`Edit-modal write — ${fieldId} → ${target}`);
+    }
+  }
+}
+
 async function checkCustomerFlows() {
   for (const file of CUSTOMER_PAGES) {
     const url = `${GITHUB_PAGES}/${file}`;
@@ -1160,6 +1242,7 @@ async function main() {
   await checkErrorSpike();
   await checkJobHistoryIntegrity(); // Law 13: generalized csv_backfill collision + idempotency scanner
   await checkCustomerFlows();
+  await checkEditModalWrites();
   await checkMobileCompatibility();
   await checkCacheHeaders();
 
