@@ -535,43 +535,35 @@ async function main() {
       }
 
       // ── Part 1: fluid drag — translateX follows cursor 1:1 during drag ──
-      // 2026-06-23 (WO-5): NOT in the four drag-nav tests Cowork flagged.
-      // Tried adding an rAF poll on style.transform here, but it flipped the
-      // test from intermittent-pass to consistent-fail — the transform read
-      // returns '' even after 1500ms of polling. Per WO-5: "If either drag
-      // test still flaps after this, that's the signal it's a real app-side
-      // rAF timing issue in the drag handler (not the test) — kick it back
-      // to Cowork to diagnose the handler itself." Reverted to the original
-      // test logic so the regression diagnostic stays accurate. The four
-      // drag-nav tests above were the brief's actual scope and pass cleanly.
       {
-        const gBox = await page.locator('#calGrid').boundingBox().catch(() => null);
-        if (gBox) {
-          const sx = gBox.x + 200, sy = gBox.y + 15;
+        // Fluid drag: #calGrid gets an inline translateX that follows the cursor 1:1 during a horizontal
+        // day-nav drag. The handler sets g.style.transform synchronously in the mousemove listener (NOT rAF).
+        // Grab from a .day-hdr — the documented day-nav grab bar — like the other drag-nav tests. Grabbing
+        // from an arbitrary #calGrid offset intermittently landed on an excluded element (.rig-hdr /
+        // .win-lane-hdr / a job card), so mousedown returned early and the transform never set (WO-6).
+        const hdrBox = await page.locator('.day-hdr').first().boundingBox().catch(() => null);
+        if (hdrBox) {
+          const sx = hdrBox.x + hdrBox.width / 2, sy = hdrBox.y + hdrBox.height / 2;
           await page.mouse.move(sx, sy);
           await page.mouse.down();
-          await page.mouse.move(sx - 10, sy);  // past the 5px dead zone
-          await page.mouse.move(sx - 60, sy);   // 60px — check mid-drag transform
+          await page.mouse.move(sx - 10, sy);  // past the 5px dead zone → engages the horizontal lock
+          await page.mouse.move(sx - 60, sy);  // 60px (< 150px/day) so no day commit fires, no render() reset
           const midTransform = await page.evaluate(() => {
             const g = document.getElementById('calGrid');
             return g ? g.style.transform : '';
           });
-          // Transform should be non-zero translateX (grid moved left with cursor)
-          // Use regex to extract numeric value — '-60px' would wrongly match '0px' substring check
           const xformNum = midTransform ? parseFloat((midTransform.match(/translateX\((-?\d+(?:\.\d+)?)/) || [])[1] || '0') : 0;
           if (midTransform && midTransform.includes('translateX(') && xformNum !== 0) {
             pass('Calendar — fluid drag: grid translateX follows cursor', `transform: "${midTransform}"`);
           } else {
-            warn('Calendar — fluid drag: grid translateX follows cursor', `KNOWN FLAKY — WO-6 Cowork diagnosis pending. Test reads the transform off the wrong element (test bug, not a feature bug). mid-drag transform was: "${midTransform}" (parsed: ${xformNum})`);
+            fail('Calendar — fluid drag: grid translateX follows cursor', `mid-drag transform was: "${midTransform}" (parsed: ${xformNum})`);
           }
-          // Release at 60px — should shift 0 days (60px < 75px threshold) but > 50px guard
-          // Actually Math.round(60/150)=0 so no shift expected
           await page.mouse.up();
           await page.waitForTimeout(400);
           const labelAfterSmall = (await page.locator('#weekLabel').textContent().catch(()=>'')).trim();
           pass('Calendar — fluid drag: ≤50px guard smoke-test', `label: ${labelAfterSmall}`);
         } else {
-          warn('Calendar — fluid drag tests', 'calGrid bounding box not found');
+          warn('Calendar — fluid drag tests', '.day-hdr bounding box not found');
         }
       }
 
