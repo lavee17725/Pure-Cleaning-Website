@@ -7343,12 +7343,14 @@ async function d1AllCustomersToKvShape(env) {
       // Merge canceled fields + photos onto D1-built scheduledStatus without
       // losing the D1-derived state/scheduledDate/rig/etc.
       if (kvAlt.canceledDate || kvAlt.canceledReason || kvAlt.photos) {
-        customer.scheduledStatus = {
+        // @type {any} cast: scheduledStatus is a dynamic KV-blob merge; the `|| {}`
+        // spread widens required props to optional, which checkJs rejects. Runtime-identical.
+        customer.scheduledStatus = /** @type {any} */ ({
           ...(customer.scheduledStatus || {}),
           ...(kvAlt.canceledDate   ? { canceledDate:   kvAlt.canceledDate   } : {}),
           ...(kvAlt.canceledReason ? { canceledReason: kvAlt.canceledReason } : {}),
           ...(kvAlt.photos         ? { photos:         kvAlt.photos         } : {}),
-        };
+        });
       }
     }
     // Phase 2C: virtual fan-out retired. Each Person produces ONE customer object.
@@ -7485,12 +7487,14 @@ async function d1CustomerToKvShape(phone, env) {
     const canceledDt  = kvSs.canceledDate   || null;
     const canceledRs  = kvSs.canceledReason || null;
     if (kvPhotos || canceledDt || canceledRs) {
-      customer.scheduledStatus = {
+      // @type {any} cast: dynamic KV-blob merge; `|| {}` spread widens required props
+      // to optional, which checkJs rejects. Runtime-identical.
+      customer.scheduledStatus = /** @type {any} */ ({
         ...(customer.scheduledStatus || {}),
         ...(kvPhotos   ? { photos:         kvPhotos   } : {}),
         ...(canceledDt ? { canceledDate:   canceledDt } : {}),
         ...(canceledRs ? { canceledReason: canceledRs } : {}),
-      };
+      });
     }
   }
   return customer;
