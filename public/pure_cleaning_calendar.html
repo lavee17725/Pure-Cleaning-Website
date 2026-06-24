@@ -3591,7 +3591,14 @@ function jobCardScheduled(c) {
     const _scInvBtn = _scInvJob
       ? `<button class="js-invoice-btn" onclick="event.stopPropagation();openInvoiceLink('${phone}','${_scInvJob}')" title="Create or open hosted invoice link">🧾 Invoice</button>`
       : '';
-    printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}','${c.jobId||''}')">🖨 Print job sheet</button>${_scInvBtn}</div>`;
+    // WO-3: split (day-split) jobs — parent (isMultiDayParent) OR a non-rig-segment child
+    // (parentJobId && !isRigSegment) — get a "Full Proposal" button that prints ALL phases
+    // (Pressure Clean / Sand / Seal) on one sheet with the combined total. Normal single-day
+    // cards (no parent, not a multi-day parent) get nothing. Rig-segments are excluded.
+    const _isSplitCard = !!(c.isMultiDayParent || (c.parentJobId && !c.isRigSegment));
+    const _fullProposalBtn = (_isSplitCard && c.jobId)
+      ? `<button class="js-print-btn" onclick="event.stopPropagation();printFullProposal('${phone}','${c.jobId}')">🖨 Full Proposal</button>` : '';
+    printBtnHtml = `<div class="js-inv-btns"><button class="js-print-btn" onclick="event.stopPropagation();printJobSheet('${phone}','${jobDate}','${jobRig}','${c.jobId||''}')">🖨 Print job sheet</button>${_fullProposalBtn}${_scInvBtn}</div>`;
     if (ss.scheduledDate && ss.scheduledDate <= isoToday()) {
       const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
       const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
@@ -7318,6 +7325,238 @@ function printJobSheet(phone, date, rig, jobId) {
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
     `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
   _logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
+}
+
+// ── WO-3: FULL PROPOSAL for split (day-split) jobs ────────────────────────────
+// printJobSheet prints ONE card = one phase slice (services narrowed to that
+// dayPhase, amount = that slice). This prints the WHOLE group: every phase as a
+// line item + the combined total. GET /admin/job/:id/days resolves the root via
+// COALESCE(parentJobId, jobId), so it works from the parent OR any child id.
+async function printFullProposal(phone, jobId) {
+  const c = findCustomer(phone);
+  if (!c) return;
+  const res = await fetch(`${PCPC_API}/admin/job/${encodeURIComponent(jobId)}/days`)
+    .catch(e => { console.warn('[full-proposal] fetch failed:', e.message); return null; });
+  if (!res || !res.ok) { showToast(`⚠️ Could not load all phases (${res ? res.status : 'network'}) — try again`); return; }
+  let days = [];
+  try { days = (await res.json()).days || []; }
+  catch(e) { console.warn('[full-proposal] parse failed:', e.message); showToast('⚠️ Could not read phases — try again'); return; }
+  // Day-split phases only — exclude rig-segment tracking rows.
+  const splitDays = days.filter(d => !d.isRigSegment).sort((a,b) => (a.dayNumber||0) - (b.dayNumber||0));
+  if (splitDays.length < 2) {
+    // Not actually a multi-phase group (or only one row resolved) — fall back to the single sheet.
+    return printJobSheet(phone, (c.scheduledStatus||{}).scheduledDate || null, (c.scheduledStatus||{}).rig || '', jobId);
+  }
+  const totalAmt = splitDays.reduce((s,d) => s + (parseFloat(d.amount)||0), 0);
+  _openPrintWin(_fullProposalBody(c, splitDays, totalAmt),
+    `Full Proposal — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
+  _logEvent({ eventType:'full_proposal_printed', phone, jobId, phaseCount:splitDays.length, totalAmt, printedAt:new Date().toISOString() });
+}
+
+// Mirrors _jobSheetBody's letterhead/CSS/one-page containment (Rule 23). Only three
+// swaps per WO-3: titlebar text, services-checklist → per-phase line-items table,
+// total label/amount. Everything else (header, property details, seal banner, notes,
+// stamp, footer) is the reused job-sheet scaffold.
+function _fullProposalBody(c, splitDays, totalAmt) {
+  const ss   = c.scheduledStatus || {};
+  const qs   = c.quoteStatus || {};
+  const name = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+
+  const _fmtD = s => s ? new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : 'TBD';
+  const _dates = splitDays.map(d => d.scheduledDate).filter(Boolean).sort();
+  const dateStr = _dates.length
+    ? (_dates[0] === _dates[_dates.length-1]
+        ? new Date(_dates[0]+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
+        : `${_fmtD(_dates[0])} – ${_fmtD(_dates[_dates.length-1])}`)
+    : 'Dates TBD';
+
+  // Property details — identical sourcing to _jobSheetBody.
+  const sqft = ('sqFt' in c) ? (c.sqFt || null) : (c.properties?.[0]?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null);
+  const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || c.roofType || null;
+  const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
+  const roofLabel = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
+  const stories  = ss.roofStories || getLastKnownRoofStories(c) || null;
+  const storyStr = stories ? `${stories}-story` : null;
+
+  // Notes — identical sourcing to _jobSheetBody (clean notes only; ss.jobNotes excluded).
+  const _notesSources = [c.notes, c.accessNotes, ss.scheduleNote, ss.notes, ss.customerNotes, qs.notes].filter(v => v && v.toString().trim());
+  const _notesBody  = _notesSources.map(v => v.toString().trim()).join('\n').trim();
+  const _alertsText = (c.alerts||[]).map(a=>`⚠ ${a.label||a||''}`).filter(Boolean).join('\n');
+  const operatorNotes = [_notesBody, _alertsText].filter(Boolean).join('\n') || null;
+
+  // Address — identical to _jobSheetBody (work site for partner, else billing).
+  const _dirs = new Set(['n','s','e','w','nw','ne','sw','se','nne','nnw','sse','ssw']);
+  const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
+  const isPartner   = c.customerType === 'partner_referral';
+  const displayName = (isPartner && c.businessName) ? c.businessName : name;
+  const displayAddr = c.workSiteAddress || c.address;
+  const displayCity = c.workSiteCity    || c.city;
+  const addrLine    = _titleAddr(displayAddr||'');
+  const gateStr     = c.gateCode ? `Gate: ${c.gateCode}` : null;
+  const cityLine    = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : '';
+  const addrHtml    = displayAddr ? `${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
+
+  // Seal banner if ANY phase is a seal phase.
+  const _hasSeal = splitDays.some(d => /\bseal/i.test(d.dayPhase||'') || /\bseal/i.test(d.servicesRaw||''));
+
+  // Adaptive line-item font for one-page fit (Rule 23). Realistic case = 3 phases.
+  const _n   = splitDays.length;
+  const _liFs = _n <= 5 ? '14pt' : _n <= 8 ? '12pt' : '10pt';
+  const _MAX = 10;
+  const _shown = splitDays.slice(0, _MAX);
+  const lineItems = _shown.map(d => {
+    const phase = (d.dayPhase || `Phase ${d.dayNumber||''}`).toString().trim();
+    const amt   = parseFloat(d.amount)||0;
+    return `
+      <tr class="li-row">
+        <td class="li-phase">${esc(phase.toUpperCase())}<div class="li-sub">Day ${d.dayNumber||'?'} &nbsp;·&nbsp; ${_fmtD(d.scheduledDate)}</div></td>
+        <td class="li-amt">$${amt.toLocaleString()}</td>
+      </tr>`;
+  }).join('')
+  + (_n > _MAX ? `<tr><td colspan="2" style="padding:6px 4px;font-family:Arial,sans-serif;font-size:9pt;font-style:italic;color:#555;">… ${_n - _MAX} more phase${_n-_MAX>1?'s':''} — total below reflects all ${_n}</td></tr>` : '');
+
+  return `
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Georgia,serif;color:#111;}
+table{width:auto;border-collapse:collapse;}
+.js-sheet{position:relative;width:7.5in;height:10in;overflow:hidden;box-sizing:border-box;}
+.js-header{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:16px;padding:10px 28px 8px;border-bottom:3px solid #0a1628;}
+.js-logo img{height:128px;width:auto;display:block;}
+.js-company{text-align:right;}
+.js-company-name{font-family:Arial,sans-serif;font-size:14pt;font-weight:700;color:#0a1628;line-height:1.2;}
+.js-company-sub{font-family:Arial,sans-serif;font-size:9pt;color:#444;margin-top:2px;line-height:1.55;}
+.js-titlebar{background:#0a1628;display:flex;align-items:center;justify-content:space-between;padding:5px 28px;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+.js-titlebar-left{font-family:Arial,sans-serif;font-size:12pt;font-weight:800;letter-spacing:2pt;color:#fff;text-transform:uppercase;}
+.js-titlebar-right{font-family:Arial,sans-serif;font-size:10pt;color:#fff;}
+.js-titlebar-right strong{color:#f4a620;}
+.js-body{position:absolute;top:1.9in;bottom:1.7in;left:0;right:0;overflow:hidden;padding:10px 28px 0;display:flex;flex-direction:column;}
+.js-date{background:#f7f8fa;border-left:5px solid #0a1628;padding:6px 14px;margin-bottom:8px;display:flex;align-items:baseline;gap:10px;}
+.js-date-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#444;white-space:nowrap;}
+.js-date-val{font-family:Georgia,serif;font-size:18pt;font-weight:700;color:#0a1628;line-height:1;}
+.js-cust{border:1.5pt solid #ccc;padding:7px 14px 8px;margin-bottom:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;}
+.js-cust-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:1pt solid #ccc;padding-bottom:3px;margin-bottom:6px;grid-column:1/-1;}
+.js-cust-name{font-size:20pt;font-weight:700;color:#0a1628;line-height:1.05;}
+.js-cust-phone{font-family:Arial,sans-serif;font-size:12pt;font-weight:700;color:#111;margin-top:5px;}
+.js-cust-address{font-family:Georgia,serif;font-size:12pt;color:#1a1a1a;line-height:1.45;}
+.js-svc-section{margin-bottom:7px;overflow:hidden;flex-shrink:0;}
+.js-svc-header{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:2pt solid #0a1628;padding-bottom:3px;margin-bottom:2px;}
+.js-prep-seal{margin:6px 0 8px;background:#fff7ed;border:2pt solid #c2410c;border-radius:4px;padding:8px 14px;display:flex;align-items:center;gap:12px;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+.js-prep-seal-icon{font-size:18pt;line-height:1;}
+.js-prep-seal-text{font-family:Arial,sans-serif;font-size:14pt;font-weight:800;letter-spacing:2pt;color:#7c2d12;text-transform:uppercase;}
+.js-notes-row{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0;}
+.js-notes-block{border:2pt solid #194963;background:#f8fbfd;padding:8px 12px;flex:1;}
+.js-notes-label{font-family:Arial,sans-serif;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:2pt;color:#194963;margin-bottom:4px;}
+.js-notes-text{font-family:Arial,sans-serif;font-size:16pt;color:#111;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
+.js-bottom{position:absolute;bottom:0.35in;left:28px;right:28px;display:flex;align-items:stretch;justify-content:space-between;padding-top:8px;border-top:2pt solid #0a1628;}
+.js-stamp{width:2.2in;min-height:1.1in;border:2pt dashed #aaa;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;flex-shrink:0;}
+.js-stamp-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#555;text-align:center;}
+.js-stamp-inner{width:1.75in;height:.68in;border:1.5pt dashed #aaa;border-radius:3px;}
+.js-total{border:2pt solid #0a1628;padding:6px 18px;display:inline-flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:3px;align-self:stretch;}
+.js-total-label{font-family:Arial,sans-serif;font-size:8pt;text-transform:uppercase;letter-spacing:1.5pt;color:#333;}
+.js-total-amount{font-family:Georgia,serif;font-size:22pt;font-weight:700;color:#0a1628;line-height:1;}
+.js-total-methods{font-family:Arial,sans-serif;font-size:7.5pt;color:#333;}
+.js-footer{position:absolute;bottom:0;left:0;right:0;border-top:1pt solid #ddd;padding:5px 28px;display:flex;justify-content:space-between;align-items:center;}
+.js-footer-text{font-family:Arial,sans-serif;font-size:6.5pt;color:#555;}
+.js-propdetails{background:#f7f8fa;border:1pt solid #ddd;padding:5px 14px;margin-bottom:8px;display:flex;gap:24px;align-items:baseline;}
+.js-propdetails-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;white-space:nowrap;}
+.js-propdetails-val{font-family:Arial,sans-serif;font-size:11pt;font-weight:600;color:#0a1628;}
+.js-propdetails-item{display:flex;flex-direction:column;gap:2px;}
+.js-lineitems{width:100%;border-collapse:collapse;margin-top:2px;}
+.li-row td{border-bottom:1pt solid #ebebeb;padding:7px 4px;vertical-align:middle;}
+.li-row:last-child td{border-bottom:2pt solid #0a1628;}
+.li-phase{font-family:Arial,sans-serif;font-size:${_liFs};font-weight:700;color:#0a1628;letter-spacing:.5pt;}
+.li-sub{font-family:Arial,sans-serif;font-size:8.5pt;font-weight:600;color:#666;letter-spacing:.5pt;margin-top:2px;}
+.li-amt{font-family:Georgia,serif;font-size:${_liFs};font-weight:700;color:#0a1628;text-align:right;white-space:nowrap;}
+</style>
+
+<div class="js-sheet">
+
+  <div class="js-header">
+    <div class="js-logo"><img src="https://i.imgur.com/1lIyuLS.png" alt="Pure Cleaning logo"></div>
+    <div class="js-company">
+      <div class="js-company-name">PURE CLEANING PRESSURE CLEANING<br>COMMERCIAL AND RESIDENTIAL</div>
+      <div class="js-company-sub">16621 SW 62ND STREET &nbsp;·&nbsp; SOUTHWEST RANCHES, FLORIDA 33331<br>PHONE: 954-389-2642 &nbsp;·&nbsp; EMAIL: pure_cleaning@live.com</div>
+    </div>
+  </div>
+
+  <div class="js-titlebar">
+    <div class="js-titlebar-left">Full Service Proposal</div>
+    <div class="js-titlebar-right">${_n}-Phase &nbsp;·&nbsp; <strong>All services</strong></div>
+  </div>
+
+  <div class="js-body">
+
+    <div class="js-date">
+      <span class="js-date-label">Service Dates</span>
+      <span class="js-date-val">${dateStr}</span>
+    </div>
+
+    <div class="js-cust">
+      <div class="js-cust-label">${isPartner ? 'Partner / Contractor' : 'Customer'}</div>
+      <div>
+        <div class="js-cust-name">${esc(displayName)}</div>
+      </div>
+      <div>
+        <div class="js-cust-address">${addrHtml}</div>
+        <div class="js-cust-phone">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+      </div>
+    </div>
+
+    <div class="js-propdetails">
+      <div class="js-propdetails-label">Property Details</div>
+      <div class="js-propdetails-item">
+        <span class="js-propdetails-label">Roof Stories</span>
+        <span class="js-propdetails-val">${storyStr || 'N/A'}</span>
+      </div>
+      <div class="js-propdetails-item">
+        <span class="js-propdetails-label">Sq Ft</span>
+        <span class="js-propdetails-val">${sqft ? Number(sqft).toLocaleString() : 'N/A'}</span>
+      </div>
+      <div class="js-propdetails-item">
+        <span class="js-propdetails-label">Roof Type</span>
+        <span class="js-propdetails-val">${roofLabel || 'N/A'}</span>
+      </div>
+    </div>
+
+    <div class="js-svc-section">
+      <div class="js-svc-header">Service Phases</div>
+      <table class="js-lineitems">${lineItems}</table>
+    </div>
+
+    ${_hasSeal ? `
+    <div class="js-prep-seal">
+      <span class="js-prep-seal-icon">⚠</span>
+      <span class="js-prep-seal-text">Prep to Seal — strip, dry, mask, sweep clean before sealing</span>
+    </div>` : ''}
+
+    <div class="js-notes-row">
+      <div class="js-notes-block">
+        <div class="js-notes-label">⚑ Notes — Read Before Starting</div>
+        ${operatorNotes ? `<div class="js-notes-text">${esc(operatorNotes)}</div>` : ''}
+      </div>
+    </div>
+
+  </div>
+
+  <div class="js-bottom">
+    <div class="js-stamp">
+      <div class="js-stamp-label">Payment<br>Confirmation<br>Stamp</div>
+      <div class="js-stamp-inner"></div>
+    </div>
+    <div class="js-total">
+      <div class="js-total-label">Total — All Phases</div>
+      <div class="js-total-amount">$${totalAmt.toLocaleString()}</div>
+      <div class="js-total-methods">Zelle &nbsp;·&nbsp; Cash &nbsp;·&nbsp; Check &nbsp;·&nbsp; Venmo</div>
+    </div>
+  </div>
+
+  <div class="js-footer">
+    <span class="js-footer-text">Pure Cleaning Pressure Cleaning &nbsp;·&nbsp; 954-389-2642 &nbsp;·&nbsp; pure_cleaning@live.com</span>
+    <span class="js-footer-text">Printed ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</span>
+  </div>
+
+</div>`;
 }
 
 function printBulkJobSheets(date, rig) {

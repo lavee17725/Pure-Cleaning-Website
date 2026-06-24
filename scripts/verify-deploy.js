@@ -90,6 +90,10 @@ const HTML_FILES = [
       'Could not assign rig',                    // Fix A: applyRigPick legacy branch awaits + reverts rig
       '[handleDropToPool] KV sync failed',       // Residual: drag-to-pool KV sync logged
       '[_doCompleteJob] KV sync failed',         // Residual: completion KV sync logged
+      // 2026-06-23 WO-3 — Full Proposal for split (Pressure Clean/Sand/Seal) jobs:
+      'function printFullProposal',              // entry point on split cards
+      'function _fullProposalBody',              // multi-phase line-items print body
+      'Total — All Phases',                      // combined-total label (proves all-phase rollup)
     ],
   },
   {
