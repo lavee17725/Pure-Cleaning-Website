@@ -69,6 +69,33 @@ async function waitForData(page, predicate, timeout = 45000) {
   catch { return false; }
 }
 
+// ── Parallel orchestration (WO-9) ────────────────────────────────────────────
+// Test blocks register here instead of running inline; drainQueue() runs them.
+// Read-only/render blocks (and blocks that STUB their writes — saveDb/fetch — so
+// they never touch the server) run concurrently in batches; blocks that make a
+// REAL server write (or depend on a specific record's server state) run serially
+// so they never race each other or a read of the same data. Each block keeps its
+// own page + its own pass/fail/warn calls; results[] pushes are safe under Node's
+// single thread. Classify-conservatively: unknown → SERIAL_LABELS (correct beats fast).
+const _pageQueue = [];
+function queuePage(context, url, label, fn) { _pageQueue.push({ context, url, label, fn }); }
+
+// Blocks that must NOT run concurrently. calendar-drag-suppressor invokes the real
+// submitPayment() (POST /payment/log) — the only block here that writes to the
+// server. Everything else renders, asserts on client logic, or stubs its writes.
+const SERIAL_LABELS = new Set(['calendar-drag-suppressor']);
+const PARALLEL_BATCH = 5;
+
+async function drainQueue() {
+  const parallel = _pageQueue.filter(j => !SERIAL_LABELS.has(j.label));
+  const serial   = _pageQueue.filter(j =>  SERIAL_LABELS.has(j.label));
+  for (let i = 0; i < parallel.length; i += PARALLEL_BATCH) {
+    const batch = parallel.slice(i, i + PARALLEL_BATCH);
+    await Promise.all(batch.map(j => withPage(j.context, j.url, j.label, j.fn)));
+  }
+  for (const j of serial) await withPage(j.context, j.url, j.label, j.fn);
+}
+
 async function main() {
   console.log('\n🌐  Pure Cleaning — Browser Verification');
   console.log(`    Using headless Chromium · ${PAGES_BASE}`);
@@ -106,7 +133,7 @@ async function main() {
     // Law 12 expansion: homepage must render React app, not just empty skeleton.
     // Root cause of May 12 outage: [assets] pointed to public/ (source template,
     // no bundle refs) instead of build/ (compiled output with /static/js/*.js).
-    await withPage(context, `${PAGES_BASE}/`, 'homepage', async page => {
+    queuePage(context, `${PAGES_BASE}/`, 'homepage', async page => {
       // Collect console errors during load
       const consoleErrors = [];
       // Track last seen external-noise URL so paired net::ERR_FAILED events are also suppressed
@@ -225,7 +252,7 @@ async function main() {
     }, { token: session.token, expiresAt: session.expiresAt });
 
     // ── BULK REACTIVATION ────────────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation', async page => {
       // Wait for DB load to populate customers
       await page.waitForFunction(() => {
         const el = document.getElementById('svcTabs');
@@ -283,7 +310,7 @@ async function main() {
     });
 
     // ── CALENDAR ─────────────────────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar', async page => {
       await page.waitForSelector('#calGrid', { timeout: 45000 }).catch(() => {});  // WO-7: bigger budget for slow load
 
       // ── Regression: drag handler marker present ──
@@ -819,7 +846,7 @@ async function main() {
     });
 
     // ── WORKER HOURS ─────────────────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_worker_hours.html`, 'worker-hours', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_worker_hours.html`, 'worker-hours', async page => {
       // Wait for page to load and API call to complete
       await page.waitForTimeout(4000);
 
@@ -856,7 +883,7 @@ async function main() {
     });
 
     // ── CUSTOMER PROFILE ─────────────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_customer_profile.html?phone=9546326630`, 'customer-profile', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_profile.html?phone=9546326630`, 'customer-profile', async page => {
       await page.waitForFunction(() => {
         const el = document.getElementById('profileContent');
         return el && el.style.display !== 'none';
@@ -871,7 +898,7 @@ async function main() {
     });
 
     // ── REVIEW HUB ───────────────────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_review_hub.html`, 'review-hub', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_review_hub.html`, 'review-hub', async page => {
       await page.waitForSelector('#ready-content', { timeout: 20000 }).catch(() => {});
       const visible = await page.locator('#ready-content').isVisible();
       if (visible) {
@@ -882,7 +909,7 @@ async function main() {
     });
 
     // ── INCOMING REQUESTS ────────────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_incoming.html`, 'incoming', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_incoming.html`, 'incoming', async page => {
       await page.waitForTimeout(3000);
 
       // ── Regression: req-name not white-on-white ──
@@ -910,7 +937,7 @@ async function main() {
     });
 
     // ── BULK REACTIVATION — DNS TAB ──────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation-dns', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation-dns', async page => {
       await page.waitForSelector('.pool-tab', { timeout: 45000 }).catch(() => {});  // WO-7: bigger budget for slow DB load
       // WO-7: the DNS tab button is data-driven — wait for it to render (slow DB
       // load) before asserting, instead of racing the fetch with a fixed budget.
@@ -940,7 +967,7 @@ async function main() {
     // ── BCPA LINKS: calendar job card ────────────────────────────────────────
     // BCPA deep-link reverted May 13 — BCPA never parsed searchValue in practice.
     // Now: plain href to /Record-Search (no query params), plus 📋 Copy button.
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'bcpa-calendar', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'bcpa-calendar', async page => {
       await page.waitForFunction(() => document.querySelectorAll('.pa-link').length > 0, { timeout: 20000 }).catch(() => {});
 
       const paLinks = await page.locator('.pa-link').count();
@@ -963,7 +990,7 @@ async function main() {
     });
 
     // ── INTAKE PAPER CUTS: price step / label rename / BCPA copy button ──────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'intake-papercuts', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'intake-papercuts', async page => {
       await page.waitForTimeout(2000);
 
       // 1. Copy-address button exists adjacent to address field
@@ -1011,7 +1038,7 @@ async function main() {
       else fail('New Customer — BCPA links: no searchValue param', 'Found searchValue= in a link — BCPA revert incomplete');
     });
 
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_mini_quote_builder.html`, 'mqb-papercuts', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_mini_quote_builder.html`, 'mqb-papercuts', async page => {
       await page.waitForTimeout(2000);
 
       // 4. "Already agreed quote price" label no longer present
@@ -1028,7 +1055,7 @@ async function main() {
     // ── PER-JOB ADDRESS: Christina Seeber multi-property ────────────────────
     // 9542493300 has two May 5 completed jobs at different Hollywood addresses.
     // The calendar should show job-level address, not her billing address (2419 Marathon Lane).
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'per-job-address', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'per-job-address', async page => {
       await page.waitForTimeout(2000);
 
       // Navigate to May 5, 2026 (use dayOffset to reach it — relative to today)
@@ -1077,7 +1104,7 @@ async function main() {
     // ── MULTI-PROPERTY DEDUP: same-day same-rig distinct jobs render separately ─
     // Tests getExtraCompletedJobsForRig directly (more reliable than DOM nav to past dates).
     // Total cards per customer = getScheduledForRig count + getExtraCompletedJobsForRig count.
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'multipropty-dedup', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'multipropty-dedup', async page => {
       await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
@@ -1165,7 +1192,7 @@ async function main() {
     // ── LATE-COMPLETION DEDUP (_lastJobId suppression) ───────────────────────
     // Regression test: jobs completed on a different day than scheduled (ss.scheduledDate ≠ jh.date)
     // should NOT produce orphan extra cards on the completion date.
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'late-completion-dedup', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'late-completion-dedup', async page => {
       await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
@@ -1254,7 +1281,7 @@ async function main() {
     });
 
     // ── EXTRA CARD FULL CONTROLS ─────────────────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'extra-card-controls', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'extra-card-controls', async page => {
       await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
@@ -1340,7 +1367,7 @@ async function main() {
     });
 
     // ── CANCELLED JOBS — removed from calendar + auto-DNS ────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'cancel-job-dns', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'cancel-job-dns', async page => {
       await page.waitForTimeout(2000);
 
       const result = await page.evaluate(() => {
@@ -1410,7 +1437,7 @@ async function main() {
     });
 
     // ── PAYMENT BUTTON — updates immediately after submitPayment ─────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-button-update', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-button-update', async page => {
       await page.waitForTimeout(2000);
 
       const result = await page.evaluate(async () => {
@@ -1467,7 +1494,7 @@ async function main() {
     });
 
     // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
       await page.waitForTimeout(5000); // API call + render
 
       // Test 1: three tabs present
@@ -1537,7 +1564,7 @@ async function main() {
     });
 
     // Test 5: calendar has Day Route button
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-day-route-link', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-day-route-link', async page => {
       await page.waitForTimeout(3000);
       const btn = await page.getByText('Day Route', { exact: false }).isVisible().catch(() => false);
       if (btn) {
@@ -1605,7 +1632,7 @@ async function main() {
 
     // ── GOOGLE DRIVE / WEEKLY EXPORT ─────────────────────────────────────────
     // Test 1: /oauth/google/start returns a redirect to Google (302 → accounts.google.com)
-    await withPage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {
+    queuePage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {
       // After the redirect chain, we should be at accounts.google.com OR the setup-required page
       const finalUrl = page.url();
       if (finalUrl.includes('accounts.google.com')) {
@@ -1650,7 +1677,7 @@ async function main() {
     }
 
     // ── CALENDAR — drag suppressor allows modal/overlay clicks ─────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-drag-suppressor', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-drag-suppressor', async page => {
       await page.waitForTimeout(2000);
 
       const testPhone = await page.evaluate(() =>
@@ -1704,7 +1731,7 @@ async function main() {
     });
 
     // ── PAYMENT MODAL — preferredPaymentMethod pre-selection ─────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-modal-prefill', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'payment-modal-prefill', async page => {
       await page.waitForTimeout(2000);
 
       // 1. Inject preferredPaymentMethod=zelle onto any customer, open modal, confirm pre-selection
@@ -1782,7 +1809,7 @@ async function main() {
     });
 
     // ── PENCIL EDIT — three-field payment write (c.paymentInfo.method) ──────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'pencil-payment-three-field', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'pencil-payment-three-field', async page => {
       await page.waitForTimeout(2000);
 
       const result = await page.evaluate(async () => {
@@ -1846,7 +1873,7 @@ async function main() {
     });
 
     // ── NEW CUSTOMER — match banner shows for duplicate phone ────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-duplicate-detection', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-duplicate-detection', async page => {
       await page.waitForTimeout(2000);
 
       // Inject a test customer into allCustomers
@@ -1865,7 +1892,7 @@ async function main() {
     });
 
     // ── NEW CUSTOMER — no phantom double after save (double-push bug fix) ────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-no-double-push', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-no-double-push', async page => {
       await waitForData(page, () => typeof dbRecord !== 'undefined' && !!dbRecord && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
@@ -1903,7 +1930,7 @@ async function main() {
     });
 
     // ── NEW CUSTOMER — 3-option post-save modal ────────────────────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-postsave', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-postsave', async page => {
       // Trigger modal directly without a real DB save
       const opened = await page.evaluate(() => {
         try {
@@ -1940,7 +1967,7 @@ async function main() {
     });
 
     // ── NEW CUSTOMER — existing customer detection + alt phone ─────────────────
-    await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-detection', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'new-customer-detection', async page => {
       // Alternate contacts container is present
       const containerExists = await page.locator('#altContactsContainer').count();
       if (containerExists) pass('New Customer — alt contacts container present');
@@ -2055,6 +2082,9 @@ async function main() {
         pass('New Customer — property picker renders for multi-property customer', `${pickerResult.propCount} properties + __new__ option present`);
       }
     });
+
+    // WO-9: run all registered blocks — read-only in parallel batches, mutating serial.
+    await drainQueue();
 
     await context.close();
   } finally {
