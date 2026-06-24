@@ -132,6 +132,42 @@ When in doubt, follow this file. The other two are reference.
 
 ---
 
+## Autonomy & Efficiency
+
+> Reviewed and approved by Tyler 2026-06-23. Goal: ask less, run faster + leaner, **without weakening any hard gate.**
+
+### A1 — Ask-threshold. Default to proceeding.
+
+Stop and ask Tyler ONLY when one of these is true:
+
+1. **Destructive / irreversible** — `git reset --hard`, `checkout .`, `clean`, hard-deleting files or data, emptying trash, a remote D1 schema migration, or anything that can lose data or work.
+2. **Changes what ships to customers / production beyond what Tyler already greenlit** — new public behavior, sending/posting on his behalf, a price or customer-data change.
+3. **A genuine business fork only Tyler can answer** — is this data real or scratch; which commercial approach; a real either/or where his judgment changes the outcome.
+
+For everything else — routine git, gitignoring scratch, which diagnostic command to run, commit structure, read-only investigation, test-infra edits, anything reversible — pick the sensible default, do it, and report it in one line. **When in doubt and it's reversible: proceed.** (The good asks — "don't push a dirty tree," "here are 7 unknown migrations" — still fire under #1/#2. Only the trivia stops.)
+
+### A2 — Standing defaults (never re-ask these):
+
+- **Gitignore scratch/junk by default** — `mockups/`, `*.pptx`, `__deltest`, `claude-code-handoffs/`, one-off `scripts/apply_*.py`, etc. Never commit them; don't ask.
+- **Commit in logical chunks by default;** only ask about commit structure if it's genuinely ambiguous.
+- **A red verify result is a real failure to diagnose, not a "flaky vs. real" question.** The verifiers are latency-hardened (WO-7, see `docs/ARCHITECTURE.md`). Never re-run `npm run deploy` hoping a red turns green (Rule 3).
+
+### A3 — Diagnose cheap, not expensive.
+
+- To investigate a verify failure, run the targeted verifier alone (`npm run deploy:verify` or `npm run verify:browser`) — NEVER a full `npm run deploy` just to see an error.
+- Don't re-read a file already read this session; grep for the specific line.
+- Background long-running commands and monitor them; don't poll with sleep loops.
+
+### A4 — The 5× stability loop is one-time, not per-deploy.
+
+Run a test 5× back-to-back ONLY right after changing that test, to prove a flakiness fix holds. It is NOT part of `npm run deploy` and must never become a per-push step. A normal deploy runs each verifier exactly once.
+
+### A5 — Hard gates are unchanged.
+
+This section reduces asking on reversible/routine things only. These stay exactly as loud as before: snapshot before any destructive op (Rule 6); `npm run deploy` must end `🟢 Browser verification passed` before declaring success (Rule 2); never push schema or destructive changes blind; verified write paths before read surfaces (T1.21). **Autonomy never means skipping a gate — it means not interrupting Tyler for things that can't hurt him.**
+
+---
+
 ## Quick Reference
 
 ```
