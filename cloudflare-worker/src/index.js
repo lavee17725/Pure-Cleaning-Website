@@ -7128,6 +7128,10 @@ function _d1ToSummaryShape(full) {
         for (const a of (c.alternateContacts || [])) add(a?.phone);
         return Array.from(seen).join(' ');
       })(),
+      // WO-2: full alternate-contacts array (name + phone + relationship/relation) so
+      // the directory can RENDER them nested under the main number, not just search
+      // them via altPhoneDigits. Null when empty to keep the summary payload slim.
+      alternateContacts: (Array.isArray(c.alternateContacts) && c.alternateContacts.length) ? c.alternateContacts : null,
       // Address (top-level — properties[] dropped from summary)
       address:         c.address         || '',
       city:            c.city            || '',
