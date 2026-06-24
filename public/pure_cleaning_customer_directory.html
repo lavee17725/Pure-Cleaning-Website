@@ -721,13 +721,33 @@ function _segmentOf(c){
   return 'residential';
 }
 
+// WO-2: alternate contacts (spouse/family/etc.) nested under the main number.
+// Directory `c` is a full customer (dbRecordToCustomer) — alternateContacts is present.
+function _dirAltContacts(c, opts){
+  const inline = opts && opts.inline;
+  const alts = (Array.isArray(c.alternateContacts)?c.alternateContacts:[]).filter(a=>a&&(a.phone||a.name));
+  if(!alts.length) return '';
+  return alts.map(a=>{
+    const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
+    const pf=d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:(a.phone||'');
+    const rel=a.relationship||a.relation||'';
+    const lbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Prop. Mgr':rel==='tenant'?'Tenant':rel||'Alt';
+    const nm=a.name?esc(a.name)+' ':'';
+    const tel=d.length===10?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(pf)}</a>`:esc(pf);
+    const lblHtml=`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">${lbl}</span>`;
+    return inline
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">↳ ${nm}${lblHtml} ${tel}</div>`
+      : `<div class="cust-card-meta" style="margin-top:1px;">↳ ${nm}${lblHtml} ${tel}</div>`;
+  }).join('');
+}
+
 function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
   const _tchip=`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr data-phone="${ph}" onclick="navProfile('${ph}')">
     <td class="wrap">${esc(_displayName(c))}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></td>
     <td>${_tchip}</td>
-    <td class="muted">${fmtPh(c.phone)}</td>
+    <td class="muted">${fmtPh(c.phone)}${_dirAltContacts(c,{inline:true})}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
     <td class="muted">${esc(c.city||'—')}</td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
@@ -748,6 +768,7 @@ function buildCard(c){
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
+      ${_dirAltContacts(c)}
       ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}
     </div>
     <div class="cust-card-right">

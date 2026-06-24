@@ -1567,8 +1567,20 @@ function renderSidebar(c){
   const leadSourceRow = lsDisplay && lsDisplay !== 'Unknown'
     ? {icon:'📣', label:'How they found us', val: esc(lsDisplay)} : null;
 
+  // WO-2: alternate contacts (spouse/family/etc.) nested under the main phone.
+  const _altContactRows = (Array.isArray(c.alternateContacts)?c.alternateContacts:[])
+    .filter(a=>a&&(a.phone||a.name))
+    .map(a=>{
+      const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
+      const pf=d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:(a.phone||'');
+      const rel=a.relationship||a.relation||'';
+      const lbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Property Manager':rel==='tenant'?'Tenant':rel||'Alternate';
+      const val=`${a.name?esc(a.name)+' — ':''}${d.length===10?`<a href="tel:+1${d}">${esc(pf)}</a>`:esc(pf)}`;
+      return {icon:'📞',label:lbl,val};
+    });
   const contactRows=[
     {icon:'📞',label:'Phone',val:`<a href="tel:+1${c.phone}">${fmtPh(c.phone)}</a>`},
+    ..._altContactRows,
     c.email?{icon:'📧',label:'Email',val:`<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>`}:null,
     (c.address||c.city)?{icon:'📍',label:'Address',val:`${esc(c.address||'')}${c.address&&c.city?', ':''}${esc(c.city||'')}`}:null,
     {icon:'🏷️',label:'Source',val:`<span class="source-badge">${esc(sourceLabel)}</span>`},

@@ -94,15 +94,18 @@ const HTML_FILES = [
       'function printFullProposal',              // entry point on split cards
       'function _fullProposalBody',              // multi-phase line-items print body
       'Total — All Phases',                      // combined-total label (proves all-phase rollup)
+      'function _renderAltContacts',             // WO-2: alt-contacts render on card + full-details modal (T1.21 read surface)
     ],
   },
   {
     file: 'pure_cleaning_customer_directory.html',
-    markers: ['function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName'],
+    markers: ['function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName',
+              '_dirAltContacts'],  // WO-2: alternate-contacts render on directory card + row (T1.21 read surface)
   },
   {
     file: 'pure_cleaning_customer_profile.html',
-    markers: ['const API', 'function buildTimeline', 'function renderServiceHistory'],
+    markers: ['const API', 'function buildTimeline', 'function renderServiceHistory',
+              '_altContactRows'],  // WO-2: alternate-contacts render in profile contact zone (T1.21 read surface)
   },
   {
     file: 'pure_cleaning_worker_hours.html',

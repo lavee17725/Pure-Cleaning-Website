@@ -3500,6 +3500,27 @@ function _calVipBadge(c) {
   return '';
 }
 
+// WO-2: render alternate contacts (spouse/family/etc.) nested under the main number.
+// Save path is canonical (PATCH Person.alternateContactsJson); this is display-only.
+// `c` on calendar cards/modal is a _jobRowToShape (which strips customer-level
+// alternateContacts), so when the key is absent we resolve the full customer via
+// findCustomer(c.phone). An explicit [] (contacts removed) is respected — no fallback.
+function _renderAltContacts(c){
+  let alts = Array.isArray(c.alternateContacts) ? c.alternateContacts : null;
+  if (alts === null) { const full = c.phone ? findCustomer(c.phone) : null; alts = Array.isArray(full?.alternateContacts) ? full.alternateContacts : []; }
+  alts = alts.filter(a => a && (a.phone || a.name));
+  if(!alts.length) return '';
+  return alts.map(a=>{
+    const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
+    const pf=d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:(a.phone||'');
+    const rel=a.relationship||a.relation||'';
+    const lbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Prop. Mgr':rel==='tenant'?'Tenant':rel||'Alt';
+    const nm=a.name?esc(a.name)+' ':'';
+    const tel=d.length===10?`<a href="tel:${d}" style="color:var(--sky);" onclick="event.stopPropagation()">${esc(pf)}</a>`:esc(pf);
+    return `<div class="js-meta" style="margin-top:1px;">📞 ${nm}<span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;">${lbl}</span> ${tel}</div>`;
+  }).join('');
+}
+
 function jobCardScheduled(c) {
   const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
   const ss    = c.scheduledStatus || {};
@@ -3760,6 +3781,7 @@ function jobCardScheduled(c) {
       })()}
     ${(() => { const et = _estTimeMap.get(phone); return et && !gpsHtml && (state === 'scheduled' || state === 'in_progress') ? `<div class="js-est-time">est. ${minsToTime(et.startMin)} – ${minsToTime(et.endMin)}</div>` : ''; })()}
     ${/* Fix B: gpsHtml moved above .jc-detail — was here, now above */ ''}
+    ${_renderAltContacts(c)}
     ${crewQeHtml}
     ${roofInfoHtml}
     ${printBtnHtml}
@@ -4669,6 +4691,7 @@ function openJobModal(phone, jobId) {
     </div>
     <div style="font-size:13px;line-height:1.9;margin-bottom:.875rem;color:var(--muted);">
       ${ph ? ph+'<br>' : ''}
+      ${_renderAltContacts(c)}
       ${addr ? addr+'<br>' : ''}
       ${crewNames !== '—' ? `👤 ${crewNames}<br>` : ''}
     </div>
