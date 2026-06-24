@@ -345,14 +345,27 @@ function scanUniversalContrast(html, filename) {
 // GitHub Pages Fastly CDN respects Cache-Control: no-cache on the request.
 const CACHE_BUST = { headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } };
 
+// Network-resilient fetch — retries ONLY on thrown errors (undici "fetch failed", DNS/
+// connection blips), up to 3 attempts with backoff + a 20s per-attempt abort. HTTP responses
+// (including non-2xx) pass straight through, so every caller's `if (!r.ok)` status check is
+// unchanged and real regressions still fail. Stops false-fails from connection jitter only.
+async function fetchRetry(url, opts = {}, attempts = 3) {
+  let lastErr;
+  for (let i = 1; i <= attempts; i++) {
+    try { return await fetch(url, { ...opts, signal: opts.signal || AbortSignal.timeout(20000) }); }
+    catch (e) { lastErr = e; if (i < attempts) await new Promise(r => setTimeout(r, 400 * i)); }
+  }
+  throw lastErr;
+}
+
 async function fetchText(url, opts = {}) {
-  const r = await fetch(url, { ...CACHE_BUST, ...opts });
+  const r = await fetchRetry(url, { ...CACHE_BUST, ...opts });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.text();
 }
 
 async function fetchJson(url) {
-  const r = await fetch(url);
+  const r = await fetchRetry(url);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -467,7 +480,7 @@ async function checkApiEndpoint({ path, expectKey, expect401, expectPublic }) {
     // Verify auth is enforced — no token, expect 401
     let r;
     try {
-      r = await fetch(url);
+      r = await fetchRetry(url);
     } catch (e) {
       fail(`API ${path} — auth check fetch`, e.message);
       return;
@@ -512,7 +525,7 @@ async function checkRenderSimulation() {
   let data;
   try {
     const headers = verifyToken ? { 'Authorization': `Bearer ${verifyToken}` } : {};
-    const r = await fetch(`${WORKERS_API}/incoming`, { headers });
+    const r = await fetchRetry(`${WORKERS_API}/incoming`, { headers });
     if (r.status === 401) {
       warn('Render simulation', 'Skipped — set VERIFY_TOKEN env var for authenticated checks');
       return;
@@ -585,7 +598,7 @@ async function checkDbSanity() {
     warn('DB sanity — duplicate phones', 'Add ADMIN_PASSWORD to .env.local to enable authenticated DB checks');
     return;
   }
-  const r2 = await fetch(`${WORKERS_API}/customers`, { headers: { 'Authorization': `Bearer ${verifyToken}` } });
+  const r2 = await fetchRetry(`${WORKERS_API}/customers`, { headers: { 'Authorization': `Bearer ${verifyToken}` } });
   if (!r2.ok) { warn('DB sanity — customers fetch', `HTTP ${r2.status}`); return; }
   const custs = (await r2.json()).customers || [];
   const seen = new Set();
@@ -610,7 +623,7 @@ async function checkBackupHealth() {
   }
   let hb;
   try {
-    const r = await fetch(`${WORKERS_API}/admin/backup/last_run`, {
+    const r = await fetchRetry(`${WORKERS_API}/admin/backup/last_run`, {
       headers: { 'Authorization': `Bearer ${verifyToken}` },
     });
     if (!r.ok) { warn('Backup health', `HTTP ${r.status}`); return; }
@@ -651,7 +664,7 @@ async function checkGoogleExportStatus() {
   }
   let data;
   try {
-    const r = await fetch(`${WORKERS_API}/admin/google-drive/status`, {
+    const r = await fetchRetry(`${WORKERS_API}/admin/google-drive/status`, {
       headers: { Authorization: `Bearer ${verifyToken}` },
     });
     if (!r.ok) { warn('Google export health', `HTTP ${r.status}`); return; }
@@ -692,7 +705,7 @@ async function checkErrorSpike() {
   }
   let data;
   try {
-    const r = await fetch(`${WORKERS_API}/admin/errors?since=24h`, {
+    const r = await fetchRetry(`${WORKERS_API}/admin/errors?since=24h`, {
       headers: { 'Authorization': `Bearer ${verifyToken}` },
     });
     if (!r.ok) { warn('Error spike check', `HTTP ${r.status}`); return; }
@@ -805,7 +818,7 @@ async function checkEditModalWrites() {
   for (const [file, entries] of Object.entries(byFile)) {
     let html = '';
     try {
-      const r = await fetch(`${GITHUB_PAGES}/${file}`, CACHE_BUST);
+      const r = await fetchRetry(`${GITHUB_PAGES}/${file}`, CACHE_BUST);
       if (!r.ok) { fail(`Edit-modal writes — ${file}`, `HTTP ${r.status}`); continue; }
       html = await r.text();
     } catch (e) { fail(`Edit-modal writes — ${file}`, e.message); continue; }
@@ -832,7 +845,7 @@ async function checkCustomerFlows() {
     const url = `${GITHUB_PAGES}/${file}`;
     let html = '';
     try {
-      const r = await fetch(url);
+      const r = await fetchRetry(url);
       if (!r.ok) { fail(`Customer flow — ${file}`, `HTTP ${r.status}`); continue; }
       html = await r.text();
       pass(`Customer flow — ${file} reachable`);
@@ -880,7 +893,7 @@ async function checkCustomerFlows() {
 
   for (const { path, desc } of criticalGetEndpoints) {
     try {
-      const r = await fetch(`${WORKERS_API}${path}`);
+      const r = await fetchRetry(`${WORKERS_API}${path}`);
       if (r.status === 401) {
         fail(`Customer API — ${path}`, `Returns 401 without auth — ${desc} is broken for customers`);
       } else {
@@ -894,7 +907,7 @@ async function checkCustomerFlows() {
 
   // POST /incoming — validation check (invalid data → 400, does NOT save to KV)
   try {
-    const r = await fetch(`${WORKERS_API}/incoming`, {
+    const r = await fetchRetry(`${WORKERS_API}/incoming`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customerData: { firstName: 'X', lastName: 'Y', phone: '123', city: '' } }),
@@ -913,7 +926,7 @@ async function checkCustomerFlows() {
 
   // POST /incoming — honeypot check (honeypot filled → 200 silently, does NOT save to KV)
   try {
-    const r = await fetch(`${WORKERS_API}/incoming`, {
+    const r = await fetchRetry(`${WORKERS_API}/incoming`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ website: 'http://example.com', customerData: { firstName: 'Bot', lastName: 'Test', phone: '9543891234', city: 'Weston' } }),
@@ -947,7 +960,7 @@ async function checkOneMobileFile(file) {
   // Fetch once with desktop UA — reuse content for all checks
   let html = '';
   try {
-    const r = await fetch(url);
+    const r = await fetchRetry(url);
     if (!r.ok) { fail(`${file} — mobile/desktop fetch`, `HTTP ${r.status}`); return; }
     html = await r.text();
   } catch (e) {
@@ -965,7 +978,7 @@ async function checkOneMobileFile(file) {
   // 2. UA availability — confirm CDN serves same content to mobile UAs (status + content-type)
   for (const { name, ua } of MOBILE_UAS) {
     try {
-      const r = await fetch(url, { headers: { 'User-Agent': ua } });
+      const r = await fetchRetry(url, { headers: { 'User-Agent': ua } });
       const ct = r.headers.get('content-type') || '';
       if (!r.ok) {
         fail(`${file} — ${name}`, `HTTP ${r.status}`);
@@ -1036,7 +1049,7 @@ async function checkCronHeartbeat() {
   }
   let hb;
   try {
-    const r = await fetch(`${WORKERS_API}/admin/cron-heartbeat`, {
+    const r = await fetchRetry(`${WORKERS_API}/admin/cron-heartbeat`, {
       headers: { 'Authorization': `Bearer ${verifyToken}` },
     });
     if (!r.ok) { warn('Cron heartbeat', `HTTP ${r.status}`); return; }
@@ -1081,7 +1094,7 @@ async function checkJobHistoryIntegrity() {
 
   let custs;
   try {
-    const r = await fetch(`${WORKERS_API}/customers`, {
+    const r = await fetchRetry(`${WORKERS_API}/customers`, {
       headers: { Authorization: `Bearer ${verifyToken}`, ...CACHE_BUST.headers },
     });
     if (!r.ok) { warn('Job history integrity — fetch', `HTTP ${r.status}`); return; }
@@ -1199,7 +1212,7 @@ async function checkCacheHeaders() {
 
   // HTML files must have no-cache headers
   try {
-    const r = await fetch(`${base}/pure_cleaning_calendar.html`, { headers: { 'Cache-Control': 'no-cache' } });
+    const r = await fetchRetry(`${base}/pure_cleaning_calendar.html`, { headers: { 'Cache-Control': 'no-cache' } });
     const cc = r.headers.get('cache-control') || '';
     if (cc.includes('no-cache') || cc.includes('no-store')) {
       pass('Cache headers — HTML no-cache', `calendar.html: ${cc}`);
@@ -1212,7 +1225,7 @@ async function checkCacheHeaders() {
 
   // Hashed JS bundles must have immutable long-lived cache headers
   try {
-    const r = await fetch(`${base}/static/js/main.faff34a1.js`, { headers: { 'Cache-Control': 'no-cache' } });
+    const r = await fetchRetry(`${base}/static/js/main.faff34a1.js`, { headers: { 'Cache-Control': 'no-cache' } });
     const cc = r.headers.get('cache-control') || '';
     if (cc.includes('max-age=31536000') || cc.includes('immutable')) {
       pass('Cache headers — JS bundle immutable', `main.faff34a1.js: ${cc}`);

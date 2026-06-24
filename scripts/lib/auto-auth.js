@@ -36,11 +36,27 @@ function readEnvLocal() {
 }
 
 async function exchangePassword(password) {
-  const res = await fetch(`${API}/auth/login`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Origin: PAGES_BASE },
-    body:    JSON.stringify({ password }),
-  });
+  // Network-resilient (WO-7): retry ONLY on thrown network errors (undici "fetch
+  // failed", DNS/connection blips), 3 attempts + 15s per-attempt abort. HTTP
+  // responses (429/401/non-2xx) pass straight through to the real-failure checks
+  // below — wrong password / rate-limit stay hard failures, never retried.
+  let res, lastErr = null;
+  for (let i = 1; i <= 3; i++) {
+    try {
+      res = await fetch(`${API}/auth/login`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Origin: PAGES_BASE },
+        body:    JSON.stringify({ password }),
+        signal:  AbortSignal.timeout(15000),
+      });
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (i < 3) await new Promise(r => setTimeout(r, 400 * i));
+    }
+  }
+  if (lastErr) throw lastErr;
   if (res.status === 429) throw new Error('auth/login rate-limited — too many attempts. Wait 1 minute.');
   if (res.status === 401) throw new Error('ADMIN_PASSWORD is incorrect — check .env.local');
   if (!res.ok)            throw new Error(`auth/login returned HTTP ${res.status}`);

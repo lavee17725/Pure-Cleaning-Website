@@ -37,7 +37,17 @@ async function withPage(context, url, label, fn) {
   const page = await context.newPage();
   const ts   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   try {
-    await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+    // Latency-resilient navigation: up to 3 attempts, 60s each (absorbs connection jitter
+    // and gives the page's JS time to initialize before the per-test waitForSelector guards
+    // run — prevents the "half-loaded → uninitialized globals → TypeError cascade" false-fail).
+    // A genuinely unreachable/broken page still fails after all 3 attempts.
+    // Keep waitUntil:'load' — NOT networkidle (the calendar polls forever; prior bug).
+    let navErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try { await page.goto(url, { waitUntil: 'load', timeout: 60000 }); navErr = null; break; }
+      catch (e) { navErr = e; if (attempt < 3) await page.waitForTimeout(1500 * attempt); }
+    }
+    if (navErr) throw navErr;
     await fn(page);
     await page.screenshot({ path: `${SS_DIR}/${label}-${ts}.png` });
   } catch (e) {
@@ -46,6 +56,17 @@ async function withPage(context, url, label, fn) {
   } finally {
     await page.close();
   }
+}
+
+// Latency-resilient data wait (WO-7): poll an in-page predicate (the page's data
+// global is populated) up to `timeout` instead of a fixed waitForTimeout sleep.
+// A hardcoded sleep false-fails when a slow /customers fetch hasn't filled the
+// global yet; this waits for the real signal. Returns true if ready, false on
+// timeout — the caller's own assertion then fails for real, so a genuine no-data
+// regression still goes red (retry absorbs latency only, not real failures).
+async function waitForData(page, predicate, timeout = 45000) {
+  try { await page.waitForFunction(predicate, { timeout, polling: 150 }); return true; }
+  catch { return false; }
 }
 
 async function main() {
@@ -209,7 +230,7 @@ async function main() {
       await page.waitForFunction(() => {
         const el = document.getElementById('svcTabs');
         return el && el.classList.contains('show');
-      }, { timeout: 20000 }).catch(() => {});
+      }, { timeout: 45000 }).catch(() => {});  // WO-7: bigger budget for slow DB load
 
       // ── Regression: tabs VISIBLE (Bug: only shown in CSV path, not DB path) ──
       const svcTabsVisible = await page.locator('#svcTabs').isVisible();
@@ -263,7 +284,7 @@ async function main() {
 
     // ── CALENDAR ─────────────────────────────────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar', async page => {
-      await page.waitForSelector('#calGrid', { timeout: 20000 }).catch(() => {});
+      await page.waitForSelector('#calGrid', { timeout: 45000 }).catch(() => {});  // WO-7: bigger budget for slow load
 
       // ── Regression: drag handler marker present ──
       const hasDragMarker = await page.evaluate(() =>
@@ -284,9 +305,19 @@ async function main() {
       }
 
       // ── Regression: week navigation buttons work ──
+      // WO-7 latency-resilient: wait for the week label to actually populate (a slow
+      // data load leaves it ""/"Loading…"), then poll for it to change after the
+      // click instead of a fixed 400ms (label updates on requestAnimationFrame).
+      await waitForData(page, () => {
+        const w = document.getElementById('weekLabel');
+        return w && w.textContent.trim() && !/loading/i.test(w.textContent);
+      });
       const label0 = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
       await page.locator('button:has-text("Next")').first().click();
-      await page.waitForTimeout(400);
+      await page.waitForFunction(
+        (prev) => { const w = document.getElementById('weekLabel'); return w && w.textContent.trim() && w.textContent.trim() !== prev; },
+        label0, { timeout: 10000 }
+      ).catch(() => {});
       const label1 = (await page.locator('#weekLabel').textContent().catch(() => '')).trim();
       if (label0 && label1 && label0 !== label1) {
         pass('Calendar — week nav button', `${label0} → ${label1}`);
@@ -888,7 +919,10 @@ async function main() {
 
     // ── BULK REACTIVATION — DNS TAB ──────────────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_bulk_reactivation.html`, 'bulk-reactivation-dns', async page => {
-      await page.waitForSelector('.pool-tab', { timeout: 20000 }).catch(() => {});
+      await page.waitForSelector('.pool-tab', { timeout: 45000 }).catch(() => {});  // WO-7: bigger budget for slow DB load
+      // WO-7: the DNS tab button is data-driven — wait for it to render (slow DB
+      // load) before asserting, instead of racing the fetch with a fixed budget.
+      await page.locator('button:has-text("Did Not Service")').first().waitFor({ state: 'visible', timeout: 45000 }).catch(() => {});
 
       // ── DNS tab button exists ──
       const dnsTab = await page.locator('button:has-text("Did Not Service")').isVisible().catch(() => false);
@@ -1052,7 +1086,7 @@ async function main() {
     // Tests getExtraCompletedJobsForRig directly (more reliable than DOM nav to past dates).
     // Total cards per customer = getScheduledForRig count + getExtraCompletedJobsForRig count.
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'multipropty-dedup', async page => {
-      await page.waitForTimeout(2000);
+      await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
         const testPhone = '7770001234';
@@ -1140,7 +1174,7 @@ async function main() {
     // Regression test: jobs completed on a different day than scheduled (ss.scheduledDate ≠ jh.date)
     // should NOT produce orphan extra cards on the completion date.
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'late-completion-dedup', async page => {
-      await page.waitForTimeout(2000);
+      await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
         const PH = '0000000088';
@@ -1229,7 +1263,7 @@ async function main() {
 
     // ── EXTRA CARD FULL CONTROLS ─────────────────────────────────────────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'extra-card-controls', async page => {
-      await page.waitForTimeout(2000);
+      await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
         const orig = window.saveDb; window.saveDb = () => Promise.resolve();
@@ -1840,7 +1874,7 @@ async function main() {
 
     // ── NEW CUSTOMER — no phantom double after save (double-push bug fix) ────────
     await withPage(context, `${PAGES_BASE}/pure_cleaning_new_customer.html`, 'nc-no-double-push', async page => {
-      await page.waitForTimeout(2000);
+      await waitForData(page, () => typeof dbRecord !== 'undefined' && !!dbRecord && Array.isArray(dbRecord.customers));
 
       const result = await page.evaluate(() => {
         const countBefore = dbRecord.customers.length;

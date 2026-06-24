@@ -292,6 +292,8 @@ A completed-job revert must clear completion state across **four stores in locks
 
 **verify-deploy markers** (line 79–82 of `pure_cleaning_calendar.html` section): `j.source === 'rig_segment'`, `j.source === 'day_segment'`, `completedAt: null, paidAt: null`. Missing any of these = a regression of one of the four bugs from 2026-06-23 cowork.
 
+**Verifiers are latency-resilient (WO-7, 2026-06-23).** `verify-deploy.js` (`fetchRetry`: retry-on-thrown-network-error, 3 attempts + 20s abort) and `verify-browser.js` (`withPage`: 3 nav attempts × 60s budget) absorb connection jitter. Retries fire ONLY on thrown network errors (undici `fetch failed`, nav timeouts) — HTTP status (4xx/5xx) and content/marker assertions still hard-fail, so real regressions stay red. **Do NOT "fix" verifier flakiness by re-running `npm run deploy` (Rule 3):** network jitter is now absorbed; a red result means a genuine content/status failure, not a slow connection.
+
 ### Post-Fix Protocol (Section 9)
 
 **Triggers** (any one → document and verify before closing session):
