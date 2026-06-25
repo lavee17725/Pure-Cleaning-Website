@@ -6664,6 +6664,7 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     workSiteCity:       j.workSiteCity       || null,
     crewCount:          j.crewCount          ?? null,  // null when unknown — Track 2 must not guess
     roofStories:        j.roofStories        || null,
+    phaseScope:         j.phaseScope         || null,  // WO-C/DL-03: carry per-day scope into history for reprints
     // Migration 0015: outcome + cost fields
     tipped:             !!j.tipped,
     tipAmount:          j.tipAmount          ?? null,
@@ -6769,6 +6770,7 @@ function _d1BuildScheduledStatus(personJobs) {
     geocodeSource:       ss.geocodeSource       || null,
     roofStories:         ss.roofStories         || null,
     crewCount:           ss.crewCount           || null,
+    phaseScope:          ss.phaseScope          || null,   // WO-C: per-day crew scope (what + where)
   };
 }
 
@@ -7227,7 +7229,7 @@ async function d1AllCustomersToKvShape(env) {
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
       'drivetimeFromPreviousJob,milesFromPreviousJob,' +
       'parentJobId,isMultiDayParent,isRigSegment,' +
-      'dayNumber,dayPhase ' +
+      'dayNumber,dayPhase,phaseScope ' +
       'FROM Job ORDER BY scheduledDate DESC'
     ).all().then(r => r.results || []),
     env.DATA.get('review_states', 'json').then(d => d || {}),
@@ -7395,7 +7397,7 @@ async function d1CustomerToKvShape(phone, env) {
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
       'drivetimeFromPreviousJob,milesFromPreviousJob,' +
       'parentJobId,isMultiDayParent,isRigSegment,' +
-      'dayNumber,dayPhase ' +
+      'dayNumber,dayPhase,phaseScope ' +
       'FROM Job WHERE payerId=? ORDER BY scheduledDate DESC'
     ).bind(personId).all().then(r => r.results || []),
     // TruckEvent drive times scoped to this person's jobs
@@ -8201,6 +8203,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.dayNumber,
         j.totalDays,
         j.dayPhase,
+        j.phaseScope,
         j.isRigSegment
       FROM Job j
       JOIN Person p ON p.personId = j.payerId
@@ -10535,7 +10538,7 @@ async function handleGetJobDays(request, env, jobId, corsHeaders) {
   const rootId = rootRow.rootId;
 
   const { results } = await env.DB.prepare(`
-    SELECT jobId, scheduledDate, amount, dayPhase, dayNumber, totalDays, rigId, servicesRaw,
+    SELECT jobId, scheduledDate, amount, dayPhase, phaseScope, dayNumber, totalDays, rigId, servicesRaw,
            crewCount, isRigSegment
     FROM Job
     WHERE (jobId=? OR parentJobId=?)
@@ -10812,11 +10815,12 @@ async function handleSplitJob(request, env, corsHeaders) {
     const day1 = days[0];
     await env.DB.prepare(
       `UPDATE Job SET isMultiDayParent=1, dayNumber=1, totalDays=?,
-       dayPhase=?, servicesRaw=?, jobNotes=?, amount=?, scheduledDate=?, rigId=?, modifiedAt=?
+       dayPhase=?, phaseScope=?, servicesRaw=?, jobNotes=?, amount=?, scheduledDate=?, rigId=?, modifiedAt=?
        WHERE jobId=?`
     ).bind(
       totalDays,
       day1.dayPhase      || null,
+      day1.scope         || null,   // WO-C: per-day crew scope (what + where)
       day1.dayPhase      || parent.servicesRaw || null,   // narrow to phase; fall back to original if no phase
       day1.dayPhase      || parent.jobNotes    || null,
       day1.amount,
@@ -10841,8 +10845,8 @@ async function handleSplitJob(request, env, corsHeaders) {
             workSitePlaceId, workSiteGoogleVerified,
             endCustomerName, endCustomerPhone, roofStories, crewCount,
             source, createdAt, modifiedAt,
-            parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+            parentJobId, dayNumber, totalDays, dayPhase, phaseScope, isMultiDayParent)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         childId,
         parent.payerId,
@@ -10870,6 +10874,7 @@ async function handleSplitJob(request, env, corsHeaders) {
         dayNum,
         totalDays,
         d.dayPhase || null,
+        d.scope    || null,   // WO-C: per-day crew scope (what + where)
         0          // isMultiDayParent — children are never parents
       ).run();
     }
@@ -10918,6 +10923,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
   'roofType',      // DL-01: roof material type, written at completion and pencil edit
   'dayPhase',      // Phase 2C: multi-day phase label editable via PATCH
+  'phaseScope',    // WO-C: per-day "what + where" crew scope — editable on single jobs via PATCH
   // Migration 0015: per-job outcome fields (post-job tip + complaint recording)
   'tipped', 'tipAmount', 'complained', 'complaintNotes',
   // Migration 0015: cost-ready fields (structure now; populate as expense tracking matures)
@@ -11073,6 +11079,7 @@ async function _patchJobKvSync(job, patchedFields, env, now) {
     if ('servicesRaw'         in patchedFields) ss.jobNotes       = job.servicesRaw || ss.jobNotes;
     if ('jobNotes'            in patchedFields) ss.jobNotes       = job.jobNotes    || ss.jobNotes;
     if ('roofStories'         in patchedFields) ss.roofStories    = job.roofStories ?? null;
+    if ('phaseScope'          in patchedFields) ss.phaseScope     = job.phaseScope  ?? null;
     if ('state' in patchedFields) {
       ss.state = job.state;
       if (job.state === 'completed') {

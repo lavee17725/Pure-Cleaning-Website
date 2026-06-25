@@ -1351,6 +1351,7 @@ body{background:#f0f2f5;}
 
     <div class="modal-section-hdr">Service Details</div>
     <div class="modal-field"><label>Services *</label><input id="feServices" class="modal-input" placeholder="e.g. Roof Softwash, Driveway…" oninput="checkFeRoof()"></div>
+    <div class="modal-field"><label>Scope / crew instructions — what + where</label><input id="fePhaseScope" class="modal-input" placeholder="e.g. driveway front+back, seal front only"></div>
     <div id="feRoofFields">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
         <div class="modal-field">
@@ -2432,6 +2433,7 @@ function _jobRowToShape(job, isMultiProperty) {
       estimatedDuration: durFromKv,
       duration:          durLabel,
       roofStories:       job.roofStories || cust.scheduledStatus?.roofStories || null,  // T1.15: D1 first
+      phaseScope:        job.phaseScope || null,   // WO-C: per-day crew scope (what + where)
       sqFt:              cust.scheduledStatus?.sqFt || cust.sqFt || null,
       confirmationSentAt:cust.scheduledStatus?.confirmationSentAt || null,
       confirmedByCustomer:cust.scheduledStatus?.confirmedByCustomer || false,
@@ -5685,6 +5687,7 @@ async function _doCompleteJob(log) {
     // Job property + operator context (DL-01, DL-07)
     roofStories:     ss.roofStories || getLastKnownRoofStories(c) || null,
     roofType:        ss.roofType || null,
+    phaseScope:      ss.phaseScope || null,   // WO-C/DL-03: carry crew scope into history for reprints
     customerType:    c.customerType || null,
     scheduleNote:    ss.scheduleNote || null,
     jobLog:          ss.jobLog || null,
@@ -5778,6 +5781,7 @@ async function _doCompleteJob(log) {
           source:      'day_segment',
           dayNumber:   seg.dayNumber  ?? null,
           dayPhase:    seg.dayPhase   || null,
+          phaseScope:  seg.phaseScope || null,   // WO-C/DL-03: per-day scope into history for reprints
           crewCount:   seg.crewCount  ?? null,
         });
       }
@@ -6864,8 +6868,8 @@ function printInvoice(phone, jhJobId) {
   const dateFmt  = d => d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}) : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
   const compDate = _jh ? dateFmt(_jh.completedAt?.slice(0,10) || _jh.date) : dateFmt(ss.completedDate);
   const services = _jh
-    ? (_jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')
-    : (ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
+    ? (_jh.phaseScope || _jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')   // WO-C/DL-03: completed reprint reads scope from history
+    : (ss.phaseScope || ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
   const amount   = _jh ? (_jh.amount || 0) : (ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0);
   // Partner-aware address: worksite first, billing anchor last (helper handles fallback)
   const _printAddr = _partnerAddr(c, _jh);
@@ -6963,8 +6967,8 @@ function emailInvoice(phone, jhJobId) {
     ? new Date(_rawDate+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
     : new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
   const services = _jh
-    ? (_jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')
-    : (ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
+    ? (_jh.phaseScope || _jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')   // WO-C/DL-03: completed reprint reads scope from history
+    : (ss.phaseScope || ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
   const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  ✓  ${s}`).join('\n');
   // Partner-aware address: worksite first, billing anchor last (helper handles fallback)
   const _emailAddr = _partnerAddr(c, _jh);
@@ -7014,7 +7018,11 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const ss       = c.scheduledStatus || {};
   const qs       = c.quoteStatus || {};
   const name     = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
-  const services = ss.jobNotes || qs.mainServices || qs.notes || 'Services as discussed';
+  // WO-C: per-day crew scope (what + where) shown prominently when set, so split-day
+  // sheets stop printing the generic phase label ("Pressure Cleaning"). Falls back to
+  // the surface/services list, then "Services as discussed" — render what's stored,
+  // never a false default (T1.21).
+  const services = ss.phaseScope || ss.jobNotes || qs.mainServices || qs.notes || 'Services as discussed';
   const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
   const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
   const addOns   = c.addOns || [];
@@ -7432,7 +7440,7 @@ function _fullProposalBody(c, splitDays, totalAmt) {
     const amt   = parseFloat(d.amount)||0;
     return `
       <tr class="li-row">
-        <td class="li-phase">${esc(phase.toUpperCase())}<div class="li-sub">Day ${d.dayNumber||'?'} &nbsp;·&nbsp; ${_fmtD(d.scheduledDate)}</div></td>
+        <td class="li-phase">${esc(phase.toUpperCase())}${d.phaseScope?`<div class="li-scope">${esc(d.phaseScope)}</div>`:''}<div class="li-sub">Day ${d.dayNumber||'?'} &nbsp;·&nbsp; ${_fmtD(d.scheduledDate)}</div></td>
         <td class="li-amt">$${amt.toLocaleString()}</td>
       </tr>`;
   }).join('')
@@ -7490,6 +7498,8 @@ table{width:auto;border-collapse:collapse;}
 .li-row:last-child td{border-bottom:2pt solid #0a1628;}
 .li-phase{font-family:Arial,sans-serif;font-size:${_liFs};font-weight:700;color:#0a1628;letter-spacing:.5pt;}
 .li-sub{font-family:Arial,sans-serif;font-size:8.5pt;font-weight:600;color:#666;letter-spacing:.5pt;margin-top:2px;}
+.li-scope{font-family:Arial,sans-serif;font-size:10.5pt;font-weight:600;color:#1a1a1a;line-height:1.3;margin-top:2px;white-space:normal;word-break:break-word;}
+.li-row td{page-break-inside:avoid;}
 .li-amt{font-family:Georgia,serif;font-size:${_liFs};font-weight:700;color:#0a1628;text-align:right;white-space:nowrap;}
 </style>
 
@@ -8008,6 +8018,9 @@ function openEditModal(phone, jhJobId, calJobId) {
     ? (_jh.services || _jh.jobNotes || '').trim()
     : (ss.jobNotes || qs.mainServices || qs.notes || '').trim();
   document.getElementById('feServices').value = svc;
+  // WO-C: per-day/job crew scope (what + where) — completed reads from history, else live ss.
+  const _feScopeEl = document.getElementById('fePhaseScope');
+  if (_feScopeEl) _feScopeEl.value = (_jh ? _jh.phaseScope : ss.phaseScope) || '';
   checkFeRoof();
 
   // Gap 1 fix: read stored roofType from calJob (propRoofType from D1 Property), customer, or svcAgreed.
@@ -8338,6 +8351,9 @@ function _splitAddDay(skipRedistribute = false) {
     <div id="splitPhaseOther_${idx}" style="display:none;margin-top:4px;">
       <input type="text" id="splitPhaseOtherVal_${idx}" class="modal-input" style="font-size:13px;" placeholder="Describe phase…">
     </div>
+    <div style="margin-top:4px;">
+      <input type="text" id="splitScope_${idx}" class="modal-input" style="font-size:13px;width:100%;" placeholder="Scope — what + where (e.g. driveway front+back, seal front only)">
+    </div>
   `;
   container.appendChild(div);
   if (!skipRedistribute) _splitRedistribute();
@@ -8448,6 +8464,8 @@ async function openManageDaysModal() {
     const amtEl   = document.getElementById('splitAmt_' + i);
     if (dateEl) dateEl.value = d.scheduledDate || '';
     if (amtEl)  amtEl.value  = parseFloat(d.amount || 0).toFixed(2);
+    const scopeEl = document.getElementById('splitScope_' + i);   // WO-C: pre-fill existing per-day scope
+    if (scopeEl && d.phaseScope) scopeEl.value = d.phaseScope;
     if (phaseEl && d.dayPhase) {
       if (_SPLIT_PHASES.includes(d.dayPhase)) {
         phaseEl.value = d.dayPhase;
@@ -8486,7 +8504,8 @@ async function submitSplitJob() {
     const phaseRaw = phaseEl ? phaseEl.value : '';
     const dayPhase = phaseRaw === 'Other' ? (otherValEl?.value.trim() || 'Other') : phaseRaw;
     const amount   = parseFloat(amtEl ? amtEl.value : 0) || 0;
-    days.push({ scheduledDate, amount, dayPhase: dayPhase || null, rigId: _splitRigId });
+    const scope    = (document.getElementById('splitScope_' + i)?.value || '').trim();   // WO-C
+    days.push({ scheduledDate, amount, dayPhase: dayPhase || null, scope: scope || null, rigId: _splitRigId });
   }
   if (days.length < 1) { alert('At least 1 day required.'); return; }
   if (!_splitManageMode && days.length < 2) { alert('Split requires at least 2 days.'); return; }
@@ -8652,7 +8671,8 @@ async function saveFullEdit() {
   const city    = document.getElementById('feCity').value.trim();
   const sqFt    = parseInt(document.getElementById('feSqFt').value) || null;
   const leadSrc = document.getElementById('feLeadSrc').value;
-  const svc     = document.getElementById('feServices').value.trim();
+  const svc        = document.getElementById('feServices').value.trim();
+  const phaseScope = (document.getElementById('fePhaseScope')?.value || '').trim();   // WO-C
   const price   = parseFloat(document.getElementById('fePrice').value) || 0;
   const date    = document.getElementById('feDate').value;
   const rig     = document.getElementById('feRig').value;
@@ -8728,6 +8748,7 @@ async function saveFullEdit() {
       const _jobPatch = {};
       if (svc !== undefined)        _jobPatch.servicesRaw      = svc || null;
       if (svc !== undefined)        _jobPatch.jobNotes         = svc || null;
+      _jobPatch.phaseScope = phaseScope || null;   // WO-C: per-job crew scope (null clears)
       if (price !== undefined)      _jobPatch.amount           = price || 0;
       if (date)                     _jobPatch.scheduledDate    = date;
       if (rig !== undefined)        _jobPatch.rigId            = rig || null;
@@ -8769,6 +8790,7 @@ async function saveFullEdit() {
     const patchBody = {};
     const _saveCalJob = calendarJobs.find(j => j.jobId === _feCalJobId) || null;
     if (svc) { patchBody.servicesRaw = svc; patchBody.jobNotes = svc; }
+    patchBody.phaseScope = phaseScope || null;   // WO-C: per-job crew scope (null clears)
     if (price) patchBody.amount        = price;
     if (date)  patchBody.scheduledDate = date;
     patchBody.rigId = rig || null;

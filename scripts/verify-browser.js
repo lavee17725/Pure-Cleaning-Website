@@ -1630,6 +1630,25 @@ async function main() {
       }
     }
 
+    // ── WO-C: per-day "scope" (what + where) renders in the day sheet ─────────
+    // A job with scheduledStatus.phaseScope must surface that text in _jobSheetBody
+    // output (not the generic phase label). Render-only — no live data dependency.
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'wo-c-phasescope', async page => {
+      await page.waitForFunction(() => typeof _jobSheetBody === 'function', { timeout: 45000 });
+      const result = await page.evaluate(() => {
+        const SCOPE = 'WOC_SCOPE_driveway_front_back_seal_front_only';
+        const c = {
+          firstName: 'Scope', lastName: 'Test', phone: '0000000003',
+          scheduledStatus: { state: 'scheduled', scheduledDate: '2026-07-07', rig: 'rig_1', approvedAmount: 400, phaseScope: SCOPE },
+        };
+        // _jobSheetBody renders service items uppercased — compare case-insensitively.
+        try { return _jobSheetBody(c, 1, 1, '2026-07-07', 'rig_1').toUpperCase().includes(SCOPE.toUpperCase()) ? 'OK' : 'NOT_RENDERED'; }
+        catch (e) { return 'ERR:' + e.message; }
+      });
+      if (result === 'OK') pass('Calendar — phaseScope renders in job sheet (WO-C)');
+      else fail('Calendar — phaseScope renders in job sheet (WO-C)', String(result));
+    });
+
     // ── GOOGLE DRIVE / WEEKLY EXPORT ─────────────────────────────────────────
     // Test 1: /oauth/google/start returns a redirect to Google (302 → accounts.google.com)
     queuePage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {

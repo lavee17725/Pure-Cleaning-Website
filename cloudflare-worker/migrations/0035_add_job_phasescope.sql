@@ -1,0 +1,13 @@
+-- Migration 0035: Job.phaseScope — per-day "what + where" crew scope line.
+-- 2026-06-25 (WORK ORDER C): split-job day sheets / proposals only printed the
+-- phase label ("Pressure Cleaning"). The crew needs specifics per day — which
+-- surfaces, which treatment where ("driveway front+back pressure" / "seal front
+-- only"). No column recorded that. This adds one nullable TEXT column, one per
+-- job/day row, captured in the split modal + full-edit modal, written by
+-- /admin/job/split and single-job PATCH (phaseScope in _JOB_MUTABLE_FIELDS), and
+-- rendered per day on _jobSheetBody / _fullProposalBody. Carried into jobHistory
+-- at completion (DL-03) so reprints of finished jobs still show it.
+--
+-- ADDITIVE ONLY — nullable, no existing column changed, no row mutated.
+-- KV snapshot taken before applying (Rule 6). Date: 2026-06-25
+ALTER TABLE Job ADD COLUMN phaseScope TEXT;

@@ -95,6 +95,8 @@ const HTML_FILES = [
       'function _fullProposalBody',              // multi-phase line-items print body
       'Total — All Phases',                      // combined-total label (proves all-phase rollup)
       'function _renderAltContacts',             // WO-2: alt-contacts render on card + full-details modal (T1.21 read surface)
+      'fePhaseScope',                            // WO-C: per-job/day scope capture field (full-edit modal)
+      'ss.phaseScope ||',                        // WO-C: day sheet renders scope first, not generic phase label
     ],
   },
   {
