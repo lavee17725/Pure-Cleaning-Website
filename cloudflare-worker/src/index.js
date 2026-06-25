@@ -8211,7 +8211,17 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.totalDays,
         j.dayPhase,
         j.phaseScope,
-        j.isRigSegment
+        j.isRigSegment,
+        -- WO-E: does this job's split GROUP include a (non-cancelled) Seal phase?
+        -- Authoritative over the whole group regardless of which week is loaded —
+        -- fixes the WO-D banner that the client-side calendarJobs scan missed when
+        -- the Seal phase is scheduled in a different week. Drives the "PREP FOR
+        -- SEAL" banner on the Pressure-Clean day sheet.
+        (SELECT COUNT(*) FROM Job s
+           WHERE COALESCE(s.parentJobId, s.jobId) = COALESCE(j.parentJobId, j.jobId)
+             AND s.state != 'cancelled'
+             AND (LOWER(s.dayPhase) LIKE '%seal%' OR LOWER(s.servicesRaw) LIKE '%seal%' OR LOWER(s.phaseScope) LIKE '%seal%')
+        ) > 0 AS groupHasSeal
       FROM Job j
       JOIN Person p ON p.personId = j.payerId
       LEFT JOIN Property prop ON prop.propertyId = j.propertyId

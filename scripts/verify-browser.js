@@ -1698,13 +1698,25 @@ async function main() {
           out.fpNoBanner = !/js-prep-seal/.test(fp);   // neither the div nor leftover CSS
           out.fpNotesText = fp.includes('WOD crew note here');
         } catch (e) { out.fpErr = e.message; }
-        // Day sheet: Pressure phase + group has seal → PREP FOR SEAL; Seal phase → none.
-        const mk = (dayPhase, hasSeal) => ({ firstName: 'D', lastName: 'T', phone: '0000000004',
-          scheduledStatus: { state: 'scheduled', scheduledDate: '2026-07-07', rig: 'rig_1', dayPhase, _groupHasSeal: hasSeal } });
+        // WO-E: drive the REAL resolution — _jobRowToShape must read the worker's
+        // authoritative groupHasSeal flag, NOT the calendarJobs scan. We build raw
+        // job rows as handleCalendarJobs returns them and put NO seal sibling in
+        // calendarJobs, so the old scan-based path would return false. The banner
+        // must follow the flag (cross-week proof), through _jobRowToShape → ss._groupHasSeal.
+        const rawJob = (dayPhase, groupHasSeal) => ({
+          jobId: 'woe_' + dayPhase.replace(/\s/g, ''), primaryPhone: '0000000005',
+          firstName: 'WOE', lastName: 'Test', state: 'scheduled', scheduledDate: '2026-07-07',
+          rigId: 'rig_1', dayPhase, parentJobId: 'woe_root_no_sibling_loaded', groupHasSeal,
+        });
+        const sheetFor = (dayPhase, groupHasSeal) => {
+          const shape = _jobRowToShape(rawJob(dayPhase, groupHasSeal), false);
+          return { ss: shape.scheduledStatus._groupHasSeal, banner: _jobSheetBody(shape, 1, 1, '2026-07-07', 'rig_1').includes('PREP FOR SEAL') };
+        };
         try {
-          out.pressureBanner = _jobSheetBody(mk('Pressure Clean', true), 1, 1, '2026-07-07', 'rig_1').includes('PREP FOR SEAL');
-          out.sealNoBanner   = !_jobSheetBody(mk('Seal', true), 1, 1, '2026-07-10', 'rig_1').includes('PREP FOR SEAL');
-          out.pressureNoSealNoBanner = !_jobSheetBody(mk('Pressure Clean', false), 1, 1, '2026-07-07', 'rig_1').includes('PREP FOR SEAL');
+          const press = sheetFor('Pressure Clean', 1);   // worker flag=1, no sibling loaded
+          out.pressureBanner = press.banner === true && press.ss === true;
+          out.sealNoBanner = sheetFor('Seal', 1).banner === false;            // seal-phase day never preps
+          out.pressureNoSealNoBanner = sheetFor('Pressure Clean', 0).banner === false; // group has no seal
         } catch (e) { out.dsErr = e.message; }
         return out;
       });

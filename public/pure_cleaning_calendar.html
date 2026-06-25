@@ -2349,10 +2349,11 @@ async function patchJob(jobId, body) {
 
 // Adapter: flat calendarJobs[] row → customer-like shape jobCardScheduled expects.
 // Supplements with dbRecord lookup for KV-only fields (payment, alerts, crew).
-// WO-D: does this job's split group include a Seal phase? Drives the "PREP FOR
-// SEAL" banner on the Pressure-Clean day sheet (that pressure clean is prep for a
-// later seal). Scans calendarJobs siblings by the COALESCE group root
-// (parentJobId||jobId) — no network call; siblings are already loaded.
+// WO-E: FALLBACK ONLY — the authoritative "group has a Seal phase" signal now comes
+// from the worker (Job row's groupHasSeal, computed over the whole group regardless
+// of week). This calendarJobs scan can only see the currently-loaded week, so it
+// misses a Seal phase scheduled in a different week (the WO-D regression). Used only
+// when job.groupHasSeal is absent (e.g., pre-redeploy stale shape).
 function _groupHasSealPhase(job) {
   if (!job) return false;
   const test = j => /seal/i.test(j.dayPhase || '') || /seal/i.test(j.servicesRaw || '') || /seal/i.test(j.phaseScope || '');
@@ -2447,7 +2448,10 @@ function _jobRowToShape(job, isMultiProperty) {
       roofStories:       job.roofStories || cust.scheduledStatus?.roofStories || null,  // T1.15: D1 first
       phaseScope:        job.phaseScope || null,   // WO-C: per-day crew scope (what + where)
       dayPhase:          job.dayPhase || null,      // WO-D: this day's phase (for the PREP-FOR-SEAL trigger)
-      _groupHasSeal:     _groupHasSealPhase(job),   // WO-D: any sibling is a Seal phase
+      // WO-E: prefer the authoritative server flag (computed over the whole group,
+      // any week) — the calendarJobs scan only saw the loaded week, so a Seal phase
+      // scheduled in a different week was invisible and the banner never fired.
+      _groupHasSeal:     (job.groupHasSeal != null) ? !!job.groupHasSeal : _groupHasSealPhase(job),
       sqFt:              cust.scheduledStatus?.sqFt || cust.sqFt || null,
       confirmationSentAt:cust.scheduledStatus?.confirmationSentAt || null,
       confirmedByCustomer:cust.scheduledStatus?.confirmedByCustomer || false,
