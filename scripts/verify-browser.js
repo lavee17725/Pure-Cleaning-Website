@@ -765,6 +765,37 @@ async function main() {
         }
       }
 
+      // ── WORK ORDER A: D1 completed card rig-correction must NOT un-complete ────
+      // The guard above only catches the !jobId (KV) path. D1 completed cards carry
+      // a real jobId — dragging one must PATCH { rigId } ONLY (never state/date), or
+      // the worker nulls completedAt/payment (the Byron/Tacoma un-complete bug).
+      // Inject a fake completed D1 job, stub patchJob to capture the payload.
+      {
+        const woa = await page.evaluate(async () => {
+          const TEST_JOB = 'woa_test_completed_job';
+          calendarJobs.push({ jobId: TEST_JOB, phone: '0000000009', firstName: 'WOA', lastName: 'Test',
+            state: 'completed', rigId: 'rig_1', scheduledDate: '2026-07-07' });
+          const origPatch = window.patchJob, origRefresh = window.refreshCalendarJobs;
+          let captured = null;
+          window.patchJob = (id, body) => { captured = { id, body }; return Promise.resolve({ success: true }); };
+          window.refreshCalendarJobs = () => Promise.resolve();
+          try { await handleDropToRig(TEST_JOB, '0000000009', '2026-07-07', 'rig_2'); }
+          finally {
+            window.patchJob = origPatch; window.refreshCalendarJobs = origRefresh;
+            const i = calendarJobs.findIndex(j => j.jobId === TEST_JOB);
+            if (i >= 0) calendarJobs.splice(i, 1);
+          }
+          return captured;
+        });
+        if (!woa) {
+          fail('Calendar — WORK ORDER A: completed D1 drag sends a rig PATCH', 'patchJob was never called');
+        } else if (woa.body && woa.body.rigId === 'rig_2' && !('state' in woa.body) && !('scheduledDate' in woa.body)) {
+          pass('Calendar — WORK ORDER A: completed D1 drag PATCHes { rigId } only (no state/date)', JSON.stringify(woa.body));
+        } else {
+          fail('Calendar — WORK ORDER A: completed D1 drag must not reset state/completion', `captured PATCH=${JSON.stringify(woa.body)}`);
+        }
+      }
+
       // ── Pencil edit updates jobHistory rigId on completed job ─────────────
       // Test: saveFullEdit on Jim New changes both scheduledStatus.rig AND jobHistory rigId.
       // We test the in-memory mutation only (no DB write) to avoid data pollution.

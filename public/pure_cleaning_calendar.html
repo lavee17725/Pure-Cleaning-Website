@@ -4334,6 +4334,37 @@ async function handleDropToRig(jobId, phone, date, rig) {
     return;
   }
   const calJob = calendarJobs.find(j => j.jobId === jobId);
+
+  // ── COMPLETED-JOB RIG CORRECTION (WORK ORDER A, 2026-06-25) ───────────────────
+  // D1-sourced completed cards carry a real jobId (jobCardScheduled sets data-job-id
+  // for completed cards too), so they bypass the !jobId guard above and used to fall
+  // into the reschedule PATCH below — which sends state:'scheduled', and the worker's
+  // _patchJobKvSync then nulls completedAt/paidAt/paymentStatus. Dragging a completed
+  // card to the right rig un-completed the job (Byron/Tacoma bug). A drag on a
+  // completed job is a RIG CORRECTION only: PATCH { rigId } — never state/date — so
+  // completion + payment survive. jobHistory[].rigId is what the nightly Bouncie
+  // matcher keys on, so this also re-points GPS attribution to the correct truck.
+  if (calJob?.state === 'completed') {
+    if (calJob.rigId === rig) { render(); return; }          // same rig → no-op
+    try {
+      await patchJob(jobId, { rigId: rig });                 // rig-only: preserves completedAt/payment
+      calJob.rigId = rig;                                    // in-memory so re-render places it right
+      const c = findCustomer(calJob.phone || phone);
+      if (c) {
+        if (c.scheduledStatus?.state === 'completed') c.scheduledStatus.rig = rig;
+        const jh = (c.jobHistory || []).find(j =>
+          j.jobId === jobId ||
+          (j.date === calJob.scheduledDate && j.source !== 'csv_backfill'));
+        if (jh) { jh.rig = rig; jh.rigId = rig; }            // T1.13 in-memory mirror (D1 read is canonical on refresh)
+      }
+      await refreshCalendarJobs();
+      render(); renderCrewPanel(getWeekDates());
+      showToast(`↔ rig corrected → ${RIG_LABELS[rig]} (completion preserved)`);
+    } catch(e) { showToast(`⚠️ Could not change rig — ${e.message}`); render(); }
+    return;
+  }
+  // ── END COMPLETED-JOB RIG CORRECTION ──────────────────────────────────────────
+
   // Clear old jobOrder slot (UI state only)
   const prevDate = calJob?.scheduledDate, prevRig = calJob?.rigId;
   if (prevDate && prevRig && (prevDate !== date || prevRig !== rig)) {
