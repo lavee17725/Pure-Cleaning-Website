@@ -1716,6 +1716,27 @@ async function main() {
       else fail('Calendar — day sheet: PREP FOR SEAL on pressure phase only (WO-D)', JSON.stringify(r));
     });
 
+    // ── WORK ORDER B: directory satellite thumbnail + zoom lightbox ───────────
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'wo-b-directory-sat', async page => {
+      await page.waitForFunction(() => typeof allCustomers !== 'undefined' && allCustomers.length > 0
+        && typeof buildRow === 'function' && typeof _dirOpenSatLb === 'function', { timeout: 45000 });
+      const r = await page.evaluate(() => {
+        // Step 1: summary payload reaches the page with satelliteImageKey on some customers.
+        const withKey = allCustomers.filter(c => c.satelliteImageKey);
+        const out = { keyCount: withKey.length, hasLb: !!document.getElementById('dirSatLb') };
+        // Step 2: buildRow renders a clickable thumb when a key exists, empty cell when not.
+        out.thumbWhenKey = withKey.length ? /dir-sat-thumb/.test(buildRow(withKey[0])) : null;
+        const noKey = allCustomers.find(c => !c.satelliteImageKey);
+        out.noThumbWhenNoKey = noKey ? !/dir-sat-thumb/.test(buildRow(noKey)) : null;
+        return out;
+      });
+      if (r.keyCount > 0 && r.thumbWhenKey === true && r.noThumbWhenNoKey !== false && r.hasLb) {
+        pass('Directory — satellite thumb renders for keyed rows + lightbox present (WO-B)', `${r.keyCount} customers with imagery`);
+      } else {
+        fail('Directory — satellite thumb + lightbox (WO-B)', JSON.stringify(r));
+      }
+    });
+
     // ── GOOGLE DRIVE / WEEKLY EXPORT ─────────────────────────────────────────
     // Test 1: /oauth/google/start returns a redirect to Google (302 → accounts.google.com)
     queuePage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {

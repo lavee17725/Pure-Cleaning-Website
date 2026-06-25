@@ -193,6 +193,7 @@ tr:hover .dir-edit-btn{opacity:.55;}
               <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
               <th data-sort="lifetimeSpend" onclick="clickSort('lifetimeSpend')">Lifetime $ <span class="sind">▲▼</span></th>
               <th class="no-sort">Status</th>
+              <th class="no-sort">Sat</th>
             </tr>
           </thead>
           <tbody id="tableBody"></tbody>
@@ -755,6 +756,14 @@ function buildRow(c){
     <td>${c.totalJobs||'—'}</td>
     <td class="money">${c.lifetimeSpend>0?'$'+c.lifetimeSpend.toLocaleString():'—'}</td>
     <td>${statusBadge(c)}</td>
+    <td style="width:54px;padding:6px 10px;">
+      ${c.satelliteImageKey
+        ? `<div class="dir-sat-thumb" data-key="${esc(c.satelliteImageKey)}"
+             onclick="event.stopPropagation();_dirOpenSatLb(${JSON.stringify(c.satelliteImageKey)})"
+             title="View satellite" style="width:44px;height:30px;border-radius:5px;overflow:hidden;
+             background:#1f2937;cursor:zoom-in;display:flex;align-items:center;justify-content:center;font-size:13px;">🛰</div>`
+        : ''}
+    </td>
   </tr>`;
 }
 
@@ -780,9 +789,57 @@ function buildCard(c){
 
 function renderRows(data){
   document.getElementById('tableBody').innerHTML=data.map(buildRow).join('');
+  requestAnimationFrame(_dirLoadSatThumbs);   // WO-B: load only the rendered rows' thumbs
 }
 function appendRows(data){
   document.getElementById('tableBody').insertAdjacentHTML('beforeend',data.map(buildRow).join(''));
+  requestAnimationFrame(_dirLoadSatThumbs);   // WO-B: load only the newly-appended rows' thumbs
+}
+
+// WO-B: lazy-load satellite thumbs for rendered rows only (bounded by pagination —
+// never fires for all customers at once). Each thumb streams its R2 key once.
+function _dirLoadSatThumbs(){
+  document.querySelectorAll('.dir-sat-thumb:not([data-loaded])').forEach(el=>{
+    el.dataset.loaded='1'; const key=el.dataset.key; if(!key) return;
+    fetch(`${API}/admin/photos/key/${key}`).then(r=>r.ok?r.blob():null).then(b=>{
+      if(!b) return;
+      const img=document.createElement('img');
+      img.src=URL.createObjectURL(b); img.alt='Satellite';
+      img.style.cssText='width:100%;height:100%;object-fit:cover;display:block;';
+      el.innerHTML=''; el.appendChild(img);
+    }).catch(()=>{});
+  });
+}
+
+// WO-B: zoomable satellite lightbox — dependency-free. Click image = step-zoom
+// (1×→2×→4×→1×); wheel = continuous 1×–6×; pinch (two-finger) = zoom; backdrop/Esc/× = close.
+let _dirSatScale = 1, _dirSatUrl = null, _dirPinchStart = 0, _dirPinchScale = 1;
+function _dirSatApply(){ const img=document.getElementById('dirSatLbImg'); if(img) img.style.transform=`scale(${_dirSatScale})`;
+  const meta=document.getElementById('dirSatLbMeta'); if(meta) meta.textContent=`${_dirSatScale.toFixed(1)}× — click to zoom · scroll/pinch to fine-tune · Esc to close`; }
+function _dirOpenSatLb(key){
+  if(!key) return;
+  const lb=document.getElementById('dirSatLb'), img=document.getElementById('dirSatLbImg');
+  _dirSatScale=1; _dirSatApply();
+  img.src=''; lb.style.display='flex';
+  fetch(`${API}/admin/photos/key/${key}`).then(r=>r.ok?r.blob():null).then(b=>{
+    if(!b){ _dirCloseSatLb(); return; }
+    if(_dirSatUrl) URL.revokeObjectURL(_dirSatUrl);
+    _dirSatUrl=URL.createObjectURL(b); img.src=_dirSatUrl;
+  }).catch(()=>_dirCloseSatLb());
+}
+function _dirCloseSatLb(){
+  const lb=document.getElementById('dirSatLb'); if(lb) lb.style.display='none';
+  if(_dirSatUrl){ URL.revokeObjectURL(_dirSatUrl); _dirSatUrl=null; }
+  _dirSatScale=1;
+}
+function _dirSatLbClick(e){
+  // Click on the image steps the zoom; click on the backdrop closes.
+  if(e.target && e.target.id==='dirSatLbImg'){
+    _dirSatScale = _dirSatScale>=4 ? 1 : _dirSatScale>=2 ? 4 : 2;
+    _dirSatApply();
+  } else {
+    _dirCloseSatLb();
+  }
 }
 function renderCards(data){
   document.getElementById('cardList').innerHTML=data.map(buildCard).join('');
@@ -1193,7 +1250,35 @@ function exportCsv(){
   a.click();
 }
 
+// WO-B: lightbox zoom inputs — delegated to document (gated on lightbox open).
+const _dirSatOpen = () => document.getElementById('dirSatLb')?.style.display==='flex';
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && _dirSatOpen()) _dirCloseSatLb(); });
+document.addEventListener('wheel', e=>{
+  if(!_dirSatOpen()) return;
+  e.preventDefault();
+  _dirSatScale=Math.min(6,Math.max(1, _dirSatScale + (e.deltaY<0?0.3:-0.3))); _dirSatApply();
+}, { passive:false });
+document.addEventListener('touchmove', e=>{
+  if(!_dirSatOpen() || e.touches.length!==2) return;
+  e.preventDefault();
+  const dist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
+  if(!_dirPinchStart){ _dirPinchStart=dist; _dirPinchScale=_dirSatScale; return; }
+  _dirSatScale=Math.min(6,Math.max(1, _dirPinchScale*(dist/_dirPinchStart))); _dirSatApply();
+}, { passive:false });
+document.addEventListener('touchend', e=>{ if(e.touches.length<2) _dirPinchStart=0; });
+
 init();
 </script>
+
+<!-- WO-B: zoomable satellite lightbox (dependency-free) -->
+<div id="dirSatLb" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9500;
+  align-items:center;justify-content:center;cursor:zoom-in;" onclick="_dirSatLbClick(event)">
+  <img id="dirSatLbImg" src="" alt="Satellite view" style="max-width:90vw;max-height:88vh;border-radius:10px;
+    object-fit:contain;transform-origin:center center;transition:transform .15s;user-select:none;touch-action:none;">
+  <button onclick="_dirCloseSatLb()" style="position:absolute;top:12px;right:14px;background:rgba(255,255,255,.14);
+    border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer;line-height:1;">×</button>
+  <div id="dirSatLbMeta" style="position:absolute;bottom:14px;color:rgba(255,255,255,.6);font-size:12px;
+    text-align:center;width:100%;pointer-events:none;"></div>
+</div>
 </body>
 </html>

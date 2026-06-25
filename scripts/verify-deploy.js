@@ -102,7 +102,8 @@ const HTML_FILES = [
   {
     file: 'pure_cleaning_customer_directory.html',
     markers: ['function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName',
-              '_dirAltContacts'],  // WO-2: alternate-contacts render on directory card + row (T1.21 read surface)
+              '_dirAltContacts',   // WO-2: alternate-contacts render on directory card + row (T1.21 read surface)
+              'dir-sat-thumb', '_dirOpenSatLb'],  // WO-B: satellite thumbnail + zoom lightbox
   },
   {
     file: 'pure_cleaning_customer_profile.html',

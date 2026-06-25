@@ -7134,6 +7134,13 @@ function _d1ToSummaryShape(full) {
       // the directory can RENDER them nested under the main number, not just search
       // them via altPhoneDigits. Null when empty to keep the summary payload slim.
       alternateContacts: (Array.isArray(c.alternateContacts) && c.alternateContacts.length) ? c.alternateContacts : null,
+      // WO-B: primary property's satellite R2 key only (properties[] is dropped from
+      // the summary; the directory thumbnail/lightbox streams it via /admin/photos/key).
+      satelliteImageKey: (() => {
+        const props = Array.isArray(c.properties) ? c.properties : [];
+        const primary = props.find(p => p.primaryContact) || props[0];
+        return (primary && primary.satelliteImageKey) || null;
+      })(),
       // Address (top-level — properties[] dropped from summary)
       address:         c.address         || '',
       city:            c.city            || '',
