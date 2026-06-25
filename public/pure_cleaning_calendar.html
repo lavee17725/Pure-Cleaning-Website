@@ -2349,6 +2349,18 @@ async function patchJob(jobId, body) {
 
 // Adapter: flat calendarJobs[] row → customer-like shape jobCardScheduled expects.
 // Supplements with dbRecord lookup for KV-only fields (payment, alerts, crew).
+// WO-D: does this job's split group include a Seal phase? Drives the "PREP FOR
+// SEAL" banner on the Pressure-Clean day sheet (that pressure clean is prep for a
+// later seal). Scans calendarJobs siblings by the COALESCE group root
+// (parentJobId||jobId) — no network call; siblings are already loaded.
+function _groupHasSealPhase(job) {
+  if (!job) return false;
+  const test = j => /seal/i.test(j.dayPhase || '') || /seal/i.test(j.servicesRaw || '') || /seal/i.test(j.phaseScope || '');
+  const root = job.parentJobId || job.jobId;
+  if (!root) return test(job);
+  return calendarJobs.some(j => (j.parentJobId || j.jobId) === root && test(j));
+}
+
 function _jobRowToShape(job, isMultiProperty) {
   const phone = (job.primaryPhone||'').replace(/\D/g,'').slice(-10);
   const cust  = (dbRecord.customers||[]).find(c =>
@@ -2434,6 +2446,8 @@ function _jobRowToShape(job, isMultiProperty) {
       duration:          durLabel,
       roofStories:       job.roofStories || cust.scheduledStatus?.roofStories || null,  // T1.15: D1 first
       phaseScope:        job.phaseScope || null,   // WO-C: per-day crew scope (what + where)
+      dayPhase:          job.dayPhase || null,      // WO-D: this day's phase (for the PREP-FOR-SEAL trigger)
+      _groupHasSeal:     _groupHasSealPhase(job),   // WO-D: any sibling is a Seal phase
       sqFt:              cust.scheduledStatus?.sqFt || cust.sqFt || null,
       confirmationSentAt:cust.scheduledStatus?.confirmationSentAt || null,
       confirmedByCustomer:cust.scheduledStatus?.confirmedByCustomer || false,
@@ -7300,10 +7314,10 @@ table{width:auto;border-collapse:collapse;}
       ${svcChecks}
     </div>
 
-    ${/\bseal/i.test(services) || addOns.some(a => /\bseal/i.test(a.name||'')) ? `
+    ${(/pressure/i.test(ss.dayPhase || '') && ss._groupHasSeal) ? `
     <div class="js-prep-seal">
       <span class="js-prep-seal-icon">⚠</span>
-      <span class="js-prep-seal-text">Prep to Seal — strip, dry, mask, sweep clean before sealing</span>
+      <span class="js-prep-seal-text">PREP FOR SEAL</span>
     </div>` : ''}
 
     <div class="js-notes-row">
@@ -7458,12 +7472,13 @@ function _fullProposalBody(c, splitDays, totalAmt) {
   const cityLine    = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : '';
   const addrHtml    = displayAddr ? `${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
 
-  // Seal banner if ANY phase is a seal phase.
-  const _hasSeal = splitDays.some(d => /\bseal/i.test(d.dayPhase||'') || /\bseal/i.test(d.servicesRaw||''));
+  // WO-D: prep-to-seal banner removed from the full proposal — every phase is
+  // listed explicitly here, so it was redundant AND its vertical space was
+  // clipping the NOTES block past the fixed .js-body clip line.
 
   // Adaptive line-item font for one-page fit (Rule 23). Realistic case = 3 phases.
   const _n   = splitDays.length;
-  const _liFs = _n <= 5 ? '14pt' : _n <= 8 ? '12pt' : '10pt';
+  const _liFs = _n <= 5 ? '11.5pt' : _n <= 8 ? '10pt' : '9pt';   // WO-D: compact phases so notes always fit one page
   const _MAX = 10;
   const _shown = splitDays.slice(0, _MAX);
   const lineItems = _shown.map(d => {
@@ -7503,13 +7518,11 @@ table{width:auto;border-collapse:collapse;}
 .js-cust-address{font-family:Georgia,serif;font-size:12pt;color:#1a1a1a;line-height:1.45;}
 .js-svc-section{margin-bottom:7px;overflow:hidden;flex-shrink:0;}
 .js-svc-header{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:2pt solid #0a1628;padding-bottom:3px;margin-bottom:2px;}
-.js-prep-seal{margin:6px 0 8px;background:#fff7ed;border:2pt solid #c2410c;border-radius:4px;padding:8px 14px;display:flex;align-items:center;gap:12px;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
-.js-prep-seal-icon{font-size:18pt;line-height:1;}
-.js-prep-seal-text{font-family:Arial,sans-serif;font-size:14pt;font-weight:800;letter-spacing:2pt;color:#7c2d12;text-transform:uppercase;}
+/* WO-D: prep-seal banner removed from the full proposal — CSS dropped with it. */
 .js-notes-row{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0;}
 .js-notes-block{border:2pt solid #194963;background:#f8fbfd;padding:8px 12px;flex:1;}
 .js-notes-label{font-family:Arial,sans-serif;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:2pt;color:#194963;margin-bottom:4px;}
-.js-notes-text{font-family:Arial,sans-serif;font-size:16pt;color:#111;line-height:1.45;white-space:pre-wrap;word-break:break-word;}
+.js-notes-text{font-family:Arial,sans-serif;font-size:12pt;color:#111;line-height:1.4;white-space:pre-wrap;word-break:break-word;}
 .js-bottom{position:absolute;bottom:0.35in;left:28px;right:28px;display:flex;align-items:stretch;justify-content:space-between;padding-top:8px;border-top:2pt solid #0a1628;}
 .js-stamp{width:2.2in;min-height:1.1in;border:2pt dashed #aaa;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;flex-shrink:0;}
 .js-stamp-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#555;text-align:center;}
@@ -7525,7 +7538,7 @@ table{width:auto;border-collapse:collapse;}
 .js-propdetails-val{font-family:Arial,sans-serif;font-size:11pt;font-weight:600;color:#0a1628;}
 .js-propdetails-item{display:flex;flex-direction:column;gap:2px;}
 .js-lineitems{width:100%;border-collapse:collapse;margin-top:2px;}
-.li-row td{border-bottom:1pt solid #ebebeb;padding:7px 4px;vertical-align:middle;}
+.li-row td{border-bottom:1pt solid #ebebeb;padding:3px 4px;vertical-align:middle;}
 .li-row:last-child td{border-bottom:2pt solid #0a1628;}
 .li-phase{font-family:Arial,sans-serif;font-size:${_liFs};font-weight:700;color:#0a1628;letter-spacing:.5pt;}
 .li-sub{font-family:Arial,sans-serif;font-size:8.5pt;font-weight:600;color:#666;letter-spacing:.5pt;margin-top:2px;}
@@ -7587,12 +7600,6 @@ table{width:auto;border-collapse:collapse;}
       <div class="js-svc-header">Service Phases</div>
       <table class="js-lineitems">${lineItems}</table>
     </div>
-
-    ${_hasSeal ? `
-    <div class="js-prep-seal">
-      <span class="js-prep-seal-icon">⚠</span>
-      <span class="js-prep-seal-text">Prep to Seal — strip, dry, mask, sweep clean before sealing</span>
-    </div>` : ''}
 
     <div class="js-notes-row">
       <div class="js-notes-block">

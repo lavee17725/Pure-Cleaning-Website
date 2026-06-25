@@ -1680,6 +1680,42 @@ async function main() {
       else fail('Calendar — phaseScope renders in job sheet (WO-C)', String(result));
     });
 
+    // ── WORK ORDER D: full-proposal one-page (notes, no prep banner) + day-sheet PREP FOR SEAL ──
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'wo-d-print', async page => {
+      await page.waitForFunction(() => typeof _jobSheetBody === 'function' && typeof _fullProposalBody === 'function', { timeout: 45000 });
+      const r = await page.evaluate(() => {
+        const out = {};
+        // Full proposal: NOTES block present, NO prep-seal banner (rendered div OR CSS).
+        const c = { firstName: 'D', lastName: 'Test', phone: '0000000004', notes: 'WOD crew note here', scheduledStatus: {} };
+        const splitDays = [
+          { dayNumber: 1, dayPhase: 'Pressure Clean', amount: 400, scheduledDate: '2026-07-07', phaseScope: 'pressure' },
+          { dayNumber: 2, dayPhase: 'Sand', amount: 700, scheduledDate: '2026-07-09' },
+          { dayNumber: 3, dayPhase: 'Seal', amount: 1300, scheduledDate: '2026-07-10', phaseScope: 'seal front' },
+        ];
+        try {
+          const fp = _fullProposalBody(c, splitDays, 2400);
+          out.fpNotes  = /js-notes-block/.test(fp);
+          out.fpNoBanner = !/js-prep-seal/.test(fp);   // neither the div nor leftover CSS
+          out.fpNotesText = fp.includes('WOD crew note here');
+        } catch (e) { out.fpErr = e.message; }
+        // Day sheet: Pressure phase + group has seal → PREP FOR SEAL; Seal phase → none.
+        const mk = (dayPhase, hasSeal) => ({ firstName: 'D', lastName: 'T', phone: '0000000004',
+          scheduledStatus: { state: 'scheduled', scheduledDate: '2026-07-07', rig: 'rig_1', dayPhase, _groupHasSeal: hasSeal } });
+        try {
+          out.pressureBanner = _jobSheetBody(mk('Pressure Clean', true), 1, 1, '2026-07-07', 'rig_1').includes('PREP FOR SEAL');
+          out.sealNoBanner   = !_jobSheetBody(mk('Seal', true), 1, 1, '2026-07-10', 'rig_1').includes('PREP FOR SEAL');
+          out.pressureNoSealNoBanner = !_jobSheetBody(mk('Pressure Clean', false), 1, 1, '2026-07-07', 'rig_1').includes('PREP FOR SEAL');
+        } catch (e) { out.dsErr = e.message; }
+        return out;
+      });
+      const okFp = r.fpNotes && r.fpNoBanner && r.fpNotesText;
+      if (okFp) pass('Calendar — full proposal: notes present, no prep-seal banner (WO-D)');
+      else fail('Calendar — full proposal: notes present, no prep-seal banner (WO-D)', JSON.stringify(r));
+      const okDs = r.pressureBanner && r.sealNoBanner && r.pressureNoSealNoBanner;
+      if (okDs) pass('Calendar — day sheet: PREP FOR SEAL on pressure phase only (WO-D)');
+      else fail('Calendar — day sheet: PREP FOR SEAL on pressure phase only (WO-D)', JSON.stringify(r));
+    });
+
     // ── GOOGLE DRIVE / WEEKLY EXPORT ─────────────────────────────────────────
     // Test 1: /oauth/google/start returns a redirect to Google (302 → accounts.google.com)
     queuePage(context, `${PAGES_BASE}/oauth/google/start`, 'google-oauth-start', async page => {
