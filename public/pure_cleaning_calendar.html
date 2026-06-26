@@ -4353,29 +4353,34 @@ async function handleDropToRig(jobId, phone, date, rig) {
     return;
   }
   const calJob = calendarJobs.find(j => j.jobId === jobId);
+  const kvCust = findCustomer(phone);
+  const kvSs   = kvCust?.scheduledStatus || {};
 
-  // ── COMPLETED-JOB RIG CORRECTION (WORK ORDER A, 2026-06-25) ───────────────────
-  // D1-sourced completed cards carry a real jobId (jobCardScheduled sets data-job-id
-  // for completed cards too), so they bypass the !jobId guard above and used to fall
-  // into the reschedule PATCH below — which sends state:'scheduled', and the worker's
-  // _patchJobKvSync then nulls completedAt/paidAt/paymentStatus. Dragging a completed
-  // card to the right rig un-completed the job (Byron/Tacoma bug). A drag on a
-  // completed job is a RIG CORRECTION only: PATCH { rigId } — never state/date — so
-  // completion + payment survive. jobHistory[].rigId is what the nightly Bouncie
-  // matcher keys on, so this also re-points GPS attribution to the correct truck.
-  if (calJob?.state === 'completed') {
-    if (calJob.rigId === rig) { render(); return; }          // same rig → no-op
+  // ── COMPLETED-JOB RIG CORRECTION (WORK ORDER F, 2026-06-25 — supersedes WO-A) ──
+  // handleCalendarJobs returns ONLY state='scheduled' rows, so completed cards are
+  // NEVER in calendarJobs[]. WO-A's `calJob.state==='completed'` guard was therefore
+  // always false for completed cards, so a drag fell through to the reschedule PATCH
+  // (state:'scheduled') and created a phantom scheduled card next to the green
+  // completed one (Rose Williams bug). Detect "completed" from the AUTHORITATIVE KV
+  // record instead — per-job jobHistory (DL-03), then customer ss, then a corrupted-
+  // row signal. A drag on a completed job is a RIG CORRECTION only: PATCH { rigId } —
+  // never state/date — so completion + payment survive (and Bouncie re-points to the
+  // corrected truck via jobHistory[].rigId).
+  const _jhForJob = (kvCust?.jobHistory || []).find(j => j.jobId === jobId);
+  const isCompleted =
+       (_jhForJob && _jhForJob.status === 'completed')   // per-job authoritative: this jobId IS a completed history entry
+    || kvSs.state === 'completed'                         // customer's current completed card
+    || (calJob?.completedAt != null)                     // belt-and-suspenders: corrupted row (scheduled but completedAt set)
+    || (calJob?.state === 'completed');                  // future-proof
+  if (isCompleted) {
+    if ((calJob?.rigId || kvSs.rig) === rig) { render(); return; }   // same rig → no-op
     try {
-      await patchJob(jobId, { rigId: rig });                 // rig-only: preserves completedAt/payment
-      calJob.rigId = rig;                                    // in-memory so re-render places it right
-      const c = findCustomer(calJob.phone || phone);
-      if (c) {
-        if (c.scheduledStatus?.state === 'completed') c.scheduledStatus.rig = rig;
-        const jh = (c.jobHistory || []).find(j =>
-          j.jobId === jobId ||
-          (j.date === calJob.scheduledDate && j.source !== 'csv_backfill'));
-        if (jh) { jh.rig = rig; jh.rigId = rig; }            // T1.13 in-memory mirror (D1 read is canonical on refresh)
-      }
+      await patchJob(jobId, { rigId: rig });   // rig-ONLY — no state, no scheduledDate
+      if (calJob) calJob.rigId = rig;
+      if (kvSs.state === 'completed') kvSs.rig = rig;
+      const jh = (kvCust?.jobHistory || []).find(j =>
+        j.jobId === jobId || (j.date === (kvSs.scheduledDate || date) && j.source !== 'csv_backfill'));
+      if (jh) { jh.rig = rig; jh.rigId = rig; }   // T1.13 / DL-03 mirror (D1 read is canonical on refresh)
       await refreshCalendarJobs();
       render(); renderCrewPanel(getWeekDates());
       showToast(`↔ rig corrected → ${RIG_LABELS[rig]} (completion preserved)`);

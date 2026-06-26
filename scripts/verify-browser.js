@@ -765,35 +765,42 @@ async function main() {
         }
       }
 
-      // ── WORK ORDER A: D1 completed card rig-correction must NOT un-complete ────
-      // The guard above only catches the !jobId (KV) path. D1 completed cards carry
-      // a real jobId — dragging one must PATCH { rigId } ONLY (never state/date), or
-      // the worker nulls completedAt/payment (the Byron/Tacoma un-complete bug).
-      // Inject a fake completed D1 job, stub patchJob to capture the payload.
+      // ── WORK ORDER F: KV-completed card drag must correct rig only, no phantom ──
+      // Completed jobs are NEVER in calendarJobs[] (handleCalendarJobs returns
+      // state='scheduled' only) — so the drag must detect completion from the KV
+      // record (jobHistory/ss), NOT calendarJobs (WO-A's bug). Build a real KV-
+      // completed customer, drag its card; the PATCH must be { rigId } only (no
+      // state/date), ss stays 'completed', and NO scheduled phantom row appears.
       {
-        const woa = await page.evaluate(async () => {
-          const TEST_JOB = 'woa_test_completed_job';
-          calendarJobs.push({ jobId: TEST_JOB, phone: '0000000009', firstName: 'WOA', lastName: 'Test',
-            state: 'completed', rigId: 'rig_1', scheduledDate: '2026-07-07' });
+        const wof = await page.evaluate(async () => {
+          const PH = '0000000010';
+          const JID = 'job_person_10000000010_2026-07-07_scheduled';
+          const cust = {
+            phone: PH, firstName: 'WOF', lastName: 'Test',
+            scheduledStatus: { state: 'completed', scheduledDate: '2026-07-07', rig: 'rig_1', paymentStatus: 'paid' },
+            jobHistory: [{ jobId: JID, date: '2026-07-07', status: 'completed', rig: 'rig_1', rigId: 'rig_1', amount: 200, source: 'calendar_completion' }],
+          };
+          dbRecord.customers.push(cust);
+          const calLenBefore = calendarJobs.length;
           const origPatch = window.patchJob, origRefresh = window.refreshCalendarJobs;
           let captured = null;
           window.patchJob = (id, body) => { captured = { id, body }; return Promise.resolve({ success: true }); };
           window.refreshCalendarJobs = () => Promise.resolve();
-          try { await handleDropToRig(TEST_JOB, '0000000009', '2026-07-07', 'rig_2'); }
-          finally {
-            window.patchJob = origPatch; window.refreshCalendarJobs = origRefresh;
-            const i = calendarJobs.findIndex(j => j.jobId === TEST_JOB);
-            if (i >= 0) calendarJobs.splice(i, 1);
-          }
-          return captured;
+          try { await handleDropToRig(JID, PH, '2026-07-07', 'rig_2'); }
+          finally { window.patchJob = origPatch; window.refreshCalendarJobs = origRefresh; }
+          const out = {
+            body: captured && captured.body,
+            ssState: cust.scheduledStatus.state, ssRig: cust.scheduledStatus.rig,
+            jhRig: cust.jobHistory[0].rig,
+            noPhantom: calendarJobs.length === calLenBefore && !calendarJobs.some(j => j.jobId === JID),
+          };
+          const i = dbRecord.customers.indexOf(cust); if (i >= 0) dbRecord.customers.splice(i, 1);
+          return out;
         });
-        if (!woa) {
-          fail('Calendar — WORK ORDER A: completed D1 drag sends a rig PATCH', 'patchJob was never called');
-        } else if (woa.body && woa.body.rigId === 'rig_2' && !('state' in woa.body) && !('scheduledDate' in woa.body)) {
-          pass('Calendar — WORK ORDER A: completed D1 drag PATCHes { rigId } only (no state/date)', JSON.stringify(woa.body));
-        } else {
-          fail('Calendar — WORK ORDER A: completed D1 drag must not reset state/completion', `captured PATCH=${JSON.stringify(woa.body)}`);
-        }
+        const okBody  = wof.body && wof.body.rigId === 'rig_2' && !('state' in wof.body) && !('scheduledDate' in wof.body);
+        const okState = wof.ssState === 'completed' && wof.ssRig === 'rig_2' && wof.jhRig === 'rig_2' && wof.noPhantom;
+        if (okBody && okState) pass('Calendar — WORK ORDER F: KV-completed drag corrects rig only, completion preserved, no phantom', JSON.stringify(wof.body));
+        else fail('Calendar — WORK ORDER F: KV-completed drag must not create a scheduled phantom', JSON.stringify(wof));
       }
 
       // ── Pencil edit updates jobHistory rigId on completed job ─────────────
