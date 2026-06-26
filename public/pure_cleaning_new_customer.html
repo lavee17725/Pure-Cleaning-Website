@@ -1381,6 +1381,11 @@ async function init() {
         if (data.email) document.getElementById('nEmail').value = data.email;
       }
       if (data.notes) document.getElementById('nNotes').value = data.notes;
+      // WO-H 2a: surface the optional alternate contact from the lead into the
+      // structured alt-contacts UI (Mom confirms it → persists to Person.alternateContactsJson).
+      if (data.altName || data.altPhone) {
+        addAltContact({ name: data.altName || '', phone: data.altPhone || '' });
+      }
       if (data.ls) {
         const lsEl = document.getElementById('nLeadSource');
         if (lsEl) { lsEl.value = data.ls; onLeadSourceChange(lsEl); }
@@ -2755,8 +2760,6 @@ async function submitDigitalPath() {
         }
         if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
       }
-      const _altC = buildAltContacts();
-      if (customer && _altC.length) customer.alternateContacts = _altC;
     } else {
       const isTestChecked = document.getElementById('isTestRecord')?.checked;
       customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
@@ -2767,6 +2770,9 @@ async function submitDigitalPath() {
       dbRecord.customers.push(customer);
       // allCustomers is the same array reference as dbRecord.customers — no second push needed
     }
+    // WO-H 2b: capture alt contacts for BOTH new and existing customers (was new-only-dropped).
+    const _altC = buildAltContacts();
+    if (customer && _altC.length) customer.alternateContacts = _altC;
     const code = await genLink(customer);
     customer.linkCode = code;
     customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
@@ -2781,6 +2787,17 @@ async function submitDigitalPath() {
       alert('⚠️ Customer not saved — check connection. Do not send the link yet.');
       btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';
       return;
+    }
+    // WO-H 2b (T1.22): saveDb()/PUT writes alt contacts to KV only — also PATCH the
+    // Person so they reach Person.alternateContactsJson in D1 (survives KV-bridge removal).
+    // Best-effort after the verified save; KV bridge covers it if this blips.
+    if (customer.alternateContacts && customer.alternateContacts.length) {
+      const _pid = 'person_1' + (customer.phone||ph||'').replace(/\D/g,'').slice(-10);
+      fetch(`${PCPC_API}/admin/person/${_pid}`, {
+        method:'PATCH', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ alternateContacts: customer.alternateContacts }),
+      }).then(r=>{ if(!r.ok) console.warn('[new_customer] alt-contacts PATCH failed:', r.status); })
+        .catch(e => console.warn('[new_customer] alt-contacts PATCH error:', e.message));
     }
     showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
     // AFTER the verified save, fire the quote-photo connect (T1.22) so any photos

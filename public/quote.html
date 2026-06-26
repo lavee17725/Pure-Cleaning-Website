@@ -368,6 +368,19 @@
     </div>
   </div>
 
+  <!-- WO-H 2a: optional alternate contact — carried in the lead payload, confirmed
+       into the structured field by Mom in new_customer (never written to notes). -->
+  <div class="row2">
+    <div class="field">
+      <label>Alternative contact name <span style="color:var(--mut);font-weight:400;">(optional)</span></label>
+      <input type="text" id="altName" autocomplete="name" placeholder="e.g. spouse or co-owner">
+    </div>
+    <div class="field">
+      <label>Alternative contact phone <span style="color:var(--mut);font-weight:400;">(optional)</span></label>
+      <input type="tel" id="altPhone" autocomplete="tel" placeholder="(954) 000-0000">
+    </div>
+  </div>
+
   <!-- Services -->
   <div class="sec-lbl">Services needed</div>
 
@@ -1282,6 +1295,10 @@
           firstName: form.firstName, lastName: form.lastName,
           phone: form.phone, email: form.email,
           address: form.address, city: form.city, zip: form.zip,
+          // WO-H 2a: optional alternate contact — surfaced in new_customer for Mom to
+          // confirm into the structured field (never auto-written to notes/Person).
+          altContactName:  ($('altName')?.value || '').trim() || null,
+          altContactPhone: ($('altPhone')?.value || '').replace(/\D/g, '').slice(0, 10) || null,
           services: allServices,
           sealing: { requested: state.sealChecked, surfaces: Array.from(state.sealSurfaces) },
           rustRemoval: { requested: state.rustChecked, area: state.rustArea },

@@ -1729,6 +1729,23 @@ async function main() {
     });
 
     // ── WORK ORDER B: directory satellite thumbnail + zoom lightbox ───────────
+    // ── WORK ORDER H: print job sheet shows labeled Main / Alternative numbers ──
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'wo-h-altprint', async page => {
+      await page.waitForFunction(() => typeof _jobSheetBody === 'function', { timeout: 45000 });
+      const r = await page.evaluate(() => {
+        const c = { firstName: 'Alt', lastName: 'Print', phone: '9546080800',
+          scheduledStatus: { state: 'scheduled', scheduledDate: '2026-07-07', rig: 'rig_1' },
+          alternateContacts: [{ name: 'Eric Santana', phone: '9543097302', relationship: 'spouse' }] };
+        try {
+          const h = _jobSheetBody(c, 1, 1, '2026-07-07', 'rig_1');
+          return { main: h.includes('Main Number'), alt: h.includes('Alternative Number'),
+                   name: h.includes('Eric Santana'), tel: h.includes('309-7302') };
+        } catch (e) { return { err: e.message }; }
+      });
+      if (r.main && r.alt && r.name && r.tel) pass('Calendar — job sheet shows labeled Main/Alternative numbers (WO-H)');
+      else fail('Calendar — job sheet labeled Main/Alternative numbers (WO-H)', JSON.stringify(r));
+    });
+
     queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'wo-b-directory-sat', async page => {
       await page.waitForFunction(() => typeof allCustomers !== 'undefined' && allCustomers.length > 0
         && typeof buildRow === 'function' && typeof _dirOpenSatLb === 'function', { timeout: 45000 });

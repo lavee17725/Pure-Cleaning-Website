@@ -3534,7 +3534,8 @@ function _renderAltContacts(c){
     const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
     const pf=d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:(a.phone||'');
     const rel=a.relationship||a.relation||'';
-    const lbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Prop. Mgr':rel==='tenant'?'Tenant':rel||'Alt';
+    const relLbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Prop. Mgr':rel==='tenant'?'Tenant':(rel==='merged'?'':rel||'');
+    const lbl='Alt'+(relLbl?' · '+relLbl:'');   // WO-H: lead with "Alt" so it reads as the labeled alternative
     const nm=a.name?esc(a.name)+' ':'';
     const tel=d.length===10?`<a href="tel:${d}" style="color:var(--sky);" onclick="event.stopPropagation()">${esc(pf)}</a>`:esc(pf);
     return `<div class="js-meta" style="margin-top:1px;">📞 ${nm}<span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;">${lbl}</span> ${tel}</div>`;
@@ -7201,6 +7202,7 @@ table{width:auto;border-collapse:collapse;}
 .js-cust-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:1pt solid #ccc;padding-bottom:3px;margin-bottom:6px;grid-column:1/-1;}
 .js-cust-name{font-size:20pt;font-weight:700;color:#0a1628;line-height:1.05;}
 .js-cust-phone{font-family:Arial,sans-serif;font-size:12pt;font-weight:700;color:#111;margin-top:5px;}
+.js-num-lbl{display:inline-block;min-width:1.4in;font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#555;vertical-align:middle;}
 .js-cust-address{font-family:Georgia,serif;font-size:12pt;color:#1a1a1a;line-height:1.45;}
 .js-svc-section{margin-bottom:7px;overflow:hidden;flex-shrink:0;}
 .js-svc-header{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:2pt solid #0a1628;padding-bottom:3px;margin-bottom:2px;}
@@ -7287,7 +7289,12 @@ table{width:auto;border-collapse:collapse;}
       </div>
       <div>
         <div class="js-cust-address">${addrHtml}</div>
-        <div class="js-cust-phone">${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+        <div class="js-cust-phone"><span class="js-num-lbl">Main Number</span>${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
+        ${(Array.isArray(c.alternateContacts) ? c.alternateContacts : []).filter(a => a && (a.phone || a.name)).map(a => {
+          const d = (a.phone || '').replace(/\D/g, '').slice(0, 10);
+          const pf = d.length === 10 ? fmtPh(d) : (a.phone || '');
+          return `<div class="js-cust-phone" style="margin-top:3px;"><span class="js-num-lbl">Alternative Number</span>${a.name ? esc(a.name) + ' — ' : ''}${esc(pf)}</div>`;
+        }).join('')}
       </div>
     </div>
 
@@ -7402,6 +7409,10 @@ function printJobSheet(phone, date, rig, jobId) {
       ...(jobShape.isRigSegment ? { approvedAmount: c.scheduledStatus?.approvedAmount || 0 } : {}),
     },
   } : c;
+  // WO-H: _jobRowToShape drops customer-level alternateContacts — attach from the
+  // full record so the crew's printed sheet shows the labeled Main/Alternative numbers.
+  const _full = findCustomer(phone);
+  if (_full?.alternateContacts) printC.alternateContacts = _full.alternateContacts;
   _openPrintWin(_jobSheetBody(printC, idx+1, jobs.length, date, rig),
     `Job Sheet — ${((c.firstName||c.fn||'')+' '+(c.lastName||c.ln||'')).trim()}`);
   _logEvent({ eventType:'job_sheet_printed', phone, customer:{fn:c.firstName||'',ln:c.lastName||''}, rig, date, printedAt:new Date().toISOString() });
@@ -7519,6 +7530,7 @@ table{width:auto;border-collapse:collapse;}
 .js-cust-label{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:1pt solid #ccc;padding-bottom:3px;margin-bottom:6px;grid-column:1/-1;}
 .js-cust-name{font-size:20pt;font-weight:700;color:#0a1628;line-height:1.05;}
 .js-cust-phone{font-family:Arial,sans-serif;font-size:12pt;font-weight:700;color:#111;margin-top:5px;}
+.js-num-lbl{display:inline-block;min-width:1.4in;font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#555;vertical-align:middle;}
 .js-cust-address{font-family:Georgia,serif;font-size:12pt;color:#1a1a1a;line-height:1.45;}
 .js-svc-section{margin-bottom:7px;overflow:hidden;flex-shrink:0;}
 .js-svc-header{font-family:Arial,sans-serif;font-size:7pt;font-weight:700;text-transform:uppercase;letter-spacing:1.5pt;color:#333;border-bottom:2pt solid #0a1628;padding-bottom:3px;margin-bottom:2px;}

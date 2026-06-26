@@ -38,6 +38,7 @@ const HTML_FILES = [
       'PCPC_API',
       'submitConfirmSchedule',  // Regression: Confirm & Schedule still works for queued entries
       'quoteLifecycle',         // Regression: lifecycle tracking still present
+      'altContactName',         // WO-H 2a: lead's alt contact carried into the convert→new_customer link
     ],
     cssChecks: [
       // class, color property pattern, forbidden resolved value (white-on-white check)
@@ -95,6 +96,7 @@ const HTML_FILES = [
       'function _fullProposalBody',              // multi-phase line-items print body
       'Total — All Phases',                      // combined-total label (proves all-phase rollup)
       'function _renderAltContacts',             // WO-2: alt-contacts render on card + full-details modal (T1.21 read surface)
+      'js-num-lbl',                              // WO-H: labeled Main/Alternative numbers on the print job sheet
       'fePhaseScope',                            // WO-C: per-job/day scope capture field (full-edit modal)
       'ss.phaseScope ||',                        // WO-C: day sheet renders scope first, not generic phase label
     ],
@@ -188,6 +190,7 @@ const HTML_FILES = [
       'jhSection',             // Job history container
       'alternateContacts',     // alternateContacts persisted to customer record
       'existing_customer_updated', // audit event on existing customer update
+      'alt-contacts PATCH',        // WO-H 2b: new_customer persists alt contacts to D1 Person (T1.22 write path)
       // 2026-06-23 WO1 / Task #26 — highest-risk fix: customer create now awaits
       // saveDb() BEFORE showSuccess(). If this reverts to fire-and-forget, Tyler
       // could see the success screen + link for a customer that never persisted.
