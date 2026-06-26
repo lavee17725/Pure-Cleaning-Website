@@ -83,7 +83,10 @@ function queuePage(context, url, label, fn) { _pageQueue.push({ context, url, la
 // Blocks that must NOT run concurrently. calendar-drag-suppressor invokes the real
 // submitPayment() (POST /payment/log) — the only block here that writes to the
 // server. Everything else renders, asserts on client logic, or stubs its writes.
-const SERIAL_LABELS = new Set(['calendar-drag-suppressor']);
+// wo-g-pagecount runs page.pdf() (resource-heavy) — serial so it doesn't contend
+// with the parallel batch for render/PDF resources (that contention mis-rendered
+// the count and flaked the gate). calendar-drag-suppressor: real server write (WO-9).
+const SERIAL_LABELS = new Set(['calendar-drag-suppressor', 'wo-g-pagecount']);
 const PARALLEL_BATCH = 5;
 
 async function drainQueue() {
@@ -1736,6 +1739,47 @@ async function main() {
     });
 
     // ── WORK ORDER B: directory satellite thumbnail + zoom lightbox ───────────
+    // ── WORK ORDER G: job sheet + full proposal print to exactly ONE page ─────
+    // Render each builder's print doc, PDF it with the @page CSS, count pages.
+    // pages>1 = the blank-2nd-page regression (hard fail); a PDF-gen error warns
+    // (can't measure) rather than flaking the deploy.
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'wo-g-pagecount', async page => {
+      await page.waitForFunction(() => typeof _jobSheetBody === 'function' && typeof _fullProposalBody === 'function' && typeof _printCss === 'function', { timeout: 45000 });
+      const docs = await page.evaluate(() => {
+        const c = { firstName: 'PG', lastName: 'Count', phone: '9546080800',
+          scheduledStatus: { state: 'scheduled', scheduledDate: '2026-07-07', rig: 'rig_1', approvedAmount: 400, jobNotes: 'Pressure clean driveway and patio' } };
+        const wrap = body => `<!DOCTYPE html><html><head><meta charset="UTF-8">${_printCss()}</head><body>${body}</body></html>`;
+        const split = [
+          { dayNumber: 1, dayPhase: 'Pressure Clean', amount: 400, scheduledDate: '2026-07-07', phaseScope: 'driveway front + back' },
+          { dayNumber: 2, dayPhase: 'Sand', amount: 700, scheduledDate: '2026-07-09' },
+          { dayNumber: 3, dayPhase: 'Seal', amount: 1300, scheduledDate: '2026-07-10', phaseScope: 'seal front' },
+        ];
+        return { sheet: wrap(_jobSheetBody(c, 1, 1, '2026-07-07', 'rig_1')), proposal: wrap(_fullProposalBody(c, split, 2400)) };
+      });
+      const pageCount = async (html) => {
+        const pp = await context.newPage();
+        try {
+          await pp.setContent(html, { waitUntil: 'load' });
+          await pp.emulateMedia({ media: 'print' });
+          const buf = await pp.pdf({ preferCSSPageSize: true, printBackground: true });
+          const s = buf.toString('latin1');
+          const m = s.match(/\/Count\s+(\d+)/);
+          return m ? parseInt(m[1]) : (s.match(/\/Type\s*\/Page[^s]/g) || []).length;
+        } finally { await pp.close(); }
+      };
+      // Re-measure once on a >1 result — a true 2-page stays 2, a transient mis-render clears.
+      const measure = async (html) => { let n = await pageCount(html); if (n > 1) n = await pageCount(html); return n; };
+      try {
+        const sp = await measure(docs.sheet), pp = await measure(docs.proposal);
+        if (sp === 1) pass('Calendar — job sheet prints exactly 1 page (WO-G)', `pages=${sp}`);
+        else fail('Calendar — job sheet must print 1 page (WO-G)', `pages=${sp}`);
+        if (pp === 1) pass('Calendar — full proposal prints exactly 1 page (WO-G)', `pages=${pp}`);
+        else fail('Calendar — full proposal must print 1 page (WO-G)', `pages=${pp}`);
+      } catch (e) {
+        warn('Calendar — print page-count (WO-G)', 'PDF generation unavailable: ' + e.message);
+      }
+    });
+
     // ── WORK ORDER H: print job sheet shows labeled Main / Alternative numbers ──
     queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'wo-h-altprint', async page => {
       await page.waitForFunction(() => typeof _jobSheetBody === 'function', { timeout: 45000 });
