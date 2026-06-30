@@ -64,6 +64,8 @@ When in doubt, follow this file. The other two are reference.
 
 **23.** **One-page printable rule.** Any printable output (invoices, crew sheets, receipts, agreements, work orders, future printables) must fit on a single US-letter page at 0.4" margins by default. Tune `@media print` (margins, font size, section padding, `page-break-inside: avoid`) until a typical record fits — overflow is a layout bug, not "the customer will deal with it." If a record genuinely cannot fit (e.g. 30+ line items), surface the overflow explicitly: a continuation marker on page 1 and the operator's awareness, never a silent multi-page sprawl. *Earned 2026-06-17: pure_cleaning_invoice.html shipped at 2 pages + unbranded — Tyler caught it before a customer did.*
 
+**24.** (T1.24) **Plausibility is not correctness — a check that doesn't reproduce the symptom is not verification.** Before declaring a fix done, confirm the check *fails on the broken code and passes on the fixed code*, so it exercises the real failure — not a synthetic stand-in. A green result on a case the bug never hits is not proof. Never assert a fix works — or any fact — from a plausible-looking diff or an inferred guess; verify against the live source (run it, read it, query D1). This applies to subagents too: their confident conclusions are unverified until checked against real data. When an automated gate genuinely cannot reproduce the symptom (a headless render ≠ the real Chrome print dialog), say so plainly and treat Tyler's real-world test as the gate. *Earned 2026-06-29: the rig fix passed a synthetic browser test (a completed job injected into `calendarJobs`, where one never exists live), the print fix passed a headless page-count check while the real dialog still printed 2 pages — both shipped green-but-broken — and a diagnostic subagent asserted "no satellite data" while D1 held 1,406 images.*
+
 ---
 
 ## Data Integrity Laws
@@ -165,6 +167,10 @@ Run a test 5× back-to-back ONLY right after changing that test, to prove a flak
 ### A5 — Hard gates are unchanged.
 
 This section reduces asking on reversible/routine things only. These stay exactly as loud as before: snapshot before any destructive op (Rule 6); `npm run deploy` must end `🟢 Browser verification passed` before declaring success (Rule 2); never push schema or destructive changes blind; verified write paths before read surfaces (T1.21). **Autonomy never means skipping a gate — it means not interrupting Tyler for things that can't hurt him.**
+
+### A6 — Simplest thing that solves it; match effort to the stakes.
+
+The fix is the smallest diff that resolves the ACTUAL problem — no speculative abstractions, no configurability nobody asked for, no "while I'm in here" refactors of code that already works. The effort spent getting there scales with what's at risk: a print-CSS tweak or a copy change does NOT warrant parallel-subagent fan-outs or deep diagnostic loops; a data migration, a write path, or anything that can corrupt data or money does. Reach for the heavy machinery when the stakes earn it, not by default. *Earned 2026-06-29: ~20% of a day's usage went to flipping a printout from 2 pages to 1 — a one-line CSS change brute-forced through subagents and live-page scraping.*
 
 ---
 
