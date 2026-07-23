@@ -450,13 +450,21 @@ async function checkHtmlFile({ file, markers = [], cssChecks = [] }) {
   }
   pass(`${file} — reachable`, `${Math.round(html.length / 1024)}KB`);
 
-  // Marker checks
+  // Marker checks — with a bounded re-fetch for edge-propagation lag.
+  // 2026-07-23 (T2.11): three consecutive deploys red-flagged freshly-added
+  // markers that WERE live on a manual re-check seconds later — the Cloudflare
+  // edge serves the prior HTML for a few seconds after upload. Re-fetch up to
+  // 4× (≈2s + 4s + 6s) ONLY while some marker is missing; a marker that never
+  // appears still fails, so a real regression is not masked — only the lag is.
+  let missing = markers.filter(m => !html.includes(m));
+  for (let attempt = 1; missing.length && attempt <= 4; attempt++) {
+    await new Promise(r => setTimeout(r, 2000 * attempt));
+    try { html = await fetchText(url); } catch (e) { break; }
+    missing = markers.filter(m => !html.includes(m));
+  }
   for (const marker of markers) {
-    if (html.includes(marker)) {
-      pass(`${file} — marker: ${marker}`);
-    } else {
-      fail(`${file} — marker: ${marker}`, 'NOT FOUND in live HTML');
-    }
+    if (html.includes(marker)) pass(`${file} — marker: ${marker}`);
+    else fail(`${file} — marker: ${marker}`, 'NOT FOUND in live HTML (after propagation retries)');
   }
 
   // Per-file regression guards (specific known-bad classes → FAIL if they regress)
