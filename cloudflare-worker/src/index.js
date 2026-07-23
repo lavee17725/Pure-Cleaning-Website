@@ -9470,15 +9470,20 @@ const _QUOTE_CHIPS = new Set([
 const _QUOTED_BY   = new Set(['darla', 'tyler', 'tony']); // legacy — v1.1 UI no longer writes it
 
 // Shared field validator for create + patch. Returns { error } or { fields }.
-function _validateQuoteFields(body, { partial = false } = {}) {
+function _validateQuoteFields(body, { partial = false, phoneOptional = false } = {}) {
   const out = {};
   const has = k => Object.prototype.hasOwnProperty.call(body, k);
 
   if (has('phone') || !partial) {
     const digits = String(body.phone || '').replace(/\D/g, '');
     const p10 = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
-    if (p10.length !== 10) return { error: 'phone must be 10 digits' };
-    out.phone = p10;
+    // v1.3: the Already-Booked fast exit creates accepted rows with name only —
+    // phone stored '' (column is NOT NULL) and backfilled by the booking's
+    // verified save. Everywhere else 10 digits stays mandatory; a partial
+    // number is never silently accepted.
+    if (phoneOptional && p10.length === 0) out.phone = '';
+    else if (p10.length !== 10) return { error: 'phone must be 10 digits' };
+    else out.phone = p10;
   }
   if (has('quotedBy')) {
     const q = String(body.quotedBy || '').toLowerCase().trim();
@@ -9547,11 +9552,16 @@ async function handleCreateQuote(request, env, corsHeaders) {
   if (!body || typeof body !== 'object')
     return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
-  const v = _validateQuoteFields(body, { partial: false });
+  const status = body.status === 'accepted' ? 'accepted' : 'quoted';
+  // v1.3: phone optional ONLY on accepted-at-create (Already Booked fast exit);
+  // a pending pad row with no callback number is useless — still rejected.
+  const v = _validateQuoteFields(body, { partial: false, phoneOptional: status === 'accepted' });
   if (v.error) return jsonResponse({ error: v.error }, corsHeaders, 400);
   const f = v.fields;
+  // No phone AND no name = an unfindable row. The fast exit's floor is a name.
+  if (!f.phone && !(f.firstName || '').trim())
+    return jsonResponse({ error: 'a name is required when phone is omitted' }, corsHeaders, 400);
 
-  const status = body.status === 'accepted' ? 'accepted' : 'quoted';
   const now = new Date().toISOString();
   const quoteId = `qt_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
 

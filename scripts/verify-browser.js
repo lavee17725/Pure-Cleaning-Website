@@ -2396,8 +2396,11 @@ async function main() {
       else fail('Quote Pool — write-in service commits as a chip', JSON.stringify(custom));
 
       const bothActions = await page.locator('#qlSave').count() && await page.locator('#qlConfirm').count();
-      if (bothActions) pass('Quote Pool — modal has Save Quote + Confirmed—Book actions');
-      else fail('Quote Pool — modal has Save Quote + Confirmed—Book actions', 'a save button is missing');
+      if (bothActions) pass('Quote Pool — modal has Save Quote + Already Booked actions');
+      else fail('Quote Pool — modal has Save Quote + Already Booked actions', 'a save button is missing');
+      const confirmLabel = await page.locator('#qlConfirm').textContent();
+      if (/Already Booked/.test(confirmLabel)) pass('Quote Pool — confirmed button reads "Already Booked →"');
+      else fail('Quote Pool — confirmed button reads "Already Booked →"', `label: '${confirmLabel}'`);
 
       // Empty phone must not save — the only required field is enforced
       await page.locator('#qlSave').click();
@@ -2424,6 +2427,25 @@ async function main() {
       else fail('Quote Pool — delete confirm opens', JSON.stringify(del));
       if (del.warnShown) pass('Quote Pool — linked-booking warning shows for personId rows');
       else fail('Quote Pool — linked-booking warning shows', JSON.stringify(del));
+
+      // v1.3 fast exit — LAST in this block (it navigates away): name-only +
+      // [Already Booked →] must pass validation and hand off to the booking
+      // form. POST /admin/quote is stubbed so the live pad gets NO row.
+      await page.route('**/admin/quote', route => route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ success: true, quoteId: 'qt_stub_v13', status: 'accepted' }),
+      }));
+      await page.evaluate(() => {
+        QuoteLogger.open({});
+        document.getElementById('qlName').value = 'FastExit Test';
+      });
+      await page.locator('#qlConfirm').click();
+      const navigated = await page.waitForURL(/fromOnline=/, { timeout: 10000 }).then(() => true).catch(() => false);
+      if (navigated) pass('Quote Pool — name-only Already Booked hands off to booking form (no phone error)');
+      else {
+        const errTxt = await page.locator('#qlErr').textContent().catch(() => '');
+        fail('Quote Pool — name-only Already Booked hands off', `did not navigate; qlErr='${errTxt}'`);
+      }
     });
 
     // ── NEW CUSTOMER — Quote Pool hand-off contract (fromOnline svc/price/quoteId) ──

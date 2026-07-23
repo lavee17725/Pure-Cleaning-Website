@@ -2998,14 +2998,33 @@ async function submitPhonePath() {
         .catch(e => console.warn('[new_customer] alt-contacts PATCH error:', e.message));
     }
     // Quote Pool link-back: the booking-flow save is the "booked" moment —
-    // write personId onto the originating Quote row. Best-effort by design:
-    // if this blips, the quote stays 'accepted, not yet booked' in the pool
-    // (visible, re-linkable) rather than blocking Darla's save.
+    // write personId onto the originating Quote row. v1.3: the Already-Booked
+    // fast exit can create name-only rows, so the booking data BACKFILLS
+    // phone/city/services (+price when known) — pad history + insights end
+    // up complete even though the modal was skipped. Booking form is the
+    // source of truth at completion (overwrites what the modal guessed).
+    // Best-effort by design: if this blips, the quote stays 'accepted, not
+    // yet booked' in the pool (visible, re-linkable) rather than blocking
+    // Darla's save.
     if (_activeQuoteId) {
-      const _qPid = 'person_1' + (customer.phone || ph || '').replace(/\D/g,'').slice(-10);
+      const _qPh  = (customer.phone || ph || '').replace(/\D/g,'').slice(-10);
+      const _qPid = 'person_1' + _qPh;
+      const _qBody = { personId: _qPid, status: 'accepted' };
+      if (_qPh.length === 10) _qBody.phone = _qPh;
+      if (city) _qBody.city = city;
+      // picker id → pad chip key (reverse of quote-logger's CHIPS map;
+      // unmapped picker ids — entranceway, windows… — have no pad chip)
+      const _PICKER_TO_CHIP = { roof_cleaning:'roof', rinse_walls:'walls', driveway:'driveway',
+        patio:'patio', pool_deck:'pool_patio', sealing:'sealing', rust_removal:'rust',
+        gutters:'gutters', fence:'fence' };
+      const _qChips  = [...new Set([..._svcSel].map(id => _PICKER_TO_CHIP[id]).filter(Boolean))];
+      const _qCustom = (document.getElementById('customServiceText')?.value || '').trim();
+      const _qSvc = [..._qChips, ...(_qCustom ? [{ custom: _qCustom }] : [])];
+      if (_qSvc.length) _qBody.services = _qSvc;
+      if (_activeQuotePrice != null) _qBody.priceQuoted = _activeQuotePrice;
       fetch(`${PCPC_API}/admin/quote/${encodeURIComponent(_activeQuoteId)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personId: _qPid, status: 'accepted' }),
+        body: JSON.stringify(_qBody),
       }).then(r => { if (!r.ok) console.warn('[quote link-back] HTTP', r.status); })
         .catch(e => console.warn('[quote link-back]', e.message));
     }
@@ -3208,6 +3227,15 @@ async function submitScheduleNow() {
     }
 
     // Both writes attempted. D1 confirmed. Show success.
+    // v1.3 Quote Pool: the schedule modal is where a fast-exit booking's price
+    // first exists — backfill it onto the Quote row so insights price bands
+    // count this job (best-effort; row already linked by the earlier PATCH).
+    if (_activeQuoteId && price > 0) {
+      fetch(`${PCPC_API}/admin/quote/${encodeURIComponent(_activeQuoteId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceQuoted: price }),
+      }).catch(e => console.warn('[quote price backfill]', e.message));
+    }
     sucEl.textContent = '✅ Saved! Heading to calendar…';
     sucEl.style.display = 'block';
     _draftClear(true);               // scheduled — drop the autosaved draft

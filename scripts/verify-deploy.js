@@ -203,6 +203,8 @@ const HTML_FILES = [
       'qsvc',                      // ?phone= hand-off carries service preselects
       '_applyQuoteCustomText',     // v1.1: write-ins + chip notes → customServiceText
       'qcustom',                   // v1.1: ?phone= hand-off carries custom text
+      '_PICKER_TO_CHIP',           // v1.3: booking data backfills the Quote row (fast exit)
+      'quote price backfill',      // v1.3: schedule-modal price PATCHes onto the row
       'setPath() removed',         // toggle stays dead — digital path must not resurrect
     ],
   },

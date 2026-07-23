@@ -10,11 +10,14 @@
    existing booking flow.
 
    Two save actions:
-     [Save Quote]        → status 'quoted', lands in the pool.
-     [Confirmed — Book]  → status 'accepted' + resolvedAt at create (same pad
-                           row, same timestamp order), then IMMEDIATELY hands
-                           off into pure_cleaning_new_customer.html pre-filled
-                           — exactly like the pool's Accept button.
+     [Save Quote]        → status 'quoted', lands in the pool. Phone required.
+     [Already Booked →]  → v1.3 fast exit: NAME-only validation; writes the
+                           row status 'accepted' + resolvedAt immediately
+                           (yellow pad counts it, normal timestamp), then
+                           hands off into pure_cleaning_new_customer.html
+                           with whatever WAS filled. The booking's verified
+                           save backfills phone/services/price/personId onto
+                           the row, so pad history + insights end up complete.
 
    Usage: QuoteLogger.open({ apiBase?, onSaved? })
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -122,7 +125,7 @@
         </div>
         <div class="ql-field"><input id="qlName" placeholder="Name — First Last" autocomplete="off"></div>
         <div class="ql-field">
-          <input id="qlPhone" type="tel" inputmode="tel" placeholder="Phone (required)" autocomplete="off">
+          <input id="qlPhone" type="tel" inputmode="tel" placeholder="Phone (required for Save Quote)" autocomplete="off">
           <div class="ql-match" id="qlMatch"></div>
         </div>
         <div class="ql-field">
@@ -139,7 +142,7 @@
         <div class="ql-field ql-price"><span>$</span><input id="qlPrice" type="number" inputmode="decimal" min="0" step="1" placeholder="Price quoted"></div>
         <div class="ql-actions">
           <button class="ql-btn ql-save" id="qlSave">Save Quote</button>
-          <button class="ql-btn ql-confirm" id="qlConfirm">✓ Confirmed — Book</button>
+          <button class="ql-btn ql-confirm" id="qlConfirm">Already Booked →</button>
         </div>
         <div class="ql-err" id="qlErr"></div>
       </div>`;
@@ -309,7 +312,23 @@
     const err = document.getElementById('qlErr');
     err.style.display = 'none';
     const q = _collect();
-    if (q.phone.length !== 10) {
+    // v1.3 — Already Booked is a fast exit: NAME is the only requirement;
+    // everything else is bonus and the full booking form re-captures it
+    // anyway (the row backfills phone/services/price/personId on the
+    // booking's verified save). Pending [Save Quote] keeps full validation —
+    // a pad row with no callback number is useless.
+    if (confirmed) {
+      if (!q.firstName) {
+        err.textContent = 'A name is all that\'s needed — add one and go.';
+        err.style.display = 'block';
+        return;
+      }
+      if (q.phone.length > 0 && q.phone.length !== 10) {
+        err.textContent = 'Finish the phone number (10 digits) or clear it.';
+        err.style.display = 'block';
+        return;
+      }
+    } else if (q.phone.length !== 10) {
       err.textContent = 'Phone number is required (10 digits).';
       err.style.display = 'block';
       return;
