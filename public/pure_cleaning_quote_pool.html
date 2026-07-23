@@ -547,10 +547,14 @@ async function patchQuote(id, body){
 // Accept → mark accepted, then hand off into the EXISTING booking flow
 // pre-filled (same mechanism as the modal's Log Confirmed Quote).
 async function doAccept(id){
-  const q = _findQuote(id); if(!q) return;
+  if(!_findQuote(id)) return;
   try{
-    await patchQuote(id, { status:'accepted' });
-    location.href = handoffUrl(q);
+    // Use the row the PATCH returns — the CURRENT server state — for the
+    // handoff, NOT the stale in-memory row (2026-07-23 P0: a Ledger price edit
+    // saved $300 but Accept prefilled the pre-edit $350 because handoffUrl read
+    // the old object). patchQuote returns the authoritative post-edit row.
+    const updated = await patchQuote(id, { status:'accepted' });
+    location.href = handoffUrl(updated || _findQuote(id));
   }catch(e){ toast(`Failed: ${e.message}`); }
 }
 

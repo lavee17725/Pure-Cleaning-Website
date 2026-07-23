@@ -2312,26 +2312,31 @@ async function submitNewProperty() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-    // Refresh customer properties from API and re-render picker
+    // Bind the selection from the SERVER's returned propertyId — authoritative
+    // (2026-07-23 P0 fix). The old path re-fetched and matched on
+    // `p.streetAddress === addr`, which silently failed whenever the server
+    // normalized the address (Google-formatted / trimmed), leaving
+    // _selectedPropertyId null → the multi-property guard blocked scheduling
+    // even though the property WAS created. Never depend on a string round-trip
+    // for the selection.
+    if (data.propertyId) _selectedPropertyId = data.propertyId;
+
+    // Refresh customer properties from API and re-render picker for display.
     const cRes  = await fetch(PCPC_API + '/customer/' + ph);
     const cData = await cRes.json();
     const props = (cData.customer || cData)?.properties || [];
     _customerProperties = props;
-
-    // Re-render picker and select the newly created property
     showPropertyPicker(props);
-    // Select the new property by matching address
+    // Select the option matching the created propertyId (id, not address string).
     const sel = document.getElementById('propertyPickerSel');
-    if (sel) {
-      for (let i = 0; i < sel.options.length; i++) {
-        const p = props[i];
-        if (p && p.streetAddress === addr && p.city === city) {
-          sel.value = i;
-          onPropertySelect(String(i));
-          break;
-        }
-      }
+    if (sel && data.propertyId) {
+      const idx = props.findIndex(p => p && p.propertyId === data.propertyId);
+      if (idx !== -1) { sel.value = String(idx); onPropertySelect(String(idx)); }
+      else { _selectedPropertyId = data.propertyId; /* picker didn't list it yet; keep the id */ }
     }
+    // Mirror the address into the main fields so the schedule reflects this property.
+    if (addr) document.getElementById('nAddr').value = addr;
+    if (city) document.getElementById('nCity').value = city;
     document.getElementById('addPropForm').style.display = 'none';
   } catch(e) {
     errEl.textContent = 'Error: ' + e.message;
@@ -3176,6 +3181,22 @@ async function submitScheduleNow() {
 
   document.getElementById('schedBtn').disabled = true;
   try {
+    // 2026-07-23 P0: if a new address was ENTERED in the add-property form but
+    // not explicitly saved, resolve it now so the multi-property guard never
+    // fires on a genuine entry. submitNewProperty binds _selectedPropertyId
+    // from the server's returned id (validates type/label; on incomplete form
+    // it surfaces its own error and we bail rather than schedule to the wrong
+    // property). No-op when a property is already selected.
+    const _addForm = document.getElementById('addPropForm');
+    const _newAddr = (document.getElementById('newPropAddr')?.value || '').trim();
+    const _newCity = (document.getElementById('newPropCity')?.value || '').trim();
+    if (!_selectedPropertyId && _addForm && _addForm.style.display !== 'none' && _newAddr && _newCity) {
+      await submitNewProperty();
+      if (!_selectedPropertyId) {   // validation failed (missing type/label) — don't schedule blind
+        document.getElementById('schedBtn').disabled = false;
+        return;
+      }
+    }
     const svcStr   = c.scheduledStatus?.jobNotes || c.quoteStatus?.mainServices || notes || '';
     const pws      = c.quoteStatus?.partnerWorkSite || {};
     const svcAgreed = c.quoteStatus?.servicesAgreed || {};
