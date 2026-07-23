@@ -2338,6 +2338,22 @@ async function main() {
       }
     });
 
+    // ── DIRECTORY — address visible in results table (2026-07-23 QoL) ─────────
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'directory-addr-column', async page => {
+      await page.waitForFunction(() => typeof allCustomers !== 'undefined' && allCustomers.length > 0
+        && typeof buildRow === 'function', { timeout: 45000 });
+      const r = await page.evaluate(() => {
+        const withAddr = allCustomers.find(c => c.address && c.city);
+        if (!withAddr) return { skip: true };
+        const html = buildRow(withAddr);
+        return { addr: withAddr.address, city: withAddr.city,
+          hasAddr: html.includes(withAddr.address), hasCity: html.includes(withAddr.city) };
+      });
+      if (r.skip) { pass('Directory — address column (no addressed customer to sample)'); return; }
+      if (r.hasAddr && r.hasCity) pass('Directory — results row shows street address + city', r.addr);
+      else fail('Directory — results row shows street address + city', JSON.stringify(r));
+    });
+
     // ── QUOTE POOL (2026-07-23 WO) — page shell + shared logger modal ──────────
     queuePage(context, `${PAGES_BASE}/pure_cleaning_quote_pool.html`, 'quote-pool', async page => {
       const tabCount = await page.locator('.tab').count();

@@ -191,7 +191,7 @@ tr:hover .dir-edit-btn{opacity:.55;}
               <th data-sort="tier" onclick="clickSort('tier')">Tier <span class="sind">▲▼</span></th>
               <th data-sort="phone" onclick="clickSort('phone')">Phone <span class="sind">▲▼</span></th>
               <th class="no-sort">Email</th>
-              <th data-sort="city" onclick="clickSort('city')">City <span class="sind">▲▼</span></th>
+              <th data-sort="city" onclick="clickSort('city')">Address <span class="sind">▲▼</span></th>
               <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sind">▲▼</span></th>
               <th data-sort="avgLaborPerJob" onclick="clickSort('avgLaborPerJob')" class="col-avg-time">Avg Job Duration <span class="sind">▲▼</span></th>
               <th data-sort="totalJobs" onclick="clickSort('totalJobs')">Jobs <span class="sind">▲▼</span></th>
@@ -872,7 +872,7 @@ function buildRow(c){
     <td>${_tchip}</td>
     <td class="muted">${(Array.isArray(c.alternateContacts)&&c.alternateContacts.length)?`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:3px;">Main</span>`:''}${fmtPh(c.phone)}${_dirAltContacts(c,{inline:true})}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
-    <td class="muted">${esc(c.city||'—')}</td>
+    <td class="muted" style="max-width:200px;"><div style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.address||'—')}</div><div style="font-size:11px;opacity:.75;">${esc(c.city||'')}</div></td>
     <td class="muted">${c.lastService?fmtDate(c.lastService):'—'}</td>
     <td class="col-avg-time" style="font-size:12px;font-weight:600;${c.avgLaborPerJob?'':'color:#d1d5db;'}">${esc(c._avgTPWLabel||'—')}${c._avgSoloEquivLabel?`<br><span style="font-size:10px;color:#9333ea;font-weight:600;">${esc(c._avgSoloEquivLabel)}</span>`:''}${c._avgTotalLaborLabel?`<br><span style="font-size:10px;color:#0d6940;font-weight:600;">${esc(c._avgTotalLaborLabel)}</span>`:''}</td>
     <td>${c.totalJobs||'—'}</td>
@@ -897,7 +897,7 @@ function buildCard(c){
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
       <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button>${_clockBtn(c, ph)}</div>
-      <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
+      <div class="cust-card-meta" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc([c.address,c.city].filter(Boolean).join(' · ')||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${(Array.isArray(c.alternateContacts)&&c.alternateContacts.length)?`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:3px;">Main</span>`:''}${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
       ${_dirAltContacts(c)}
       ${c._avgTPWLabelCard?`<div class="cust-card-avg">${esc(c._avgTPWLabelCard)}</div>`:''}
