@@ -504,8 +504,13 @@ async function init() {
         fn: customer.firstName, ln: customer.lastName, ph: customer.phone,
         address: customer.address || '', city: customer.city || '',
         services: qs.mainServices || '', mainServices: qs.mainServices || '',
-        approvedAmount: ss.approvedAmount || qs.approvedAmount || 0,
-        mainAmount:     ss.approvedAmount || qs.approvedAmount || 0,
+        // This is a QUOTE-agreement page — prefer the quote's amount (qs) over the KV
+        // scheduledStatus slot (ss). The slot deterministically holds the customer's
+        // NEWEST-dated scheduled job (_d1BuildScheduledStatus), so on a customer with a
+        // second, later job it showed the WRONG total. The ?id={quoteCode} path above
+        // already resolves the specific quote; this is only the phone-only fallback.
+        approvedAmount: qs.approvedAmount || ss.approvedAmount || 0,
+        mainAmount:     qs.approvedAmount || ss.approvedAmount || 0,
         addOns: [], miniQuoteCustomData: qs.miniQuoteCustomData || null,
         dateSuggestions: qs.miniQuoteCustomData?.dateSuggestions || [],
         created: qs.sentAt || customer.submittedAt || new Date().toISOString(),

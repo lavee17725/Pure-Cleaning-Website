@@ -788,6 +788,23 @@ async function saveTipData(phone, tipAmount, tipMethod, tippedAt) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customers: custs }),
       });
+      // Interim guard (scheduledStatus one-slot audit, 2026-07-16): ALSO persist the tip
+      // to the canonical D1 Job row by jobId. The KV slot alone gets clobbered on the next
+      // D1→KV rebuild (tips rebuild from Job.tipAmount), silently losing crew tips (DL-09).
+      // Shown jobs are filtered to scheduledDate===today, so the reconstructed jobId targets
+      // today's job. Best-effort; the full jobId rekey of crew_mobile is a separate pass.
+      try {
+        const _tj = _todaysJobs.find(j => j.phone === phone) || {};
+        const _sd = _tj.ss && _tj.ss.scheduledDate;
+        if (_sd) {
+          const _jid = `job_person_1${phone.replace(/\D/g,'').slice(-10)}_${_sd}_scheduled`;
+          await fetch(`${API}/admin/job/${encodeURIComponent(_jid)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tipped: tipAmount > 0, tipAmount: tipAmount > 0 ? tipAmount : null }),
+          });
+        }
+      } catch(_) { /* best-effort D1 tip mirror — KV write already succeeded */ }
     }
   } catch(e) {
     console.warn('saveTipData failed:', e);

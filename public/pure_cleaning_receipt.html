@@ -350,18 +350,22 @@ function renderPage() {
   const addrEl = document.getElementById('rcpt-addr');
   if (addr) addrEl.textContent = addr; else addrEl.style.display = 'none';
 
-  const completedDate = ss.completedDate
-    ? new Date(ss.completedDate + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'})
+  // Prefer the actual completed job (jobHistory — canonical, DL-03) over the KV
+  // scheduledStatus slot, which holds the customer's NEWEST-dated scheduled job and
+  // on a multi-job customer is NOT the completed job this receipt is for.
+  const _compDateRaw = _lastJh.date || (_lastJh.completedAt ? _lastJh.completedAt.slice(0,10) : '') || ss.completedDate;
+  const completedDate = _compDateRaw
+    ? new Date(_compDateRaw + 'T12:00:00').toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric', year:'numeric'})
     : '—';
 
   document.getElementById('rcpt-meta').innerHTML = `
     <div class="rcpt-meta-item"><span class="rcpt-meta-lbl">Completed</span><span class="rcpt-meta-val">${completedDate}</span></div>
     <div class="rcpt-meta-item"><span class="rcpt-meta-lbl">Completed by</span><span class="rcpt-meta-val">Pure Cleaning</span></div>`;
 
-  // Services list
-  const services   = qs.mainServices || ss.jobNotes || qs.notes || '—';
+  // Services list — completed-job record first, then quote, then the (multi-job-unsafe) slot.
+  const services   = _lastJh.services || qs.mainServices || ss.jobNotes || qs.notes || '—';
   const addons     = customer.addOns  || qs.addOns  || [];
-  const baseAmount = pi.totalPaid || ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  const baseAmount = pi.totalPaid || _lastJh.amount || ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
 
   let svcHtml = `<div class="svc-item">
     <div class="svc-check">✓</div>
@@ -417,7 +421,8 @@ function renderPage() {
 function buildPrintFilename() {
   const ln = (customer.lastName || customer.ln || '').replace(/\s+/g, '');
   const ss = customer.scheduledStatus || {};
-  const d  = (ss.completedDate || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+  const _lastJh = (customer.jobHistory || []).slice().reverse().find(j => j && j.status === 'completed') || {};
+  const d  = (_lastJh.date || ss.completedDate || new Date().toISOString().slice(0,10)).replace(/-/g,'');
   return `PureCleaning_Receipt_${ln}_${d}`;
 }
 
@@ -434,12 +439,14 @@ function buildPrintContent() {
   const _printAddr2 = _lastJh.workSiteAddress || customer.workSiteAddress || _lastJh.address || customer.address;
   const _printCity2 = _lastJh.workSiteCity    || customer.workSiteCity    || _lastJh.city    || customer.city;
   const addr    = [_printAddr2, _printCity2].filter(Boolean).join(', ');
-  const services = qs.mainServices || ss.jobNotes || qs.notes || '—';
+  // Completed-job record first (canonical, DL-03), then quote, then the multi-job-unsafe slot.
+  const services = _lastJh.services || qs.mainServices || ss.jobNotes || qs.notes || '—';
   const addons   = customer.addOns || qs.addOns || [];
-  const total    = pi.totalPaid || ss.approvedAmount || qs.approvedAmount || 0;
+  const total    = pi.totalPaid || _lastJh.amount || ss.approvedAmount || qs.approvedAmount || 0;
   const base     = total - addons.reduce((s,a)=>s+(a.bundle||0),0) || total;
-  const compDate = ss.completedDate
-    ? new Date(ss.completedDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
+  const _compRaw = _lastJh.date || (_lastJh.completedAt ? _lastJh.completedAt.slice(0,10) : '') || ss.completedDate;
+  const compDate = _compRaw
+    ? new Date(_compRaw + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
     : '—';
   const payDate = pi.paidDate
     ? new Date(pi.paidDate + 'T12:00:00').toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'})
@@ -513,8 +520,9 @@ function onEmailClick() {
   const ss     = customer.scheduledStatus || {};
   const qs     = customer.quoteStatus    || {};
   const pi     = customer.paymentInfo    || {};
-  const services = qs.mainServices || ss.jobNotes || 'your services';
-  const total    = pi.totalPaid || ss.approvedAmount || 0;
+  const _lastJh = (customer.jobHistory || []).slice().reverse().find(j => j && j.status === 'completed') || {};
+  const services = _lastJh.services || qs.mainServices || ss.jobNotes || 'your services';
+  const total    = pi.totalPaid || _lastJh.amount || ss.approvedAmount || 0;
   const url      = window.location.href;
   const email    = customer.email || '';
 

@@ -222,6 +222,12 @@ textarea.fi{resize:vertical;min-height:60px;line-height:1.5;}
           </div>
         </div>
         <div id="emailOk" class="email-ok" style="display:none;">✓ Email on file: <span id="emailDisplay"></span></div>
+        <!-- Additional contacts (Glenn, Angela) — persist to Person.alternateContactsJson -->
+        <div id="pbAltWrap" style="display:none;margin-top:12px;">
+          <label style="font-size:13px;font-weight:600;color:var(--navy,#0a1628);display:block;margin-bottom:4px;">Additional contacts <span style="font-weight:400;color:#8a94a6;">(optional)</span></label>
+          <div id="pbAltContacts"></div>
+          <button type="button" onclick="addAltContactRow()" style="background:none;border:none;color:var(--sky,#2d7dd2);font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:2px 0;">+ Add another contact</button>
+        </div>
       </div>
     </div>
 
@@ -435,8 +441,51 @@ function onClientSearch(val) {
   }, 200);
 }
 
+// Repeatable additional contacts (name + phone + email) → Person.alternateContactsJson.
+function addAltContactRow(data){
+  const wrap = document.getElementById('pbAltContacts');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'alt-contact-row';
+  row.style.cssText = 'display:flex;gap:6px;margin:6px 0;align-items:center;flex-wrap:wrap;';
+  row.innerHTML =
+    `<input class="fi ac-name"  type="text"  placeholder="Name / label (Glenn)" style="flex:1;min-width:100px;margin:0;" value="${esc((data&&(data.name||data.label))||'')}">
+     <input class="fi ac-phone" type="tel"   placeholder="Phone"               style="flex:1;min-width:110px;margin:0;" value="${esc((data&&data.phone)||'')}">
+     <input class="fi ac-email" type="email" placeholder="Email"               style="flex:1.4;min-width:140px;margin:0;" value="${esc((data&&data.email)||'')}">
+     <button type="button" title="Remove" onclick="this.closest('.alt-contact-row').remove()" style="background:none;border:none;color:#c2410c;font-size:16px;cursor:pointer;padding:0 4px;">✕</button>`;
+  wrap.appendChild(row);
+}
+function collectAltContacts(){
+  return Array.from(document.querySelectorAll('#pbAltContacts .alt-contact-row')).map(r => {
+    const name  = (r.querySelector('.ac-name')?.value || '').trim();
+    const phone = (r.querySelector('.ac-phone')?.value || '').replace(/\D/g,'').slice(0,10);
+    const email = (r.querySelector('.ac-email')?.value || '').trim();
+    return { name, phone, email, label: name };
+  }).filter(c => c.name || c.phone || c.email);
+}
+// Persist the extra contacts before generating so the proposal (resolved by personId) has them.
+async function saveAltContacts(){
+  if (!selectedClient?.personId) return;
+  const alts = collectAltContacts();
+  selectedClient.alternateContacts = alts;
+  try {
+    await fetch(`${PCPC_API}/admin/person/${selectedClient.personId}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ alternateContacts: alts }),
+    });
+  } catch(e) { console.warn('[alt contacts] PATCH error:', e.message); }
+}
+
 function selectClient(c) {
   selectedClient = c;
+  // Show + prefill the additional-contacts editor from the client's existing contacts.
+  const _pbWrap = document.getElementById('pbAltWrap');
+  const _pbList = document.getElementById('pbAltContacts');
+  if (_pbWrap && _pbList) {
+    _pbWrap.style.display = 'block';
+    _pbList.innerHTML = '';
+    (Array.isArray(c.alternateContacts) ? c.alternateContacts : []).forEach(a => addAltContactRow(a));
+  }
   document.getElementById('searchResults').style.display = 'none';
   document.getElementById('clientSearch').value = '';
   document.getElementById('clientSearchArea').style.display = 'none';
@@ -460,6 +509,8 @@ function selectClient(c) {
 
 function clearClient() {
   selectedClient = null;
+  const _pbWrap = document.getElementById('pbAltWrap');
+  if (_pbWrap) { _pbWrap.style.display = 'none'; document.getElementById('pbAltContacts').innerHTML = ''; }
   document.getElementById('clientSearchArea').style.display = 'block';
   document.getElementById('clientSelected').style.display = 'none';
   document.getElementById('emailWarn').style.display = 'none';
@@ -628,6 +679,7 @@ async function generate() {
   btn.textContent = proposalMode === 'edit' ? 'Saving…' : 'Generating…';
   btn.disabled = true;
 
+  await saveAltContacts();   // persist Glenn/Angela to the person before generating the proposal
   const lineItems  = getLineItems();
   const subtotal   = lineItems.reduce((s, li) => s + li.lineTotal, 0);
   const discountAmt = parseFloat(document.getElementById('discountAmt').value) || null;

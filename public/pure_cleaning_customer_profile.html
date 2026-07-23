@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <script src="/js/error-tracker.js"></script>
+<script src="/js/reminder-builder.js"></script>
 <script>
 /* Auth gate — do not remove */
 (function(){
@@ -489,37 +490,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
     <div class="panel-body">
       <div id="followUpList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:.625rem;"></div>
-      <div id="followUpArea" class="add-note-area" style="display:none;">
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:120px;">
-            Reminder type
-            <select id="followUpTypeInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
-              <option value="manual_follow_up">Follow-up (one-time)</option>
-              <option value="outreach">Outreach (next cleaning)</option>
-            </select>
-          </label>
-          <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:140px;">
-            Target month
-            <input type="month" id="followUpMonthInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
-          </label>
-          <label style="font-size:12px;font-weight:700;color:var(--navy);display:flex;flex-direction:column;gap:3px;flex:1;min-width:140px;">
-            Cadence
-            <select id="followUpCadenceInput" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;">
-              <option value="">One-time</option>
-              <option value="3">Every 3 months</option>
-              <option value="6">Every 6 months</option>
-              <option value="12">Every year</option>
-              <option value="24">Every 2 years</option>
-            </select>
-          </label>
-        </div>
-        <textarea id="followUpNoteInput" placeholder="Note (e.g. 'Contact Peter about re-doing the service — discussed in person')"></textarea>
-        <div class="add-note-actions">
-          <button class="btn-cancel-note" onclick="cancelFollowUp()">Cancel</button>
-          <button class="btn-save-note" onclick="saveFollowUp()">Save reminder</button>
-        </div>
-      </div>
-      <button class="btn-add-note" id="addFollowUpBtn" onclick="showAddFollowUp()">+ Remind me to reach out</button>
+      <!-- Builder is the shared modal (/js/reminder-builder.js) — same one the directory
+           clock icon opens. Legacy inline form retired 2026-07-16 (unified reminders). -->
+      <button class="btn-add-note" id="addFollowUpBtn" onclick="openReminderBuilderProfile()">+ Remind me to reach out</button>
     </div>
   </div>
 
@@ -1569,13 +1542,15 @@ function renderSidebar(c){
 
   // WO-2: alternate contacts (spouse/family/etc.) nested under the main phone.
   const _altContactRows = (Array.isArray(c.alternateContacts)?c.alternateContacts:[])
-    .filter(a=>a&&(a.phone||a.name))
+    .filter(a=>a&&(a.phone||a.name||a.email))
     .map(a=>{
       const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
       const pf=d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:(a.phone||'');
       const rel=a.relationship||a.relation||'';
       const lbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Property Manager':rel==='tenant'?'Tenant':rel||'Alternate';
-      const val=`${a.name?esc(a.name)+' — ':''}${d.length===10?`<a href="tel:+1${d}">${esc(pf)}</a>`:esc(pf)}`;
+      const telPart=d.length===10?`<a href="tel:+1${d}">${esc(pf)}</a>`:(pf?esc(pf):'');
+      const emPart=a.email?`${telPart?' · ':''}<a href="mailto:${esc(a.email)}">${esc(a.email)}</a>`:'';
+      const val=`${a.name?esc(a.name)+' — ':''}${telPart}${emPart}`;
       return {icon:'📞',label:lbl,val};
     });
   const contactRows=[
@@ -1732,15 +1707,19 @@ function renderFollowUps(){
     return new Date(y, m-1, 1).toLocaleDateString('en-US', { month:'long', year:'numeric' });
   };
   list.innerHTML = _followUps.map(r => {
-    const _due = (new Date().toISOString().slice(0,7) >= r.followUpMonth);
+    // v2: due when the computed surface date (nextFireAt) has arrived; falls back to
+    // month-granular for any legacy row without a nextFireAt.
+    const _due = r.nextFireAt ? (new Date().toISOString().slice(0,10) >= r.nextFireAt)
+                              : (new Date().toISOString().slice(0,7) >= r.followUpMonth);
     const _status = r.status || 'active';
     const _isOutreach = r.type === 'outreach';
     const _emoji = _isOutreach ? '📞' : '📅';
     const _typeLabel = _isOutreach ? 'OUTREACH' : 'FOLLOW-UP';
-    const _cadenceStr = r.cadenceMonths ? ` · every ${r.cadenceMonths}mo` : '';
+    const _cadenceStr = r.cadenceMonths ? ` · every ${r.cadenceMonths === 1 ? 'month' : r.cadenceMonths+'mo'}` : '';
+    const _dayStr = r.targetDay ? ` · around the ${r.targetDay}${r.targetDay%10===1&&r.targetDay!==11?'st':r.targetDay%10===2&&r.targetDay!==12?'nd':r.targetDay%10===3&&r.targetDay!==13?'rd':'th'}` : '';
     return `<div style="background:${_status==='active' && _due ? '#fff7ed':'#fafafa'};border:1.5px solid ${_status==='active' && _due ? '#fed7aa':'var(--border)'};border-radius:10px;padding:10px 12px;">
       <div style="font-size:11px;font-weight:700;color:${_status==='active' && _due ? '#9a3412':'var(--muted)'};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">
-        ${_emoji} ${_typeLabel} · ${esc(_monthLabel(r.followUpMonth))}${esc(_cadenceStr)}${_status==='active' && _due ? ' · DUE' : ''}${_status!=='active' ? ' · '+esc(_status.toUpperCase()) : ''}
+        ${_emoji} ${_typeLabel} · ${esc(_monthLabel(r.followUpMonth))}${esc(_dayStr)}${esc(_cadenceStr)}${_status==='active' && _due ? ' · DUE' : ''}${_status!=='active' ? ' · '+esc(_status.toUpperCase()) : ''}
       </div>
       ${r.note ? `<div style="font-size:13.5px;color:var(--text);line-height:1.45;">${esc(r.note)}</div>` : ''}
       ${_status === 'active' ? `<div style="margin-top:8px;"><button onclick="dismissFollowUp('${esc(r.reminderId)}')" style="background:#f3f4f6;border:1px solid var(--border);color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer;">Mark done</button></div>` : ''}
@@ -1748,59 +1727,20 @@ function renderFollowUps(){
   }).join('');
 }
 
-function showAddFollowUp(){
-  document.getElementById('followUpArea').style.display = 'block';
-  document.getElementById('addFollowUpBtn').style.display = 'none';
-  // Default the picker to next month so it doesn't appear in the bell immediately.
-  const d = new Date(); d.setMonth(d.getMonth() + 1);
-  const ym = d.toISOString().slice(0,7);
-  document.getElementById('followUpMonthInput').value = ym;
-  document.getElementById('followUpNoteInput').focus();
-}
-
-function cancelFollowUp(){
-  document.getElementById('followUpArea').style.display = 'none';
-  document.getElementById('addFollowUpBtn').style.display = '';
-  document.getElementById('followUpNoteInput').value = '';
-  document.getElementById('followUpCadenceInput').value = '';
-  document.getElementById('followUpTypeInput').value = 'manual_follow_up';
-}
-
-async function saveFollowUp(){
-  const ym = (document.getElementById('followUpMonthInput').value || '').trim();
-  const note = (document.getElementById('followUpNoteInput').value || '').trim();
-  const type = document.getElementById('followUpTypeInput').value || 'manual_follow_up';
-  const cadenceRaw = document.getElementById('followUpCadenceInput').value;
-  const cadenceMonths = cadenceRaw ? Number(cadenceRaw) : null;
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { alert('Pick a target month (YYYY-MM).'); return; }
+// Open the shared reminder builder (same modal the directory clock icon opens).
+// On save, re-fetch so the profile's Reminders list reflects authoritative state.
+function openReminderBuilderProfile(){
   const ph10 = (_customer?.phone||'').replace(/\D/g,'').slice(-10);
   if (!ph10) { alert('No phone on this customer record.'); return; }
-  const personId = 'person_1' + ph10;
-  const btn = document.querySelector('#followUpArea .btn-save-note');
-  btn.disabled = true; btn.textContent = 'Saving…';
-  try {
-    const res = await fetch(`${API}/admin/reminder`, {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ personId, followUpMonth: ym, note: note || null, type, cadenceMonths }),
-    });
-    if (!res.ok) {
-      const det = await res.json().catch(() => ({}));
-      throw new Error(det.error || `HTTP ${res.status}`);
-    }
-    const created = await res.json();
-    // Verify-before-success: server returned a reminderId for the same person.
-    if (!created?.reminderId || created.personId !== personId) {
-      throw new Error('server did not confirm the reminder');
-    }
-    // Re-fetch so we see authoritative state (status, modifiedAt, etc.).
-    await loadFollowUps();
-    cancelFollowUp();
-  } catch(e) {
-    alert('Failed to save follow-up: ' + e.message);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Save Follow-Up';
-  }
+  const name = `${(_customer?.firstName||'')+' '+(_customer?.lastName||'')}`.trim() || _customer?.businessName || '';
+  if (!window.ReminderBuilder) { alert('Reminder builder not loaded — refresh and try again.'); return; }
+  ReminderBuilder.open({
+    personId: 'person_1' + ph10,
+    phone: _customer?.phone,
+    name,
+    apiBase: API,
+    onSaved: () => { loadFollowUps(); },
+  });
 }
 
 async function dismissFollowUp(reminderId){

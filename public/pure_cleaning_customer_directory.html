@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="/js/error-tracker.js"></script>
+<script src="/js/reminder-builder.js"></script>
 <script>
 /* Auth gate — do not remove */
 (function(){
@@ -125,6 +126,9 @@ tr:hover .dir-edit-btn{opacity:.55;}
 .cust-card:hover .dir-edit-btn{opacity:.55;}
 .dir-edit-btn:hover{opacity:1 !important;background:rgba(45,125,210,.10);color:var(--sky);}
 .dir-edit-btn:active{transform:scale(.92);}
+/* Filled clock — customer has a pending reminder. Always visible (not hover-gated). */
+.dir-rem-on{opacity:1 !important;color:#ea580c;background:#fff7ed;}
+.dir-rem-on:hover{background:#ffedd5;color:#c2410c;}
 /* On touch devices (no :hover), keep the pencil faintly visible so Mom can spot it without hover */
 @media(hover:none){.dir-edit-btn{opacity:.45;}}
 
@@ -263,45 +267,9 @@ tr:hover .dir-edit-btn{opacity:.55;}
 <!-- Inline toast for save confirmations -->
 <div id="dirToast" class="dir-toast"></div>
 
-<!-- "Remind me to reach out" modal — wires to /admin/reminder (D1 Reminder table).
-     Distinct from reactivation: reactivation chases lapsed customers automatically;
-     this is Tyler's proactive cadence for known recurring relationships (HOAs,
-     commercial accounts, loyal repeats). Server-side state, cross-device (Rule 22). -->
-<div id="reminderModal" class="edit-modal" onclick="if(event.target===this)closeReminderModal()" style="display:none;">
-  <div class="edit-modal-card" role="dialog" aria-modal="true" aria-labelledby="reminderModalTitle">
-    <div class="edit-modal-title" id="reminderModalTitle">Remind me to reach out</div>
-    <div class="edit-modal-row">
-      <label for="remType">Reminder type</label>
-      <select id="remType" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;width:100%;">
-        <option value="outreach">Outreach (next cleaning)</option>
-        <option value="manual_follow_up">Follow-up (one-time)</option>
-      </select>
-    </div>
-    <div class="edit-modal-row">
-      <label for="remMonth">Target month</label>
-      <input type="month" id="remMonth">
-    </div>
-    <div class="edit-modal-row">
-      <label for="remCadence">Cadence</label>
-      <select id="remCadence" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;width:100%;">
-        <option value="">One-time</option>
-        <option value="3">Every 3 months</option>
-        <option value="6" selected>Every 6 months</option>
-        <option value="12">Every year</option>
-        <option value="24">Every 2 years</option>
-      </select>
-    </div>
-    <div class="edit-modal-row">
-      <label for="remNote">Note <span class="edit-modal-opt">(optional)</span></label>
-      <input type="text" id="remNote" placeholder="e.g. ask about next roof clean">
-    </div>
-    <div id="reminderModalErr" class="edit-modal-err"></div>
-    <div class="edit-modal-actions">
-      <button class="btn-cancel" onclick="closeReminderModal()">Cancel</button>
-      <button class="btn-save" id="reminderSaveBtn" onclick="saveReminderModal()">Save reminder</button>
-    </div>
-  </div>
-</div>
+<!-- Reminder builder is the shared component in /js/reminder-builder.js (one modal,
+     used here + on the customer profile). The legacy inline #reminderModal was retired
+     2026-07-16 in the unified-reminders work. -->
 
 <script src="/pure_cleaning_tier_utils.js"></script>
 <script>
@@ -426,12 +394,15 @@ async function init(){
     // _avgTotalLaborLabel). Directory's client-side bouncieMetrics walk is
     // now a passthrough (see `_computeAvgTPW` below) — kept as a safety
     // fallback in case a future caller hands us a non-summary payload.
-    const [res, rsRes]=await Promise.all([
+    const [res, rsRes, remRes]=await Promise.all([
       fetch(`${API}/customers/summary`),
       fetch(`${API}/admin/review-states`).catch(()=>null),
+      fetch(`${API}/admin/reminders`).catch(()=>null),
     ]);
     const data=await res.json();
     const reviewStates=rsRes&&rsRes.ok ? (await rsRes.json()) : {};
+    // Pending reminders per person → fills the clock icon (Phase 2 indicator).
+    try { _remindersByPerson = (remRes && remRes.ok ? (await remRes.json()).activeByPerson : {}) || {}; } catch(_) { _remindersByPerson = {}; }
     const normPh=p=>(p||'').replace(/\D/g,'').slice(-10);
     const raw=(data.customers||[]).filter(c=>!c.deleted);
     allCustomers=raw.map(c=>{
@@ -457,6 +428,17 @@ async function init(){
       };
     });
     document.getElementById('loadingState').style.display='none';
+    // Bug #1 fix — restore the search on mount so the box and the results never disagree.
+    // Source of truth = URL ?search=; fallback = a value the browser restored into the
+    // input on back-navigation (which fires no 'oninput', so searchVal would otherwise
+    // stay '' and the list would show everyone while the box shows her query).
+    const _si = document.getElementById('searchInput');
+    const _restore = ((new URLSearchParams(location.search).get('search')) || _si.value || '').trim();
+    if (_restore) {
+      _si.value = _restore;
+      searchVal = _restore.toLowerCase();
+      document.getElementById('searchClear').classList.add('vis');
+    }
     buildSegmentTabs();
     applyAll();
   }catch(e){
@@ -494,39 +476,103 @@ function setSegment(key){
   applyAll();
 }
 
-// ── Fuzzy name scoring ────────────────────────────────────────────────────────
-// Three-tier scoring for name field only. Phone/email/address/city use exact substring.
-// T1 (100): exact substring match — same as old behavior, always surfaces exact spellings.
-// T2  (90): any word in the full name starts with the query — prefix hit.
-// T3 (30–60): bigram overlap ≥ 50% for query ≥ 4 chars — catches misspellings.
+// ── Nickname dictionary ───────────────────────────────────────────────────────
+// Bi-directional: a query maps to its variants (Beth→Elizabeth, Elizabeth→Beth/Liz).
+// 30 years of handwritten sheets means the DB holds both formal names and nicknames —
+// this bridges them so "Bill" surfaces "William" and vice-versa.
+const NICKNAMES = {
+  bill:['william','billy'], billy:['william','bill'], bob:['robert','bobby'], bobby:['robert','bob'],
+  chuck:['charles'], dick:['richard'], jim:['james','jimmy'], jimmy:['james','jim'],
+  joe:['joseph','joey'], joey:['joseph','joe'], ken:['kenneth','kenny'], kenny:['kenneth','ken'],
+  mike:['michael','mikey'], mikey:['michael','mike'], nick:['nicholas','nicky'], nicky:['nicholas','nick'],
+  pat:['patrick','patricia','patty'], rich:['richard','richie'], richie:['richard','rich'],
+  rob:['robert','robby'], robby:['robert','rob'], ron:['ronald','ronny'], ronny:['ronald','ron'],
+  sam:['samuel','samantha','sammy'], sammy:['samuel','samantha','sam'],
+  steve:['steven','stephen','stevie'], stevie:['steven','stephen','steve'],
+  ted:['theodore','edward','teddy'], teddy:['theodore','edward','ted'], tom:['thomas','tommy'], tommy:['thomas','tom'],
+  tony:['anthony'], vinny:['vincent'], vince:['vincent'], will:['william','willy'], willy:['william','will'],
+  chris:['christopher','christina','christian'],
+  cathy:['catherine','katherine'], kathy:['catherine','katherine'], debbie:['deborah'],
+  jen:['jennifer','jenny'], jenny:['jennifer','jen'], kate:['katherine','catherine','katie'],
+  katie:['katherine','catherine','kate'], liz:['elizabeth','lizzy'], lizzy:['elizabeth','liz'],
+  beth:['elizabeth'], maggie:['margaret'], meg:['megan','margaret'], molly:['mary'], peggy:['margaret'],
+  sally:['sarah'], sue:['susan','susanna','susie'], susie:['susan','susanna','sue'],
+  terry:['teresa','theresa'], patty:['patricia','pat'], patricia:['pat','patty'],
+  // Reverse (formal → nicknames)
+  william:['bill','billy','will','willy'], robert:['bob','bobby','rob','robby'], charles:['chuck'],
+  richard:['dick','rich','richie'], james:['jim','jimmy'], joseph:['joe','joey'], kenneth:['ken','kenny'],
+  michael:['mike','mikey'], nicholas:['nick','nicky'], patrick:['pat'], ronald:['ron','ronny'],
+  samuel:['sam','sammy'], samantha:['sam','sammy'], steven:['steve','stevie'], stephen:['steve','stevie'],
+  theodore:['ted','teddy'], edward:['ted','teddy'], thomas:['tom','tommy'], anthony:['tony'],
+  vincent:['vinny','vince'], christopher:['chris'], christina:['chris'], christian:['chris'],
+  catherine:['cathy','kathy','kate','katie'], katherine:['cathy','kathy','kate','katie'], deborah:['debbie'],
+  jennifer:['jen','jenny'], elizabeth:['liz','lizzy','beth'], margaret:['maggie','meg','peggy'],
+  megan:['meg'], mary:['molly'], sarah:['sally'], susan:['sue','susie'], susanna:['sue','susie'],
+  teresa:['terry'], theresa:['terry'],
+};
+function expandNicknames(word){
+  const n = (word||'').toLowerCase().trim();
+  const out = new Set([n]);
+  (NICKNAMES[n]||[]).forEach(v => out.add(v));
+  return [...out];
+}
+
+// ── Fuzzy name scoring (tightened 2026-07-16) ─────────────────────────────────
+// Name field = firstName + lastName + businessName. Phone/email/address/city match
+// by substring elsewhere. Tiers, highest first:
+// T1 (100): exact substring anywhere in the name — always surfaces exact spellings.
+// T2  (90): any name word starts with the query — prefix hit.
+// T2.2 (60–80): NICKNAME expansion — a query variant matches a name word (Beth→Elizabeth).
+// T2.5 (45–70): multi-word token match — right surname surfaces despite a wrong first name.
+// T3 (30–60): per-WORD bigram typo tolerance — overlap ≥ 0.66, OR ≥ 0.50 when the name
+//   word shares the query's first letter (anchor). Per-word + anchor is what stops "Smith"
+//   from matching "Mitchell" while still catching "Smyth"/"Bargello".
 function _fuzzyNameScore(query, c) {
+  const nameWords = c._name.split(/\s+/).filter(Boolean);
   if (c._name.includes(query)) return 100;
-  if (c._name.split(' ').some(p => p.startsWith(query))) return 90;
-  // Tier 2.5 — multi-word query: match token-by-token so a correct last name
-  // surfaces the customer even when the first name is wrong or a variant.
-  // "Thomas Bargello" → "Tom Bargello": "thomas".startsWith("tom") ✓, "bargello"==="bargello" ✓
-  // "Thomas Bargello" → "Tom Bargaglio": "bargello".startsWith("barg") ✓ → still surfaces
+  if (nameWords.some(p => p.startsWith(query))) return 90;
+
   const _qTok = query.split(/\s+/).filter(t => t.length > 1);
-  const _nTok = c._name.split(/\s+/).filter(t => t.length > 0);
-  if (_qTok.length >= 2 && _nTok.length >= 1) {
-    const hits = _qTok.filter(qt => _nTok.some(nt =>
-      nt === qt ||           // exact token:   "bargello" === "bargello"
-      nt.startsWith(qt) ||   // name extends:  "robert".startsWith("rob")
-      qt.startsWith(nt)      // query extends: "thomas".startsWith("tom")
+
+  // T2.2 — nickname expansion (single- or multi-token query)
+  let nickBest = 0;
+  for (const qt of (_qTok.length ? _qTok : [query])) {
+    for (const v of expandNicknames(qt)) {
+      if (v === qt) continue;                                  // only expanded variants here
+      for (const nw of nameWords) {
+        if (nw === v)              nickBest = Math.max(nickBest, 80);   // nickname exact
+        else if (nw.startsWith(v)) nickBest = Math.max(nickBest, 60);   // nickname prefix
+      }
+    }
+  }
+  if (nickBest) return nickBest;
+
+  // T2.5 — multi-word token match (earned: "Thomas Bargello" → "Tom Bargaglio")
+  if (_qTok.length >= 2 && nameWords.length >= 1) {
+    const hits = _qTok.filter(qt => nameWords.some(nt =>
+      nt === qt || nt.startsWith(qt) || qt.startsWith(nt)
     ));
     if (hits.length > 0)
       return Math.max(45, Math.round(70 * hits.length / _qTok.length));
   }
+
+  // T3 — per-word bigram typo tolerance with first-letter anchor
   if (query.length < 4) return 0;
-  // Build query bigrams on the fly (cheap for short strings)
   const q = query.replace(/\s+/g, '');
   const qBi = new Set();
   for (let i = 0; i < q.length - 1; i++) qBi.add(q[i] + q[i+1]);
   if (!qBi.size) return 0;
-  let shared = 0;
-  for (const bg of qBi) if (c._bigrams.has(bg)) shared++;
-  const overlap = shared / qBi.size;
-  return overlap >= 0.50 ? Math.round(overlap * 60) : 0;
+  let best = 0;
+  for (const nw of nameWords) {
+    if (nw.length < 3) continue;
+    let shared = 0;
+    for (const bg of qBi) if (nw.includes(bg)) shared++;
+    const overlap = shared / qBi.size;
+    const anchored = nw[0] === q[0];
+    if (overlap >= 0.66 || (anchored && overlap >= 0.50))
+      best = Math.max(best, Math.round(overlap * 60));
+  }
+  return best;
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -534,6 +580,14 @@ let _searchDebounceTimer = null;
 function onSearch(val){
   searchVal=val.trim().toLowerCase();
   document.getElementById('searchClear').classList.toggle('vis',!!searchVal);
+  // Persist the query in the URL (replaceState — no history spam per keystroke) so it
+  // survives navigation, refresh, and browser back/forward. Read back on mount by init().
+  try {
+    const u = new URL(location.href);
+    if (searchVal) u.searchParams.set('search', searchVal);
+    else           u.searchParams.delete('search');
+    history.replaceState(null, '', u);
+  } catch(e) {}
   clearTimeout(_searchDebounceTimer);
   _searchDebounceTimer = setTimeout(applyAll, 120);
 }
@@ -645,7 +699,9 @@ function renderResults(){
 
   // Update subtitle
   document.getElementById('pageSub').textContent=`${allCustomers.length.toLocaleString()} total customers · Search, filter, and tap to view profile`;
-  document.getElementById('barCount').textContent=`Showing ${Math.min(displayed,total).toLocaleString()} of ${total.toLocaleString()} customers`;
+  document.getElementById('barCount').textContent = searchVal
+    ? `Found ${total.toLocaleString()} matching “${searchVal}”${total>PAGE_SIZE?` · showing ${Math.min(displayed,total)}`:''}`
+    : `Showing ${Math.min(displayed,total).toLocaleString()} of ${total.toLocaleString()} customers`;
 
   const hasMore=total>PAGE_SIZE;
   document.getElementById('loadMoreBtn').style.display=hasMore?'block':'none';
@@ -654,7 +710,18 @@ function renderResults(){
   if(!total){
     document.getElementById('tableOuter').style.display='none';
     document.getElementById('cardList').innerHTML='';
-    document.getElementById('emptyState').style.display='block';
+    // No silent failure — name the query so the empty state explains itself.
+    const _es = document.getElementById('emptyState');
+    const _t  = _es.querySelector('.empty-title');
+    const _h  = _es.querySelector('.empty-title ~ div');
+    if (searchVal) {
+      if (_t) _t.textContent = `No customers found matching “${searchVal}”`;
+      if (_h) _h.textContent = 'Try a different search or clear the filter.';
+    } else {
+      if (_t) _t.textContent = 'No customers match';
+      if (_h) _h.textContent = 'Try adjusting your search or clearing filters.';
+    }
+    _es.style.display='block';
     return;
   }
   document.getElementById('tableOuter').style.display='block';
@@ -726,7 +793,7 @@ function _segmentOf(c){
 // Directory `c` is a full customer (dbRecordToCustomer) — alternateContacts is present.
 function _dirAltContacts(c, opts){
   const inline = opts && opts.inline;
-  const alts = (Array.isArray(c.alternateContacts)?c.alternateContacts:[]).filter(a=>a&&(a.phone||a.name));
+  const alts = (Array.isArray(c.alternateContacts)?c.alternateContacts:[]).filter(a=>a&&(a.phone||a.name||a.email));
   if(!alts.length) return '';
   return alts.map(a=>{
     const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
@@ -735,11 +802,12 @@ function _dirAltContacts(c, opts){
     const relLbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Prop. Mgr':rel==='tenant'?'Tenant':(rel==='merged'?'':rel||'');
     const lbl='Alt'+(relLbl?' · '+relLbl:'');   // WO-H: lead with "Alt"
     const nm=a.name?esc(a.name)+' ':'';
-    const tel=d.length===10?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(pf)}</a>`:esc(pf);
+    const tel=d.length===10?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(pf)}</a>`:(pf?esc(pf):'');
+    const em=a.email?`${tel?' · ':''}<a href="mailto:${esc(a.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(a.email)}</a>`:'';
     const lblHtml=`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;">${lbl}</span>`;
     return inline
-      ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">↳ ${nm}${lblHtml} ${tel}</div>`
-      : `<div class="cust-card-meta" style="margin-top:1px;">↳ ${nm}${lblHtml} ${tel}</div>`;
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:1px;">↳ ${nm}${lblHtml} ${tel}${em}</div>`
+      : `<div class="cust-card-meta" style="margin-top:1px;">↳ ${nm}${lblHtml} ${tel}${em}</div>`;
   }).join('');
 }
 
@@ -747,7 +815,7 @@ function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
   const _tchip=`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr data-phone="${ph}" onclick="navProfile('${ph}')">
-    <td class="wrap">${esc(_displayName(c))}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></td>
+    <td class="wrap">${esc(_displayName(c))}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button>${_clockBtn(c, ph)}</td>
     <td>${_tchip}</td>
     <td class="muted">${(Array.isArray(c.alternateContacts)&&c.alternateContacts.length)?`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:3px;">Main</span>`:''}${fmtPh(c.phone)}${_dirAltContacts(c,{inline:true})}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
@@ -759,10 +827,10 @@ function buildRow(c){
     <td>${statusBadge(c)}</td>
     <td style="width:54px;padding:6px 10px;">
       ${c.satelliteImageKey
-        ? `<div class="dir-sat-thumb" data-key="${esc(c.satelliteImageKey)}"
-             onclick="event.stopPropagation();_dirOpenSatLb(${JSON.stringify(c.satelliteImageKey)})"
-             title="View satellite" style="width:44px;height:30px;border-radius:5px;overflow:hidden;
-             background:#1f2937;cursor:zoom-in;display:flex;align-items:center;justify-content:center;font-size:13px;">🛰</div>`
+        ? `<div class="dir-sat-thumb" data-key="${esc(c.satelliteImageKey)}" data-maps="${esc(_dirMapsUrl(c))}"
+             onclick="event.stopPropagation();window.open(this.dataset.maps,'_blank','noopener')"
+             title="Open in Google Maps" style="width:44px;height:30px;border-radius:5px;overflow:hidden;
+             background:#1f2937;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;">🛰</div>`
         : ''}
     </td>
   </tr>`;
@@ -775,7 +843,7 @@ function buildCard(c){
   return `<div class="cust-card" data-phone="${ph}" onclick="navProfile('${ph}')">
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
-      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button></div>
+      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button>${_clockBtn(c, ph)}</div>
       <div class="cust-card-meta">${esc(c.city||'—')} · ${c.lastService?'Last: '+fmtDate(c.lastService):'No history'}</div>
       <div class="cust-card-meta">${(Array.isArray(c.alternateContacts)&&c.alternateContacts.length)?`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:3px;">Main</span>`:''}${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
       ${_dirAltContacts(c)}
@@ -812,35 +880,18 @@ function _dirLoadSatThumbs(){
   });
 }
 
-// WO-B: zoomable satellite lightbox — dependency-free. Click image = step-zoom
-// (1×→2×→4×→1×); wheel = continuous 1×–6×; pinch (two-finger) = zoom; backdrop/Esc/× = close.
-let _dirSatScale = 1, _dirSatUrl = null, _dirPinchStart = 0, _dirPinchScale = 1;
-function _dirSatApply(){ const img=document.getElementById('dirSatLbImg'); if(img) img.style.transform=`scale(${_dirSatScale})`;
-  const meta=document.getElementById('dirSatLbMeta'); if(meta) meta.textContent=`${_dirSatScale.toFixed(1)}× — click to zoom · scroll/pinch to fine-tune · Esc to close`; }
-function _dirOpenSatLb(key){
-  if(!key) return;
-  const lb=document.getElementById('dirSatLb'), img=document.getElementById('dirSatLbImg');
-  _dirSatScale=1; _dirSatApply();
-  img.src=''; lb.style.display='flex';
-  fetch(`${API}/admin/photos/key/${key}`).then(r=>r.ok?r.blob():null).then(b=>{
-    if(!b){ _dirCloseSatLb(); return; }
-    if(_dirSatUrl) URL.revokeObjectURL(_dirSatUrl);
-    _dirSatUrl=URL.createObjectURL(b); img.src=_dirSatUrl;
-  }).catch(()=>_dirCloseSatLb());
-}
-function _dirCloseSatLb(){
-  const lb=document.getElementById('dirSatLb'); if(lb) lb.style.display='none';
-  if(_dirSatUrl){ URL.revokeObjectURL(_dirSatUrl); _dirSatUrl=null; }
-  _dirSatScale=1;
-}
-function _dirSatLbClick(e){
-  // Click on the image steps the zoom; click on the backdrop closes.
-  if(e.target && e.target.id==='dirSatLbImg'){
-    _dirSatScale = _dirSatScale>=4 ? 1 : _dirSatScale>=2 ? 4 : 2;
-    _dirSatApply();
-  } else {
-    _dirCloseSatLb();
-  }
+// Satellite thumb → open Google Maps at the property in a new tab (supersedes the
+// WO-B in-app zoom lightbox). Prefer exact coordinates if the row carries them (matches
+// where the static-map thumbnail was centered); else fall back to street address + city.
+// The thumbnail image itself stays at its fixed measurement-reference size.
+function _dirMapsUrl(c){
+  const base = 'https://www.google.com/maps/search/?api=1&query=';
+  const lat = c.latitude ?? c.lat ?? (c.coordinates && c.coordinates.lat);
+  const lng = c.longitude ?? c.lng ?? (c.coordinates && c.coordinates.lng);
+  const has = v => v !== null && v !== undefined && v !== '';
+  if (has(lat) && has(lng)) return base + encodeURIComponent(lat + ',' + lng);
+  const q = [c.address, c.city, 'FL'].filter(Boolean).join(', ');
+  return base + encodeURIComponent(q);
 }
 function renderCards(data){
   document.getElementById('cardList').innerHTML=data.map(buildCard).join('');
@@ -877,6 +928,14 @@ function openEditModal(phone, ev) {
   document.getElementById('editLn').value = _editOrig.lastName;
   document.getElementById('editBn').value = _editOrig.businessName;
   document.getElementById('editEm').value = _editOrig.email;
+  // Partner Identity Law (0037): businessName is the PARTNER's own company only — never the
+  // homeowner. Make the label unmistakable for partner records (homeowner goes on the job).
+  const _editBnLbl = document.querySelector('label[for="editBn"]');
+  if (_editBnLbl) {
+    _editBnLbl.innerHTML = (c.customerType === 'partner_referral')
+      ? 'Partner company <span class="edit-modal-opt" style="color:#c2410c;">(the partner\'s own company — NOT the homeowner; homeowner goes on the job)</span>'
+      : 'Business name <span class="edit-modal-opt">(optional)</span>';
+  }
   document.getElementById('editPh').value = fmtPh(phone);
   document.getElementById('editModalErr').textContent = '';
   document.getElementById('editPropsWrap').style.display = 'none';
@@ -945,71 +1004,29 @@ function closeEditModal() {
   _editOrig  = null;
 }
 
-// ── "Remind me to reach out" modal ──────────────────────────────────────────
-// POSTs to /admin/reminder (D1 Reminder table). Type=outreach when cadence is
-// set, otherwise the operator pick. Server auto-creates the next reminder at
-// +cadenceMonths when this one is marked done in the bell — Tyler's recurring
-// HOA / commercial / loyal-repeat list runs itself.
-let _remindPhone = null;
+// Pending-reminder state per personId (from GET /admin/reminders → activeByPerson).
+// Fills the clock icon amber + tooltips the reason/date for customers who have one.
+let _remindersByPerson = {};
+function _clockBtn(c, ph) {
+  const p10 = String(c.phone || '').replace(/\D/g, '').slice(-10);
+  const rem = _remindersByPerson['person_1' + p10];
+  if (rem) {
+    const dt  = rem.nextFireAt ? new Date(rem.nextFireAt + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const tip = ((rem.reason || 'Reminder set') + (dt ? ` — ${dt}` : '')).replace(/"/g, '&quot;');
+    const more = rem.count > 1 ? `<sup style="font-size:9px;">${rem.count}</sup>` : '';
+    return `<button class="dir-edit-btn dir-rem-on" title="${tip}" aria-label="Reminder set" onclick="openReminderModal('${ph}',event)">⏰${more}</button>`;
+  }
+  return `<button class="dir-edit-btn" title="Remind me to reach out" aria-label="Set reminder" onclick="openReminderModal('${ph}',event)">⏰</button>`;
+}
+
+// ── Reminder clock icon → shared reminder builder (/js/reminder-builder.js) ───
+// One modal, used here and on the customer profile. Store = D1 Reminder table.
 function openReminderModal(phone, ev) {
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
-  _remindPhone = phone;
   const c = (allCustomers || []).find(x => String(x.phone) === String(phone));
   const name = c ? `${(c.firstName||'')+' '+(c.lastName||'')}`.trim() : phone;
-  document.getElementById('reminderModalTitle').textContent = `Remind me about ${name || 'this customer'}`;
-  // Default target month: next month so the bell doesn't fire immediately
-  const d = new Date(); d.setMonth(d.getMonth() + 1);
-  document.getElementById('remMonth').value = d.toISOString().slice(0, 7);
-  document.getElementById('remNote').value  = '';
-  document.getElementById('remType').value  = 'outreach';
-  document.getElementById('remCadence').value = '6';
-  document.getElementById('reminderModalErr').textContent = '';
-  document.getElementById('reminderSaveBtn').disabled = false;
-  document.getElementById('reminderSaveBtn').textContent = 'Save reminder';
-  document.getElementById('reminderModal').style.display = 'flex';
-  setTimeout(() => { try { document.getElementById('remMonth').focus(); } catch {} }, 60);
-}
-
-function closeReminderModal() {
-  document.getElementById('reminderModal').style.display = 'none';
-  _remindPhone = null;
-}
-
-async function saveReminderModal() {
-  if (!_remindPhone) return;
-  const ym       = (document.getElementById('remMonth').value || '').trim();
-  const note     = (document.getElementById('remNote').value || '').trim();
-  const type     = document.getElementById('remType').value || 'outreach';
-  const cadRaw   = document.getElementById('remCadence').value;
-  const cadence  = cadRaw ? Number(cadRaw) : null;
-  const errEl    = document.getElementById('reminderModalErr');
-  errEl.textContent = '';
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) { errEl.textContent = 'Pick a target month.'; return; }
-  const ph10 = (_remindPhone || '').replace(/\D/g, '').slice(-10);
-  if (ph10.length !== 10) { errEl.textContent = 'Customer has no usable phone.'; return; }
-  const personId = 'person_1' + ph10;
-  const btn = document.getElementById('reminderSaveBtn');
-  btn.disabled = true; btn.textContent = 'Saving…';
-  try {
-    const res = await fetch(`${API}/admin/reminder`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personId, followUpMonth: ym, note: note || null, type, cadenceMonths: cadence }),
-    });
-    if (!res.ok) {
-      const det = await res.json().catch(() => ({}));
-      throw new Error(det.error || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    if (!data?.reminderId || data?.personId !== personId) throw new Error('server did not confirm');
-    closeReminderModal();
-    const [y, m] = ym.split('-').map(Number);
-    const lbl = new Date(y, m-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    showDirToast(`✓ Reminder set for ${lbl}${cadence ? ` (every ${cadence}mo)` : ''}`);
-  } catch (e) {
-    errEl.textContent = 'Save failed: ' + e.message;
-    btn.disabled = false; btn.textContent = 'Save reminder';
-  }
+  if (!window.ReminderBuilder) { alert('Reminder builder not loaded — refresh and try again.'); return; }
+  ReminderBuilder.open({ phone, name, apiBase: API });
 }
 
 async function saveEditModal() {
@@ -1191,19 +1208,17 @@ function showDirToast(msg) {
   _dirToastTimer = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
-// Esc-to-close + Enter-to-save while modal is open.
+// Esc-to-close + Enter-to-save while the edit modal is open. (The reminder builder
+// is the shared component and handles its own Escape / click-outside.)
 document.addEventListener('keydown', (e) => {
   const editModalVisible = document.getElementById('editModal')?.style.display === 'flex';
-  const reminderModalVisible = document.getElementById('reminderModal')?.style.display === 'flex';
-  if (!editModalVisible && !reminderModalVisible) return;
+  if (!editModalVisible) return;
   if (e.key === 'Escape') {
     e.preventDefault();
-    if (editModalVisible)     closeEditModal();
-    if (reminderModalVisible) closeReminderModal();
+    closeEditModal();
   } else if (e.key === 'Enter' && (e.target.tagName === 'INPUT')) {
     e.preventDefault();
-    if (editModalVisible)     saveEditModal();
-    if (reminderModalVisible) saveReminderModal();
+    saveEditModal();
   }
 });
 
@@ -1251,35 +1266,8 @@ function exportCsv(){
   a.click();
 }
 
-// WO-B: lightbox zoom inputs — delegated to document (gated on lightbox open).
-const _dirSatOpen = () => document.getElementById('dirSatLb')?.style.display==='flex';
-document.addEventListener('keydown', e=>{ if(e.key==='Escape' && _dirSatOpen()) _dirCloseSatLb(); });
-document.addEventListener('wheel', e=>{
-  if(!_dirSatOpen()) return;
-  e.preventDefault();
-  _dirSatScale=Math.min(6,Math.max(1, _dirSatScale + (e.deltaY<0?0.3:-0.3))); _dirSatApply();
-}, { passive:false });
-document.addEventListener('touchmove', e=>{
-  if(!_dirSatOpen() || e.touches.length!==2) return;
-  e.preventDefault();
-  const dist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX, e.touches[0].clientY-e.touches[1].clientY);
-  if(!_dirPinchStart){ _dirPinchStart=dist; _dirPinchScale=_dirSatScale; return; }
-  _dirSatScale=Math.min(6,Math.max(1, _dirPinchScale*(dist/_dirPinchStart))); _dirSatApply();
-}, { passive:false });
-document.addEventListener('touchend', e=>{ if(e.touches.length<2) _dirPinchStart=0; });
-
 init();
 </script>
 
-<!-- WO-B: zoomable satellite lightbox (dependency-free) -->
-<div id="dirSatLb" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9500;
-  align-items:center;justify-content:center;cursor:zoom-in;" onclick="_dirSatLbClick(event)">
-  <img id="dirSatLbImg" src="" alt="Satellite view" style="max-width:90vw;max-height:88vh;border-radius:10px;
-    object-fit:contain;transform-origin:center center;transition:transform .15s;user-select:none;touch-action:none;">
-  <button onclick="_dirCloseSatLb()" style="position:absolute;top:12px;right:14px;background:rgba(255,255,255,.14);
-    border:none;color:#fff;font-size:20px;width:36px;height:36px;border-radius:50%;cursor:pointer;line-height:1;">×</button>
-  <div id="dirSatLbMeta" style="position:absolute;bottom:14px;color:rgba(255,255,255,.6);font-size:12px;
-    text-align:center;width:100%;pointer-events:none;"></div>
-</div>
 </body>
 </html>

@@ -165,6 +165,11 @@ textarea.fi{resize:vertical;min-height:72px;line-height:1.5;}
             <input id="ncEmail" class="fi" type="email" placeholder="manager@company.com">
           </div>
         </div>
+        <div class="field" style="margin-bottom:0;">
+          <label>Additional contacts <span style="font-weight:400;color:#8a94a6;">(optional — e.g. Glenn, Angela)</span></label>
+          <div id="ncAltContacts"></div>
+          <button type="button" onclick="addAltContactRow()" style="background:none;border:none;color:var(--sky,#2d7dd2);font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:2px 0;">+ Add another contact</button>
+        </div>
         <div class="field">
           <label>Address <span class="req">*</span></label>
           <input id="ncAddr" class="fi" type="text" placeholder="123 Main St" oninput="checkSave()">
@@ -385,6 +390,32 @@ function setStatus(s) {
 }
 
 // ── Save check ────────────────────────────────────────────────────────────────
+// Repeatable additional contacts (WO #37 alt-contacts + email). Each row = name/label +
+// phone + email → one alternateContacts entry {name, phone, email, label}. Primary phone/
+// email stay on ncPhone/ncEmail; every extra contact goes here. No cap.
+function addAltContactRow(data){
+  const wrap = document.getElementById('ncAltContacts');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'alt-contact-row';
+  row.style.cssText = 'display:flex;gap:6px;margin:6px 0;align-items:center;flex-wrap:wrap;';
+  row.innerHTML =
+    `<input class="fi ac-name"  type="text"  placeholder="Name / label (Glenn)" style="flex:1;min-width:100px;margin:0;" value="${esc((data&&(data.name||data.label))||'')}">
+     <input class="fi ac-phone" type="tel"   placeholder="Phone"               style="flex:1;min-width:110px;margin:0;" value="${esc((data&&data.phone)||'')}">
+     <input class="fi ac-email" type="email" placeholder="Email"               style="flex:1.4;min-width:140px;margin:0;" value="${esc((data&&data.email)||'')}">
+     <button type="button" title="Remove" onclick="this.closest('.alt-contact-row').remove()" style="background:none;border:none;color:#c2410c;font-size:16px;cursor:pointer;padding:0 4px;">✕</button>`;
+  wrap.appendChild(row);
+}
+// Collect filled extra rows into the alternateContacts array. name doubles as the label.
+function collectAltContacts(){
+  return Array.from(document.querySelectorAll('#ncAltContacts .alt-contact-row')).map(r => {
+    const name  = (r.querySelector('.ac-name')?.value || '').trim();
+    const phone = (r.querySelector('.ac-phone')?.value || '').replace(/\D/g,'').slice(0,10);
+    const email = (r.querySelector('.ac-email')?.value || '').trim();
+    return { name, phone, email, label: name };
+  }).filter(c => c.name || c.phone || c.email);   // drop empty rows (single-contact accounts unchanged)
+}
+
 function checkSave() {
   const hasClient = selectedClient || (isNewClient &&
     (document.getElementById('ncFirst')?.value||'').trim() &&
@@ -492,6 +523,20 @@ async function save() {
       const props = customer?.properties || [];
       propertyId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
       if (!propertyId) throw new Error('No property on file for this customer. Add their address first.');
+    }
+
+    // 2b. Persist additional contacts (Glenn/Angela) to Person.alternateContactsJson.
+    // handleCreatePerson doesn't take alternateContacts, so PATCH after the person exists.
+    // Non-fatal: a contact hiccup must not lose the job — but it normally round-trips (T1.22).
+    const _altContacts = collectAltContacts();
+    if (_altContacts.length) {
+      try {
+        const acR = await fetch(`${PCPC_API}/admin/person/${encodeURIComponent(personId)}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alternateContacts: _altContacts }),
+        });
+        if (!acR.ok) console.warn('[alt contacts] PATCH failed:', (await acR.json().catch(()=>({}))).error || acR.status);
+      } catch (e) { console.warn('[alt contacts] PATCH error:', e.message); }
     }
 
     // 3. Create job via POST /admin/scheduled-job

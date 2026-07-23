@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Reminders — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0f172a; --text:#1e293b; --muted:#64748b; --border:#e2e8f0;
+    --white:#fff; --bg:#f6f8fb; --sky:#0ea5e9; --amber:#f59e0b; --red:#dc2626; --green:#16a34a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:760px;margin:0 auto;padding:16px 16px 60px;}
+  .top{display:flex;align-items:center;gap:12px;margin:6px 0 4px;}
+  .back{display:inline-flex;align-items:center;gap:6px;color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;}
+  h1{font-size:24px;font-weight:800;color:var(--navy);margin:8px 0 2px;}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:16px;}
+  .sec-hd{display:flex;align-items:center;gap:9px;margin:22px 0 10px;}
+  .sec-title{font-size:13px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--navy);}
+  .sec-count{background:var(--border);color:var(--muted);font-size:12px;font-weight:800;padding:1px 9px;border-radius:999px;}
+  .sec-hd.due .sec-title{color:var(--red);}
+  .sec-hd.due .sec-count{background:#fee2e2;color:var(--red);}
+  .card{background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:14px 15px;margin-bottom:11px;box-shadow:0 1px 3px rgba(15,23,42,.04);}
+  .card.overdue{border-color:#fecaca;background:#fffafa;}
+  .c-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .c-name{font-size:16px;font-weight:800;color:var(--navy);}
+  .c-phone{font-size:13px;color:var(--muted);font-weight:600;margin-top:1px;}
+  .c-when{font-size:12px;font-weight:800;white-space:nowrap;padding-top:2px;}
+  .c-when.od{color:var(--red);} .c-when.up{color:var(--muted);}
+  .c-reason{margin:9px 0 0;font-size:14.5px;color:var(--text);line-height:1.45;}
+  .c-tags{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;}
+  .c-tag{font-size:11px;font-weight:700;color:var(--muted);background:#f1f5f9;border-radius:999px;padding:2px 9px;}
+  .c-tag.rec{background:#eff6ff;color:#1d4ed8;}
+  .c-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .act{border:1.5px solid var(--border);background:var(--white);border-radius:10px;padding:8px 12px;font:700 13px 'DM Sans',sans-serif;cursor:pointer;color:var(--text);transition:all .12s;}
+  .act:hover{border-color:var(--muted);}
+  .act.text{background:var(--sky);border-color:var(--sky);color:#fff;}
+  .act.done{background:#f0fdf4;border-color:#bbf7d0;color:#15803d;}
+  .act.dismiss{color:var(--red);}
+  .empty{text-align:center;color:var(--muted);padding:22px 10px;font-size:14px;background:var(--white);border:1.5px dashed var(--border);border-radius:14px;}
+  .loading{text-align:center;color:var(--muted);padding:40px;font-size:15px;}
+  .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  /* dismiss-choice modal */
+  .rq-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:9990;padding:16px;}
+  .rq-overlay.on{display:flex;}
+  .rq-card{background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.3);}
+  .rq-card h3{margin:0 0 6px;font-size:17px;color:var(--navy);}
+  .rq-card p{margin:0 0 16px;color:var(--muted);font-size:13.5px;line-height:1.5;}
+  .rq-btns{display:flex;flex-direction:column;gap:9px;}
+  .rq-btns button{border-radius:11px;padding:11px;font:700 14px 'DM Sans',sans-serif;cursor:pointer;border:1.5px solid var(--border);background:#fff;color:var(--text);}
+  .rq-btns .rq-stop{background:#fef2f2;border-color:#fecaca;color:var(--red);}
+  .rq-btns .rq-cancel{color:var(--muted);border:none;background:transparent;}
+  #rqToast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;font-size:14px;z-index:10000;opacity:0;transition:opacity .2s;box-shadow:0 6px 20px rgba(0,0,0,.25);}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top"><a class="back" href="/pure_cleaning_admin.html">‹ Admin Hub</a></div>
+    <h1>⏰ Reminders</h1>
+    <div class="sub" id="pageSub">Follow-ups you set from the directory or a customer profile.</div>
+
+    <div id="loading" class="loading"><div class="spinner"></div>Loading reminders…</div>
+    <div id="content" style="display:none;">
+      <div class="sec-hd due"><span class="sec-title">Due Now</span><span class="sec-count" id="dueCount">0</span></div>
+      <div id="dueList"></div>
+      <div class="sec-hd"><span class="sec-title">Coming Up (next 14 days)</span><span class="sec-count" id="upCount">0</span></div>
+      <div id="upList"></div>
+    </div>
+  </div>
+
+  <!-- Recurring dismiss choice -->
+  <div class="rq-overlay" id="rqModal">
+    <div class="rq-card">
+      <h3>Recurring reminder</h3>
+      <p id="rqMsg">This reminder repeats. Dismiss just this one, or stop it repeating entirely?</p>
+      <div class="rq-btns">
+        <button id="rqOccur">Dismiss this time (keep repeating)</button>
+        <button class="rq-stop" id="rqStop">Stop recurring entirely</button>
+        <button class="rq-cancel" id="rqCancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <div id="rqToast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+let _data = { dueNow: [], comingUp: [] };
+
+const REASON_OPENERS = {
+  sealing:      'wanted to check in about sealing to protect your surfaces',
+  reactivation: "it's been a while — your place may be due for a fresh cleaning",
+  callback:     "returning your call",
+  quote_check:  "following up on the quote we put together for you",
+};
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function _name(r){ return (r.businessName || `${(r.firstName||'')} ${(r.lastName||'')}`.trim() || 'Customer'); }
+function _fmtPhone(p){ const d=(p||'').replace(/\D/g,'').slice(-10); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:p||''; }
+function _today(){ return new Date().toISOString().slice(0,10); }
+function _daysBetween(a,b){ return Math.round((new Date(b+'T12:00:00') - new Date(a+'T12:00:00'))/86400000); }
+function _whenLabel(fire){
+  const d = _daysBetween(_today(), fire);
+  if (d < 0)  return { txt:`due ${Math.abs(d)}d ago`, cls:'od' };
+  if (d === 0) return { txt:'due today', cls:'od' };
+  if (d === 1) return { txt:'tomorrow', cls:'up' };
+  return { txt:`in ${d} days`, cls:'up' };
+}
+function _friendly(fire){ return new Date(fire+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+
+function toast(msg){
+  const t=document.getElementById('rqToast'); t.textContent=msg; t.style.opacity='1';
+  clearTimeout(t._to); t._to=setTimeout(()=>t.style.opacity='0',2800);
+}
+
+async function load(){
+  document.getElementById('loading').style.display='block';
+  document.getElementById('content').style.display='none';
+  try{
+    const res = await fetch(`${API}/admin/reminders`);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    _data = await res.json();
+  }catch(e){
+    document.getElementById('loading').innerHTML = `⚠️ Failed to load — ${esc(e.message)}`;
+    return;
+  }
+  render();
+}
+
+function cardHtml(r, overdue){
+  const w = _whenLabel(r.nextFireAt);
+  const recurring = !!r.cadenceMonths;
+  const reason = r.reason || r.note || 'Follow-up';
+  const p10 = (r.phone||'').replace(/\D/g,'').slice(-10);
+  return `<div class="card${overdue&&w.cls==='od'?' overdue':''}">
+    <div class="c-top">
+      <div>
+        <div class="c-name">${esc(_name(r))}</div>
+        <div class="c-phone">${esc(_fmtPhone(r.phone))}</div>
+      </div>
+      <div class="c-when ${w.cls}">${esc(w.txt)}</div>
+    </div>
+    <div class="c-reason">${esc(reason)}</div>
+    <div class="c-tags">
+      <span class="c-tag">📅 ${esc(_friendly(r.nextFireAt))}</span>
+      ${recurring?`<span class="c-tag rec">🔁 every ${r.cadenceMonths}mo</span>`:''}
+    </div>
+    <div class="c-acts">
+      ${p10.length===10?`<button class="act text" onclick="textCustomer('${p10}','${esc((r.firstName||'').replace(/'/g,''))}','${esc(r.type||'')}')">📱 Text</button>`:''}
+      <button class="act done" onclick="markDone('${esc(r.reminderId)}')">✓ Done</button>
+      <button class="act" onclick="snooze('${esc(r.reminderId)}')">😴 Snooze 1 week</button>
+      <button class="act dismiss" onclick="dismiss('${esc(r.reminderId)}',${recurring})">🗑️ Dismiss</button>
+    </div>
+  </div>`;
+}
+
+function render(){
+  document.getElementById('loading').style.display='none';
+  document.getElementById('content').style.display='block';
+  const due = _data.dueNow || [], up = _data.comingUp || [];
+  document.getElementById('dueCount').textContent = due.length;
+  document.getElementById('upCount').textContent  = up.length;
+  document.getElementById('dueList').innerHTML = due.length
+    ? due.map(r=>cardHtml(r,true)).join('')
+    : `<div class="empty">🎉 Nothing due right now.</div>`;
+  document.getElementById('upList').innerHTML = up.length
+    ? up.map(r=>cardHtml(r,false)).join('')
+    : `<div class="empty">Nothing in the next 14 days.</div>`;
+}
+
+function textCustomer(phone, firstName, type){
+  const opener = REASON_OPENERS[type] || 'just checking in';
+  const body = `Hi ${firstName||'there'}! It's Pure Cleaning — ${opener}. Give us a call or text back anytime!`;
+  window.location.href = `sms:+1${phone}&body=${encodeURIComponent(body)}`;
+}
+
+async function _post(reminderId, payload){
+  const res = await fetch(`${API}/admin/reminder/${encodeURIComponent(reminderId)}/status`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload),
+  });
+  if(!res.ok){ const d=await res.json().catch(()=>({})); throw new Error(d.error||('HTTP '+res.status)); }
+  return res.json();
+}
+
+async function markDone(reminderId){
+  try{
+    const d = await _post(reminderId, { status:'done' });
+    if(d?.nextReminder?.nextFireAt) toast(`✓ Done. Next reminder: ${_friendly(d.nextReminder.nextFireAt)}`);
+    else if(d?.nextReminder?.followUpMonth) toast(`✓ Done. Next reminder: ${d.nextReminder.followUpMonth}`);
+    else toast('✓ Done');
+    load();
+  }catch(e){ toast('Failed — '+e.message); }
+}
+
+async function snooze(reminderId){
+  try{ await _post(reminderId, { status:'active', snoozeDays:7 }); toast('😴 Snoozed 1 week'); load(); }
+  catch(e){ toast('Failed — '+e.message); }
+}
+
+let _dismissId = null;
+function dismiss(reminderId, recurring){
+  if(!recurring){
+    if(!confirm('Dismiss this reminder?')) return;
+    _post(reminderId, { status:'dismissed' }).then(()=>{ toast('🗑️ Dismissed'); load(); }).catch(e=>toast('Failed — '+e.message));
+    return;
+  }
+  _dismissId = reminderId;
+  document.getElementById('rqModal').classList.add('on');
+}
+function _closeRq(){ document.getElementById('rqModal').classList.remove('on'); _dismissId=null; }
+document.getElementById('rqCancel').onclick = _closeRq;
+document.getElementById('rqModal').addEventListener('click', e=>{ if(e.target.id==='rqModal') _closeRq(); });
+document.getElementById('rqOccur').onclick = async ()=>{
+  const id=_dismissId; _closeRq(); if(!id) return;
+  try{ const d=await _post(id,{status:'dismissed',scope:'occurrence'});
+    toast(d?.nextReminder?.nextFireAt?`Dismissed. Next: ${_friendly(d.nextReminder.nextFireAt)}`:'Dismissed this one'); load();
+  }catch(e){ toast('Failed — '+e.message); }
+};
+document.getElementById('rqStop').onclick = async ()=>{
+  const id=_dismissId; _closeRq(); if(!id) return;
+  try{ await _post(id,{status:'dismissed',scope:'all'}); toast('Stopped recurring'); load(); }
+  catch(e){ toast('Failed — '+e.message); }
+};
+
+load();
+</script>
+</body>
+</html>

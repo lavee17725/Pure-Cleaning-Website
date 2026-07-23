@@ -288,10 +288,12 @@ let rustOffered      = true;  // default ON — show rust offer on agreement pag
 let _addonRoofMethod  = null;  // roof method when roof offered as add-on
 let _addonRoofStories = null;  // roof story count (1, 2, or null = unknown)
 
-function getLastKnownRoofStories(cust) {
+// 0038: optional propertyId scopes to that property's roof history only (silent if none).
+function getLastKnownRoofStories(cust, propertyId) {
   if (!cust || !Array.isArray(cust.jobHistory)) return null;
   const roofJobs = cust.jobHistory
-    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || '')
+              && (!propertyId || j.propertyId === propertyId))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
 }

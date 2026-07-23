@@ -117,6 +117,20 @@ When in doubt, follow this file. The other two are reference.
 - If a token refresh fails, alert immediately — never fail silently
 - This applies to every third-party OAuth integration: Google, Bouncie, any future service
 
+### DL-09: customer_db KV blob ↔ D1 Drift — decision-driving state must be canonical in D1
+- Any per-customer field a feature reads to make a DECISION (eligibility, filtering, suppression, the numbers in a customer-facing message) must be canonical in D1 and read from D1 — or carried forward by `_d1PersonToKv` on every rebuild.
+- The KV `customer_db` blob is rebuilt from D1 on dual-write, resync, and `d1CustomerToKvShape`. A field that lives ONLY in the blob gets silently clobbered on the next rebuild — the value vanishes and the feature misreads with zero error.
+- Never store decision-driving state blob-only. If a feature reads the blob, overlay the field from D1 before deciding, or ensure `_d1PersonToKv` carries it forward.
+- *Earned 3× in 2026: (1) reactivation `lastService`/jobHistory not rebuilt from D1 → all 139 backfill customers stuck `excluded_noService`; (2) review-hub `customerType` null in the blob while D1 had `partner_referral` → partners leaked into the review-request queue; (3) `neverAskReview` blob-only → clobbered on every rebuild, so "Never ask" never stuck.*
+
+### DL-10: Partner Identity Contract — businessName is the partner's own identity, endCustomerName is the homeowner
+- `Person.businessName` = the PARTNER's OWN identity only (their company e.g. "Harts Painting LLC", or their name). A **permanent attribute of the partner** — the same across all their jobs.
+- `Job.endCustomerName` (+ `endCustomerPhone`) = the homeowner for THAT job. **Per-job**, in `_JOB_MUTABLE_FIELDS`.
+- **These two never mix. A homeowner's name must NEVER be written to `Person.businessName`** — doing so corrupts the partner's name on every future job (the card/print resolver reads `businessName` as the partner's primary name).
+- One shared resolver only: `resolveJobNames(job, cust) → {primary, secondary}` — `primary = businessName || firstName+lastName`, `secondary = endCustomerName`; per-job `Job.nameDisplay` ('partner' default | 'customer') flips which is primary. Never render a blank primary (fall back to secondary). Every card/print/invoice surface points at it (DL-07).
+- Guards: `handlePatchPerson` rejects a `partner_referral` businessName that matches one of the person's job `endCustomerName`s (the corruption signature); the directory edit modal relabels the businessName field for partners ("the partner's own company — NOT the homeowner").
+- *Earned 2026-07-13: Robinson Nolase's card read "Darin & Jessica Karp" (the homeowner) because the homeowner name had been written into `Person.businessName`, clobbering the partner's identity for every job.*
+
 ---
 
 ## Working with Tyler
@@ -171,6 +185,10 @@ This section reduces asking on reversible/routine things only. These stay exactl
 ### A6 — Simplest thing that solves it; match effort to the stakes.
 
 The fix is the smallest diff that resolves the ACTUAL problem — no speculative abstractions, no configurability nobody asked for, no "while I'm in here" refactors of code that already works. The effort spent getting there scales with what's at risk: a print-CSS tweak or a copy change does NOT warrant parallel-subagent fan-outs or deep diagnostic loops; a data migration, a write path, or anything that can corrupt data or money does. Reach for the heavy machinery when the stakes earn it, not by default. *Earned 2026-06-29: ~20% of a day's usage went to flipping a printout from 2 pages to 1 — a one-line CSS change brute-forced through subagents and live-page scraping.*
+
+### A7 — Bulk/repetitive work runs as a SCRIPT, not as per-item agent turns.
+
+When a task is N similar operations — importing many records, one API call per row, the same edit across many files — write a script that does the loop and run it ONCE. **The model writes the loop; it must NEVER execute the loop by hand.** Making the calls one-per-turn routes every iteration back through the model and is catastrophically expensive. *Earned 2026-06-29: an agent tried to run a 158-record CRM import by making each person/property/job API call itself (~600 model round-trips) and burned 82% of a day's usage in ~10 minutes without finishing. A loader script would have cost pennies.*
 
 ---
 

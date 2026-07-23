@@ -143,6 +143,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="tab active" data-tab="ready" onclick="switchTab('ready')">🎯 Ready <span class="tab-badge" id="badge-ready">—</span></div>
   <div class="tab" data-tab="requested" onclick="switchTab('requested')">📬 Requested <span class="tab-badge" id="badge-requested" style="background:rgba(45,125,210,.4);color:#93c5fd;">—</span></div>
   <div class="tab" data-tab="reviewed" onclick="switchTab('reviewed')">⭐ Reviewed <span class="tab-badge" id="badge-reviewed" style="background:rgba(29,158,117,.4);color:#6ee7b7;">—</span></div>
+  <div class="tab" data-tab="gbpreviews" onclick="switchTab('gbpreviews')">💬 Reply <span class="tab-badge" id="badge-gbpreviews" style="background:rgba(210,120,45,.4);color:#fbbf24;">—</span></div>
   <div class="tab" data-tab="wontask" onclick="switchTab('wontask')">🚫 Won't Ask <span class="tab-badge" id="badge-wontask" style="background:rgba(122,138,170,.3);color:var(--muted);">—</span></div>
   <div class="tab" data-tab="insights" onclick="switchTab('insights')">📊 Insights</div>
   <div class="tab" data-tab="templates" onclick="switchTab('templates')" style="display:none;">📝 Templates</div>
@@ -162,6 +163,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- TAB 3: REVIEWED -->
   <div class="panel" id="panel-reviewed">
     <div id="reviewed-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
+  </div>
+
+  <!-- TAB: REPLY TO GOOGLE REVIEWS (Phase 1B) -->
+  <div class="panel" id="panel-gbpreviews">
+    <div id="gbpreviews-content"><div class="empty-state"><div class="empty-icon">⏳</div><div class="empty-title">Loading…</div></div></div>
   </div>
 
   <!-- TAB 4: WON'T ASK -->
@@ -208,6 +214,9 @@ function updateBadges() {
   document.getElementById('badge-ready').textContent = hubData.readyToRequest.length + (hubData.readyTotal > 100 ? '+' : '');
   document.getElementById('badge-requested').textContent = hubData.awaitingConfirmation.length;
   document.getElementById('badge-reviewed').textContent = hubData.reviewed.length;
+  const _unreplied = (hubData.gbpReviews || []).filter(r => !r.reply).length;
+  const _gb = document.getElementById('badge-gbpreviews');
+  if (_gb) { _gb.textContent = _unreplied; _gb.style.opacity = _unreplied ? '1' : '.5'; }
   document.getElementById('badge-wontask').textContent = (hubData.wontAsk.length) + ((hubData.permanentExclusions||[]).length);
 }
 
@@ -220,8 +229,8 @@ function switchTab(tab) {
 }
 function renderCurrentTab() {
   if (!hubData) return;
-  const fns = { ready: renderReady, requested: renderRequested, reviewed: renderReviewed, wontask: renderWontAsk, insights: renderInsights, templates: renderTemplates };
-  const containers = { ready: 'ready-content', requested: 'requested-content', reviewed: 'reviewed-content', wontask: 'wontask-content', insights: 'insights-content', templates: 'templates-content' };
+  const fns = { ready: renderReady, requested: renderRequested, reviewed: renderReviewed, gbpreviews: renderGoogleReviews, wontask: renderWontAsk, insights: renderInsights, templates: renderTemplates };
+  const containers = { ready: 'ready-content', requested: 'requested-content', reviewed: 'reviewed-content', gbpreviews: 'gbpreviews-content', wontask: 'wontask-content', insights: 'insights-content', templates: 'templates-content' };
   try {
     (fns[_currentTab] || renderReady)();
   } catch(e) {
@@ -379,9 +388,15 @@ function renderRequested() {
       const wCls    = dLeft >= 4 ? 'days-green' : dLeft >= 2 ? 'days-yellow' : 'days-red';
       const svc     = jobService(c);
       const cardCls = daysAgo <= 5 ? '' : daysAgo <= 7 ? 'soon' : 'urgent';
+      const match = matchGoogleReview(c);
+      const matchBanner = match ? `<div style="background:rgba(29,158,117,.15);border:1px solid #1d9e75;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px;">
+          💡 Likely reviewed: <strong>${esc(match.reviewer)}</strong> left <span style="color:#fbbf24;">${_stars(match.rating)}</span> on ${_revTime(match.createTime)}
+          <button class="btn btn-green" style="margin-left:8px;font-size:12px;padding:.2rem .6rem;" onclick="submitStarRating('${ph}',${match.rating||5},'requested')">✓ Confirm — mark reviewed</button>
+        </div>` : '';
       return `<div class="card ${cardCls}" id="req-${ph}">
         <div class="card-name">${esc(name)} <span class="days-badge ${ageCls}">${daysAgo}d ago</span> <span class="days-badge ${wCls}">⏱ ${dLeft}d left</span></div>
         <div class="card-meta">📞 ${fmtPhone(ph)} · ${esc(svc.slice(0,50))}${svc.length>50?'…':''}</div>
+        ${matchBanner}
         <div class="card-btns" id="req-btns-${ph}">
           <button class="btn btn-green" onclick="showReqStarPicker('${ph}','${esc(name)}')">⭐ Yes, they reviewed!</button>
           <button class="btn btn-muted" onclick="updateStatus('${ph}','no_response')">💭 No response</button>
@@ -416,6 +431,112 @@ function showReqStarPicker(phone, name) {
 }
 
 // ── TAB 3: REVIEWED ───────────────────────────────────────────────────────────
+// ── REPLY TO GOOGLE REVIEWS (Phase 1B) ──────────────────────────────────────────
+// Response rate is a ranking + trust signal — the goal is replying to 100% quickly.
+// Drafts are warm + local-SEO templates (zero model tokens), deterministically rotated
+// by reviewId so a card doesn't reshuffle on re-render. Tyler edits + sends in one tap.
+const REPLY_PHONE = '954-389-2642';
+function draftReviewReply(rev){
+  const first = ((rev.reviewer||'').trim().split(/\s+/)[0] || 'there').replace(/[^A-Za-z\-']/g,'') || 'there';
+  const five = [
+    `Thank you so much, ${first}! It was our pleasure to get your property spotless. We truly appreciate you taking a moment to leave a review — Pure Cleaning Pressure Cleaning is always here whenever you need us. ${REPLY_PHONE} 🙌`,
+    `${first}, thank you for the kind words and the 5 stars! Bringing back that just-cleaned look is exactly why we do this. We'd love to keep your home looking its best — reach us anytime at ${REPLY_PHONE}.`,
+    `We really appreciate this, ${first}! Reviews like yours mean the world to a local family business. Thank you for trusting Pure Cleaning Pressure Cleaning — see you next time! ${REPLY_PHONE}`,
+  ];
+  const low = [
+    `${first}, thank you for the honest feedback — we take it seriously and we'd like to make this right. Please give us a call at ${REPLY_PHONE} so we can look into it personally. We're committed to earning your trust.`,
+  ];
+  const pool = (rev.rating==null || rev.rating>=4) ? five : low;
+  const h = Math.abs([...(rev.reviewId||'')].reduce((a,c)=>((a<<5)-a+c.charCodeAt(0))|0, 0));
+  return pool[h % pool.length];
+}
+function _stars(n){ n=n||0; return '★'.repeat(n)+'☆'.repeat(Math.max(0,5-n)); }
+function _revTime(t){ try { return new Date(t).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch { return ''; } }
+
+// Convert-tracking (Phase 1C): link a pending review-request to an actual Google review.
+// SUGGESTION only — surfaced for one-tap confirm, never auto-applied (a wrong match would
+// stop nudging someone who never reviewed). Confident match = shared first name AND a
+// second shared token (last name), and the review isn't older than the ask by >3 days.
+function _nameTokens(s){ return (s||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(t => t.length > 1); }
+function matchGoogleReview(c){
+  const first = (c.firstName||'').toLowerCase().replace(/[^a-z]/g,'');
+  if (!first) return null;
+  const custTokens = new Set([..._nameTokens(c.firstName), ..._nameTokens(c.lastName)]);
+  const gr = c.googleReview || {};
+  const askedAt = gr.lastRequestSentAt || gr.askedAt;
+  const floorMs = askedAt ? new Date(askedAt).getTime() - 3*86400000 : 0;
+  let best = null;
+  for (const rev of (hubData.gbpReviews||[])){
+    const rt = _nameTokens(rev.reviewer);
+    if (!rt.includes(first)) continue;
+    if (rt.filter(t => custTokens.has(t)).length < 2) continue;   // need first + one more shared token
+    const createMs = rev.createTime ? new Date(rev.createTime).getTime() : 0;
+    if (floorMs && createMs && createMs < floorMs) continue;       // review predates the ask by >3d
+    if (!best || (rev.createTime||'') > (best.createTime||'')) best = rev;
+  }
+  return best;
+}
+function resetDraft(reviewId){
+  const r = (hubData.gbpReviews||[]).find(x=>x.reviewId===reviewId);
+  const ta = document.getElementById('reply-'+reviewId);
+  if (r && ta) ta.value = draftReviewReply(r);
+}
+function renderGoogleReviews(){
+  const el = document.getElementById('gbpreviews-content');
+  const all = (hubData.gbpReviews||[]).slice();
+  if (!all.length){
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-title">No reviews synced yet</div><div class="empty-sub">The daily cron syncs your Google reviews automatically.</div></div>`;
+    return;
+  }
+  const unreplied = all.filter(r=>!r.reply);
+  const replied   = all.filter(r=>r.reply);
+  const ac = hubData.actualCount || {};
+  const rating = (typeof ac.rating==='number') ? ac.rating.toFixed(1) : '5.0';
+  const synced = hubData.gbpSyncedAt ? _revTime(hubData.gbpSyncedAt) : '—';
+  const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+     <div><strong style="font-size:22px;">${ac.count ?? all.length}</strong> reviews · <strong>${rating}</strong>★ <span style="color:var(--muted);font-size:12px;">live from Google · synced ${synced}</span></div>
+     <div style="color:${unreplied.length?'#fbbf24':'#6ee7b7'};font-weight:700;">${unreplied.length? unreplied.length+' awaiting reply' : '✓ all caught up'}</div>
+   </div>`;
+  const card = (r, needsReply) => `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;background:var(--card,#111827);">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+        <strong>${esc(r.reviewer||'Google user')}</strong>
+        <span style="color:#fbbf24;letter-spacing:1px;">${_stars(r.rating)}</span>
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin:2px 0 6px;">${_revTime(r.createTime)}</div>
+      ${r.comment ? `<div style="margin-bottom:10px;white-space:pre-wrap;">${esc(r.comment)}</div>` : `<div style="color:var(--muted);font-style:italic;margin-bottom:10px;">(rating only, no comment)</div>`}
+      ${needsReply ? `
+        <textarea id="reply-${esc(r.reviewId)}" style="width:100%;min-height:82px;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:#e5e7eb;caret-color:#e5e7eb;font-family:inherit;font-size:14px;resize:vertical;box-sizing:border-box;">${esc(draftReviewReply(r))}</textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+          <button onclick="sendReviewReply('${esc(r.reviewId)}',this)" style="background:#1d9e75;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer;">Send reply to Google</button>
+          <button onclick="resetDraft('${esc(r.reviewId)}')" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 12px;cursor:pointer;">↻ Reset draft</button>
+          <span style="color:var(--muted);font-size:12px;">Edit before sending — this posts publicly under your reply.</span>
+        </div>`
+      : `<div style="border-left:3px solid #1d9e75;padding-left:10px;color:var(--muted);"><strong style="color:#6ee7b7;">Your reply:</strong> ${esc(r.reply.comment)}</div>`}
+    </div>`;
+  el.innerHTML = header
+    + (unreplied.length ? `<h3 style="margin:6px 0;">Awaiting your reply (${unreplied.length})</h3>` + unreplied.map(r=>card(r,true)).join('') : '')
+    + (replied.length ? `<h3 style="margin:16px 0 6px;color:var(--muted);">Replied (${replied.length})</h3>` + replied.map(r=>card(r,false)).join('') : '');
+}
+async function sendReviewReply(reviewId, btn){
+  const ta = document.getElementById('reply-'+reviewId);
+  const comment = (ta?.value||'').trim();
+  if (!comment){ showToast('⚠️ Reply is empty'); return; }
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Sending…';
+  try {
+    const res = await fetch(`${API}/admin/gbp/reviews/${encodeURIComponent(reviewId)}/reply`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ comment })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP '+res.status));
+    const r = (hubData.gbpReviews||[]).find(x=>x.reviewId===reviewId);
+    if (r) r.reply = data.reply;
+    showToast('✓ Reply posted to Google');
+    updateBadges(); renderGoogleReviews();
+  } catch(e){
+    showToast('⚠️ '+e.message); btn.disabled = false; btn.textContent = orig;
+  }
+}
+
 function renderReviewed() {
   const el = document.getElementById('reviewed-content');
   const customers = hubData.reviewed.filter(c => {
