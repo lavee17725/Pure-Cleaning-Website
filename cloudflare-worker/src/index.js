@@ -9617,6 +9617,15 @@ async function handlePatchQuote(request, env, quoteId, corsHeaders) {
       sets.personId = String(body.personId);
     }
   }
+  // v1.2 soft delete — { deleted: true } stamps deletedAt; every read surface
+  // excludes stamped rows. Delete ≠ decline (declined is real business data).
+  // { deleted: false } un-stamps (API-only recovery — no restore UI by design).
+  // Touches ONLY this Quote row's visibility — never Person/Job/calendar.
+  if (Object.prototype.hasOwnProperty.call(body, 'deleted')) {
+    if (typeof body.deleted !== 'boolean')
+      return jsonResponse({ error: 'deleted must be true or false' }, corsHeaders, 400);
+    sets.deletedAt = body.deleted ? new Date().toISOString() : null;
+  }
 
   if (!Object.keys(sets).length)
     return jsonResponse({ error: 'no mutable fields in body' }, corsHeaders, 400);
@@ -9648,13 +9657,14 @@ async function handleListQuotes(env, corsHeaders, url) {
   if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
     return jsonResponse({ error: 'month must be YYYY-MM' }, corsHeaders, 400);
 
-  const where = [], binds = [];
+  // v1.2: soft-deleted rows are invisible everywhere — list, counts, badge.
+  const where = ['deletedAt IS NULL'], binds = [];
   if (status) { where.push('status = ?'); binds.push(status); }
   if (month)  { where.push("substr(createdAt, 1, 7) = ?"); binds.push(month); }
 
   try {
     const rows = (await env.DB.prepare(
-      `SELECT * FROM Quote ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      `SELECT * FROM Quote WHERE ${where.join(' AND ')}
         ORDER BY createdAt DESC LIMIT 500`
     ).bind(...binds).all())?.results || [];
 
@@ -9662,7 +9672,7 @@ async function handleListQuotes(env, corsHeaders, url) {
       `SELECT
          SUM(CASE WHEN status = 'quoted' THEN 1 ELSE 0 END) AS open,
          SUM(CASE WHEN status = 'accepted' AND personId IS NULL THEN 1 ELSE 0 END) AS acceptedUnbooked
-       FROM Quote`
+       FROM Quote WHERE deletedAt IS NULL`
     ).first();
 
     return jsonResponse({
@@ -9686,7 +9696,8 @@ async function handleListQuotes(env, corsHeaders, url) {
 async function handleQuoteInsights(env, corsHeaders) {
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   try {
-    const rows = (await env.DB.prepare('SELECT * FROM Quote ORDER BY createdAt ASC').all())?.results || [];
+    // v1.2: deleted rows never count in any aggregate — they "never existed".
+    const rows = (await env.DB.prepare('SELECT * FROM Quote WHERE deletedAt IS NULL ORDER BY createdAt ASC').all())?.results || [];
 
     const band = p => p == null ? null : p < 200 ? '$0–200' : p < 400 ? '$200–400' : p < 600 ? '$400–600' : '$600+';
     const cityKey = c => (c || '').trim() || '(no city)';

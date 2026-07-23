@@ -213,6 +213,8 @@ const HTML_FILES = [
       'MIN_SAMPLE',                // insights honesty floor (no % from tiny samples)
       'declineModal',              // 4-chip decline reason picker
       'handoffUrl',                // Accept → existing booking flow, pre-filled
+      'openDelete',                // v1.2: 🗑️ soft delete on every card mode
+      'deleteLinkedWarn',          // v1.2: linked-booking warning in confirm
     ],
   },
   // (js/quote-logger.js is exercised via the pages that load it — HTML_FILES

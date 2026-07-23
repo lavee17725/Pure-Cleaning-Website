@@ -2347,6 +2347,26 @@ async function main() {
       const errShown = await page.locator('#qlErr').isVisible();
       if (errShown) pass('Quote Pool — save without phone blocked with inline error');
       else fail('Quote Pool — save without phone blocked', '#qlErr not shown after empty save');
+
+      // v1.2: delete confirm modal — opens with linked-booking warning toggled
+      // by personId (no live data touched; openDelete handles unknown ids).
+      const del = await page.evaluate(() => {
+        window.QuoteLogger.close();
+        openDelete('qt_nonexistent');
+        const open1 = document.getElementById('deleteModal').classList.contains('on');
+        const warnHidden = document.getElementById('deleteLinkedWarn').style.display === 'none';
+        closeModal('deleteModal');
+        _quotes = [{ quoteId:'qt_x', personId:'person_1x', phone:'0000000000', services:[], createdAt:new Date().toISOString(), status:'accepted' }];
+        openDelete('qt_x');
+        const warnShown = document.getElementById('deleteLinkedWarn').style.display !== 'none';
+        closeModal('deleteModal');
+        _quotes = [];
+        return { open1, warnHidden, warnShown };
+      });
+      if (del.open1 && del.warnHidden) pass('Quote Pool — delete confirm opens (no warning for unlinked)');
+      else fail('Quote Pool — delete confirm opens', JSON.stringify(del));
+      if (del.warnShown) pass('Quote Pool — linked-booking warning shows for personId rows');
+      else fail('Quote Pool — linked-booking warning shows', JSON.stringify(del));
     });
 
     // ── NEW CUSTOMER — Quote Pool hand-off contract (fromOnline svc/price/quoteId) ──

@@ -1,0 +1,24 @@
+-- Migration 0040: Quote.deletedAt — soft delete for test/junk pad entries
+--
+-- Delete ≠ decline: declined is real business data (feeds acceptance rates
+-- and the reactivation feed); deleted never existed. Tyler's own trial entry
+-- (SW Ranches driveway, accepted 2026-07-23 16:31) had no removal path and
+-- would have polluted acceptance-rate insights forever.
+--
+-- deletedAt TEXT (ISO) instead of a status value: Quote.status carries a
+-- CHECK(status IN ('quoted','accepted','declined')) and SQLite cannot alter
+-- a CHECK without a table rebuild — an additive column is safer and also
+-- preserves what the row WAS when deleted (restorable via API by nulling
+-- deletedAt; no restore UI by design).
+--
+-- Every read surface excludes deletedAt IS NOT NULL: pool views, archives,
+-- counts (badge + accepted-not-booked strip), and all insights aggregates.
+-- The row itself stays in D1. Person/Job/calendar are never touched by a
+-- quote delete.
+--
+-- ADDITIVE ONLY. No existing table changed beyond the new nullable column.
+-- Snapshot via POST /import/snapshot taken before this ran.
+--
+-- Date: 2026-07-23
+
+ALTER TABLE Quote ADD COLUMN deletedAt TEXT;

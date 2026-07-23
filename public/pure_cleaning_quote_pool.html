@@ -147,6 +147,20 @@
     </div>
   </div>
 
+  <!-- delete confirm (v1.2) — delete ≠ decline: declined is real business
+       data; deleted never existed. Never touches Person/booking/calendar. -->
+  <div class="m-overlay" id="deleteModal">
+    <div class="m-card">
+      <h3>🗑️ Delete this quote entry?</h3>
+      <p>It's removed from the pad and all counts — for test entries and mistakes. (Real "no"s should be <b>Declined</b>, not deleted.)</p>
+      <p id="deleteLinkedWarn" style="display:none;color:#9a3412;font-weight:700;">This quote is linked to a booked job — deleting removes it from quote stats only; the booking stays.</p>
+      <div class="m-btns">
+        <button style="background:#fef2f2;border-color:#fecaca;color:var(--red);font-weight:800;" onclick="doDelete()">Delete</button>
+        <button class="m-cancel" onclick="closeModal('deleteModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- edit modal -->
   <div class="m-overlay" id="editModal">
     <div class="m-card">
@@ -260,6 +274,8 @@ function cardHtml(q, mode){
         ? `<span class="status-pill acc">✓ accepted${q.personId?'':' — not booked'}</span>`
         : `<span class="status-pill dec">✗ ${esc(q.declineReason||'declined')}</span>`)
     : '';
+  // v1.2: 🗑️ on EVERY card mode — the only true-removal path for test/junk.
+  const delBtn = `<button class="act" title="Delete (test/mistake entries)" onclick="openDelete('${q.quoteId}')">🗑️</button>`;
   let acts = '';
   if (mode==='open'){
     acts = `<div class="c-acts">
@@ -267,14 +283,16 @@ function cardHtml(q, mode){
       <button class="act decline" onclick="openDecline('${q.quoteId}')">✗ Declined</button>
       <button class="act" onclick="openEdit('${q.quoteId}')">✏️</button>
       ${stale?`<button class="act ghost" onclick="markGhost('${q.quoteId}')">👻 Mark ghost?</button>`:''}
+      ${delBtn}
     </div>`;
   } else if (mode==='anb'){
     acts = `<div class="c-acts">
       <button class="act resume" onclick="resumeBooking('${q.quoteId}')">Resume booking →</button>
       <button class="act" onclick="undoResolve('${q.quoteId}')">↩ Back to open</button>
+      ${delBtn}
     </div>`;
   } else {
-    acts = `<div class="c-acts"><button class="act" onclick="undoResolve('${q.quoteId}')">↩ Reopen</button></div>`;
+    acts = `<div class="c-acts"><button class="act" onclick="undoResolve('${q.quoteId}')">↩ Reopen</button>${delBtn}</div>`;
   }
   return `<div class="card ${mode==='open'?'pad':''} ${stale?'stale':''}">
     <div class="c-top">
@@ -375,6 +393,25 @@ async function undoResolve(id){
   }catch(e){ toast(`Failed: ${e.message}`); }
 }
 function closeModal(id){ document.getElementById(id).classList.remove('on'); }
+
+// ── DELETE (v1.2 soft delete) ─────────────────────────────────────────────────
+// deletedAt stamp server-side; row stays in D1, invisible everywhere (views,
+// archives, counts, insights). Person/booking/calendar are never touched —
+// the linked-booking warning makes that explicit.
+function openDelete(id){
+  _target = id;
+  const q = _anb.find(x=>x.quoteId===id) || _quotes.find(x=>x.quoteId===id);
+  document.getElementById('deleteLinkedWarn').style.display = (q && q.personId) ? 'block' : 'none';
+  document.getElementById('deleteModal').classList.add('on');
+}
+async function doDelete(){
+  const id=_target; closeModal('deleteModal');
+  try{
+    await patchQuote(id, { deleted:true });
+    toast('🗑️ Deleted');
+    load();
+  }catch(e){ toast(`Failed: ${e.message}`); }
+}
 
 // ── EDIT ──────────────────────────────────────────────────────────────────────
 function openEdit(id){
