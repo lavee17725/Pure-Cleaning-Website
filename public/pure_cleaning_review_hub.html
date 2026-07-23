@@ -137,7 +137,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <div class="header">
   <div class="logo">Pure <span>Cleaning</span></div>
   <div class="badge">⭐ Reviews Hub</div>
+  <!-- Always-available deep link: manage/reply to reviews straight on Google,
+       independent of sync state (2026-07-23). -->
+  <a href="https://business.google.com/reviews" target="_blank" rel="noopener"
+     style="margin-left:auto;font-size:12.5px;font-weight:700;color:#93c5fd;text-decoration:none;white-space:nowrap;">↗ Open Google Reviews</a>
 </div>
+
+<!-- GBP sync-health banner (2026-07-23): the daily cron syncs incoming Google
+     reviews, but a dead OAuth token fails SILENTLY (the outage that hid Tyler's
+     two new reviews for ~2 weeks). This surfaces staleness loudly + one-tap
+     reconnect. Keyed on real sync freshness, not the health flag (which read
+     'healthy' while refresh was failing invalid_grant). -->
+<div id="syncAlert" style="display:none;"></div>
 
 <div class="tabs">
   <div class="tab active" data-tab="ready" onclick="switchTab('ready')">🎯 Ready <span class="tab-badge" id="badge-ready">—</span></div>
@@ -202,11 +213,45 @@ async function loadHub() {
   try {
     const res  = await fetch(`${API}/admin/reviews-hub`);
     hubData    = await res.json();
+    renderSyncAlert();
     updateBadges();
     renderCurrentTab();
   } catch(e) {
     showToast('⚠️ Failed to load hub: ' + e.message);
   }
+}
+
+// GBP sync-health banner. Incoming reviews sync via a daily cron; when the
+// Google OAuth token dies the sync stops SILENTLY (no exception surfaces to
+// Tyler). We detect it from the real data — how old the last sync is — not
+// from the server health flag, which reported "healthy" through a 13-day
+// invalid_grant outage. >48h stale or never-synced → loud, actionable banner.
+function renderSyncAlert() {
+  const el = document.getElementById('syncAlert');
+  if (!el || !hubData) return;
+  const src    = hubData.actualCount?.source || '';
+  const synced = hubData.gbpSyncedAt ? new Date(hubData.gbpSyncedAt) : null;
+  const ageHrs = synced ? (Date.now() - synced.getTime()) / 3600000 : Infinity;
+  const stale  = src === 'gbp_live_stale' || src === 'manual_override' || ageHrs > 48;
+  if (!stale) { el.style.display = 'none'; return; }
+
+  const days = synced ? Math.round(ageHrs / 24) : null;
+  const when = days == null ? 'never synced'
+             : days <= 1 ? 'last synced yesterday'
+             : `last synced ${days} days ago`;
+  el.innerHTML = `
+    <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:13px 15px;margin:0 0 14px;">
+      <div style="font-weight:800;color:#b91c1c;font-size:14px;">⚠ Google review sync is behind — ${when}</div>
+      <div style="color:#7f1d1d;font-size:12.5px;margin:5px 0 10px;line-height:1.5;">
+        New Google reviews aren't flowing in. This is almost always an expired Google connection —
+        reconnect to resume the daily sync (your reviews then auto-match to customers).
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="${API}/oauth/google/start" style="background:#b91c1c;color:#fff;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Reconnect Google</a>
+        <a href="https://business.google.com/reviews" target="_blank" rel="noopener" style="background:#fff;border:1.5px solid #fecaca;color:#b91c1c;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Open Google Reviews</a>
+      </div>
+    </div>`;
+  el.style.display = 'block';
 }
 
 function updateBadges() {

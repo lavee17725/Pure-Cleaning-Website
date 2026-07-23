@@ -947,6 +947,31 @@ async function main() {
       } else {
         fail('Review Hub — ready-content visible');
       }
+
+      // 2026-07-23: GBP sync-health banner fires on stale/failed sync + hides when fresh.
+      // Drives renderSyncAlert off injected hubData (no live dependency).
+      const alert = await page.evaluate(() => {
+        const out = {};
+        // stale sync → banner + reconnect link visible
+        hubData = { actualCount: { source: 'gbp_live_stale' }, gbpSyncedAt: new Date(Date.now()-13*864e5).toISOString() };
+        renderSyncAlert();
+        const el = document.getElementById('syncAlert');
+        out.staleShown = el.style.display !== 'none';
+        out.hasReconnect = /oauth\/google\/start/.test(el.innerHTML);
+        out.saysDays = /13 days ago/.test(el.textContent);
+        // fresh sync → banner hidden
+        hubData = { actualCount: { source: 'gbp_live' }, gbpSyncedAt: new Date().toISOString() };
+        renderSyncAlert();
+        out.freshHidden = document.getElementById('syncAlert').style.display === 'none';
+        return out;
+      });
+      if (alert.staleShown && alert.hasReconnect) pass('Review Hub — stale-sync banner shows with reconnect link');
+      else fail('Review Hub — stale-sync banner', JSON.stringify(alert));
+      if (alert.saysDays) pass('Review Hub — banner reports sync age'); else fail('Review Hub — banner age', JSON.stringify(alert));
+      if (alert.freshHidden) pass('Review Hub — banner hidden when sync is fresh'); else fail('Review Hub — banner fresh-hide', JSON.stringify(alert));
+
+      const deepLink = await page.locator('a[href="https://business.google.com/reviews"]').count();
+      if (deepLink >= 1) pass('Review Hub — Open Google Reviews deep link present'); else fail('Review Hub — deep link', `found ${deepLink}`);
     });
 
     // ── INCOMING REQUESTS ────────────────────────────────────────────────────

@@ -125,7 +125,10 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_review_hub.html',
-    markers: ['function loadHub', 'function daysBadge', 'CUTOFF'],
+    markers: ['function loadHub', 'function daysBadge', 'CUTOFF',
+              'function renderSyncAlert',   // 2026-07-23: GBP stale-sync alert
+              'oauth/google/start',         // one-tap reconnect link
+              'Open Google Reviews'],       // header deep link to GBP
     cssChecks: [
       { selector: '.card-name', prop: 'color', forbidden: '#fff' },
     ],

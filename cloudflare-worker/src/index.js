@@ -6366,6 +6366,15 @@ const DEFAULT_TEMPLATES = [
 ];
 
 const REVIEW_ELIGIBLE_CUTOFF    = '2026-05-01';
+// REVIEW_QUEUE_FLOOR (2026-07-23, Tyler): the proactive "Ready to Request" queue
+// surfaces ONLY jobs completed on/after this date — Tab 1 was showing ~133
+// historical completions as noise. This is an eligibility FLOOR, not a data
+// wipe: no customer row, review status, or do-not-ask flag is touched. Pre-floor
+// customers stay fully manageable from their profiles and keep every protection
+// (status checks run before this date gate); they're just not proactively queued.
+// >= REVIEW_ELIGIBLE_CUTOFF by construction, so it supersedes the May floor for
+// the queue while the May constant still bounds reviewJobDate's display pick.
+const REVIEW_QUEUE_FLOOR        = '2026-07-01';
 const NO_RESPONSE_REASK_DAYS    = 30;
 
 function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
@@ -6392,7 +6401,10 @@ function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
   // re-surface + declined/no_response reaskEligibleAt cooldowns (which re-noticed people
   // who never booked again). Never-asked customers are unchanged.
   const asked = gr.lastRequestSentAt || null;
-  const qualifies = ca => ca && ca >= REVIEW_ELIGIBLE_CUTOFF && (!asked || ca > asked);
+  // Queue floor raised to July 2026 (2026-07-23): only completions on/after
+  // REVIEW_QUEUE_FLOOR proactively enter Tab 1. Status protections above run
+  // first, so this never un-protects a reviewed/declined pre-floor customer.
+  const qualifies = ca => ca && ca >= REVIEW_QUEUE_FLOOR && (!asked || ca > asked);
 
   // Must have a completed job on/after the cutoff (and, if already asked, AFTER that ask).
   // Require completedAt (calendar completions always set it). Exclude csv_backfill — those
