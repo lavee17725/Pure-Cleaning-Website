@@ -2281,6 +2281,63 @@ async function main() {
       }
     });
 
+    // ── DIRECTORY — address normalization (2026-07-23, Todd Griffin case) ──────
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'directory-addr-search', async page => {
+      await page.waitForFunction(() => typeof allCustomers !== 'undefined' && allCustomers.length > 0
+        && typeof _normalizeAddress === 'function' && typeof _addrMatch === 'function', { timeout: 45000 });
+      const r = await page.evaluate(() => {
+        const run = q => {
+          searchVal = q.trim().toLowerCase();
+          const nq = _normalizeAddress(searchVal);
+          const nqT = nq.split(' ').filter(Boolean);
+          return allCustomers.filter(c => _addrMatch(nq, nqT, c));
+        };
+        const names = rs => rs.map(c => c._name);
+        const out = {};
+        // The live regression case: Todd Griffin @ 2010 Northwest 85th Avenue
+        out.nw       = names(run('2010 NW')).some(n => n.includes('griffin'));
+        out.longForm = names(run('2010 Northwest')).some(n => n.includes('griffin'));
+        out.ordinal  = names(run('2010 nw 85')).some(n => n.includes('griffin'));
+        // Reverse direction: an address stored abbreviated, queried long-form.
+        const abbrev = allCustomers.find(c => /\b(nw|ne|sw|se)\b/.test(c._normAddr) && (c.address||'').match(/\b(NW|NE|SW|SE)\b/));
+        out.reverseCase = abbrev ? abbrev.address : null;
+        if (abbrev) {
+          const longDir = { nw:'northwest', ne:'northeast', sw:'southwest', se:'southeast' };
+          const m = abbrev._normAddr.match(/\b(nw|ne|sw|se)\b/);
+          const q = abbrev._normAddr.split(' ')[0] + ' ' + longDir[m[1]];
+          out.reverse = run(q).includes(abbrev);
+        }
+        // Street-name-only + both ave forms hit the same records
+        out.canary  = names(run('Canary Island')).some(n => n.includes('wolf'));
+        out.aveSame = names(run('85th Ave')).join('|') === names(run('85th Avenue')).join('|');
+        // REGRESSION GUARD — name + phone paths byte-identical in code, spot-check live:
+        const nameHit = (q, who) => { searchVal = q; return allCustomers.some(c => _fuzzyNameScore(q, c) > 0 && c._name.includes(who)); };
+        out.nick1 = nameHit('beth', 'elizabeth') || !allCustomers.some(c => c._name.includes('elizabeth'));
+        out.nick2 = nameHit('chris', 'christopher') || !allCustomers.some(c => c._name.includes('christopher'));
+        out.exact = nameHit('griffin', 'griffin');
+        const phoned = allCustomers.find(c => (c.phone||'').length === 10);
+        out.phone = phoned ? (phoned.phone.slice(0,6).length && allCustomers.filter(c => (c.phone||'').includes(phoned.phone.slice(0,6))).includes(phoned)) : null;
+        searchVal = '';
+        return out;
+      });
+      const checks = [
+        ['"2010 NW" finds Todd Griffin', r.nw],
+        ['"2010 Northwest" finds Todd Griffin', r.longForm],
+        ['"2010 nw 85" finds Todd Griffin (ordinal prefix)', r.ordinal],
+        [`long-form query finds abbreviated address (${r.reverseCase})`, r.reverse],
+        ['"Canary Island" still finds Keith Wolf', r.canary],
+        ['"85th Ave" ≡ "85th Avenue" result sets', r.aveSame],
+        ['name search regression (nickname beth→elizabeth)', r.nick1],
+        ['name search regression (nickname chris→christopher)', r.nick2],
+        ['name search regression (exact surname)', r.exact],
+        ['partial-phone search regression', r.phone !== false],
+      ];
+      for (const [label, ok] of checks) {
+        if (ok) pass(`Directory addr — ${label}`);
+        else fail(`Directory addr — ${label}`, JSON.stringify(r));
+      }
+    });
+
     // ── QUOTE POOL (2026-07-23 WO) — page shell + shared logger modal ──────────
     queuePage(context, `${PAGES_BASE}/pure_cleaning_quote_pool.html`, 'quote-pool', async page => {
       const tabCount = await page.locator('.tab').count();

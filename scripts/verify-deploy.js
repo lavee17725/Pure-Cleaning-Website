@@ -103,7 +103,8 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_customer_directory.html',
-    markers: ['function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName',
+    markers: ['function _normalizeAddress', 'function _addrMatch',   // 2026-07-23 address normalization (Todd Griffin case)
+              'function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName',
               '_dirAltContacts',   // WO-2: alternate-contacts render on directory card + row (T1.21 read surface)
               'dir-sat-thumb', '_dirMapsUrl'],  // satellite thumbnail → opens Google Maps (superseded WO-B lightbox)
   },

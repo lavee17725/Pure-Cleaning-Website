@@ -410,9 +410,14 @@ async function init(){
       const baseRank = TIER_RANK[tier.label] ?? 99;
       // VIP customers float above non-VIP within same tier (subtract 0.5)
       const vip = tier.vip || false;
+      const _na = _normalizeAddress(c.address||'');
       return{
         ...c,
         _name:((c.firstName||'')+' '+(c.lastName||'')+' '+(c.businessName||'')).trim().toLowerCase(),
+        // Address normalized ONCE at load (2026-07-23) — search compares
+        // against these cached forms, never re-normalizes per keystroke.
+        _normAddr:_na,
+        _normAddrTokens:_na.split(' ').filter(Boolean),
         _bigrams:(s=>{const r=s.replace(/\s+/g,'');const b=new Set();for(let i=0;i<r.length-1;i++)b.add(r[i]+r[i+1]);return b;})(((c.firstName||'')+' '+(c.lastName||'')+' '+(c.businessName||'')).trim().toLowerCase()),
         _tier:tier.label,
         _tierColor:tier.color,
@@ -575,6 +580,50 @@ function _fuzzyNameScore(query, c) {
   return best;
 }
 
+// ── Address normalization (2026-07-23 — Todd Griffin case) ────────────────────
+// "2010 NW" must find "2010 Northwest 85th Avenue": 30 years of data stores
+// directionals/street-types in both long and short forms inconsistently, and
+// raw-substring dies the moment the typed form differs from the stored form.
+// Canonical rule: long forms map DOWN to the short token, applied to BOTH the
+// query and the stored address. Replacement is per-TOKEN (exact dictionary
+// lookup after splitting), so "northwest" can never partially rewrite to
+// "nwest" — the compound-before-single ordering hazard doesn't exist here.
+// Periods are deleted (not spaced) so "N.W." collapses to "nw", matching "NW".
+const _ADDR_DICT = {
+  northwest:'nw', northeast:'ne', southwest:'sw', southeast:'se',
+  north:'n', south:'s', east:'e', west:'w',
+  avenue:'ave', street:'st', drive:'dr', road:'rd', court:'ct', circle:'cir',
+  boulevard:'blvd', lane:'ln', place:'pl', terrace:'ter', trail:'trl',
+  highway:'hwy', parkway:'pkwy',
+};
+function _normalizeAddress(s){
+  return String(s||'').toLowerCase()
+    .replace(/\./g,'')            // N.W. → nw ; Ave. → ave
+    .replace(/,/g,' ')            // commas are separators
+    .split(/\s+/).filter(Boolean)
+    .map(t => _ADDR_DICT[t] || t)
+    .join(' ');
+}
+// Match if the normalized query is a substring of the normalized address, OR
+// the query tokens align to a consecutive run of address tokens by equality
+// or prefix — "2010 nw 85" hits ["2010","nw","85th",...] ("85" prefixes
+// "85th", covering ordinals). Address field only; names/phones untouched.
+function _addrMatch(nq, nqTokens, c){
+  const na = c._normAddr;
+  if (!na || !nq) return false;
+  if (na.includes(nq)) return true;
+  const at = c._normAddrTokens;
+  outer:
+  for (let i = 0; i + nqTokens.length <= at.length; i++){
+    for (let j = 0; j < nqTokens.length; j++){
+      const q = nqTokens[j], a = at[i + j];
+      if (a !== q && !a.startsWith(q)) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 let _searchDebounceTimer = null;
 function onSearch(val){
@@ -603,17 +652,21 @@ function applyAll(){
   // separate worldviews per DL-06; never mix segments in a single list view.
   let data = allCustomers.filter(c => _segmentOf(c) === activeSegment);
 
-  // Search — fuzzy name + exact phone/email/address/city, ranked by score
+  // Search — fuzzy name + exact phone/email/city + normalized address, ranked by score
   if(searchVal){
-    // Phone/email/address/city: exact substring only (never fuzzy-match digits or addresses).
+    // Phone/email/city: exact substring only (never fuzzy-match digits).
+    // Address (2026-07-23): normalized both ways — see _normalizeAddress above.
+    // Query normalized ONCE per applyAll, not per customer.
     // 2026-06-22 Phase 2 (c): altPhoneDigits carries every alternate number (legacy altPhone +
     // alternateContacts[].phone + merged-record carries) — searching any of a customer's
     // numbers surfaces them.
+    const _nq = _normalizeAddress(searchVal);
+    const _nqTokens = _nq.split(' ').filter(Boolean);
     const _exactFields = c =>
       (c.phone||'').includes(searchVal) ||
       (c.altPhoneDigits||'').includes(searchVal) ||
       (c.email||'').toLowerCase().includes(searchVal) ||
-      (c.address||'').toLowerCase().includes(searchVal) ||
+      _addrMatch(_nq, _nqTokens, c) ||
       (c.city||'').toLowerCase().includes(searchVal);
     data = data
       .map(c => ({ c, _s: _exactFields(c) ? 100 : _fuzzyNameScore(searchVal, c) }))
