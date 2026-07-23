@@ -851,15 +851,14 @@ const REACTIVATION_STANDARD = {
   id: 'standard',
   label: 'B',
   recurrence: 'FALLBACK',
-  template: `Hi {firstName}, this is Tyler — Tony and Darla's son with Pure Cleaning. It's been about {monthsText} since our records show we cleaned your home — if we've been out more recently, just let us know! Ready to make it look brand new again? We'd love to take care of you.
+  // 2026-07-23 rewrite: short/confident, website-routed, NO personalized link.
+  // Dropped the "if we've been out more recently" hedge + the quote-builder
+  // pitch + {quoteLink} (wasn't converting). serviceClause stays service-aware.
+  template: `Hi {firstName}, this is Tyler — Tony and Darla's son with Pure Cleaning. {serviceClause} — ready to make it look brand new again? We'd love to take care of you.
 
-Try out the new quote builder I built — your info's already filled in:
-{quoteLink}
+Visit purecleaningpressurecleaning.com or call/text us at 954-389-2642.
 
-If the link doesn't turn blue, copy it into your browser — or just text or call us at 954-389-2642.
-
-— The Pure Cleaning Family
-Reply STOP to opt out`,
+Reply STOP to opt out.`,
 };
 
 const REACTIVATION_CAMPAIGNS = [
@@ -972,15 +971,13 @@ const ACTIVE_VARIANT = REACTIVATION_STANDARD;
 // Brief-final wording locked in 2026-06-22 Deploy 1.
 const ACTIVE_VARIANT_GROUNDS_UPSELL = {
   label: 'B-GR',
-  template: `Hi {firstName}, Tyler from Pure Cleaning. We pressure cleaned your roof about {monthsText} ago — driveways, patios and walkways pick up dirt and algae a lot faster than a roof does. Want us to freshen up the grounds for you?
+  // 2026-07-23 rewrite: same direction — website-routed, no builder pitch/link.
+  // Keeps the grounds-upsell framing + roof-months anchor (monthsText = roof).
+  template: `Hi {firstName}, this is Tyler — Tony and Darla's son with Pure Cleaning. We cleaned your roof about {monthsText} ago — driveways, patios and walkways pick up dirt and algae a lot faster than a roof does. Want us to freshen up the grounds?
 
-Your info's already saved in our new quote system:
-{quoteLink}
+Visit purecleaningpressurecleaning.com or call/text us at 954-389-2642.
 
-Or call/text me at 954-389-2642 — happy to talk it through.
-
-— The Pure Cleaning Family
-Reply STOP to opt out`
+Reply STOP to opt out.`
 };
 
 /* HIDDEN_VARIANTS — stored for future activation, not currently sent
@@ -2639,17 +2636,110 @@ function updateActiveCampaignBanner() {
   }
 }
 
-function resolveTemplateVars(customer, link) {
+// ── Service-specific "last cleaned" (2026-07-23) ──────────────────────────────
+// The month count + wording must match the service being PITCHED, not the most
+// recent job of any type. A roof-cadence customer whose driveway was cleaned in
+// March must NOT get "4 months" on a roof pitch. The pitch is derived from the
+// queue's own due-classification (svcSection / tier2 lane) — one classifier,
+// reused (LAW 11 categorizeService), not a parallel one.
+
+// Most recent jobHistory job matching a service TYPE ('roof'|'ground'|'seal').
+// Returns { date, services } or null. csv_backfill COUNTS (this is cadence math,
+// true service history — not display). rig_segment $0 markers excluded.
+function lastServiceDateFor(customer, type) {
+  const _match = svc => {
+    if (type === 'seal') return /seal/i.test(svc);
+    const cat = categorizeService(svc || '');
+    return type === 'roof' ? (cat === 'roof' || cat === 'both')
+         : type === 'ground' ? (cat === 'ground' || cat === 'both') : false;
+  };
+  const jh = (customer.jobHistory || []).filter(j => j.source !== 'rig_segment' && j.date);
+  let best = null;
+  for (const j of jh) {
+    if (!_match(j.services || '')) continue;
+    if (!best || j.date > best.date) best = { date: j.date, services: j.services || '' };
+  }
+  if (best) return best;
+  // Fallback to scheduledStatus/quoteStatus text when jobHistory lacks labels
+  // (mirrors dbRecordToCustomer's per-service fallback).
+  const svcText = [
+    (customer.scheduledStatus || {}).jobNotes     || '',
+    (customer.quoteStatus     || {}).mainServices || '',
+    (customer.quoteStatus     || {}).notes        || '',
+  ].join(' ');
+  if (svcText.trim() && customer.lastDateObj && _match(svcText)) {
+    return { date: customer.lastDateObj.toISOString().slice(0, 10), services: svcText };
+  }
+  return null;
+}
+
+// Which service the queue is pitching this customer on — from the SAME
+// classification the queue uses. tier2 grounds-upsell copy references the roof
+// ("we cleaned your roof about N ago — grounds are due"), so its month anchor
+// is roof. 'both' → roof, so a recent ground job can't mask the overdue roof.
+function pitchedServiceType(customer, variant) {
+  if ((variant && variant.label === 'B-GR') || currentLane === 'tier2GroundsUpsell') return 'roof';
+  const sec = customer.svcSection;
+  if (sec === 'roof' || sec === 'both') return 'roof';
+  if (sec === 'ground') return 'ground';
+  return null;   // unclassified lane → generic "your home", no service claim
+}
+
+// Name the actual surface(s) from a ground job's service string. Max two named,
+// natural phrasing; 3+ → "your X and more". No specific surface parsed (generic
+// "pressure washing") → "your exterior surfaces" (honest, not invented).
+function nameGroundSurfaces(servicesStr) {
+  const s = (servicesStr || '').toLowerCase();
+  const names = [];
+  if (/driveway/.test(s))                              names.push('driveway');
+  if (/patio/.test(s))                                 names.push('patio');
+  if (/pool\s*deck|pool\s*area|\bdeck\b/.test(s))      names.push('pool deck');
+  if (/walkway|sidewalk|entranceway|entrance/.test(s)) names.push('walkway');
+  if (!names.length) return 'your exterior surfaces';
+  if (names.length === 1) return `your ${names[0]}`;
+  if (names.length === 2) return `your ${names[0]} and ${names[1]}`;
+  return `your ${names[0]} and more`;
+}
+
+// The full service-aware clause that replaces "…cleaned your home". Honest
+// fallbacks: pitched service with no qualifying job → serviceless, NO number
+// (never a number from a different service); unclassified but have an overall
+// date → generic "your home". Returns { clause, months, found }.
+function serviceClauseFor(customer, variant) {
+  const pitch = pitchedServiceType(customer, variant);
+  if (pitch) {
+    const info = lastServiceDateFor(customer, pitch);
+    const m = (info && info.date) ? Math.round(monthsSince(new Date(info.date + 'T12:00:00'))) : 0;
+    if (info && info.date && m > 0) {
+      const noun = pitch === 'roof' ? 'your roof'
+                 : pitch === 'seal' ? 'your pavers'
+                 : nameGroundSurfaces(info.services);
+      const verb = pitch === 'seal' ? 'sealed' : 'cleaned';
+      return { clause: `It's been about ${m} months since we last ${verb} ${noun}`, months: m, found: true };
+    }
+    // Pitched but no qualifying job (classification drift) — drop the number.
+    console.warn(`[reactivation] no qualifying ${pitch} job for ${customer.phone} (${customer.fn} ${customer.ln}) — serviceless fallback, review record`);
+    return { clause: `It's been a while since we've been out`, months: 0, found: false };
+  }
+  const om = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
+  if (om > 0) return { clause: `It's been about ${om} months since our records show we cleaned your home`, months: om, found: true };
+  return { clause: `It's been a while since we've been out`, months: 0, found: false };
+}
+
+function resolveTemplateVars(customer, link, variant) {
   const firstName      = parseFirstName(customer.fn) || 'there';
   const timeSince      = buildTimeSince(customer.lastDateObj) || 'a while';
   const svcDesc        = buildServiceDescription(customer.jobHistory, customer.quoteStatus, customer.scheduledStatus) || 'place';
   const seasonalHook   = getSeasonalHook();
-  const months         = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
-  // monthsText — safe phrase for templates that say "about {monthsText} since…"
-  // Produces "14 months" (integer > 0) or "a while" (missing / no-history edge case).
-  // Hidden variants use {months} (bare integer) — monthsText is additive, not a replacement.
+  // Service-aware (2026-07-23): serviceClause is the full "…cleaned your roof"
+  // fragment; months/monthsText follow the PITCHED service (tier2 grounds-upsell
+  // says "cleaned your roof about {monthsText}", so its months are roof-months),
+  // never overall. serviceless fallback → months 0 → "a while".
+  const svc            = serviceClauseFor(customer, variant);
+  const serviceClause  = svc.clause;
+  const months         = svc.months;
   const monthsText     = months > 0 ? `${months} months` : 'a while';
-  return { firstName, timeSince, svcDesc, seasonalHook, months, monthsText, link };
+  return { firstName, timeSince, svcDesc, seasonalHook, months, monthsText, serviceClause, link };
 }
 
 function resolveTemplateFallbacks(customer) {
@@ -2661,7 +2751,7 @@ function resolveTemplateFallbacks(customer) {
 }
 
 function buildVariantBody(variant, customer, link) {
-  const { firstName, timeSince, svcDesc, seasonalHook, months, monthsText } = resolveTemplateVars(customer, link);
+  const { firstName, timeSince, svcDesc, seasonalHook, months, monthsText, serviceClause } = resolveTemplateVars(customer, link, variant);
   return variant.template
     .replace(/{firstName}/g, firstName)
     .replace(/{timeSinceLastService}/g, timeSince)
@@ -2669,6 +2759,7 @@ function buildVariantBody(variant, customer, link) {
     .replace(/{seasonalHook}/g, seasonalHook)
     .replace(/{quoteLink}/g, link)
     .replace(/{link}/g, link)
+    .replace(/{serviceClause}/g, serviceClause)
     .replace(/{monthsText}/g, monthsText)
     .replace(/{months}/g, months);
 }
@@ -2724,23 +2815,28 @@ async function testSendToMe(phone) {
     if (!ok) return;
   }
 
-  let code = c.linkCode;
-  if (!code) {
-    code = generateCode();
-    const customerRecord = {
-      fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
-      city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
-      totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
-    };
-    fetch(`${PCPC_API_BR}/quote/${code}`, {
-      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(customerRecord)
-    }).catch(() => {});
-  }
-
-  const longUrl = `${QUOTE_BASE}?c=${code}&v=B_TEST`;
-  const shortLink = shortenUrl(longUrl);
   // 2026-06-22: tier-aware — pick the grounds-upsell template when on Tier 2.
-  const body = buildVariantBody(getNextVariant(), c, shortLink);
+  const variant = getNextVariant();
+  // 2026-07-23: skip link generation when the template has no link (parity
+  // with executeTextNow — the test must render exactly what actually sends).
+  const needsLink = /\{quoteLink\}|\{link\}/.test(variant.template);
+  let shortLink = '';
+  if (needsLink) {
+    let code = c.linkCode;
+    if (!code) {
+      code = generateCode();
+      const customerRecord = {
+        fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
+        city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+        totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
+      };
+      fetch(`${PCPC_API_BR}/quote/${code}`, {
+        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(customerRecord)
+      }).catch(() => {});
+    }
+    shortLink = shortenUrl(`${QUOTE_BASE}?c=${code}&v=B_TEST`);
+  }
+  const body = buildVariantBody(variant, c, shortLink);
   const testBody = `[TEST — would have gone to ${parseFirstName(c.fn) || c.fn}]\n\n${body}`;
 
   // No customer record update, no event log, no cap counting
@@ -2982,37 +3078,40 @@ async function executeTextNow(phone) {
     return;
   }
 
-  let code = c.linkCode;
-
-  if (!code) {
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    try {
-      code = generateCode();
-      const customerRecord = {
-        fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
-        city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
-        totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
-      };
-      await fetch(`${PCPC_API_BR}/quote/${code}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(customerRecord)
-      });
-
-      c.linkCode = code;
-      c.quoteStatus = { state: 'sent', sentDate: new Date().toISOString().split('T')[0], viewedDate: null, approvedDate: null, lostDate: null, lostReason: null, notes: null };
-      saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
-    } catch(e) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Text Now'; btn.className = 'text-now-btn'; }
-      alert('Could not generate link: ' + e.message);
-      return;
-    }
-  }
-
-  const baseLink = `${QUOTE_BASE}?c=${code}`;
   const variant = getNextVariant();
-  const linkWithVariant = `${baseLink}&v=${variant.label}`;
-  const shortLink = shortenUrl(linkWithVariant);
+  // 2026-07-23: the standard reactivation copy is website-routed with NO
+  // personalized link — skip link generation + shortener entirely when the
+  // template has no {quoteLink}/{link} ("don't generate what isn't used").
+  // Link-using variants (future/hidden) still generate + stamp as before.
+  const needsLink = /\{quoteLink\}|\{link\}/.test(variant.template);
+  let shortLink = '';
+  if (needsLink) {
+    let code = c.linkCode;
+    if (!code) {
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      try {
+        code = generateCode();
+        const customerRecord = {
+          fn: c.fn, ln: c.ln, ph: c.phone, em: '', addr: c.address,
+          city: c.city, zip: '', lastService: c.lastDateObj ? c.lastDateObj.toISOString().split('T')[0] : null,
+          totalJobs: c.totalJobs, lifetimeSpend: Math.round(c.lifetimeSpend), created: new Date().toISOString()
+        };
+        await fetch(`${PCPC_API_BR}/quote/${code}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(customerRecord)
+        });
+        c.linkCode = code;
+        c.quoteStatus = { state: 'sent', sentDate: new Date().toISOString().split('T')[0], viewedDate: null, approvedDate: null, lostDate: null, lostReason: null, notes: null };
+        saveDatabase().catch(e => console.warn('DB link-stamp save failed:', e.message));
+      } catch(e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Text Now'; btn.className = 'text-now-btn'; }
+        alert('Could not generate link: ' + e.message);
+        return;
+      }
+    }
+    shortLink = shortenUrl(`${QUOTE_BASE}?c=${code}&v=${variant.label}`);
+  }
   const body = buildVariantBody(variant, c, shortLink);
 
   // 2026-06-15 server-first cooldown record — MUST land before the sms: navigation,
@@ -3102,11 +3201,22 @@ async function generateLinks() {
       const link = shortenUrl(longLink);
       const months = Math.round(c.monthsSince);
       const years  = Math.floor(c.monthsSince / 12);
+      // Service-aware months (2026-07-23): same shared helpers as the live send
+      // path. VIP_SEAL months come from the last SEAL job (not overall); the
+      // standard tier gets the full service-aware clause. DORMANT/ANCIENT keep
+      // the generic "about N years" — they're 2+ years out, no live cadence.
+      const svc        = serviceClauseFor(c, null);
+      const sealInfo   = lastServiceDateFor(c, 'seal');
+      const sealMonths = sealInfo && sealInfo.date ? Math.round(monthsSince(new Date(sealInfo.date + 'T12:00:00'))) : months;
+      // 2026-07-23 rewrite: short/confident, website-routed, no builder pitch,
+      // no personalized link. DORMANT/ANCIENT keep the "been a while (N years)"
+      // warmth; VIP_SEAL keeps the seal opener + seal months; MOVED kept where
+      // it was. serviceClause stays service-aware for the standard tier.
       const sms = (c.tier === 'DORMANT' || c.tier === 'ANCIENT')
-        ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you.\n\nI'm taking over more of the business and built a simple new way to get quotes. If your home could use some attention, your info is already filled in:\n\n${link}\n\nIf you've moved or this isn't relevant anymore, no worries — just wanted to reach out 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`
+        ? `Hey ${c.fn}! It's Tyler — Tony and Darla's son with Pure Cleaning. I know it's been a while (about ${years} years!) since we last cleaned for you — we'd love to take care of you again.\n\nVisit purecleaningpressurecleaning.com or call/text us at 954-389-2642.\n\nReply MOVED if you've relocated or STOP to opt out.`
         : c.tier === 'VIP_SEAL'
-          ? `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${months} month${months===1?'':'s'} in.\n\nI'm taking over more of the business and built a simple new way to get quotes. Your info is already filled in:\n\n${link}\n\nSealer typically lasts 2-3 years and we're entering peak sealing season here in South Florida. Would mean a lot if you gave it a try 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`
-          : `Hey ${c.fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. We last cleaned your home about ${months} month${months===1?'':'s'} ago and I wanted to personally check in.\n\nI'm taking over more of the business and built a simple new way to get quotes — your info is already filled in:\n\n${link}\n\nJust tap to confirm what you'd like cleaned. Would mean a lot if you gave it a try and let me know what you think 🙏\n\n— Tyler\n954-389-2642\n\nReply MOVED if you've relocated or STOP to opt out.`;
+          ? `Hey ${c.fn}! It's Tyler — Tony and Darla's son with Pure Cleaning. Your driveway and patio seal is coming up on its renewal window — about ${sealMonths} month${sealMonths===1?'':'s'} in. Sealer typically lasts 2-3 years and we're entering peak sealing season in South Florida.\n\nVisit purecleaningpressurecleaning.com or call/text us at 954-389-2642.\n\nReply MOVED if you've relocated or STOP to opt out.`
+          : `Hey ${c.fn}! It's Tyler — Tony and Darla's son with Pure Cleaning. ${svc.clause} — ready to make it look brand new again?\n\nVisit purecleaningpressurecleaning.com or call/text us at 954-389-2642.\n\nReply MOVED if you've relocated or STOP to opt out.`;
       generatedLinks.push({ customer: c, code, link, sms, months });
     }
 
