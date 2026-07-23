@@ -979,6 +979,53 @@ async function main() {
 
       const deepLink = await page.locator('a[href="https://business.google.com/reviews"]').count();
       if (deepLink >= 1) pass('Review Hub — Open Google Reviews deep link present'); else fail('Review Hub — deep link', `found ${deepLink}`);
+
+      // 2026-07-23: reply-queue floor — badge + "Awaiting" count only July-forward
+      // unreplied; pre-July unreplied visible in "Earlier"; replied in history.
+      const rq = await page.evaluate(() => {
+        hubData = { readyToRequest:[], readyTotal:0, awaitingConfirmation:[], reviewed:[], wontAsk:[], permanentExclusions:[],
+                    actualCount:{count:5,rating:5}, gbpSyncedAt:new Date().toISOString(), gbpReviews: [
+          { reviewId:'a', reviewer:'Jeff New', rating:5, createTime:'2026-07-22T10:00:00Z' },          // Jul, unreplied → awaiting
+          { reviewId:'b', reviewer:'JJ G',     rating:5, createTime:'2026-07-21T10:00:00Z' },          // Jul, unreplied → awaiting
+          { reviewId:'c', reviewer:'Old One',  rating:5, createTime:'2026-03-10T10:00:00Z' },          // pre-Jul, unreplied → earlier
+          { reviewId:'d', reviewer:'Older Two',rating:4, createTime:'2026-01-05T10:00:00Z' },          // pre-Jul, unreplied → earlier
+          { reviewId:'e', reviewer:'Replied R',rating:5, createTime:'2026-02-02T10:00:00Z', reply:{comment:'thanks'} }, // replied → history
+        ]};
+        updateBadges();
+        renderGoogleReviews();
+        const badge = document.getElementById('badge-gbpreviews').textContent;
+        const el    = document.getElementById('gbpreviews-content');
+        const html  = el.innerHTML;
+        // The to-do section = everything BEFORE the collapsed history <details>.
+        const detIdx = html.indexOf('<details');
+        const todo   = detIdx === -1 ? html : html.slice(0, detIdx);
+        return {
+          badge,
+          awaitingHdr:   /Awaiting your reply \(2\)/.test(html),
+          todoHasJul:    todo.includes('Jeff New') && todo.includes('JJ G'),
+          todoNoReplied: !todo.includes('Replied R') && !todo.includes('thanks'),   // replied NOT in to-do
+          todoNoPreJul:  !todo.includes('Old One') && !todo.includes('Older Two'),  // pre-July NOT in to-do
+          historyHdr:    /All reviews &amp; reply history \(3\)/.test(html),         // replied(1)+preJul(2)
+          historyHasAll: html.includes('Old One') && html.includes('Older Two') && html.includes('Replied R'),
+        };
+      });
+      if (rq.badge === '2') pass('Review Hub — reply badge floored to July-forward (2)'); else fail('Review Hub — reply badge floor', JSON.stringify(rq));
+      if (rq.awaitingHdr && rq.todoHasJul) pass('Review Hub — to-do shows only July-forward unreplied'); else fail('Review Hub — to-do content', JSON.stringify(rq));
+      if (rq.todoNoReplied) pass('Review Hub — replied reviews NOT in the reply queue'); else fail('Review Hub — replied in queue', JSON.stringify(rq));
+      if (rq.todoNoPreJul) pass('Review Hub — pre-July NOT in the reply queue'); else fail('Review Hub — pre-July in queue', JSON.stringify(rq));
+      if (rq.historyHdr && rq.historyHasAll) pass('Review Hub — history (replied + pre-July) reachable, collapsed'); else fail('Review Hub — history section', JSON.stringify(rq));
+
+      // empty-state: no July-forward unreplied → all-caught-up
+      const empty = await page.evaluate(() => {
+        hubData = { readyToRequest:[], readyTotal:0, awaitingConfirmation:[], reviewed:[], wontAsk:[], permanentExclusions:[],
+          actualCount:{count:1,rating:5}, gbpSyncedAt:new Date().toISOString(),
+          gbpReviews:[{ reviewId:'z', reviewer:'Done', rating:5, createTime:'2026-07-05T10:00:00Z', reply:{comment:'ty'} }] };
+        renderGoogleReviews();
+        const h = document.getElementById('gbpreviews-content').innerHTML;
+        const detIdx = h.indexOf('<details'); const todo = detIdx===-1?h:h.slice(0,detIdx);
+        return { caughtUp:/All caught up — no reviews need a reply/.test(h), noReplyBoxInTodo: !todo.includes('<textarea') };
+      });
+      if (empty.caughtUp && empty.noReplyBoxInTodo) pass('Review Hub — all-caught-up empty state when nothing needs reply'); else fail('Review Hub — empty state', JSON.stringify(empty));
     });
 
     // ── INCOMING REQUESTS ────────────────────────────────────────────────────

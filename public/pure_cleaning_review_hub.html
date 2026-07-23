@@ -204,6 +204,14 @@ const API = 'https://purecleaning-api.tylerfumero.workers.dev';
 const REVIEW_LINK = 'https://g.page/r/CRQZRl3rokhmEAE/review';
 const REVIEW_GOAL = 300;
 const REVIEW_CUTOFF = '2026-05-01'; // Track only from this date forward
+// Reply-queue floor (2026-07-23, Tyler): the actionable "needs reply" queue +
+// badge count ONLY reviews dated on/after this floor. Pre-July reviews stay
+// synced, matched, and visible (in the Reply tab's "Earlier" + "Replied"
+// sections) — they're just not surfaced as needing action. Read-time only,
+// zero data touched. Mirrors REVIEW_QUEUE_FLOOR (the request queue). ISO
+// createTime compares lexicographically against the YYYY-MM-DD floor.
+const REPLY_QUEUE_FLOOR = '2026-07-01';
+const _needsReply = r => !r.reply && (r.createTime || '') >= REPLY_QUEUE_FLOOR;
 
 let hubData = null;
 let _editCountMode = false;
@@ -305,7 +313,8 @@ function updateBadges() {
   document.getElementById('badge-ready').textContent = hubData.readyToRequest.length + (hubData.readyTotal > 100 ? '+' : '');
   document.getElementById('badge-requested').textContent = hubData.awaitingConfirmation.length;
   document.getElementById('badge-reviewed').textContent = hubData.reviewed.length;
-  const _unreplied = (hubData.gbpReviews || []).filter(r => !r.reply).length;
+  // Floored: badge counts only July-forward unreplied (the actionable queue).
+  const _unreplied = (hubData.gbpReviews || []).filter(_needsReply).length;
   const _gb = document.getElementById('badge-gbpreviews');
   if (_gb) { _gb.textContent = _unreplied; _gb.style.opacity = _unreplied ? '1' : '.5'; }
   document.getElementById('badge-wontask').textContent = (hubData.wontAsk.length) + ((hubData.permanentExclusions||[]).length);
@@ -579,14 +588,19 @@ function renderGoogleReviews(){
     el.innerHTML = `<div class="empty-state"><div class="empty-icon">💬</div><div class="empty-title">No reviews synced yet</div><div class="empty-sub">The daily cron syncs your Google reviews automatically.</div></div>`;
     return;
   }
-  const unreplied = all.filter(r=>!r.reply);
-  const replied   = all.filter(r=>r.reply);
+  // Reply queue is a PURE to-do (2026-07-23): renders ONLY rows matching the
+  // queue rule (>= floor AND unreplied). Everything else — replied reviews AND
+  // pre-July — is history: not in the to-do, reachable in a collapsed
+  // all-reviews section below. Data untouched (gbpReviews stays whole).
+  const awaiting = all.filter(_needsReply);
+  const history  = all.filter(r => !_needsReply(r))               // replied + pre-floor
+    .sort((a,b) => (b.createTime||'').localeCompare(a.createTime||''));
   const ac = hubData.actualCount || {};
   const rating = (typeof ac.rating==='number') ? ac.rating.toFixed(1) : '5.0';
   const synced = hubData.gbpSyncedAt ? _revTime(hubData.gbpSyncedAt) : '—';
   const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
      <div><strong style="font-size:22px;">${ac.count ?? all.length}</strong> reviews · <strong>${rating}</strong>★ <span style="color:var(--muted);font-size:12px;">live from Google · synced ${synced}</span></div>
-     <div style="color:${unreplied.length?'#fbbf24':'#6ee7b7'};font-weight:700;">${unreplied.length? unreplied.length+' awaiting reply' : '✓ all caught up'}</div>
+     <div style="color:${awaiting.length?'#fbbf24':'#6ee7b7'};font-weight:700;">${awaiting.length? awaiting.length+' awaiting reply' : '✓ all caught up'}</div>
    </div>`;
   const card = (r, needsReply) => `<div style="border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;background:var(--card,#111827);">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
@@ -602,11 +616,20 @@ function renderGoogleReviews(){
           <button onclick="resetDraft('${esc(r.reviewId)}')" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:8px 12px;cursor:pointer;">↻ Reset draft</button>
           <span style="color:var(--muted);font-size:12px;">Edit before sending — this posts publicly under your reply.</span>
         </div>`
-      : `<div style="border-left:3px solid #1d9e75;padding-left:10px;color:var(--muted);"><strong style="color:#6ee7b7;">Your reply:</strong> ${esc(r.reply.comment)}</div>`}
+      : (r.reply
+          ? `<div style="border-left:3px solid #1d9e75;padding-left:10px;color:var(--muted);"><strong style="color:#6ee7b7;">Your reply:</strong> ${esc(r.reply.comment)}</div>`
+          : `<div style="color:var(--muted);font-style:italic;">No reply — older than the reply window. Reply on Google if needed.</div>`)}
     </div>`;
   el.innerHTML = header
-    + (unreplied.length ? `<h3 style="margin:6px 0;">Awaiting your reply (${unreplied.length})</h3>` + unreplied.map(r=>card(r,true)).join('') : '')
-    + (replied.length ? `<h3 style="margin:16px 0 6px;color:var(--muted);">Replied (${replied.length})</h3>` + replied.map(r=>card(r,false)).join('') : '');
+    // The to-do: ONLY July-forward unreplied. Empty state when caught up.
+    + (awaiting.length
+        ? `<h3 style="margin:6px 0;">Awaiting your reply (${awaiting.length})</h3>` + awaiting.map(r=>card(r,true)).join('')
+        : `<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-title">All caught up — no reviews need a reply.</div></div>`)
+    // History: replied + pre-July, collapsed + read-only. Not part of the to-do,
+    // but reachable so nothing is hidden (data untouched).
+    + (history.length
+        ? `<details style="margin:18px 0 6px;"><summary style="cursor:pointer;color:var(--muted);font-weight:700;font-size:14px;">All reviews &amp; reply history (${history.length})</summary><div style="margin-top:10px;">` + history.map(r=>card(r,false)).join('') + `</div></details>`
+        : '');
 }
 async function sendReviewReply(reviewId, btn){
   const ta = document.getElementById('reply-'+reviewId);

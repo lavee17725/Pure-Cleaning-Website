@@ -130,7 +130,10 @@ const HTML_FILES = [
               'oauth/google/start',         // one-tap reconnect link
               'Open Google Reviews',        // header deep link to GBP
               'function syncGbpNow',        // ⟳ Sync now (P0: prove reconnect in seconds)
-              'reviews/sync-now'],          // combined sync+crossref endpoint
+              'reviews/sync-now',           // combined sync+crossref endpoint
+              'REPLY_QUEUE_FLOOR',          // 2026-07-23: reply queue floored July-forward
+              'All reviews &amp; reply history',  // pure to-do: history collapsed out of the queue
+              'All caught up — no reviews need a reply'],  // empty state
     cssChecks: [
       { selector: '.card-name', prop: 'color', forbidden: '#fff' },
     ],
