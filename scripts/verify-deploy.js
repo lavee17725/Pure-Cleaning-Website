@@ -105,7 +105,7 @@ const HTML_FILES = [
     file: 'pure_cleaning_customer_directory.html',
     markers: ['function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName',
               '_dirAltContacts',   // WO-2: alternate-contacts render on directory card + row (T1.21 read surface)
-              'dir-sat-thumb', '_dirOpenSatLb'],  // WO-B: satellite thumbnail + zoom lightbox
+              'dir-sat-thumb', '_dirMapsUrl'],  // satellite thumbnail → opens Google Maps (superseded WO-B lightbox)
   },
   {
     file: 'pure_cleaning_customer_profile.html',
@@ -191,10 +191,35 @@ const HTML_FILES = [
       'alternateContacts',     // alternateContacts persisted to customer record
       'existing_customer_updated', // audit event on existing customer update
       'alt-contacts PATCH',        // WO-H 2b: new_customer persists alt contacts to D1 Person (T1.22 write path)
-      // 2026-06-23 WO1 / Task #26 — highest-risk fix: customer create now awaits
-      // saveDb() BEFORE showSuccess(). If this reverts to fire-and-forget, Tyler
-      // could see the success screen + link for a customer that never persisted.
-      'Customer not saved — check connection', // Fix H: await saveDb() before showSuccess; abort on failure
+      // (2026-07-23: the former Fix-H marker 'Customer not saved — check
+      //  connection' was digital-path code; the send-a-link path was retired
+      //  by the Quote Pool WO, so the marker retired with it.)
+      // 2026-07-23 Quote Pool WO — booking flow reached via Log Confirmed
+      // Quote / pool Accept; these guard the hand-off contract:
+      '_activeQuoteId',            // quote-context global (link-back + price carry)
+      'quote link-back',           // personId PATCH onto the Quote row after save
+      'data.svc',                  // fromOnline blob carries service preselects
+      'qsvc',                      // ?phone= hand-off carries service preselects
+      'setPath() removed',         // toggle stays dead — digital path must not resurrect
+    ],
+  },
+  {
+    file: 'pure_cleaning_quote_pool.html',
+    markers: [
+      'quote-logger.js',           // shared 15-second entry modal loaded
+      'acceptedUnbooked',          // safety strip: accepted-not-booked can't vanish
+      'MIN_SAMPLE',                // insights honesty floor (no % from tiny samples)
+      'declineModal',              // 4-chip decline reason picker
+      'handoffUrl',                // Accept → existing booking flow, pre-filled
+    ],
+  },
+  // (js/quote-logger.js is exercised via the pages that load it — HTML_FILES
+  //  entries run mobile/viewport checks that only make sense for HTML.)
+  {
+    file: 'pure_cleaning_admin.html',
+    markers: [
+      'quote-pool-badge',          // hub tile open-count badge
+      'openQuoteLogger',           // ＋ Log Quote tile action
     ],
   },
 ];
@@ -207,6 +232,7 @@ const API_ENDPOINTS = [
   { path: '/incoming',            expect401: true },   // protected — no token in verify script
   { path: '/customers',           expect401: true },   // protected
   { path: '/admin/reviews-hub',   expect401: true },   // protected
+  { path: '/admin/quotes',        expect401: true },   // protected — Quote Pool (2026-07-23)
   // ── Rule 10 tripwire: redirect-shadowing ───────────────────────────────────
   // /reviews is a public worker API (admin review-count widget). On 2026-06-11
   // a `/reviews → /` entry was added to the worker's legacyRedirects dict,
@@ -705,6 +731,20 @@ async function checkGoogleExportStatus() {
     pass('Google export health', `Last export ${ageLabel} · ${(last.filesWritten || []).length} files written`);
   } else {
     warn('Google export health — last export had errors', `${ageLabel}: ${(last.errors || []).map(e => e.error).join('; ')}`);
+  }
+
+  // GBP (Business Profile) token/permission health — DL-08 (Phase 0). WARN-only so it
+  // never blocks a deploy: 'failed' before re-consent is expected until business.manage
+  // is granted; 'degraded' means scope OK but account/location not resolved yet.
+  const gbp = data.gbp;
+  if (gbp) {
+    if (gbp.status === 'healthy') {
+      pass('GBP Business Profile health', `scope granted · ${gbp.locationName}`);
+    } else if (gbp.status === 'degraded') {
+      warn('GBP Business Profile — not resolved', 'Scope OK. Run GET /admin/gbp/resolve to cache account + location.');
+    } else {
+      warn('GBP Business Profile — token/permission', `${gbp.lastError || 'accounts.list failed'}. Re-consent at /oauth/google/start (business.manage) + enable the GBP APIs in GCP.`);
+    }
   }
 }
 

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="/js/error-tracker.js"></script>
+<script src="/js/quote-logger.js" defer></script>
 <script>
 /* Auth gate — do not remove */
 (function(){
@@ -237,11 +238,16 @@ const PCPC_API = 'https://purecleaning-api.tylerfumero.workers.dev';
 
 // ── TOOL NAVIGATION ──────────────────────────────────────────────────────────────
 const DAILY_DRIVERS = [
-  { icon: '📞', name: 'New Quote',               description: 'Book a phone quote or send a digital quote link',                url: '/pure_cleaning_new_customer.html' },
+  // 2026-07-23 Quote Pool WO: the old "New Quote" tile (phone/digital toggle
+  // page) is replaced — every call starts with the 15-second Log Quote modal;
+  // confirmed quotes flow straight into the booking form from there.
+  { icon: '＋', name: 'Log Quote',               description: 'The 15-second entry — every phone quote goes on the pad',        action: 'openQuoteLogger' },
+  { icon: '📒', name: 'Quote Pool',              description: 'The yellow pad — open quotes, accept/decline, insights',         url: '/pure_cleaning_quote_pool.html',        badgeId: 'quote-pool-badge' },
   { icon: '🔔', name: 'New Quote Requests',     description: 'Review incoming customer form submissions',                      url: '/pure_cleaning_incoming.html',          badgeId: 'incoming-badge' },
   { icon: '📅', name: 'Calendar',               description: 'Schedule jobs, assign crews, track payroll',                     url: '/pure_cleaning_calendar.html' },
   { icon: '👥', name: 'Customer Directory',     description: 'Search and view all 1,200+ customer profiles',                   url: '/pure_cleaning_customer_directory.html', badgeId: 'dir-badge' },
   { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
+  { icon: '⏰', name: 'Reminders',              description: 'Follow-ups due now + coming up — text, snooze, or complete',     url: '/pure_cleaning_reminders.html',         badgeId: 'reminders-badge' },
   { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
   { icon: '📊', name: 'Insights',               description: 'Conversion funnel, behavior trends, customer analysis',          url: '/pure_cleaning_insights.html' },
   { icon: '💰', name: 'Operations / Costs',     description: 'Gas, chlorine, equipment, fixed monthly — COGS capture',          url: '/pure_cleaning_costs.html' },
@@ -272,14 +278,15 @@ function renderTools() {
   html += `<div class="card-grid primary">`;
   DAILY_DRIVERS.forEach(t => {
     const badge = t.badgeId ? `<span id="${t.badgeId}" class="notif-badge" style="display:none;"></span>` : '';
-    html += `<a href="${t.url}" class="tool-card cat-primary primary">
-      <div class="card-icon">${t.icon}</div>
+    const inner = `<div class="card-icon">${t.icon}</div>
       <div class="card-body">
         <div class="card-name">${t.name}</div>
         <div class="card-desc">${t.description}</div>
       </div>
-      <div class="card-right">${badge}<span class="card-arrow">›</span></div>
-    </a>`;
+      <div class="card-right">${badge}<span class="card-arrow">›</span></div>`;
+    html += t.action
+      ? `<div class="tool-card cat-primary primary" style="cursor:pointer;" onclick="${t.action}()">${inner}</div>`
+      : `<a href="${t.url}" class="tool-card cat-primary primary">${inner}</a>`;
   });
   html += '</div>';
 
@@ -311,6 +318,41 @@ function renderTools() {
   html += '</div></details>';
 
   container.innerHTML = html;
+}
+
+// ── QUOTE POOL ─────────────────────────────────────────────────────────────────
+function openQuoteLogger() {
+  if (window.QuoteLogger) QuoteLogger.open({ onSaved: loadQuotePoolCount });
+  else location.href = '/pure_cleaning_quote_pool.html'; // script blocked → pool page has the same button
+}
+async function loadQuotePoolCount() {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/quotes?status=quoted`);
+    if (!res.ok) return;
+    const data  = await res.json();
+    // open quotes + accepted-but-never-booked both need eyes on them
+    const count = Number(data.counts?.open || 0) + Number(data.counts?.acceptedUnbooked || 0);
+    const badge = document.getElementById('quote-pool-badge');
+    if (badge) {
+      badge.textContent   = count > 0 ? String(count) : '';
+      badge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+  } catch {}
+}
+
+// ── REMINDERS DUE BADGE ────────────────────────────────────────────────────────
+async function loadRemindersCount() {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reminders`);
+    if (!res.ok) return;
+    const data  = await res.json();
+    const count = Number(data.dueCount || (data.dueNow || []).length || 0);
+    const badge = document.getElementById('reminders-badge');
+    if (badge) {
+      badge.textContent   = count > 0 ? String(count) : '';
+      badge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
+  } catch {}
 }
 
 // ── INCOMING BADGE COUNT ───────────────────────────────────────────────────────
@@ -663,6 +705,32 @@ async function dismissReminder(reminderId) {
   }
 }
 
+// Stop a RECURRING reminder forever (status='dismissed' → server does NOT reschedule).
+// Confirm first so a fat-finger tap can't silently kill a monthly customer's cycle.
+async function stopReminder(reminderId) {
+  if (!reminderId) return;
+  const r = _reminderAlerts.find(x => x.reminderId === reminderId);
+  if (r && r.cadenceMonths && !confirm('End this recurring reminder? This stops all future occurrences.')) return;
+  const _prev = _reminderAlerts.slice();
+  _reminderAlerts = _reminderAlerts.filter(x => x.reminderId !== reminderId);
+  _updateBellDot();
+  _renderNotifPanel();
+  try {
+    const res = await fetch(`${PCPC_API}/admin/reminder/${encodeURIComponent(reminderId)}/status`, {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:'dismissed' }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    showToast('✓ Recurring reminder ended');
+  } catch(e) {
+    _reminderAlerts = _prev;
+    _updateBellDot();
+    _renderNotifPanel();
+    checkReminders().catch(() => {});
+    alert('Failed to end reminder: ' + e.message);
+  }
+}
+
 // Snooze / reschedule — bumps a reminder's followUpMonth without creating
 // a new row. Uses the same status endpoint with status='active' so it stays
 // in the feed (it just won't fire again until the new month is due).
@@ -741,7 +809,10 @@ function _renderNotifPanel() {
     const ph   = p.phone || '';
     const isOutreach = r.type === 'outreach';
     const typeLabel = isOutreach ? '📞 OUTREACH' : '📅 FOLLOW-UP';
-    const cadenceStr = r.cadenceMonths ? ` · every ${r.cadenceMonths}mo` : '';
+    const cadenceStr = r.cadenceMonths ? ` · every ${r.cadenceMonths === 1 ? 'month' : r.cadenceMonths+'mo'}` : '';
+    // v2: show the target day so Tyler knows when the customer wants service.
+    const _ord = d => d + (d%10===1&&d!==11?'st':d%10===2&&d!==12?'nd':d%10===3&&d!==13?'rd':'th');
+    const dayStr = r.targetDay ? ` · around the ${_ord(r.targetDay)}` : '';
     // SMS body for outreach: short, casual, next-cleaning prompt. Operator can
     // edit before sending — the body is a deep-link to the SMS composer, not
     // an auto-send. Follow-up type opens an empty composer (matches the old
@@ -756,7 +827,7 @@ function _renderNotifPanel() {
     const noteHtml = r.note ? `<br>${_ea(r.note)}` : '';
     const profileUrl = ph ? `/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(ph)}` : '';
     return `<div class="notif-card" style="border-left:3px solid var(--terra);">
-      <div class="notif-card-type" style="color:var(--terra);">${typeLabel} · ${_ea(_monthLabel(r.followUpMonth))}${cadenceStr}</div>
+      <div class="notif-card-type" style="color:var(--terra);">${typeLabel} · ${_ea(_monthLabel(r.followUpMonth))}${dayStr}${cadenceStr}</div>
       <div class="notif-card-body"><strong>${_ea(name)}</strong>${noteHtml}</div>
       <div class="notif-card-actions">
         ${ph
@@ -764,7 +835,8 @@ function _renderNotifPanel() {
           : `<button class="nc-view-btn" disabled style="opacity:.4;cursor:not-allowed;" title="No phone on file">💬 Text</button>`}
         ${profileUrl ? `<button class="nc-view-btn" onclick="window.location.href='${profileUrl}'">View</button>` : ''}
         <button class="nc-view-btn" onclick="snoozeReminder('${_ea(r.reminderId)}','${_ea(r.followUpMonth)}')">😴 Snooze</button>
-        <button class="nc-dismiss-btn" onclick="dismissReminder('${_ea(r.reminderId)}')">Done</button>
+        <button class="nc-dismiss-btn" onclick="dismissReminder('${_ea(r.reminderId)}')">${r.cadenceMonths ? '✓ Done · next' : 'Done'}</button>
+        ${r.cadenceMonths ? `<button class="nc-dismiss-btn" onclick="stopReminder('${_ea(r.reminderId)}')" title="End this recurring reminder forever">✕ Stop</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -987,6 +1059,8 @@ function closeRigMapping() {
 // ── INIT ────────────────────────────────────────────────────────────────────────
 renderTools();
 loadIncomingCount();
+loadRemindersCount();
+loadQuotePoolCount();
 
 loadReviewCount();
 checkAlerts();

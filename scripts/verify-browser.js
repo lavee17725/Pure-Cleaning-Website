@@ -1797,23 +1797,34 @@ async function main() {
       else fail('Calendar — job sheet labeled Main/Alternative numbers (WO-H)', JSON.stringify(r));
     });
 
-    queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'wo-b-directory-sat', async page => {
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'directory-sat-maps', async page => {
       await page.waitForFunction(() => typeof allCustomers !== 'undefined' && allCustomers.length > 0
-        && typeof buildRow === 'function' && typeof _dirOpenSatLb === 'function', { timeout: 45000 });
+        && typeof buildRow === 'function' && typeof _dirMapsUrl === 'function', { timeout: 45000 });
       const r = await page.evaluate(() => {
         // Step 1: summary payload reaches the page with satelliteImageKey on some customers.
         const withKey = allCustomers.filter(c => c.satelliteImageKey);
-        const out = { keyCount: withKey.length, hasLb: !!document.getElementById('dirSatLb') };
-        // Step 2: buildRow renders a clickable thumb when a key exists, empty cell when not.
-        out.thumbWhenKey = withKey.length ? /dir-sat-thumb/.test(buildRow(withKey[0])) : null;
+        const out = {
+          keyCount: withKey.length,
+          // Retired: the in-app zoom lightbox is gone (thumb now opens Google Maps).
+          lbRemoved: !document.getElementById('dirSatLb') && typeof window._dirOpenSatLb === 'undefined',
+        };
+        // Step 2: buildRow renders a clickable thumb when a key exists, empty cell when not,
+        // and the thumb opens Google Maps in a new tab (window.open + data-maps URL).
+        const rowHtml = withKey.length ? buildRow(withKey[0]) : '';
+        out.thumbWhenKey = withKey.length ? /dir-sat-thumb/.test(rowHtml) : null;
+        out.opensMaps = withKey.length ? /window\.open\(this\.dataset\.maps/.test(rowHtml) && /data-maps=/.test(rowHtml) : null;
         const noKey = allCustomers.find(c => !c.satelliteImageKey);
         out.noThumbWhenNoKey = noKey ? !/dir-sat-thumb/.test(buildRow(noKey)) : null;
+        // Step 3: _dirMapsUrl builds a Google Maps search URL from coords or address+city.
+        out.mapsUrl = _dirMapsUrl({ address: '123 Test St', city: 'Davie' });
+        out.urlOk = /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=/.test(out.mapsUrl);
         return out;
       });
-      if (r.keyCount > 0 && r.thumbWhenKey === true && r.noThumbWhenNoKey !== false && r.hasLb) {
-        pass('Directory — satellite thumb renders for keyed rows + lightbox present (WO-B)', `${r.keyCount} customers with imagery`);
+      if (r.keyCount > 0 && r.thumbWhenKey === true && r.opensMaps === true
+          && r.noThumbWhenNoKey !== false && r.lbRemoved && r.urlOk) {
+        pass('Directory — satellite thumb opens Google Maps; zoom lightbox retired', `${r.keyCount} customers with imagery`);
       } else {
-        fail('Directory — satellite thumb + lightbox (WO-B)', JSON.stringify(r));
+        fail('Directory — satellite thumb → Google Maps', JSON.stringify(r));
       }
     });
 
@@ -2268,6 +2279,67 @@ async function main() {
       } else {
         pass('New Customer — property picker renders for multi-property customer', `${pickerResult.propCount} properties + __new__ option present`);
       }
+    });
+
+    // ── QUOTE POOL (2026-07-23 WO) — page shell + shared logger modal ──────────
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_quote_pool.html`, 'quote-pool', async page => {
+      const tabCount = await page.locator('.tab').count();
+      if (tabCount === 4) pass('Quote Pool — 4 tabs render (Open/Accepted/Declined/Insights)');
+      else fail('Quote Pool — 4 tabs render', `found ${tabCount}`);
+
+      // ＋ Log Quote opens the shared 15-second modal (quote-logger.js injected)
+      await page.locator('.log-btn').click();
+      const overlayOpen = await page.locator('#qlOverlay.open').count();
+      if (overlayOpen) pass('Quote Pool — Log Quote opens the quick-entry modal');
+      else { fail('Quote Pool — Log Quote opens the quick-entry modal', '#qlOverlay.open not found'); return; }
+
+      const svcChips = await page.locator('#qlSvcChips .ql-chip').count();
+      if (svcChips === 7) pass('Quote Pool — modal has the 7 service chips');
+      else fail('Quote Pool — modal has the 7 service chips', `found ${svcChips}`);
+
+      const bothActions = await page.locator('#qlSave').count() && await page.locator('#qlConfirm').count();
+      if (bothActions) pass('Quote Pool — modal has Save Quote + Confirmed—Book actions');
+      else fail('Quote Pool — modal has Save Quote + Confirmed—Book actions', 'a save button is missing');
+
+      // Empty phone must not save — the only required field is enforced
+      await page.locator('#qlSave').click();
+      const errShown = await page.locator('#qlErr').isVisible();
+      if (errShown) pass('Quote Pool — save without phone blocked with inline error');
+      else fail('Quote Pool — save without phone blocked', '#qlErr not shown after empty save');
+    });
+
+    // ── NEW CUSTOMER — Quote Pool hand-off contract (fromOnline svc/price/quoteId) ──
+    queuePage(context,
+      `${PAGES_BASE}/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(Buffer.from(JSON.stringify({ fn:'Handoff', ln:'Test', phone:'8880001111', city:'Weston', svc:['driveway'], price:275, quoteId:'qt_verify_handoff' })).toString('base64'))}`,
+      'new-customer-quote-handoff', async page => {
+      // init() awaits the customer-DB fetch before applying the fromOnline blob —
+      // wait for the hand-off context to land (45s: full DB pull on a cold context).
+      // NB: _activeQuoteId is a top-level `let` — NOT a window property; read the bare identifier.
+      const ready = await page.waitForFunction(() => typeof _activeQuoteId !== 'undefined' && _activeQuoteId === 'qt_verify_handoff',
+        { timeout: 45000 }).then(() => true).catch(() => false);
+      if (!ready) { fail('New Customer — quote hand-off context', '_activeQuoteId never set — init() did not apply the fromOnline blob'); return; }
+      const r = await page.evaluate(() => {
+        try {
+          const svcSel = typeof _svcSel !== 'undefined' ? [..._svcSel] : [];
+          openScheduleModal();
+          return {
+            quoteId: typeof _activeQuoteId    !== 'undefined' ? _activeQuoteId    : null,
+            price:   typeof _activeQuotePrice !== 'undefined' ? _activeQuotePrice : null,
+            svcSel,
+            schedPrice: document.getElementById('schedPrice').value,
+            fn: document.getElementById('nFn').value,
+          };
+        } catch(e) { return { error: e.message }; }
+      });
+      if (r.error) { fail('New Customer — quote hand-off context', r.error); return; }
+      if (r.quoteId === 'qt_verify_handoff') pass('New Customer — hand-off carries quoteId');
+      else fail('New Customer — hand-off carries quoteId', `got ${r.quoteId}`);
+      if (r.svcSel.includes('driveway')) pass('New Customer — hand-off preselects services via toggleService');
+      else fail('New Customer — hand-off preselects services', `svcSel=${JSON.stringify(r.svcSel)}`);
+      if (r.price === 275 && r.schedPrice === '275') pass('New Customer — quoted price prefills schedule modal', '$275');
+      else fail('New Customer — quoted price prefills schedule modal', `price=${r.price} schedPrice='${r.schedPrice}'`);
+      if (r.fn === 'Handoff') pass('New Customer — hand-off prefills name');
+      else fail('New Customer — hand-off prefills name', `fn='${r.fn}'`);
     });
 
     // WO-9: run all registered blocks — read-only in parallel batches, mutating serial.

@@ -540,6 +540,16 @@ export default {
     } else if (event.cron === '0 4 * * *') {
       // Nightly backup — 4 AM UTC (keepalive runs same minute; Bouncie matcher at 4:30 AM)
       ctx.waitUntil(runNightlyBackup(env));
+      // GBP reviews daily sync (Phase 1) — resilient; logs on failure, never crashes the cron.
+      // On success, cross-reference new reviews against the base and auto-mark confident
+      // matches 'left' (conservative; ambiguous never auto-applied) so reviewers stop being asked.
+      ctx.waitUntil(syncGbpReviews(env)
+        .then(async r => {
+          if (!r.ok) { console.error('[GBP reviews sync] failed:', r.error); return; }
+          const x = /** @type {any} */ (await crossrefGbpReviews(env, { apply: true }).catch(e => ({ error: e.message })));
+          console.log('[GBP crossref]', JSON.stringify(x.counts || x));
+        })
+        .catch(e => console.error('[GBP reviews sync] error:', e.message)));
     } else if (event.cron === '0 */4 * * *') {
       // Bouncie auth keepalive — every 4 hours, keeps refresh token exercised
       ctx.waitUntil(bouncieKeepalive(env).catch(e => console.error('bouncie keepalive error:', e.message)));
@@ -1037,10 +1047,12 @@ export default {
 
       if (path === 'reviews') {
         if (request.method === 'GET') {
-          const data = await env.DATA.get('reviews_data', 'json') || { count: 101, lastUpdated: null };
-          return jsonResponse(data, corsHeaders);
+          // Single source of truth = live GBP sync (falls back to manual override). T1.2 fix.
+          const s = await getLiveReviewStats(env);
+          return jsonResponse({ count: s.count, rating: s.rating, lastUpdated: s.lastUpdated, source: s.source }, corsHeaders);
         }
         if (request.method === 'PUT') {
+          // Emergency manual override only — live sync normally wins in getLiveReviewStats.
           const body = await request.json();
           const data = { count: parseInt(body.count) || 101, lastUpdated: new Date().toISOString() };
           await env.DATA.put('reviews_data', JSON.stringify(data));
@@ -1060,9 +1072,10 @@ export default {
         const n  = (await env.DATA.get(rk, 'json')) || 0;
         if (n >= 30) return jsonResponse({ error: 'rate_limited' }, corsHeaders, 429);
         await env.DATA.put(rk, JSON.stringify(n + 1), { expirationTtl: 60 });
-        const data = await env.DATA.get('reviews_data', 'json') || { count: 101, lastUpdated: null };
+        // Single source of truth = live GBP sync (last-good on stale, manual only if never synced). T1.2 fix.
+        const s = await getLiveReviewStats(env);
         return jsonResponse(
-          { count: data.count, rating: 5.0, lastUpdated: data.lastUpdated },
+          { count: s.count, rating: s.rating, lastUpdated: s.lastUpdated },
           { ...corsHeaders, 'Cache-Control': 'public, max-age=300' }
         );
       }
@@ -1454,6 +1467,11 @@ export default {
         return await handleMonthlyBreakdown(request, env, corsHeaders);
       }
 
+      // GET /admin/analytics/trends — one aggregate query drives MoM + YoY trending.
+      if (path === 'admin/analytics/trends' && request.method === 'GET') {
+        return await handleAnalyticsTrends(env, corsHeaders);
+      }
+
       // POST /admin/invoice/from-job  { jobId } → idempotent create+return Invoice + LineItems.
       // Creates one Invoice row (or returns existing if jobIds already references the jobId),
       // line-items per day for multi-day, atomic counter via DocumentCounter ON CONFLICT UPDATE.
@@ -1749,7 +1767,35 @@ export default {
             daysSinceRefresh,
             lastError:       lastErr || null,
           },
+          gbp: await gbpHealthSummary(env).catch(e => ({ status: 'failed', lastError: e.message })),
         }, corsHeaders);
+      }
+
+      // ── Google Business Profile (GBP) foundation — Phase 0 ─────────────────────
+      if (path === 'admin/gbp/resolve' && request.method === 'GET')
+        return await handleGbpResolve(env, corsHeaders);
+      if (path === 'admin/gbp/select' && request.method === 'POST')
+        return await handleGbpSelect(request, env, corsHeaders);
+
+      // ── GBP Reviews — Phase 1 ──────────────────────────────────────────────────
+      if (path === 'admin/gbp/reviews/sync' && request.method === 'GET') {
+        const r = await syncGbpReviews(env);
+        return jsonResponse(r, corsHeaders, r.ok ? 200 : (r.status || 500));
+      }
+      if (path === 'admin/gbp/reviews' && request.method === 'GET')
+        return jsonResponse(await env.DATA.get(KV_GBP_REVIEWS, 'json') || { reviews: [], syncedAt: null }, corsHeaders);
+      // Cross-reference all reviews → mark confident reviewers 'left'. GET = dry-run preview,
+      // POST = apply (POST?dry=1 also previews). Ambiguous never auto-applied.
+      if (path === 'admin/gbp/reviews/crossref') {
+        if (request.method === 'GET')  return jsonResponse(await crossrefGbpReviews(env, { apply: false }), corsHeaders);
+        if (request.method === 'POST') return jsonResponse(await crossrefGbpReviews(env, { apply: url.searchParams.get('dry') !== '1' }), corsHeaders);
+      }
+      // POST /admin/gbp/reviews/{reviewId}/reply  { comment }  → live PUT to Google
+      if (path.startsWith('admin/gbp/reviews/') && path.endsWith('/reply') && request.method === 'POST') {
+        const reviewId = decodeURIComponent(path.slice('admin/gbp/reviews/'.length, -('/reply'.length)));
+        const b = await request.json().catch(() => ({}));
+        const r = await replyToGbpReview(env, reviewId, b.comment);
+        return jsonResponse(r, corsHeaders, r.ok ? 200 : (r.status || 500));
       }
 
       // ── Google OAuth: manual proactive refresh trigger (DL-08) ─────────────────
@@ -2054,6 +2100,10 @@ export default {
       if (path === 'admin/reminders-active' && request.method === 'GET') {
         return await handleRemindersActive(env, corsHeaders);
       }
+      // GET /admin/reminders — work-queue feed { dueNow, comingUp, activeByPerson, dueCount }
+      if (path === 'admin/reminders' && request.method === 'GET') {
+        return await handleAllReminders(env, corsHeaders);
+      }
       if (path.startsWith('admin/reminder/') && path.endsWith('/status') && request.method === 'POST') {
         const rid = path.slice('admin/reminder/'.length, -'/status'.length);
         return await handleReminderStatus(request, env, rid, corsHeaders);
@@ -2065,6 +2115,27 @@ export default {
       if (path.startsWith('admin/person/') && path.endsWith('/reminders') && request.method === 'GET') {
         const pid = path.slice('admin/person/'.length, -'/reminders'.length);
         return await handlePersonReminders(env, pid, corsHeaders);
+      }
+
+      // ── Quote Pool — the digital yellow pad (protected) ───────────────────
+      // POST  /admin/quote            — log a phone quote (15-second entry)
+      //   body: { quotedBy?, firstName?, lastName?, phone, city?, services?, priceQuoted?, status?, notes? }
+      //   status may be 'accepted' at create time (Log Confirmed Quote path)
+      // PATCH /admin/quote/:id        — edit fields / resolve (status, declineReason, personId)
+      // GET   /admin/quotes[?status=&month=]  — list + counts { open, acceptedUnbooked }
+      // GET   /admin/quotes/insights  — monthly acceptance/decline analytics
+      if (path === 'admin/quote' && request.method === 'POST') {
+        return await handleCreateQuote(request, env, corsHeaders);
+      }
+      if (path === 'admin/quotes' && request.method === 'GET') {
+        return await handleListQuotes(env, corsHeaders, url);
+      }
+      if (path === 'admin/quotes/insights' && request.method === 'GET') {
+        return await handleQuoteInsights(env, corsHeaders);
+      }
+      if (path.startsWith('admin/quote/') && request.method === 'PATCH') {
+        const qid = path.slice('admin/quote/'.length);
+        return await handlePatchQuote(request, env, qid, corsHeaders);
       }
 
       // ── Cost Hub Phase 1 (protected) ──────────────────────────────────────
@@ -6314,26 +6385,24 @@ function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
   const st = gr.status || 'never_asked';
   if (st === 'left' || st === 'do_not_ask') return false;
   if (st === 'asked') return false;
-  if (st === 'declined'    && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) return false;
-  if (st === 'no_response' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) return false;
-  if (gr.lastRequestSentAt && gr.lastRequestSentAt > thirtyDaysAgo) return false;
 
-  // Must have a completed job on or after the cutoff date.
-  // Require completedAt (calendar completions always set this).
-  // Exclude csv_backfill entries — they're historical records, not recent completions.
+  // POLICY (Tyler, locked 2026-07-06): ONE ask per completed service. No time-based
+  // re-nudging — an already-asked customer becomes eligible again ONLY when a genuinely
+  // NEW service completes (completedAt > their last request). Replaces the old 30-day
+  // re-surface + declined/no_response reaskEligibleAt cooldowns (which re-noticed people
+  // who never booked again). Never-asked customers are unchanged.
+  const asked = gr.lastRequestSentAt || null;
+  const qualifies = ca => ca && ca >= REVIEW_ELIGIBLE_CUTOFF && (!asked || ca > asked);
+
+  // Must have a completed job on/after the cutoff (and, if already asked, AFTER that ask).
+  // Require completedAt (calendar completions always set it). Exclude csv_backfill — those
+  // are historical records, not recent completions.
   const jh = c.jobHistory || [];
-  const hasQualifyingJH = jh.some(j =>
-    j.status === 'completed' &&
-    j.source !== 'csv_backfill' &&
-    j.completedAt &&
-    j.completedAt >= REVIEW_ELIGIBLE_CUTOFF
-  );
-  if (hasQualifyingJH) return true;
+  if (jh.some(j => j.status === 'completed' && j.source !== 'csv_backfill' && qualifies(j.completedAt))) return true;
 
-  // Calendar completions write completedAt on scheduledStatus
+  // Calendar completions write completedAt on scheduledStatus.
   const ss = c.scheduledStatus || {};
-  if (ss.state === 'completed' && ss.completedAt && ss.completedAt >= REVIEW_ELIGIBLE_CUTOFF &&
-      (ss.source||'').indexOf('csv_backfill') === -1) return true;
+  if (ss.state === 'completed' && qualifies(ss.completedAt) && (ss.source||'').indexOf('csv_backfill') === -1) return true;
 
   return false;
 }
@@ -6366,8 +6435,37 @@ async function handleReviewsHub(env, corsHeaders) {
   ]);
 
   const tpls        = templates || DEFAULT_TEMPLATES;
-  const actualCount = actualCountRaw || { count: 92, lastUpdatedAt: null, updatedBy: null, history: [] };
+  // Count/rating now come from the SAME live GBP source as the homepage badge (T1.2 fix).
+  // reviews_actual_count is retained only as the emergency manual override + edit history.
+  const live        = await getLiveReviewStats(env);
+  const actualCount = { ...(actualCountRaw || { history: [] }), count: live.count, rating: live.rating,
+                        lastUpdatedAt: live.lastUpdated, source: live.source };
+  // Phase 1 Part B: the actual Google reviews (with reply state) for the hub's reply engine.
+  const gbpReviewsRaw = await env.DATA.get(KV_GBP_REVIEWS, 'json');
   const customers   = (db.customers || []).filter(c => !c.deleted);
+
+  // ── D1 overlay (Rule 19): read identity + suppression from the CANONICAL store ────
+  // The KV customer_db blob drifts — partner customerType goes stale (partners leak into
+  // "Ready to Ask") and neverAskReview is clobbered on rebuild. Overlay both from D1 so
+  // the hub is authoritative regardless of blob freshness. One query, drift-proof.
+  try {
+    const rows = (await env.DB.prepare(
+      'SELECT personId, customerType, isReferralOnly, neverAskReview FROM Person'
+    ).all())?.results || [];
+    const byPh = new Map();
+    for (const r of rows) {
+      const p10 = (r.personId || '').startsWith('person_1') ? r.personId.slice('person_1'.length) : '';
+      if (p10.length === 10) byPh.set(p10, r);
+    }
+    for (const c of customers) {
+      const r = byPh.get(norm(c.phone));
+      if (!r) continue;
+      if (r.customerType) c.customerType = r.customerType;             // authoritative — kills partner leak
+      if (r.isReferralOnly != null) c.isReferralOnly = r.isReferralOnly === 1 || r.isReferralOnly === true;
+      // OR keeps any pre-D1 KV never-ask honored until it's re-set; D1 is canonical going forward.
+      c.neverAskReview = r.neverAskReview === 1 || r.neverAskReview === true || c.neverAskReview === true;
+    }
+  } catch (e) { /* non-fatal — fall back to blob values */ }
 
   const now            = new Date();
   const nowIso         = now.toISOString();
@@ -6411,10 +6509,12 @@ async function handleReviewsHub(env, corsHeaders) {
       if (gr.templateUsedId) byTemplate[gr.templateUsedId].reviewed++;
     } else if (st === 'do_not_ask') {
       wontAsk.push(c);
-    } else if (st === 'declined'    && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) {
-      wontAsk.push(c);
-    } else if (st === 'no_response' && gr.reaskEligibleAt && gr.reaskEligibleAt > nowIso) {
-      wontAsk.push(c);
+    } else if (st === 'declined' || st === 'no_response') {
+      // One-ask policy (2026-07-06): a prior decline/no-response is re-eligible ONLY when a
+      // NEW service has completed since the ask (reviewIsReadyToRequest's new-job gate).
+      // No time-based re-nudge — otherwise they stay in Won't-Ask (visible, not re-notified).
+      if (reviewIsReadyToRequest(c, gr, nowIso, thirtyDays)) readyToRequest.push(c);
+      else wontAsk.push(c);
     } else if (st === 'asked') {
       awaitingConfirmation.push(c);
       totalAsked++;
@@ -6440,6 +6540,8 @@ async function handleReviewsHub(env, corsHeaders) {
     permanentExclusions,
     templates: tpls,
     actualCount,
+    gbpReviews:   gbpReviewsRaw?.reviews || [],
+    gbpSyncedAt:  gbpReviewsRaw?.syncedAt || null,
     insights: {
       totalReviewed: reviewed.length,
       totalAsked,
@@ -6575,17 +6677,27 @@ async function handleAllowAskingAgain(env, phone, corsHeaders) {
 
 async function handleNeverAskReview(env, phone, corsHeaders, set) {
   const norm = p => (p||'').replace(/\D/g,'').slice(-10);
-  const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
-  const cust = (db.customers||[]).find(c => norm(c.phone) === norm(phone));
-  if (!cust) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
-  if (set) {
-    cust.neverAskReview = true;
-    cust.neverAskReviewAt = new Date().toISOString();
-  } else {
-    delete cust.neverAskReview;
-    delete cust.neverAskReviewAt;
+  const p10  = norm(phone);
+  const at   = set ? new Date().toISOString() : null;
+  // DURABLE canonical write to D1 (Rule 19) — survives every blob rebuild via _d1PersonToKv.
+  // This is the fix for "never ask won't stick": the flag was KV-blob-only and got
+  // clobbered on any D1→KV resync.
+  try {
+    await env.DB.prepare('UPDATE Person SET neverAskReview=?, neverAskReviewAt=? WHERE personId=?')
+      .bind(set ? 1 : 0, at, `person_1${p10}`).run();
+  } catch (e) {
+    await _logD1Failure(env, `neverAskReview:${p10}`, e.message).catch(() => {});
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
   }
-  await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  // Best-effort KV blob mirror so the current blob reflects it immediately (the hub also
+  // overlays D1, so this is belt-and-suspenders, not the source of truth).
+  const db   = await env.DATA.get(KV_KEYS.customers, 'json') || { customers: [] };
+  const cust = (db.customers||[]).find(c => norm(c.phone) === p10);
+  if (cust) {
+    if (set) { cust.neverAskReview = true; cust.neverAskReviewAt = at; }
+    else     { delete cust.neverAskReview; delete cust.neverAskReviewAt; }
+    await env.DATA.put(KV_KEYS.customers, JSON.stringify(db));
+  }
   return jsonResponse({ success: true, neverAskReview: set }, corsHeaders);
 }
 
@@ -6660,8 +6772,11 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     actualArrival:      j.actualArrival   || null,
     actualDeparture:    j.actualDeparture || null,
     bouncieMatchStatus: j.bouncieMatchStatus || null,
+    propertyId:         j.propertyId         || null,   // which property this job was at (per-property story check — 0038)
     workSiteAddress:    j.workSiteAddress    || null,
     workSiteCity:       j.workSiteCity       || null,
+    endCustomerName:    j.endCustomerName    || null,   // partner-referral end customer (for completed-card name resolver)
+    nameDisplay:        j.nameDisplay        || null,   // 0036: per-job partner|customer primary-name toggle
     crewCount:          j.crewCount          ?? null,  // null when unknown — Track 2 must not guess
     roofStories:        j.roofStories        || null,
     phaseScope:         j.phaseScope         || null,  // WO-C/DL-03: carry per-day scope into history for reprints
@@ -6978,7 +7093,11 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
     bouncieMetrics:         null, // populated by computeBouncieMetrics() after construction
     reviewQueue:            null,
     quoteStatus:            null,
-    neverAskReview:         false,
+    // Durable per-customer suppression (Person.neverAskReview D1 column) — carried
+    // forward on every blob rebuild so "never ask" survives resyncs (was a KV-only flag
+    // that got clobbered; review-hub-drift fix 2026-07-03).
+    neverAskReview:         p.neverAskReview === 1 || p.neverAskReview === true,
+    neverAskReviewAt:       p.neverAskReviewAt || null,
     createdAt:              p.createdAt || null,
     // Migration 0015: outcome rollups (computed from D1 job rows, never stored directly)
     isTipper,
@@ -7231,6 +7350,7 @@ async function d1AllCustomersToKvShape(env) {
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
+      'endCustomerName,nameDisplay,' +          // 0036: partner-name toggle for completed-card resolver
       'roofStories,roofType,' +
       'tipped,tipAmount,complained,complaintNotes,' +
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
@@ -7399,6 +7519,7 @@ async function d1CustomerToKvShape(phone, env) {
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
+      'endCustomerName,nameDisplay,' +          // 0036: partner-name toggle for completed-card resolver
       'roofStories,roofType,' +
       'tipped,tipAmount,complained,complaintNotes,' +
       'gasCost,chemicalCost,laborCost,equipmentCost,otherCost,' +
@@ -7971,6 +8092,38 @@ async function handleReconcileKvD1(env, corsHeaders) {
     }
   } catch(e) { /* skip — non-fatal */ }
 
+  // ── Surface: BOUNCIE_TOO_SHORT_MANUAL_7D ─────────────────────────────────
+  // Jobs the matcher spatially matched (GPS stop within 500 ft) but whose dwell
+  // fell under the 20-min auto-match floor — legitimately quick jobs (e.g. a fast
+  // sidewalk). Their GPS duration IS recorded, but flagged for operator verification
+  // so a false short stop (fly-by / supply run) can be corrected. Surfaced distinctly
+  // from "missing" so genuinely-short jobs aren't lumped with GPS-coverage failures.
+  try {
+    const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const tooShort = await env.DB.prepare(
+      `SELECT j.jobId, j.scheduledDate, j.rigId, j.actualDuration,
+              p.firstName, p.lastName
+       FROM Job j
+       JOIN Person p ON p.personId = j.payerId
+       WHERE j.state = 'completed'
+         AND j.bouncieMatchStatus = 'too_short_manual'
+         AND j.scheduledDate >= ?
+       ORDER BY j.scheduledDate DESC`
+    ).bind(sevenAgo).all().then(r => r.results || []);
+    if (tooShort.length > 0) {
+      discrepancies.push({
+        phone: null,
+        name:  `${tooShort.length} quick job(s) matched under the 20-min GPS floor — verify duration`,
+        type:  'BOUNCIE_TOO_SHORT_MANUAL_7D',
+        field: 'Job.actualDuration',
+        kvValue: `${tooShort.length} jobs flagged too_short_manual (GPS duration recorded, needs review)`,
+        d1Value: tooShort.map(j => `${j.firstName} ${j.lastName} (${j.rigId}, ${j.actualDuration}min): ${j.jobId}`).join(' | '),
+        suggested_action: 'Confirm the GPS-derived duration is the real job (open the card → ⚠ short stop — verify). If it was a fly-by/supply run, edit the duration manually.',
+      });
+      typeCounts['BOUNCIE_TOO_SHORT_MANUAL_7D'] = tooShort.length;
+    }
+  } catch(e) { /* skip — non-fatal */ }
+
   // ── Gate: BOUNCIE_MATCH_RATE_7D (T1.21) ──────────────────────────────────
   // Match rate over the last 7 days. Below 70% suggests GPS coverage issue,
   // token degradation, or rig mapping drift. Catches gradual failures that
@@ -8182,11 +8335,13 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.workSiteGoogleVerified,
         j.endCustomerName,
         j.endCustomerPhone,
+        j.nameDisplay,
         j.roofStories,
         j.partnerRate,
         j.crewCount,
         p.firstName,
         p.lastName,
+        p.businessName,
         p.primaryPhone,
         p.email,
         p.customerType,
@@ -8289,9 +8444,68 @@ async function handleCalendarJobs(request, env, corsHeaders) {
       }
     }
 
-    return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: rows }, corsHeaders);
+    // 0038 belt-and-suspenders: one row per jobId. The PersonProperty JOIN multiplied a job
+    // when a property had duplicate links; the migration + UNIQUE index fix the data, this
+    // guarantees the render never doubles even if a stray dup ever reappears.
+    const _seen = new Set();
+    const dedupedRows = rows.filter(r => (r.jobId && !_seen.has(r.jobId)) ? _seen.add(r.jobId) : false);
+    return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: dedupedRows }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handleCalendarJobs', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── GET /admin/analytics/trends ──────────────────────────────────────────────
+// The reusable query core for the insights page. Returns per-month aggregates for the
+// WHOLE history in one query; the client slices it into MoM (trailing 12), YoY (year×
+// month), and headline cards. Accuracy rules (verified vs Tyler's masters 2026-07):
+//   • completed work only (state='completed')
+//   • bucket by scheduledDate (business date — matches the calendar + master sheets)
+//   • exclude rig-segment children (isRigSegment=0) and multi-day day-children
+//     (parentJobId IS NULL → the parent is the book-of-record)
+//   • gross = group amount (parent + non-cancelled non-rig-segment children), same
+//     rollup as handleMonthlyBreakdown so a multi-day parent carries its full total
+//   • surface $0/null-amount jobs as a count (zeroAmt), never silently dropped
+// CRM_RELIABLE_FROM: months before this are CRM-recorded and may read below the true
+// master-sheet totals (csv_backfill under-capture) — the client flags them.
+async function handleAnalyticsTrends(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const CRM_RELIABLE_FROM = '2026-05';
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT ym,
+             COUNT(*)                                        AS jobs,
+             SUM(grpAmount)                                  AS gross,
+             SUM(CASE WHEN COALESCE(grpAmount,0)=0 THEN 1 ELSE 0 END) AS zeroAmt
+      FROM (
+        SELECT substr(j.scheduledDate,1,7) AS ym,
+          (COALESCE(j.amount,0) + COALESCE((
+            SELECT SUM(c.amount) FROM Job c
+            WHERE c.parentJobId = j.jobId
+              AND c.state != 'cancelled'
+              AND COALESCE(c.isRigSegment,0) = 0
+          ),0)) AS grpAmount
+        FROM Job j
+        WHERE j.state = 'completed'
+          AND COALESCE(j.isRigSegment,0) = 0
+          AND j.parentJobId IS NULL
+          AND j.scheduledDate IS NOT NULL AND j.scheduledDate != ''
+      ) t
+      GROUP BY ym
+      ORDER BY ym
+    `).all();
+    const months = (results || []).map(r => ({
+      ym:      r.ym,
+      jobs:    Number(r.jobs)    || 0,
+      gross:   Number(r.gross)   || 0,
+      zeroAmt: Number(r.zeroAmt) || 0,
+      avgTicket: (Number(r.jobs) > 0) ? Math.round((Number(r.gross) || 0) / Number(r.jobs)) : 0,
+    }));
+    return jsonResponse({ months, crmReliableFrom: CRM_RELIABLE_FROM, generatedAt: new Date().toISOString() },
+      { ...corsHeaders, 'Cache-Control': 'no-store' });
+  } catch (e) {
+    await _logD1Failure(env, 'handleAnalyticsTrends', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }
@@ -8839,17 +9053,71 @@ function _addMonthsToYM(ymStr, months) {
   return d.toISOString().slice(0, 7);
 }
 
+// Follow-Up Reminders v2 (0037): compute the 'YYYY-MM-DD' surface date the bell fires on.
+//   targetDay null → 1st of the month (unchanged month-granular behavior, no lead).
+//   targetDay set  → (target day, clamped to last day of month) minus leadDays.
+// Short months are handled by clamping (day 31 in Feb → Feb 28/29).
+function _computeNextFireAt(followUpMonth, targetDay, leadDays) {
+  if (!followUpMonth || !/^\d{4}-(0[1-9]|1[0-2])$/.test(followUpMonth)) return null;
+  const [y, m] = followUpMonth.split('-').map(Number);
+  if (targetDay == null) {
+    return `${followUpMonth}-01`;                       // whole-month: surface on the 1st, no lead
+  }
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();   // day 0 of next month = last day of m
+  const day = Math.min(Math.max(1, Number(targetDay)), lastDay);
+  const lead = Number.isInteger(leadDays) ? leadDays : 5;
+  const fire = new Date(Date.UTC(y, m - 1, day));
+  fire.setUTCDate(fire.getUTCDate() - lead);
+  return fire.toISOString().slice(0, 10);
+}
+
 async function handleCreateReminder(request, env, corsHeaders) {
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== 'object')
     return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
 
-  const { personId, followUpMonth, note, type, cadenceMonths } = body;
+  const { personId, followUpMonth, remindAt, note, type, cadenceMonths, targetDay, leadDays } = body;
   if (!personId)        return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
-  if (!followUpMonth)   return jsonResponse({ error: 'followUpMonth required (YYYY-MM)' }, corsHeaders, 400);
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(followUpMonth))
+
+  // Day-precision path (v3): if remindAt 'YYYY-MM-DD' is given it is the EXACT
+  // fire date — derive followUpMonth (YYYY-MM) + targetDay from it, no lead, and
+  // nextFireAt is that exact date. Legacy callers still pass followUpMonth
+  // (+ optional targetDay/leadDays) and keep the month-granular behavior.
+  let effMonth = followUpMonth, effTDay = null, effLead = 5, effFire = null, exactDate = false;
+  if (remindAt != null && remindAt !== '') {
+    if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(remindAt))
+      return jsonResponse({ error: 'remindAt must be YYYY-MM-DD' }, corsHeaders, 400);
+    effMonth  = remindAt.slice(0, 7);
+    effTDay   = Number(remindAt.slice(8, 10));
+    effLead   = 0;
+    effFire   = remindAt;
+    exactDate = true;
+  }
+  if (!effMonth)   return jsonResponse({ error: 'followUpMonth or remindAt required' }, corsHeaders, 400);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(effMonth))
     return jsonResponse({ error: 'followUpMonth must be YYYY-MM' }, corsHeaders, 400);
+
+  // v2 timing (legacy month path only): targetDay (1..31 or null = whole month), leadDays (0..60, default 5).
+  let tDay = effTDay;
+  let lDays = effLead;
+  if (!exactDate) {
+    tDay = null;
+    if (targetDay != null && targetDay !== '') {
+      const d = Number(targetDay);
+      if (!Number.isInteger(d) || d < 1 || d > 31)
+        return jsonResponse({ error: 'targetDay must be an integer 1..31 or null' }, corsHeaders, 400);
+      tDay = d;
+    }
+    lDays = 5;
+    if (leadDays != null && leadDays !== '') {
+      const d = Number(leadDays);
+      if (!Number.isInteger(d) || d < 0 || d > 60)
+        return jsonResponse({ error: 'leadDays must be an integer 0..60' }, corsHeaders, 400);
+      lDays = d;
+    }
+  }
+  const nextFireAt = exactDate ? effFire : _computeNextFireAt(effMonth, tDay, lDays);
   // cadenceMonths — null/undefined OR a positive integer up to 60 (5 years).
   // The 60-cap protects against fat-fingered very-long cadences silently
   // queuing a reminder for 2050.
@@ -8876,9 +9144,9 @@ async function handleCreateReminder(request, env, corsHeaders) {
   try {
     await env.DB.prepare(
       `INSERT INTO Reminder
-         (reminderId, type, personId, followUpMonth, note, status, cadenceMonths, createdAt, modifiedAt)
-       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`
-    ).bind(reminderId, safeType, personId, followUpMonth, (note || '').trim() || null, cadence, now, now).run();
+         (reminderId, type, personId, followUpMonth, note, status, cadenceMonths, targetDay, leadDays, nextFireAt, createdAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
+    ).bind(reminderId, safeType, personId, effMonth, (note || '').trim() || null, cadence, tDay, lDays, nextFireAt, now, now).run();
   } catch (e) {
     await _logD1Failure(env, 'handleCreateReminder', e.message);
     return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
@@ -8889,10 +9157,13 @@ async function handleCreateReminder(request, env, corsHeaders) {
     reminderId,
     type:          safeType,
     personId,
-    followUpMonth,
+    followUpMonth: effMonth,
     note:          (note || '').trim() || null,
     status:        'active',
     cadenceMonths: cadence,
+    targetDay:     tDay,
+    leadDays:      lDays,
+    nextFireAt,
     createdAt:     now,
     modifiedAt:    now,
   }, corsHeaders);
@@ -8914,6 +9185,9 @@ async function handleRemindersActive(env, corsHeaders) {
               r.followUpMonth,
               r.note,
               r.cadenceMonths,
+              r.targetDay,
+              r.leadDays,
+              r.nextFireAt,
               r.createdAt,
               p.personId,
               p.firstName,
@@ -8923,8 +9197,8 @@ async function handleRemindersActive(env, corsHeaders) {
          FROM Reminder r
          JOIN Person   p ON p.personId = r.personId
         WHERE r.status = 'active'
-          AND strftime('%Y-%m', 'now') >= r.followUpMonth
-        ORDER BY r.followUpMonth ASC, r.createdAt ASC`
+          AND date('now') >= COALESCE(r.nextFireAt, r.followUpMonth || '-01')
+        ORDER BY COALESCE(r.nextFireAt, r.followUpMonth || '-01') ASC, r.createdAt ASC`
     ).all())?.results || [];
 
     return jsonResponse({
@@ -8934,6 +9208,9 @@ async function handleRemindersActive(env, corsHeaders) {
         followUpMonth: r.followUpMonth,
         note:          r.note,
         cadenceMonths: r.cadenceMonths == null ? null : Number(r.cadenceMonths),
+        targetDay:     r.targetDay == null ? null : Number(r.targetDay),
+        leadDays:      r.leadDays  == null ? null : Number(r.leadDays),
+        nextFireAt:    r.nextFireAt,
         createdAt:     r.createdAt,
         person: {
           personId:     r.personId,
@@ -8988,21 +9265,39 @@ async function handleReminderStatus(request, env, reminderId, corsHeaders) {
     snoozeMonth = body.followUpMonth;
   }
 
+  // Day-level snooze (queue "Snooze N days"): overrides month snooze — sets an
+  // exact nextFireAt = today + N days and its derived followUpMonth. Client sends
+  // status='active' alongside; the row re-surfaces in the queue on that date.
+  let snoozeExact = null;   // 'YYYY-MM-DD'
+  if (body.snoozeDays !== undefined && body.snoozeDays !== null && body.snoozeDays !== '') {
+    const n = Number(body.snoozeDays);
+    if (!Number.isInteger(n) || n < 1 || n > 3650)
+      return jsonResponse({ error: 'snoozeDays must be an integer 1..3650' }, corsHeaders, 400);
+    const d = new Date(); d.setUTCHours(12, 0, 0, 0); d.setUTCDate(d.getUTCDate() + n);
+    snoozeExact = d.toISOString().slice(0, 10);
+  }
+
   // Load the row so we have type / personId / followUpMonth / cadence for the
   // potential auto-reschedule. Also so 404 is a clean predicate (UPDATE-
   // rowcount-zero would fire even if the row exists but values match).
   const existing = await env.DB.prepare(
-    'SELECT reminderId, type, personId, followUpMonth, note, cadenceMonths FROM Reminder WHERE reminderId = ?'
+    'SELECT reminderId, type, personId, followUpMonth, note, cadenceMonths, targetDay, leadDays FROM Reminder WHERE reminderId = ?'
   ).bind(reminderId).first();
   if (!existing) return jsonResponse({ error: 'reminder not found', reminderId }, corsHeaders, 404);
 
   const now = new Date().toISOString();
   try {
-    // Single UPDATE — status + optional followUpMonth (snooze).
-    if (snoozeMonth) {
+    // Single UPDATE — status + optional snooze. Day snooze (snoozeExact) wins over
+    // month snooze; both recompute nextFireAt so the row re-surfaces on the new date.
+    if (snoozeExact) {
       await env.DB.prepare(
-        'UPDATE Reminder SET status = ?, followUpMonth = ?, modifiedAt = ? WHERE reminderId = ?'
-      ).bind(status, snoozeMonth, now, reminderId).run();
+        'UPDATE Reminder SET status = ?, followUpMonth = ?, nextFireAt = ?, modifiedAt = ? WHERE reminderId = ?'
+      ).bind(status, snoozeExact.slice(0, 7), snoozeExact, now, reminderId).run();
+    } else if (snoozeMonth) {
+      const snoozeFire = _computeNextFireAt(snoozeMonth, existing.targetDay, existing.leadDays);
+      await env.DB.prepare(
+        'UPDATE Reminder SET status = ?, followUpMonth = ?, nextFireAt = ?, modifiedAt = ? WHERE reminderId = ?'
+      ).bind(status, snoozeMonth, snoozeFire, now, reminderId).run();
     } else {
       await env.DB.prepare(
         'UPDATE Reminder SET status = ?, modifiedAt = ? WHERE reminderId = ?'
@@ -9018,17 +9313,24 @@ async function handleReminderStatus(request, env, reminderId, corsHeaders) {
   // cadence) so the recurrence rolls forward without losing the cadence
   // chain. Skipped on 'dismissed' (operator explicitly opted out of recurrence)
   // and 'active' (no transition, just snooze).
+  // Roll the recurrence forward on 'done', OR when the operator dismisses just
+  // THIS occurrence of a recurring reminder (scope='occurrence'). 'dismissed' with
+  // scope='all' (or none) stops the recurrence — no next reminder is created.
+  const _rollForward = existing.cadenceMonths &&
+    (status === 'done' || (status === 'dismissed' && body.scope === 'occurrence'));
   let nextReminder = null;
-  if (status === 'done' && existing.cadenceMonths) {
+  if (_rollForward) {
     const nextMonth = _addMonthsToYM(existing.followUpMonth, existing.cadenceMonths);
     if (nextMonth) {
       const nextId = `rem_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+      // Carry the day precision forward and recompute the next surface date (v2).
+      const nextFire = _computeNextFireAt(nextMonth, existing.targetDay, existing.leadDays);
       try {
         await env.DB.prepare(
           `INSERT INTO Reminder
-             (reminderId, type, personId, followUpMonth, note, status, cadenceMonths, createdAt, modifiedAt)
-           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`
-        ).bind(nextId, existing.type, existing.personId, nextMonth, existing.note, existing.cadenceMonths, now, now).run();
+             (reminderId, type, personId, followUpMonth, note, status, cadenceMonths, targetDay, leadDays, nextFireAt, createdAt, modifiedAt)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
+        ).bind(nextId, existing.type, existing.personId, nextMonth, existing.note, existing.cadenceMonths, existing.targetDay, existing.leadDays, nextFire, now, now).run();
         nextReminder = {
           reminderId:    nextId,
           type:          existing.type,
@@ -9036,6 +9338,9 @@ async function handleReminderStatus(request, env, reminderId, corsHeaders) {
           followUpMonth: nextMonth,
           note:          existing.note,
           cadenceMonths: existing.cadenceMonths,
+          targetDay:     existing.targetDay == null ? null : Number(existing.targetDay),
+          leadDays:      existing.leadDays  == null ? null : Number(existing.leadDays),
+          nextFireAt:    nextFire,
           status:        'active',
           createdAt:     now,
           modifiedAt:    now,
@@ -9052,7 +9357,8 @@ async function handleReminderStatus(request, env, reminderId, corsHeaders) {
     success: true,
     reminderId,
     status,
-    followUpMonth: snoozeMonth || existing.followUpMonth,
+    followUpMonth: (snoozeExact ? snoozeExact.slice(0, 7) : snoozeMonth) || existing.followUpMonth,
+    nextFireAt: snoozeExact || undefined,
     nextReminder,
     modifiedAt: now,
   }, corsHeaders);
@@ -9064,10 +9370,10 @@ async function handlePersonReminders(env, personId, corsHeaders) {
   if (!personId) return jsonResponse({ error: 'personId required' }, corsHeaders, 400);
   try {
     const rows = (await env.DB.prepare(
-      `SELECT reminderId, type, followUpMonth, note, status, cadenceMonths, createdAt, modifiedAt
+      `SELECT reminderId, type, followUpMonth, note, status, cadenceMonths, targetDay, leadDays, nextFireAt, createdAt, modifiedAt
          FROM Reminder
         WHERE personId = ?
-        ORDER BY followUpMonth DESC, createdAt DESC`
+        ORDER BY COALESCE(nextFireAt, followUpMonth || '-01') DESC, createdAt DESC`
     ).bind(personId).all())?.results || [];
     return jsonResponse({
       personId,
@@ -9078,6 +9384,346 @@ async function handlePersonReminders(env, personId, corsHeaders) {
     }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handlePersonReminders', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// GET /admin/reminders — the reminders WORK-QUEUE feed (own page, not the bell).
+// Splits ALL active reminders into dueNow (surface date <= today) and comingUp
+// (within the next 14 days), and returns activeByPerson (soonest active reminder
+// per person) so the customer directory can fill its clock icon. One query.
+async function handleAllReminders(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT r.reminderId, r.type, r.followUpMonth, r.note, r.cadenceMonths,
+              r.targetDay, r.leadDays, r.nextFireAt, r.createdAt,
+              p.personId, p.firstName, p.lastName, p.businessName, p.primaryPhone
+         FROM Reminder r
+         JOIN Person   p ON p.personId = r.personId
+        WHERE r.status = 'active'
+        ORDER BY COALESCE(r.nextFireAt, r.followUpMonth || '-01') ASC, r.createdAt ASC`
+    ).all())?.results || [];
+
+    const today = new Date().toISOString().slice(0, 10);
+    const _hz = new Date(); _hz.setUTCHours(12, 0, 0, 0); _hz.setUTCDate(_hz.getUTCDate() + 14);
+    const horizon = _hz.toISOString().slice(0, 10);
+    const _phone10 = e164 => (e164 || '').replace(/\D/g, '').replace(/^1/, '').slice(-10);
+
+    const dueNow = [], comingUp = [], activeByPerson = {};
+    for (const r of rows) {
+      const fireDate = r.nextFireAt || (r.followUpMonth ? r.followUpMonth + '-01' : today);
+      const card = {
+        reminderId:    r.reminderId,
+        personId:      r.personId,
+        type:          r.type,
+        note:          r.note,
+        reason:        r.note || null,
+        cadenceMonths: r.cadenceMonths == null ? null : Number(r.cadenceMonths),
+        followUpMonth: r.followUpMonth,
+        nextFireAt:    fireDate,
+        firstName:     r.firstName,
+        lastName:      r.lastName,
+        businessName:  r.businessName,
+        phone:         _phone10(r.primaryPhone),
+      };
+      // Rows are ordered soonest-first, so the first row per person is the soonest.
+      if (!activeByPerson[r.personId]) activeByPerson[r.personId] = { reason: r.note || null, nextFireAt: fireDate, count: 1 };
+      else activeByPerson[r.personId].count += 1;
+      if (fireDate <= today) dueNow.push(card);
+      else if (fireDate <= horizon) comingUp.push(card);
+    }
+    return jsonResponse({ dueNow, comingUp, activeByPerson, dueCount: dueNow.length }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleAllReminders', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// QUOTE POOL — the digital yellow pad (migration 0039)
+//
+// Every phone quote gets a ~15-second entry (name/phone/city/chips/price) —
+// including the obvious nos, or the data is a biased sample. Enrichment
+// happens ONLY on accept, via the existing booking flow. D1-only, no KV
+// mirror (Rule 19: new data is D1-canonical; nothing downstream reads this
+// from KV).
+//
+// status lifecycle: 'quoted' → 'accepted' (resolvedAt set; personId linked
+// when the booking-flow save completes — accepted+personId NULL = "accepted,
+// not yet booked", surfaced in the pool so it can't silently vanish)
+//                 → 'declined' (resolvedAt + optional declineReason;
+// 'price'/'not_now' rows are the future reactivation feed — queryable via
+// GET /admin/quotes?status=declined, cadence wiring intentionally absent).
+//
+// phone is digits-only 10 (KV convention). Person linkage always goes
+// through _d1PersonId at link time — never string-compare vs E.164 (Rule 17).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _QUOTE_CHIPS = new Set(['roof', 'driveway', 'patio', 'house_walls', 'sealing', 'rust', 'other']);
+const _QUOTED_BY   = new Set(['darla', 'tyler', 'tony']);
+
+// Shared field validator for create + patch. Returns { error } or { fields }.
+function _validateQuoteFields(body, { partial = false } = {}) {
+  const out = {};
+  const has = k => Object.prototype.hasOwnProperty.call(body, k);
+
+  if (has('phone') || !partial) {
+    const digits = String(body.phone || '').replace(/\D/g, '');
+    const p10 = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+    if (p10.length !== 10) return { error: 'phone must be 10 digits' };
+    out.phone = p10;
+  }
+  if (has('quotedBy')) {
+    const q = String(body.quotedBy || '').toLowerCase().trim();
+    if (q && !_QUOTED_BY.has(q)) return { error: 'quotedBy must be darla | tyler | tony' };
+    out.quotedBy = q || null;
+  }
+  for (const k of ['firstName', 'lastName', 'city', 'notes']) {
+    if (has(k)) {
+      const v = String(body[k] ?? '').trim();
+      if (v.length > 200) return { error: `${k} too long (200 max)` };
+      out[k] = v || null;
+    }
+  }
+  if (has('services')) {
+    const s = body.services;
+    if (s != null) {
+      if (!Array.isArray(s) || s.length > 10) return { error: 'services must be an array (10 max)' };
+      for (const c of s) {
+        if (typeof c !== 'string' || !_QUOTE_CHIPS.has(c))
+          return { error: `unknown service chip: ${c}` };
+      }
+      out.services = s.length ? JSON.stringify(s) : null;
+    } else out.services = null;
+  }
+  if (has('priceQuoted')) {
+    const v = body.priceQuoted;
+    if (v == null || v === '') out.priceQuoted = null;
+    else {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > 100000) return { error: 'priceQuoted must be a number 0..100000' };
+      out.priceQuoted = n;
+    }
+  }
+  return { fields: out };
+}
+
+function _quoteRowToJson(r) {
+  let services = [];
+  try { services = r.services ? JSON.parse(r.services) : []; } catch (_) { services = []; }
+  return {
+    quoteId: r.quoteId, createdAt: r.createdAt, quotedBy: r.quotedBy,
+    firstName: r.firstName || '', lastName: r.lastName || '',
+    phone: r.phone, city: r.city || '', services,
+    priceQuoted: r.priceQuoted == null ? null : Number(r.priceQuoted),
+    status: r.status, declineReason: r.declineReason || null,
+    resolvedAt: r.resolvedAt || null, personId: r.personId || null,
+    notes: r.notes || '', source: r.source || 'phone', modifiedAt: r.modifiedAt,
+  };
+}
+
+// POST /admin/quote — the 15-second entry. Also the Log-Confirmed path:
+// status:'accepted' at create writes the same pad row (same timestamp order)
+// already resolved, and the frontend immediately hands off into the booking
+// flow. personId (from the dedupe banner) is soft-linked: an unknown id is
+// dropped, never a save-blocker — mid-call speed beats referential strictness.
+async function handleCreateQuote(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const v = _validateQuoteFields(body, { partial: false });
+  if (v.error) return jsonResponse({ error: v.error }, corsHeaders, 400);
+  const f = v.fields;
+
+  const status = body.status === 'accepted' ? 'accepted' : 'quoted';
+  const now = new Date().toISOString();
+  const quoteId = `qt_${now.replace(/\D/g, '').slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`;
+
+  let personId = null;
+  if (typeof body.personId === 'string' && body.personId) {
+    const p = await env.DB.prepare('SELECT personId FROM Person WHERE personId = ?').bind(body.personId).first();
+    if (p) personId = body.personId;
+  }
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO Quote
+         (quoteId, createdAt, quotedBy, firstName, lastName, phone, city, services,
+          priceQuoted, status, declineReason, resolvedAt, personId, notes, source, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'phone', ?)`
+    ).bind(
+      quoteId, now, f.quotedBy ?? null, f.firstName ?? null, f.lastName ?? null,
+      f.phone, f.city ?? null, f.services ?? null, f.priceQuoted ?? null,
+      status, status === 'accepted' ? now : null, personId, f.notes ?? null, now
+    ).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handleCreateQuote', e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({ success: true, quoteId, status, personLinked: !!personId, createdAt: now }, corsHeaders);
+}
+
+// PATCH /admin/quote/:id — edit typos, resolve (accept/decline), link personId.
+// Transitions: → accepted/declined stamps resolvedAt; back → quoted clears
+// resolvedAt + declineReason (undo path for a mis-tap).
+async function handlePatchQuote(request, env, quoteId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object')
+    return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  const existing = await env.DB.prepare('SELECT * FROM Quote WHERE quoteId = ?').bind(quoteId).first();
+  if (!existing) return jsonResponse({ error: 'quote not found', quoteId }, corsHeaders, 404);
+
+  const v = _validateQuoteFields(body, { partial: true });
+  if (v.error) return jsonResponse({ error: v.error }, corsHeaders, 400);
+  const sets = /** @type {Record<string, any>} */ ({ ...v.fields });
+
+  if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+    const s = body.status;
+    if (!['quoted', 'accepted', 'declined'].includes(s))
+      return jsonResponse({ error: 'status must be quoted | accepted | declined' }, corsHeaders, 400);
+    sets.status = s;
+    if (s === 'quoted') { sets.resolvedAt = null; sets.declineReason = null; }
+    else if (existing.status !== s || !existing.resolvedAt) sets.resolvedAt = new Date().toISOString();
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'declineReason')) {
+    const r = body.declineReason;
+    if (r != null && !['price', 'competitor', 'not_now', 'ghost'].includes(r))
+      return jsonResponse({ error: 'declineReason must be price | competitor | not_now | ghost | null' }, corsHeaders, 400);
+    sets.declineReason = r || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'personId')) {
+    if (body.personId == null) sets.personId = null;
+    else {
+      const p = await env.DB.prepare('SELECT personId FROM Person WHERE personId = ?').bind(String(body.personId)).first();
+      if (!p) return jsonResponse({ error: 'person not found', personId: body.personId }, corsHeaders, 404);
+      sets.personId = String(body.personId);
+    }
+  }
+
+  if (!Object.keys(sets).length)
+    return jsonResponse({ error: 'no mutable fields in body' }, corsHeaders, 400);
+
+  sets.modifiedAt = new Date().toISOString();
+  const cols = Object.keys(sets);
+  try {
+    await env.DB.prepare(
+      `UPDATE Quote SET ${cols.map(c => `${c} = ?`).join(', ')} WHERE quoteId = ?`
+    ).bind(...cols.map(c => sets[c]), quoteId).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handlePatchQuote', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  const updated = await env.DB.prepare('SELECT * FROM Quote WHERE quoteId = ?').bind(quoteId).first();
+  return jsonResponse({ success: true, quote: _quoteRowToJson(updated) }, corsHeaders);
+}
+
+// GET /admin/quotes?status=&month=
+// counts { open, acceptedUnbooked } are computed over the WHOLE table
+// regardless of filters — they feed the hub tile badge and the pool's
+// "accepted, not yet booked" safety strip.
+async function handleListQuotes(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const status = (url.searchParams.get('status') || '').trim();
+  const month  = (url.searchParams.get('month')  || '').trim();
+  if (status && !['quoted', 'accepted', 'declined'].includes(status))
+    return jsonResponse({ error: 'status must be quoted | accepted | declined' }, corsHeaders, 400);
+  if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+    return jsonResponse({ error: 'month must be YYYY-MM' }, corsHeaders, 400);
+
+  const where = [], binds = [];
+  if (status) { where.push('status = ?'); binds.push(status); }
+  if (month)  { where.push("substr(createdAt, 1, 7) = ?"); binds.push(month); }
+
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT * FROM Quote ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY createdAt DESC LIMIT 500`
+    ).bind(...binds).all())?.results || [];
+
+    const counts = await env.DB.prepare(
+      `SELECT
+         SUM(CASE WHEN status = 'quoted' THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN status = 'accepted' AND personId IS NULL THEN 1 ELSE 0 END) AS acceptedUnbooked
+       FROM Quote`
+    ).first();
+
+    return jsonResponse({
+      quotes: rows.map(_quoteRowToJson),
+      counts: { open: Number(counts?.open || 0), acceptedUnbooked: Number(counts?.acceptedUnbooked || 0) },
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleListQuotes', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// GET /admin/quotes/insights
+//
+// All aggregation server-side from the Quote table alone — real data only
+// (T1.21): acceptance % is accepted/(accepted+declined) — RESOLVED quotes
+// only, open quotes are undetermined, and the frontend labels it so. City
+// and price-band slices carry `resolved` counts so the UI can render the
+// honest "n/a (only X quotes)" below the min-5 sample floor — the floor is
+// enforced client-side so the raw counts stay visible.
+async function handleQuoteInsights(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const rows = (await env.DB.prepare('SELECT * FROM Quote ORDER BY createdAt ASC').all())?.results || [];
+
+    const band = p => p == null ? null : p < 200 ? '$0–200' : p < 400 ? '$200–400' : p < 600 ? '$400–600' : '$600+';
+    const cityKey = c => (c || '').trim() || '(no city)';
+
+    const perMonth = {}, byCity = {}, byBandCity = {}, reasonsByMonth = {};
+    for (const r of rows) {
+      const m = (r.createdAt || '').slice(0, 7);
+      const c = cityKey(r.city);
+      perMonth[m] ??= { month: m, given: 0, accepted: 0, declined: 0, open: 0 };
+      perMonth[m].given++;
+      if (r.status === 'accepted') perMonth[m].accepted++;
+      else if (r.status === 'declined') perMonth[m].declined++;
+      else perMonth[m].open++;
+
+      byCity[c] ??= { city: c, given: 0, accepted: 0, declined: 0, acceptedPriceSum: 0, acceptedPriceN: 0, declinedPriceSum: 0, declinedPriceN: 0 };
+      byCity[c].given++;
+      if (r.status === 'accepted') {
+        byCity[c].accepted++;
+        if (r.priceQuoted != null) { byCity[c].acceptedPriceSum += Number(r.priceQuoted); byCity[c].acceptedPriceN++; }
+      } else if (r.status === 'declined') {
+        byCity[c].declined++;
+        if (r.priceQuoted != null) { byCity[c].declinedPriceSum += Number(r.priceQuoted); byCity[c].declinedPriceN++; }
+        if (r.declineReason) {
+          reasonsByMonth[m] ??= {};
+          reasonsByMonth[m][r.declineReason] = (reasonsByMonth[m][r.declineReason] || 0) + 1;
+        }
+      }
+
+      const b = band(r.priceQuoted == null ? null : Number(r.priceQuoted));
+      if (b && (r.status === 'accepted' || r.status === 'declined')) {
+        const k = `${c}|${b}`;
+        byBandCity[k] ??= { city: c, band: b, accepted: 0, declined: 0 };
+        byBandCity[k][r.status === 'accepted' ? 'accepted' : 'declined']++;
+      }
+    }
+
+    return jsonResponse({
+      totalQuotes: rows.length,
+      perMonth: Object.values(perMonth).sort((a, b) => a.month < b.month ? -1 : 1),
+      byCity: Object.values(byCity).map(c => ({
+        city: c.city, given: c.given, accepted: c.accepted, declined: c.declined,
+        resolved: c.accepted + c.declined,
+        avgAcceptedPrice: c.acceptedPriceN ? c.acceptedPriceSum / c.acceptedPriceN : null,
+        avgDeclinedPrice: c.declinedPriceN ? c.declinedPriceSum / c.declinedPriceN : null,
+      })).sort((a, b) => b.given - a.given),
+      byPriceBandCity: Object.values(byBandCity).map(x => ({ ...x, resolved: x.accepted + x.declined })),
+      declineReasonsByMonth: reasonsByMonth,
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handleQuoteInsights', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }
@@ -10935,6 +11581,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
   'workSitePlaceId', 'workSiteGoogleVerified',
   'endCustomerName', 'endCustomerPhone', 'partnerRate',
+  'nameDisplay',   // 0036: per-job partner|customer primary-name toggle (partner_referral jobs)
   'crewCount',
   'halfDayCrew',   // 2026-06-22: column shipped in migration 0029 but whitelist was never updated; PATCH was rejecting it with 400, blocking labor math from capturing half-day crews
   'roofStories',   // Bug B2b: D1 schema had the column; whitelist was missing it (pencil edit silently dropped changes)
@@ -11202,7 +11849,7 @@ async function _d1SyncNewCustomer(c, env, now) {
       await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
       await env.DB.prepare(
         `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
-      ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
+      ).bind(personId, propId, 'owner', 1, 'Main Residence').run();  // 0038: consistent relationship (was isCommercialAccount→'manager', which created dup owner/manager links)
 
       await _d1SyncPropertyUpdate(propId, {
         sqft:     c.sqFt || c.roofSqFt || null,
@@ -11406,7 +12053,7 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
             await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
             await env.DB.prepare(
               `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
-            ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 1, 'Main Residence').run();
+            ).bind(personId, propId, 'owner', 1, 'Main Residence').run();  // 0038: consistent relationship (was isCommercialAccount→'manager', which created dup owner/manager links)
             await env.DB.prepare(
               'UPDATE PersonProperty SET primaryContact=1 WHERE personId=? AND propertyId=?'
             ).bind(personId, propId).run();
@@ -11429,7 +12076,7 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
           ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
           await env.DB.prepare(
             `INSERT OR IGNORE INTO PersonProperty (personId,propertyId,relationship,primaryContact,propertyLabel) VALUES (?,?,?,?,?)`
-          ).bind(personId, propId, c.isCommercialAccount?'manager':'owner', 0, 'Main Residence').run();
+          ).bind(personId, propId, 'owner', 0, 'Main Residence').run();  // 0038: consistent relationship (was isCommercialAccount→'manager', which created dup owner/manager links)
           await _d1SyncPropertyUpdate(propId, {
             sqft:        c.sqFt || null,
             roofType:    c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
@@ -11738,7 +12385,9 @@ async function handleGoogleStart(env) {
     client_id:     env.GOOGLE_OAUTH_CLIENT_ID,
     redirect_uri:  GOOGLE_REDIRECT_URI,
     response_type: 'code',
-    scope:         'https://www.googleapis.com/auth/drive.file',
+    // Drive (weekly export) + Business Profile (GBP: reviews, posts, performance).
+    // Re-consent once after adding business.manage so the refresh token covers both.
+    scope:         'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/business.manage',
     access_type:   'offline',
     prompt:        'consent',
     state,
@@ -11793,12 +12442,268 @@ async function handleGoogleCallback(request, env, url) {
     })),
   ]);
 
-  return oauthPage('Google Drive Connected!',
-    `<p>Authorization successful. Refresh token stored in KV.</p>
+  return oauthPage('Google Connected!',
+    `<p>Authorization successful. Refresh token stored in KV (covers Drive export + Business Profile).</p>
      <p>Weekly exports will begin next Monday 4 AM UTC.</p>
-     <p>Set your Drive folder: <code>POST /admin/google-drive/set-folder</code> with <code>{"folderId":"..."}</code></p>
-     <p>Test now: <code>POST /admin/export-weekly</code></p>
+     <p>Business Profile: run <code>GET /admin/gbp/resolve</code> to cache your account + location, then confirm the primary category.</p>
      <p class="meta">Authorized ${new Date().toLocaleString()}</p>`);
+}
+
+// ══ Google Business Profile (GBP) — Phase 0 foundation ═══════════════════════════
+// GBP is 4 separate APIs (verified 2026-07-03 against developers.google.com/my-business):
+//   Account Management   https://mybusinessaccountmanagement.googleapis.com/v1  (accounts)
+//   Business Information  https://mybusinessbusinessinformation.googleapis.com/v1 (locations)
+//   My Business v4        https://mybusiness.googleapis.com/v4  (reviews, localPosts, media)
+//   Performance           https://businessprofileperformance.googleapis.com/v1
+// Scope: https://www.googleapis.com/auth/business.manage (added to the Drive OAuth consent).
+// Each API must be ENABLED in the GCP project + quota granted. Q&A API was retired
+// 2025-11-03 — intentionally NOT built. Reuses getGoogleAccessToken (DL-08 auto-renew).
+const GBP_ACCT_API = 'https://mybusinessaccountmanagement.googleapis.com/v1';
+const GBP_INFO_API = 'https://mybusinessbusinessinformation.googleapis.com/v1';
+const KV_GBP_ACCOUNT  = 'gbp:account_name';    // "accounts/{a}"
+const KV_GBP_LOCATION = 'gbp:location_name';   // "accounts/{a}/locations/{l}" (v4 shape for reviews/posts)
+
+async function _gbpGet(env, apiUrl) {
+  const token = await getGoogleAccessToken(env);
+  const res = await fetch(apiUrl, { headers: { Authorization: `Bearer ${token}` } });
+  let body = {};
+  try { body = await res.json(); } catch { /* non-JSON error body */ }
+  return { ok: res.ok, status: res.status, body };
+}
+
+// Cached resource names for later phases (reviews/posts/performance read these).
+async function getGbpLocation(env) {
+  const [accountName, locationName] = await Promise.all([
+    env.DATA.get(KV_GBP_ACCOUNT),
+    env.DATA.get(KV_GBP_LOCATION),
+  ]);
+  return { accountName: accountName || null, locationName: locationName || null };
+}
+
+// GET /admin/gbp/resolve — list accounts + locations, auto-cache when unambiguous.
+// Business Information returns location names as "locations/{l}"; the v4 reviews/posts
+// APIs want "accounts/{a}/locations/{l}", so we rebuild the combined name here.
+async function handleGbpResolve(env, corsHeaders) {
+  const accts = await _gbpGet(env, `${GBP_ACCT_API}/accounts`);
+  if (!accts.ok) {
+    return jsonResponse({ error: 'accounts.list failed — re-consent (business.manage) or enable Account Management API + quota',
+      status: accts.status, detail: accts.body?.error || accts.body }, corsHeaders, accts.status || 500);
+  }
+  const out = { accounts: [], cached: null };
+  for (const a of (accts.body.accounts || [])) {
+    const readMask = 'name,title,storefrontAddress,categories';
+    const locs = await _gbpGet(env, `${GBP_INFO_API}/${a.name}/locations?readMask=${encodeURIComponent(readMask)}&pageSize=100`);
+    out.accounts.push({
+      accountName: a.name,
+      accountDisplay: a.accountName || a.name,
+      type: a.type || null,
+      locations: (locs.body.locations || []).map(l => {
+        const lId = (l.name || '').split('/').pop();
+        return {
+          locationName: `${a.name}/locations/${lId}`,   // v4 shape
+          title: l.title || null,
+          primaryCategory: l.categories?.primaryCategory?.displayName || null,
+          address: (l.storefrontAddress?.addressLines || []).join(', ') || null,
+        };
+      }),
+      locationsError: locs.ok ? null : { status: locs.status, detail: locs.body?.error || locs.body },
+    });
+  }
+  const single = out.accounts.length === 1 && out.accounts[0].locations.length === 1 ? out.accounts[0] : null;
+  if (single) {
+    await Promise.all([
+      env.DATA.put(KV_GBP_ACCOUNT, single.accountName),
+      env.DATA.put(KV_GBP_LOCATION, single.locations[0].locationName),
+    ]);
+    out.cached = { accountName: single.accountName, locationName: single.locations[0].locationName,
+                   primaryCategory: single.locations[0].primaryCategory };
+  }
+  return jsonResponse(out, corsHeaders);
+}
+
+// POST /admin/gbp/select { accountName, locationName } — explicit pick when multiple.
+async function handleGbpSelect(request, env, corsHeaders) {
+  const b = await request.json().catch(() => ({}));
+  if (!b.accountName || !b.locationName)
+    return jsonResponse({ error: 'accountName + locationName required' }, corsHeaders, 400);
+  await Promise.all([
+    env.DATA.put(KV_GBP_ACCOUNT, b.accountName),
+    env.DATA.put(KV_GBP_LOCATION, b.locationName),
+  ]);
+  return jsonResponse({ success: true, accountName: b.accountName, locationName: b.locationName }, corsHeaders);
+}
+
+// DL-08 health: probe accounts.list (200 = scope granted; 403 = missing scope/quota) and
+// report whether the account/location are resolved. Surfaced in /admin/google-drive/status.
+async function gbpHealthSummary(env) {
+  const { accountName, locationName } = await getGbpLocation(env);
+  let scopeGranted = null, probeStatus = null, lastError = null;
+  try {
+    const p = await _gbpGet(env, `${GBP_ACCT_API}/accounts`);
+    scopeGranted = p.ok; probeStatus = p.status;
+    if (!p.ok) lastError = p.body?.error?.message || `HTTP ${p.status}`;
+  } catch (e) { scopeGranted = false; lastError = e.message; }
+  const status = scopeGranted === false ? 'failed'
+    : (!accountName || !locationName) ? 'degraded'   // scope OK but not resolved yet
+    : 'healthy';
+  // Reviews-sync freshness (Phase 1) — read cached KV only, no extra API call.
+  const rev = await env.DATA.get(KV_GBP_REVIEWS, 'json');
+  const reviewsSync = rev
+    ? { count: rev.totalReviewCount, rating: rev.averageRating, syncedAt: rev.syncedAt,
+        staleHours: Math.round((Date.now() - new Date(rev.syncedAt).getTime()) / 3600000) }
+    : { count: null, syncedAt: null };
+  return { status, scopeGranted, probeStatus, accountName, locationName, lastError, reviewsSync };
+}
+
+// ── GBP Reviews — Phase 1 (sync + single source of truth) ────────────────────────
+const GBP_V4_API = 'https://mybusiness.googleapis.com/v4';
+const _GBP_STAR  = { ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5 };
+const KV_GBP_REVIEWS = 'gbp:reviews';   // { totalReviewCount, averageRating, reviews[], syncedAt }
+
+// Pull live reviews from the GBP Reviews API (v4) into KV. Paginates the full set so
+// individual reviews + reply state are available to the hub. Never throws — returns a
+// status object so the cron/health can react. Zero model tokens.
+async function syncGbpReviews(env) {
+  const { locationName } = await getGbpLocation(env);
+  if (!locationName) return { ok: false, error: 'no_location_resolved' };
+  let token;
+  try { token = await getGoogleAccessToken(env); }
+  catch (e) { return { ok: false, error: `token: ${e.message}` }; }
+  const reviews = [];
+  let pageToken = '', total = null, avg = null, pages = 0;
+  do {
+    const u = `${GBP_V4_API}/${locationName}/reviews?pageSize=50${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`;
+    const res = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+    let body = {};
+    try { body = await res.json(); } catch { /* non-JSON */ }
+    if (!res.ok) return { ok: false, status: res.status, error: body?.error?.message || `HTTP ${res.status}` };
+    if (body.totalReviewCount != null) total = body.totalReviewCount;
+    if (body.averageRating   != null) avg   = body.averageRating;
+    for (const r of (body.reviews || [])) {
+      reviews.push({
+        reviewId:   r.reviewId,
+        reviewer:   r.reviewer?.displayName || 'Google user',
+        rating:     _GBP_STAR[r.starRating] || null,
+        comment:    r.comment || '',
+        createTime: r.createTime || null,
+        updateTime: r.updateTime || null,
+        reply:      r.reviewReply ? { comment: r.reviewReply.comment, updateTime: r.reviewReply.updateTime } : null,
+      });
+    }
+    pageToken = body.nextPageToken || '';
+    pages++;
+  } while (pageToken && pages < 20);   // 20×50 = 1000 review ceiling; bump if ever needed
+  const stats = {
+    totalReviewCount: total != null ? total : reviews.length,
+    averageRating:    avg != null ? Math.round(avg * 10) / 10 : null,
+    reviews,
+    syncedAt:         new Date().toISOString(),
+  };
+  await env.DATA.put(KV_GBP_REVIEWS, JSON.stringify(stats));
+  return { ok: true, totalReviewCount: stats.totalReviewCount, averageRating: stats.averageRating, fetched: reviews.length };
+}
+
+// Post (or update) a reply to a Google review — live PUT to the GBP v4 Reviews API.
+// On success, patches the cached review's reply state so the hub reflects it instantly
+// without a full re-sync. Response-rate is a ranking + trust signal → reply to 100%.
+async function replyToGbpReview(env, reviewId, comment) {
+  const { locationName } = await getGbpLocation(env);
+  if (!locationName) return { ok: false, error: 'no_location_resolved' };
+  if (!comment || !comment.trim()) return { ok: false, error: 'empty_comment' };
+  let token;
+  try { token = await getGoogleAccessToken(env); }
+  catch (e) { return { ok: false, error: `token: ${e.message}` }; }
+  const url = `${GBP_V4_API}/${locationName}/reviews/${encodeURIComponent(reviewId)}/reply`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ comment: comment.trim() }),
+  });
+  let body = {};
+  try { body = await res.json(); } catch { /* non-JSON */ }
+  if (!res.ok) return { ok: false, status: res.status, error: body?.error?.message || `HTTP ${res.status}` };
+  const reply = { comment: body.comment || comment.trim(), updateTime: body.updateTime || new Date().toISOString() };
+  const cache = await env.DATA.get(KV_GBP_REVIEWS, 'json');
+  if (cache && Array.isArray(cache.reviews)) {
+    const r = cache.reviews.find(x => x.reviewId === reviewId);
+    if (r) { r.reply = reply; await env.DATA.put(KV_GBP_REVIEWS, JSON.stringify(cache)); }
+  }
+  return { ok: true, reviewId, reply };
+}
+
+// Cross-reference ALL synced Google reviews against the whole customer base and mark
+// confident matches as review-left (durable review_states) so they drop out of "Ready to
+// Ask" for good + show the directory badge. CONSERVATIVE (T1.21 — a false "reviewed"
+// wrongly stops asking a real prospect): a unique full-name match auto-marks; a name
+// collision auto-marks ONLY if exactly one candidate has a completed job; everything else
+// is surfaced as ambiguous for Tyler to confirm. Never overwrites left/do_not_ask/neverAsk.
+function _reviewNameTok(s){ return (s||'').toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(t => t.length > 1); }
+async function crossrefGbpReviews(env, { apply = false } = {}) {
+  const gbp = await env.DATA.get(KV_GBP_REVIEWS, 'json');
+  const reviews = (gbp && gbp.reviews) || [];
+  if (!reviews.length) return { error: 'no_reviews_synced', counts: {} };
+  const rows = (await env.DB.prepare(
+    `SELECT p.personId, p.firstName, p.lastName, p.businessName, p.neverAskReview,
+            (SELECT COUNT(*) FROM Job j WHERE j.payerId=p.personId AND j.state='completed') AS completedJobs
+     FROM Person p WHERE p.retiredAt IS NULL`
+  ).all())?.results || [];
+  const cands = [];
+  for (const r of rows) {
+    const phone = (r.personId||'').startsWith('person_1') ? r.personId.slice('person_1'.length) : '';
+    if (phone.length !== 10) continue;
+    const tokens = new Set([..._reviewNameTok(r.firstName), ..._reviewNameTok(r.lastName), ..._reviewNameTok(r.businessName)]);
+    if (!tokens.size) continue;
+    cands.push({ phone, tokens, name: (`${r.firstName||''} ${r.lastName||''}`.trim() || r.businessName || ''),
+                 neverAskReview: r.neverAskReview, completedJobs: r.completedJobs });
+  }
+  const states = await env.DATA.get('review_states', 'json') || {};
+  const out = { autoMarked: [], ambiguous: [], unmatched: [], skipped: [] };
+  for (const rev of reviews) {
+    const rt = _reviewNameTok(rev.reviewer);
+    if (rt.length < 2) { out.unmatched.push({ reviewer: rev.reviewer, reason: 'name_too_short' }); continue; }
+    const strong = cands.filter(c => rt.filter(t => c.tokens.has(t)).length >= 2);   // ≥2 shared tokens = full name
+    if (!strong.length) { out.unmatched.push({ reviewer: rev.reviewer }); continue; }
+    let target = null;
+    if (strong.length === 1) target = strong[0];                                     // unique full-name match
+    else { const withJob = strong.filter(m => m.completedJobs > 0); if (withJob.length === 1) target = withJob[0]; }
+    if (!target) {
+      out.ambiguous.push({ reviewer: rev.reviewer, rating: rev.rating, createTime: rev.createTime,
+        candidates: strong.slice(0, 5).map(m => ({ phone: m.phone, name: m.name, completedJobs: m.completedJobs })) });
+      continue;
+    }
+    const cur = states[target.phone] || {};
+    if (cur.status === 'left' || cur.status === 'do_not_ask' || target.neverAskReview === 1) {
+      out.skipped.push({ reviewer: rev.reviewer, phone: target.phone, reason: cur.status || 'neverAsk' });
+      continue;
+    }
+    if (apply) states[target.phone] = { ...cur, status: 'left',
+      leftAt: cur.leftAt || rev.createTime || new Date().toISOString(),
+      reviewedViaCrossref: true, reviewerName: rev.reviewer, starRating: rev.rating || cur.starRating || null };
+    out.autoMarked.push({ reviewer: rev.reviewer, phone: target.phone, name: target.name, rating: rev.rating });
+  }
+  if (apply && out.autoMarked.length) await env.DATA.put('review_states', JSON.stringify(states));
+  out.counts = { reviews: reviews.length, autoMarked: out.autoMarked.length, ambiguous: out.ambiguous.length,
+                 unmatched: out.unmatched.length, skipped: out.skipped.length };
+  return out;
+}
+
+// SINGLE SOURCE OF TRUTH for the review count/rating — kills the T1.2 mismatch.
+// Prefers the live GBP sync; if the sync is stale (>48h) it still returns the LAST GOOD
+// synced value (Tyler's decision — never show a wrong/dropping number) and tags it stale.
+// Only if GBP has NEVER synced does it fall back to the manual reviews_data override.
+async function getLiveReviewStats(env) {
+  const gbp = await env.DATA.get(KV_GBP_REVIEWS, 'json');
+  if (gbp && gbp.totalReviewCount != null) {
+    const ageMs = Date.now() - new Date(gbp.syncedAt).getTime();
+    return {
+      count:       gbp.totalReviewCount,
+      rating:      gbp.averageRating != null ? gbp.averageRating : 5.0,
+      lastUpdated: gbp.syncedAt,
+      source:      ageMs > 48 * 3600000 ? 'gbp_live_stale' : 'gbp_live',
+    };
+  }
+  const manual = await env.DATA.get('reviews_data', 'json') || { count: 101, lastUpdated: null };
+  return { count: manual.count, rating: 5.0, lastUpdated: manual.lastUpdated, source: 'manual_override' };
 }
 
 // Get a valid access token, refreshing if expired
@@ -12802,6 +13707,7 @@ async function bouncieJobDurationMatcher(date, env) {
     // Scan rigs — pick longest qualifying dwell within threshold.
     // Also track the globally closest approach for reporting on rejection.
     let bestRig = null, bestMatch = { durationMin: 0 };
+    let bestShort = null;   // spatially-close dwell UNDER the MIN_DUR_MIN floor (a quick job)
     let globalClosestDistKm = Infinity, globalClosestRig = null, globalClosestArrival = null;
     const rigsWithinThreshold = [];
 
@@ -12817,6 +13723,14 @@ async function bouncieJobDurationMatcher(date, env) {
       if (m.durationMin >= MIN_DUR_MIN) {
         rigsWithinThreshold.push(rig);
         if (m.durationMin > bestMatch.durationMin) { bestRig = rig; bestMatch = m; }
+      } else if (m.durationMin > 0 && m.closestDistKm <= MEDIUM_KM
+                 && (!bestShort || m.durationMin > bestShort.match.durationMin)) {
+        // Spatially a real match (within 500 ft, valid arrival→departure dwell) but the
+        // dwell is under the 20-min floor — a legitimately quick job (e.g. a fast $75
+        // sidewalk). Capture the longest such dwell so it's surfaced + recorded as
+        // 'too_short_manual' instead of silently dropped as a false 'no_reliable_match'
+        // (T1.21: never leave a real completed job with no duration AND no signal).
+        bestShort = { rig, match: m };
       }
     }
 
@@ -12829,6 +13743,16 @@ async function bouncieJobDurationMatcher(date, env) {
       // actualDuration stays NULL → job remains in retry window query → still auto-retried.
       d1FailureUpdates.push({ jobId: row.jobId, bouncieMatchStatus: 'no_data', bouncieMatchConfidence: null });
       continue;
+    }
+
+    // Quick-job rescue: no dwell cleared the 20-min floor, but a spatially-close stop
+    // (≤500 ft) with a real arrival→departure dwell exists → record its GPS timing and
+    // flag 'too_short_manual' for verification, rather than a false 'no_reliable_match'.
+    let tooShort = false;
+    if (!bestRig && bestShort) {
+      bestRig   = bestShort.rig;
+      bestMatch = bestShort.match;
+      tooShort  = true;
     }
 
     // No rig matched within threshold — report closest stop for operator review
@@ -12857,11 +13781,13 @@ async function bouncieJobDurationMatcher(date, env) {
     // Rig-segments: only one rig was searched, so rigsWithinThreshold.length===1 is trivially
     // true for any match — don't use it for confidence. Distance alone determines high/medium.
     // Standalone/multi-day: original logic (distance AND single rig present) — UNCHANGED.
-    const isHigh   = row.isRigSegment
+    // Too-short jobs are never high-confidence auto-attributed (no rig migration) — they
+    // carry the GPS duration but are flagged for operator verification.
+    const isHigh   = !tooShort && (row.isRigSegment
       ? geocodeDistKm <= HIGH_KM
-      : geocodeDistKm <= HIGH_KM && rigsWithinThreshold.length === 1;
+      : geocodeDistKm <= HIGH_KM && rigsWithinThreshold.length === 1);
     const isMedium = geocodeDistKm <= MEDIUM_KM;
-    const matchStatus = isHigh ? 'matched_high' : 'matched_medium';
+    const matchStatus = tooShort ? 'too_short_manual' : (isHigh ? 'matched_high' : 'matched_medium');
     const intentRig   = row.rigId || ss.rig || null;
 
     // GPS timing data — written for both high and medium
@@ -12931,7 +13857,9 @@ async function bouncieJobDurationMatcher(date, env) {
       arrival:    bestMatch.arrivalTs,
       departure:  bestMatch.departureTs,
       rigsPresent: rigsWithinThreshold,
-      ...(isMedium && !isHigh ? { note: 'Medium confidence — GPS within 500 ft but > 250 ft. Operator confirmation recommended.' } : {}),
+      ...(tooShort
+        ? { note: `Quick job — GPS dwell ${bestMatch.durationMin} min is under the ${MIN_DUR_MIN}-min auto-match floor. Duration recorded from GPS (${geocodeDistFt} ft); verify.` }
+        : (isMedium && !isHigh ? { note: 'Medium confidence — GPS within 500 ft but > 250 ft. Operator confirmation recommended.' } : {})),
     });
 
     // Accumulate for D1 update — keyed by jobId (survives Bug 4 UUID migration cleanly)
@@ -13828,6 +14756,25 @@ async function handlePatchPerson(request, personId, env, corsHeaders) {
   }
   if (!Object.keys(fields).length)
     return jsonResponse({ error: `no writable fields provided; allowed: ${ALLOWED.join(', ')}` }, corsHeaders, 400);
+
+  // ── Partner Identity Law (0037) ──────────────────────────────────────────────
+  // Person.businessName = the PARTNER's OWN identity only (their company/name). A
+  // homeowner's name belongs on the JOB (Job.endCustomerName), never here. Reject a
+  // businessName write that matches one of this person's job end-customer names — the
+  // exact corruption signature (homeowner leaked into the partner's businessName).
+  if (fields.businessName) {
+    const _ct = fields.customerType
+      ?? (await env.DB.prepare('SELECT customerType FROM Person WHERE personId=?').bind(personId).first())?.customerType;
+    if (_ct === 'partner_referral') {
+      const _hit = await env.DB.prepare(
+        "SELECT 1 FROM Job WHERE payerId=? AND endCustomerName IS NOT NULL AND lower(trim(endCustomerName))=lower(trim(?)) LIMIT 1"
+      ).bind(personId, fields.businessName).first();
+      if (_hit) return jsonResponse({
+        error: "Partner Identity Law: that looks like a homeowner name (it matches a job's end customer). A partner's businessName is their OWN company only — put the homeowner on the job (endCustomerName).",
+        field: 'businessName',
+      }, corsHeaders, 422);
+    }
+  }
 
   const now = new Date().toISOString();
   fields.modifiedAt = now;

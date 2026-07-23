@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Quote Pool — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="/js/quote-logger.js"></script>
+<style>
+  :root{
+    --navy:#0f172a; --text:#1e293b; --muted:#64748b; --border:#e2e8f0;
+    --white:#fff; --bg:#f6f8fb; --sky:#0ea5e9; --amber:#f59e0b; --red:#dc2626; --green:#16a34a;
+    --pad:#fefce8; --padline:#fde047;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:760px;margin:0 auto;padding:16px 16px 60px;}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 4px;}
+  .back{display:inline-flex;align-items:center;gap:6px;color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;}
+  .log-btn{border:none;background:var(--navy);color:#fff;border-radius:11px;padding:10px 16px;font:800 14px 'DM Sans',sans-serif;cursor:pointer;}
+  h1{font-size:24px;font-weight:800;color:var(--navy);margin:8px 0 2px;}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:14px;}
+  .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .tab{border:1.5px solid var(--border);background:var(--white);border-radius:999px;padding:7px 14px;font:700 13px 'DM Sans',sans-serif;color:var(--muted);cursor:pointer;}
+  .tab.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .monthrow{display:flex;align-items:center;gap:8px;margin:0 0 12px;}
+  .monthrow input{border:1.5px solid var(--border);border-radius:9px;padding:7px 10px;font:600 13px 'DM Sans',sans-serif;color:var(--text);}
+  .monthrow button{border:none;background:none;color:var(--sky);font:700 13px 'DM Sans',sans-serif;cursor:pointer;}
+  /* accepted-not-booked safety strip */
+  .anb{background:#fff7ed;border:1.5px solid #fdba74;border-radius:14px;padding:12px 14px;margin-bottom:14px;}
+  .anb-title{font-size:13px;font-weight:800;color:#9a3412;letter-spacing:.4px;text-transform:uppercase;margin-bottom:8px;}
+  /* yellow-pad card */
+  .card{background:var(--white);border:1.5px solid var(--border);border-radius:14px;padding:13px 15px;margin-bottom:11px;box-shadow:0 1px 3px rgba(15,23,42,.04);}
+  .card.pad{background:var(--pad);border-color:var(--padline);}
+  .card.stale{opacity:.85;border-style:dashed;}
+  .c-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .c-name{font-size:16px;font-weight:800;color:var(--navy);}
+  .c-meta{font-size:13px;color:var(--muted);font-weight:600;margin-top:1px;}
+  .c-price{font-size:17px;font-weight:800;color:var(--navy);white-space:nowrap;}
+  .c-price.none{color:var(--muted);font-size:13px;font-weight:600;}
+  .c-chips{margin-top:7px;display:flex;gap:5px;flex-wrap:wrap;}
+  .c-chip{font-size:11px;font-weight:700;color:#334155;background:#f1f5f9;border-radius:999px;padding:2px 9px;}
+  .card.pad .c-chip{background:#fef9c3;}
+  .c-age{margin-top:7px;font-size:12px;color:var(--muted);font-weight:600;}
+  .c-age .stale-tag{color:var(--amber);font-weight:800;}
+  .c-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;}
+  .act{border:1.5px solid var(--border);background:var(--white);border-radius:10px;padding:8px 12px;font:700 13px 'DM Sans',sans-serif;cursor:pointer;color:var(--text);transition:all .12s;}
+  .act:hover{border-color:var(--muted);}
+  .act.accept{background:#f0fdf4;border-color:#bbf7d0;color:#15803d;}
+  .act.decline{background:#fef2f2;border-color:#fecaca;color:var(--red);}
+  .act.ghost{color:var(--amber);}
+  .act.resume{background:var(--sky);border-color:var(--sky);color:#fff;}
+  .status-pill{font-size:11px;font-weight:800;border-radius:999px;padding:2px 9px;}
+  .status-pill.acc{background:#dcfce7;color:#15803d;}
+  .status-pill.dec{background:#fee2e2;color:var(--red);}
+  .empty{text-align:center;color:var(--muted);padding:24px 10px;font-size:14px;background:var(--white);border:1.5px dashed var(--border);border-radius:14px;line-height:1.6;}
+  .loading{text-align:center;color:var(--muted);padding:40px;font-size:15px;}
+  .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  /* insights */
+  .ins-sec{margin:20px 0 8px;font-size:13px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--navy);}
+  .ins-note{font-size:12.5px;color:var(--muted);margin:2px 0 10px;line-height:1.5;}
+  table.ins{width:100%;border-collapse:collapse;background:var(--white);border:1.5px solid var(--border);border-radius:12px;overflow:hidden;font-size:13px;}
+  table.ins th{background:#f8fafc;text-align:left;padding:8px 10px;font-weight:800;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;}
+  table.ins td{padding:8px 10px;border-top:1px solid var(--border);font-weight:600;}
+  table.ins td.na{color:var(--muted);font-weight:500;font-style:italic;}
+  .ins-wrap{overflow-x:auto;}
+  /* modals */
+  .m-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:9990;padding:16px;}
+  .m-overlay.on{display:flex;}
+  .m-card{background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto;}
+  .m-card h3{margin:0 0 6px;font-size:17px;color:var(--navy);}
+  .m-card p{margin:0 0 14px;color:var(--muted);font-size:13.5px;line-height:1.5;}
+  .m-btns{display:flex;flex-direction:column;gap:9px;}
+  .m-btns button{border-radius:11px;padding:11px;font:700 14px 'DM Sans',sans-serif;cursor:pointer;border:1.5px solid var(--border);background:#fff;color:var(--text);}
+  .m-btns .m-cancel{color:var(--muted);border:none;background:transparent;}
+  .e-field{margin-bottom:10px;}
+  .e-field label{display:block;font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
+  .e-field input{width:100%;border:1.5px solid var(--border);border-radius:9px;padding:9px 11px;font:600 14px 'DM Sans',sans-serif;color:var(--text);}
+  .e-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .e-chip{border:1.5px solid var(--border);background:#f8fafc;border-radius:999px;padding:6px 11px;font:700 12px 'DM Sans',sans-serif;color:#334155;cursor:pointer;user-select:none;}
+  .e-chip.on{background:var(--sky);border-color:var(--sky);color:#fff;}
+  .e-save{width:100%;margin-top:6px;border:none;background:var(--navy);color:#fff;border-radius:11px;padding:12px;font:800 14px 'DM Sans',sans-serif;cursor:pointer;}
+  #qpToast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;font-size:14px;z-index:10000;opacity:0;transition:opacity .2s;box-shadow:0 6px 20px rgba(0,0,0,.25);}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <a class="back" href="/pure_cleaning_admin.html">‹ Admin Hub</a>
+      <button class="log-btn" onclick="QuoteLogger.open({onSaved: load})">＋ Log Quote</button>
+    </div>
+    <h1>📒 Quote Pool</h1>
+    <div class="sub">The yellow pad — every phone quote, in call order. Newest first.</div>
+
+    <div class="tabs">
+      <div class="tab on" data-tab="open"     onclick="setTab('open')">Open <span id="tabOpenN"></span></div>
+      <div class="tab"    data-tab="accepted" onclick="setTab('accepted')">Accepted</div>
+      <div class="tab"    data-tab="declined" onclick="setTab('declined')">Declined</div>
+      <div class="tab"    data-tab="insights" onclick="setTab('insights')">📊 Insights</div>
+    </div>
+
+    <div class="monthrow" id="monthRow" style="display:none;">
+      <input type="month" id="monthPick" onchange="load()">
+      <button onclick="document.getElementById('monthPick').value='';load()">clear</button>
+    </div>
+
+    <div id="loading" class="loading"><div class="spinner"></div>Loading the pad…</div>
+    <div id="content" style="display:none;"></div>
+  </div>
+
+  <!-- decline reason picker -->
+  <div class="m-overlay" id="declineModal">
+    <div class="m-card">
+      <h3>Why did they pass?</h3>
+      <p id="declineWho"></p>
+      <div class="m-btns">
+        <button onclick="doDecline('price')">💸 Price</button>
+        <button onclick="doDecline('competitor')">🏃 Went elsewhere</button>
+        <button onclick="doDecline('not_now')">🗓 Not now</button>
+        <button onclick="doDecline('ghost')">👻 Ghost — never heard back</button>
+        <button onclick="doDecline(null)">Skip — no reason</button>
+        <button class="m-cancel" onclick="closeModal('declineModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- edit modal -->
+  <div class="m-overlay" id="editModal">
+    <div class="m-card">
+      <h3>✏️ Edit quote</h3>
+      <div class="e-field"><label>Name</label><input id="eName" placeholder="First Last"></div>
+      <div class="e-field"><label>Phone</label><input id="ePhone" type="tel" inputmode="tel"></div>
+      <div class="e-field"><label>City</label><input id="eCity"></div>
+      <div class="e-field"><label>Services</label><div class="e-chips" id="eChips"></div></div>
+      <div class="e-field"><label>Price quoted ($)</label><input id="ePrice" type="number" min="0" step="1" placeholder="Enter amount"></div>
+      <div class="e-field"><label>Note</label><input id="eNotes" placeholder="Optional one-liner"></div>
+      <button class="e-save" onclick="saveEdit()">Save changes</button>
+      <div class="m-btns" style="margin-top:8px;"><button class="m-cancel" onclick="closeModal('editModal')">Cancel</button></div>
+    </div>
+  </div>
+  <div id="qpToast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const CHIP_LABELS = { roof:'Roof', driveway:'Driveway', patio:'Patio', house_walls:'House/Walls', sealing:'Sealing', rust:'Rust', other:'Other' };
+// chip key → new_customer service-picker id (same map as quote-logger.js)
+const CHIP_SVC = { roof:'roof_cleaning', driveway:'driveway', patio:'patio', house_walls:'rinse_walls', sealing:'sealing', rust:'rust_removal', other:null };
+const STALE_DAYS = 21;
+
+let _tab = 'open';
+let _quotes = [];        // current tab's rows
+let _anb = [];           // accepted-not-booked strip rows (open tab)
+let _counts = { open: 0, acceptedUnbooked: 0 };
+let _target = null;      // quoteId for decline/edit modals
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(m){ const t=document.getElementById('qpToast'); t.textContent=m; t.style.opacity='1'; setTimeout(()=>t.style.opacity='0',2200); }
+function fmtPhone(p){ const d=String(p||'').replace(/\D/g,'').slice(-10); return d.length===10?`(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`:d; }
+function daysAgo(iso){ return Math.floor((Date.now()-new Date(iso).getTime())/86400000); }
+function agoTxt(iso){ const d=daysAgo(iso); return d<=0?'today':d===1?'yesterday':`${d} days ago`; }
+function nameOf(q){ return [q.firstName,q.lastName].filter(Boolean).join(' ') || '(no name)'; }
+
+function setTab(t){
+  _tab = t;
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on', x.dataset.tab===t));
+  document.getElementById('monthRow').style.display = (t==='accepted'||t==='declined')?'flex':'none';
+  load();
+}
+
+async function load(){
+  const content = document.getElementById('content');
+  document.getElementById('loading').style.display='block';
+  content.style.display='none';
+  try{
+    if (_tab==='insights'){ await renderInsights(); }
+    else {
+      const status = _tab==='open' ? 'quoted' : _tab;
+      const month  = (document.getElementById('monthPick').value||'');
+      const qs = new URLSearchParams({ status });
+      if (month && _tab!=='open') qs.set('month', month);
+      const r = await fetch(`${API}/admin/quotes?${qs}`);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+      _quotes = data.quotes||[];
+      _counts = data.counts||_counts;
+      document.getElementById('tabOpenN').textContent = _counts.open ? `(${_counts.open})` : '';
+      if (_tab==='open') await renderOpen(); else renderArchive();
+    }
+  } catch(e){
+    content.innerHTML = `<div class="empty">Couldn't load the pad — ${esc(e.message)}</div>`;
+  }
+  document.getElementById('loading').style.display='none';
+  content.style.display='block';
+}
+
+// ── OPEN TAB ──────────────────────────────────────────────────────────────────
+async function renderOpen(){
+  const content = document.getElementById('content');
+  let html = '';
+
+  // Safety strip: accepted but never finished booking (both accept routes) —
+  // these can't silently vanish.
+  _anb = [];
+  if (_counts.acceptedUnbooked > 0){
+    try{
+      const r = await fetch(`${API}/admin/quotes?status=accepted`);
+      const d = await r.json();
+      _anb = (d.quotes||[]).filter(q=>!q.personId);
+      if (_anb.length){
+        html += `<div class="anb"><div class="anb-title">⚠ Accepted — not yet booked (${_anb.length})</div>` +
+          _anb.map(q=>cardHtml(q,'anb')).join('') + `</div>`;
+      }
+    }catch(_){/* strip is best-effort; open list below still renders */}
+  }
+
+  if (!_quotes.length && !html){
+    content.innerHTML = `<div class="empty">The pad is empty. 🎉<br>Tap <b>＋ Log Quote</b> when the phone rings — every quote, even the obvious nos.</div>`;
+    return;
+  }
+  html += _quotes.map(q=>cardHtml(q,'open')).join('');
+  content.innerHTML = html;
+}
+
+function cardHtml(q, mode){
+  const stale = mode==='open' && daysAgo(q.createdAt) >= STALE_DAYS;
+  const chips = (q.services||[]).map(k=>`<span class="c-chip">${esc(CHIP_LABELS[k]||k)}</span>`).join('');
+  const price = q.priceQuoted!=null ? `<div class="c-price">$${Number(q.priceQuoted).toLocaleString()}</div>` : `<div class="c-price none">no price</div>`;
+  const who   = q.quotedBy ? ` · ${esc(q.quotedBy)}` : '';
+  const pill  = mode==='archive'
+    ? (q.status==='accepted'
+        ? `<span class="status-pill acc">✓ accepted${q.personId?'':' — not booked'}</span>`
+        : `<span class="status-pill dec">✗ ${esc(q.declineReason||'declined')}</span>`)
+    : '';
+  let acts = '';
+  if (mode==='open'){
+    acts = `<div class="c-acts">
+      <button class="act accept" onclick="doAccept('${q.quoteId}')">✓ Accepted</button>
+      <button class="act decline" onclick="openDecline('${q.quoteId}')">✗ Declined</button>
+      <button class="act" onclick="openEdit('${q.quoteId}')">✏️</button>
+      ${stale?`<button class="act ghost" onclick="markGhost('${q.quoteId}')">👻 Mark ghost?</button>`:''}
+    </div>`;
+  } else if (mode==='anb'){
+    acts = `<div class="c-acts">
+      <button class="act resume" onclick="resumeBooking('${q.quoteId}')">Resume booking →</button>
+      <button class="act" onclick="undoResolve('${q.quoteId}')">↩ Back to open</button>
+    </div>`;
+  } else {
+    acts = `<div class="c-acts"><button class="act" onclick="undoResolve('${q.quoteId}')">↩ Reopen</button></div>`;
+  }
+  return `<div class="card ${mode==='open'?'pad':''} ${stale?'stale':''}">
+    <div class="c-top">
+      <div>
+        <div class="c-name">${esc(nameOf(q))} ${pill}</div>
+        <div class="c-meta">${esc(fmtPhone(q.phone))}${q.city?` · ${esc(q.city)}`:''}</div>
+      </div>
+      ${price}
+    </div>
+    ${chips?`<div class="c-chips">${chips}</div>`:''}
+    ${q.notes?`<div class="c-age">📝 ${esc(q.notes)}</div>`:''}
+    <div class="c-age">quoted ${esc(agoTxt(q.createdAt))}${who}${stale?' · <span class="stale-tag">gone quiet</span>':''}${mode==='archive'&&q.resolvedAt?` · resolved ${esc(agoTxt(q.resolvedAt))}`:''}</div>
+    ${acts}
+  </div>`;
+}
+
+// ── ARCHIVE TABS ──────────────────────────────────────────────────────────────
+function renderArchive(){
+  const content = document.getElementById('content');
+  if (!_quotes.length){
+    content.innerHTML = `<div class="empty">Nothing ${_tab} ${document.getElementById('monthPick').value?'that month':''} yet.</div>`;
+    return;
+  }
+  content.innerHTML = _quotes.map(q=>cardHtml(q,'archive')).join('');
+}
+
+// ── RESOLUTION ACTIONS ────────────────────────────────────────────────────────
+async function patchQuote(id, body){
+  const r = await fetch(`${API}/admin/quote/${encodeURIComponent(id)}`,{
+    method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+  });
+  const d = await r.json().catch(()=>({}));
+  if (!r.ok || !d.success) throw new Error(d.error||`HTTP ${r.status}`);
+  return d.quote;
+}
+
+// Accept → mark accepted, then hand off into the EXISTING booking flow
+// pre-filled (same mechanism as the modal's Log Confirmed Quote).
+async function doAccept(id){
+  const q = _quotes.find(x=>x.quoteId===id); if(!q) return;
+  try{
+    await patchQuote(id, { status:'accepted' });
+    location.href = handoffUrl(q);
+  }catch(e){ toast(`Failed: ${e.message}`); }
+}
+
+function resumeBooking(id){
+  // Already accepted — just re-enter the booking flow with the same context.
+  const q = _anb.find(x=>x.quoteId===id) || _quotes.find(x=>x.quoteId===id);
+  if (!q){ toast('Quote not loaded — refresh and retry'); return; }
+  location.href = handoffUrl(q);
+}
+
+function handoffUrl(q){
+  const svcIds = (q.services||[]).map(k=>CHIP_SVC[k]).filter(Boolean);
+  // Existing customer already linked at log time → phone path (existing-customer
+  // mode, full history prefill). Otherwise the fromOnline blob (new caller).
+  if (q.personId){
+    const p = new URLSearchParams({ phone:q.phone, quoteId:q.quoteId });
+    if (q.priceQuoted!=null) p.set('qprice', String(q.priceQuoted));
+    if (svcIds.length) p.set('qsvc', svcIds.join(','));
+    return `/pure_cleaning_new_customer.html?${p}`;
+  }
+  const blob = { fn:q.firstName||'', ln:q.lastName||'', phone:q.phone, city:q.city||'', svc:svcIds, price:q.priceQuoted, quoteId:q.quoteId };
+  return `/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(blob)))))}`;
+}
+
+function openDecline(id){
+  _target = id;
+  const q = _quotes.find(x=>x.quoteId===id);
+  document.getElementById('declineWho').textContent = q?`${nameOf(q)} — $${q.priceQuoted!=null?Number(q.priceQuoted).toLocaleString():'?'}`:'';
+  document.getElementById('declineModal').classList.add('on');
+}
+async function doDecline(reason){
+  const id=_target; closeModal('declineModal');
+  try{
+    await patchQuote(id, { status:'declined', declineReason:reason });
+    toast('Archived to Declined');
+    load();
+  }catch(e){ toast(`Failed: ${e.message}`); }
+}
+async function markGhost(id){
+  try{
+    await patchQuote(id, { status:'declined', declineReason:'ghost' });
+    toast('👻 Marked ghost');
+    load();
+  }catch(e){ toast(`Failed: ${e.message}`); }
+}
+async function undoResolve(id){
+  try{
+    await patchQuote(id, { status:'quoted' });
+    toast('↩ Back in the pool');
+    setTab('open');
+  }catch(e){ toast(`Failed: ${e.message}`); }
+}
+function closeModal(id){ document.getElementById(id).classList.remove('on'); }
+
+// ── EDIT ──────────────────────────────────────────────────────────────────────
+function openEdit(id){
+  _target = id;
+  const q = _quotes.find(x=>x.quoteId===id); if(!q) return;
+  document.getElementById('eName').value  = [q.firstName,q.lastName].filter(Boolean).join(' ');
+  document.getElementById('ePhone').value = fmtPhone(q.phone);
+  document.getElementById('eCity').value  = q.city||'';
+  document.getElementById('ePrice').value = q.priceQuoted!=null?q.priceQuoted:'';
+  document.getElementById('eNotes').value = q.notes||'';
+  const box = document.getElementById('eChips');
+  box.innerHTML = Object.entries(CHIP_LABELS).map(([k,l])=>
+    `<div class="e-chip ${(q.services||[]).includes(k)?'on':''}" data-k="${k}" onclick="this.classList.toggle('on')">${l}</div>`).join('');
+  document.getElementById('editModal').classList.add('on');
+}
+async function saveEdit(){
+  const id=_target;
+  const nameRaw = document.getElementById('eName').value.trim();
+  const sp = nameRaw.indexOf(' ');
+  const priceRaw = document.getElementById('ePrice').value;
+  try{
+    await patchQuote(id, {
+      firstName: sp===-1?nameRaw:nameRaw.slice(0,sp),
+      lastName:  sp===-1?'':nameRaw.slice(sp+1).trim(),
+      phone:     document.getElementById('ePhone').value,
+      city:      document.getElementById('eCity').value.trim(),
+      services:  [...document.querySelectorAll('#eChips .e-chip.on')].map(x=>x.dataset.k),
+      priceQuoted: priceRaw===''?null:Number(priceRaw),
+      notes:     document.getElementById('eNotes').value.trim(),
+    });
+    closeModal('editModal');
+    toast('Saved');
+    load();
+  }catch(e){ toast(`Failed: ${e.message}`); }
+}
+
+// ── INSIGHTS ──────────────────────────────────────────────────────────────────
+// Honest numbers only (T1.21): acceptance % is over RESOLVED quotes; any
+// city/band slice below 5 resolved shows "n/a (only X)" — never a % from a
+// tiny sample. No projections or trend language until 3+ months exist.
+const MIN_SAMPLE = 5;
+const pct = (a,d)=>{ const r=a+d; return r?`${Math.round(a/r*100)}%`:null; };
+
+async function renderInsights(){
+  const content = document.getElementById('content');
+  const r = await fetch(`${API}/admin/quotes/insights`);
+  const d = await r.json();
+  if (!r.ok) throw new Error(d.error||`HTTP ${r.status}`);
+
+  if (!d.totalQuotes){
+    content.innerHTML = `<div class="empty">No quotes logged yet — insights build themselves once the pad fills up.<br>Every quote counts, especially the nos.</div>`;
+    return;
+  }
+
+  const thisMonth = new Date().toISOString().slice(0,7);
+  const months = d.perMonth||[];
+  let html = '';
+
+  if (months.length < 3){
+    html += `<div class="ins-note">⏳ <b>Partial data</b> — fewer than 3 months on the pad. Counts are real; trends aren't claimable yet.</div>`;
+  }
+
+  html += `<div class="ins-sec">Per month</div><div class="ins-wrap"><table class="ins">
+    <tr><th>Month</th><th>Given</th><th>Accepted</th><th>Declined</th><th>Open</th><th>Accept % (of resolved)</th></tr>` +
+    months.map(m=>{
+      const p = pct(m.accepted,m.declined);
+      return `<tr><td>${esc(m.month)}${m.month===thisMonth?' <span style="color:var(--muted);font-weight:500;">(in progress)</span>':''}</td>
+        <td>${m.given}</td><td>${m.accepted}</td><td>${m.declined}</td><td>${m.open}</td>
+        <td${p?'':' class="na"'}>${p||'n/a — nothing resolved'}</td></tr>`;
+    }).join('') + `</table></div>`;
+
+  const cities = (d.byCity||[]).filter(c=>c.given>0);
+  html += `<div class="ins-sec">By city</div><div class="ins-wrap"><table class="ins">
+    <tr><th>City</th><th>Given</th><th>Accept %</th><th>Avg $ accepted</th><th>Avg $ declined</th></tr>` +
+    cities.map(c=>{
+      const enough = c.resolved >= MIN_SAMPLE;
+      const p = enough ? pct(c.accepted,c.declined) : null;
+      const money = v => v==null?'—':`$${Math.round(v).toLocaleString()}`;
+      return `<tr><td>${esc(c.city)}</td><td>${c.given}</td>
+        <td${p?'':' class="na"'}>${p || `n/a (only ${c.resolved} resolved)`}</td>
+        <td${enough?'':' class="na"'}>${enough?money(c.avgAcceptedPrice):'n/a'}</td>
+        <td${enough?'':' class="na"'}>${enough?money(c.avgDeclinedPrice):'n/a'}</td></tr>`;
+    }).join('') + `</table></div>`;
+
+  const bands = (d.byPriceBandCity||[]).filter(b=>b.resolved >= MIN_SAMPLE);
+  html += `<div class="ins-sec">Price band × city</div>`;
+  if (bands.length){
+    const order = ['$0–200','$200–400','$400–600','$600+'];
+    bands.sort((a,b)=> a.city===b.city ? order.indexOf(a.band)-order.indexOf(b.band) : a.city<b.city?-1:1);
+    html += `<div class="ins-wrap"><table class="ins">
+      <tr><th>City</th><th>Band</th><th>Resolved</th><th>Accept %</th></tr>` +
+      bands.map(b=>`<tr><td>${esc(b.city)}</td><td>${esc(b.band)}</td><td>${b.resolved}</td><td>${pct(b.accepted,b.declined)}</td></tr>`).join('') +
+      `</table></div><div class="ins-note">Only city×band slices with ${MIN_SAMPLE}+ resolved quotes are shown.</div>`;
+  } else {
+    html += `<div class="ins-note">n/a — no city×price-band slice has ${MIN_SAMPLE}+ resolved quotes yet.</div>`;
+  }
+
+  const rbm = d.declineReasonsByMonth||{};
+  const rMonths = Object.keys(rbm).sort();
+  html += `<div class="ins-sec">Decline reasons</div>`;
+  if (rMonths.length){
+    const REASONS=['price','competitor','not_now','ghost'];
+    const LBL={price:'💸 Price',competitor:'🏃 Elsewhere',not_now:'🗓 Not now',ghost:'👻 Ghost'};
+    html += `<div class="ins-wrap"><table class="ins">
+      <tr><th>Month</th>${REASONS.map(x=>`<th>${LBL[x]}</th>`).join('')}</tr>` +
+      rMonths.map(m=>`<tr><td>${esc(m)}</td>${REASONS.map(x=>`<td>${rbm[m][x]||0}</td>`).join('')}</tr>`).join('') +
+      `</table></div><div class="ins-note">Declines where a reason was skipped aren't counted here.</div>`;
+  } else {
+    html += `<div class="ins-note">No decline reasons recorded yet.</div>`;
+  }
+
+  content.innerHTML = html;
+}
+
+setTab('open');
+</script>
+</body>
+</html>

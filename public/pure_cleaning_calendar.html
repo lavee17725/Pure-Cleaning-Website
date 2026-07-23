@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script src="/js/error-tracker.js"></script>
+<script src="/js/quote-logger.js" defer></script>
 <!-- pcpc_api.js MUST load before any inline script that touches window.pcpcApi.
      Synchronous (no defer/async) so the 13 call sites in this file (logComplaint,
      logEvent analytics, etc.) can rely on it. 5 KB file — load cost is trivial.
@@ -188,6 +189,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .js-name{font-weight:700;color:var(--navy);display:flex;align-items:center;gap:4px;justify-content:space-between;}
 .js-meta{color:var(--muted);margin-top:1px;}
 .js-roof-info{font-size:11px;color:#c2410c;font-weight:600;margin-top:2px;}
+.js-sqft-warn{display:inline-block;font-size:10px;font-weight:700;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:1px 7px;margin-top:3px;}
 /* Cost Hub Phase 2 — per-job profit chip on completed cards. Honest-on-incomplete: "est. … partial" when input missing. */
 .js-profit{display:flex;align-items:center;gap:5px;margin-top:3px;font-size:11px;line-height:1.4;}
 .js-profit-label{color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:9.5px;}
@@ -202,6 +204,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
 .jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
+.split-badge{font-size:10px;font-weight:700;color:#0369a1;background:#e0f2fe;border-radius:6px;padding:1px 6px;white-space:nowrap;}
+.split-hint{font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap;}
 .rig-gross{font-size:11px;font-weight:700;color:#c2410c;padding:2px 8px 2px;letter-spacing:.2px;}
 .rig-gross.zero{color:var(--muted);font-weight:400;}
 .rig-labor-net{font-size:10px;color:var(--muted);padding:0 8px 4px;line-height:1.5;}
@@ -881,7 +885,7 @@ body{background:#f0f2f5;}
       <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
       <div class="needs-list" id="mqList"></div>
       <div style="padding:.5rem .75rem .25rem;">
-        <a href="/pure_cleaning_new_customer.html" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">+ Add Quote</a>
+        <a href="#" onclick="event.preventDefault();window.QuoteLogger&&QuoteLogger.open({})" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">＋ Log Quote</a>
       </div>
     </div>
     <div class="sidebar-tab" id="sidebarTab" onclick="toggleSidebar()">📋 Queue</div>
@@ -1286,7 +1290,8 @@ body{background:#f0f2f5;}
 <div class="overlay hidden" id="fullEditModal" onclick="if(event.target===this)closeFullEditModal()">
   <div class="modal" style="max-width:520px;max-height:90vh;overflow-y:auto;">
     <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-      <span>✏️ Edit — <span id="feModalName" style="color:var(--sky);"></span></span>
+      <span>✏️ Edit — <span id="feModalName" style="color:var(--sky);"></span>
+        <button id="feNameToggle" style="display:none;font-size:11px;padding:2px 8px;margin-left:8px;border:1.5px solid #818cf8;border-radius:6px;background:#eef2ff;color:#3730a3;cursor:pointer;font-weight:600;vertical-align:middle;" title="Swap which name is primary (partner ↔ customer)"></button></span>
       <a id="feProfileLink" href="#" target="_blank"
          style="font-size:12px;color:var(--sky);text-decoration:none;font-weight:600;white-space:nowrap;flex-shrink:0;">
         🏠 Properties →
@@ -2209,11 +2214,15 @@ function highlightSidebarJob(phone) {
 
 // Returns the most recent completed roof job's roofStories for this customer,
 // or null if no roof history exists. Used to pre-populate stories selectors.
-function getLastKnownRoofStories(customer) {
+// 0038: when propertyId is given, ONLY that property's roof history counts (silent if none).
+// A story-mismatch warning must compare against THE PROPERTY BEING BOOKED, not the customer's
+// other properties. Omit propertyId for general display (any-property, legacy behavior).
+function getLastKnownRoofStories(customer, propertyId) {
   if (!customer || !Array.isArray(customer.jobHistory)) return null;
   const roofJobs = customer.jobHistory
     .filter(j => j && j.date && j.roofStories && j.source !== 'rig_segment'  // Fix 4: rig-segment entries are $0 attribution markers, not billing jobs
-              && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+              && /roof|soft\s*wash|softwash/i.test(j.services || '')
+              && (!propertyId || j.propertyId === propertyId))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
 }
@@ -2377,6 +2386,7 @@ function _jobRowToShape(job, isMultiProperty) {
     payerId:        job.payerId    || null,
     firstName:      job.firstName   || '',
     lastName:       job.lastName    || '',
+    businessName:   job.businessName || cust.businessName || null,  // partner/commercial identity — card name fallback when first/last are blank
     address:        job.streetAddress || cust.address || '',  // Option C: live KV fallback when Property.streetAddress is empty
     city:           job.city         || cust.city    || '',
     gateCode:       job.gateCode     || null,
@@ -2388,6 +2398,7 @@ function _jobRowToShape(job, isMultiProperty) {
     // office). Banner + route math gate on this.
     worksiteResolved: !!job.worksiteResolved,
     endCustomerName:  job.endCustomerName  || null,
+    nameDisplay:      job.nameDisplay      || null,   // 0036: partner|customer primary-name toggle
     endCustomerPhone: job.endCustomerPhone || null,
     customerType:   job.customerType   || 'residential',
     propertyLabel:  job.propertyLabel || null,
@@ -2965,16 +2976,35 @@ function renderRigCommuteBanners(activeJobs, date, rig) {
   return { top, bottom, total: total + partnerWarn };
 }
 
+// Time slot is a HARDER constraint than distance/optimize order: sort by window
+// first (morning → early_afternoon → late_afternoon), then by explicit startTime
+// when BOTH jobs have one, and otherwise PRESERVE the incoming order within the
+// slot. Array.sort is stable in V8, so a 0-comparator keeps the base order
+// (nearest-first, optimized, or manual). Applied inside getScheduledForRigOrdered
+// so every consumer (day view, driver text, route/commute distances) agrees.
+function _jobStartMins(ss) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(ss?.startTime || '');
+  return m ? (+m[1]) * 60 + (+m[2]) : null;
+}
+function _cmpJobByWindow(a, b) {
+  const wa = WIN_ORDER[getJobWindow(a.scheduledStatus || {})] ?? 1;
+  const wb = WIN_ORDER[getJobWindow(b.scheduledStatus || {})] ?? 1;
+  if (wa !== wb) return wa - wb;
+  const ta = _jobStartMins(a.scheduledStatus || {});
+  const tb = _jobStartMins(b.scheduledStatus || {});
+  if (ta != null && tb != null && ta !== tb) return ta - tb;
+  return 0; // same slot → keep base order (distance / optimized / manual)
+}
+
 function getScheduledForRigOrdered(date, rig) {
   const jobs = getScheduledForRig(date, rig);
   const savedOrder = (calState.jobOrder?.[date]?.[rig]) || [];
   if (!savedOrder.length) {
-    // No manual reorder — auto-apply nearest-first-from-home so cards stack
-    // in the same order the legs are computed. (Tyler can still drag cards
-    // to override; the dragged order goes into calState.jobOrder and takes
-    // precedence on subsequent renders.) Earned 2026-06-18 — card↔leg
-    // mismatch fix.
-    return _nearFirstFromHome(jobs);
+    // No manual reorder — nearest-first-from-home base, then window-sorted so
+    // cards stack in chronological slot order (legs still match — same order).
+    // Tyler can drag cards to override; the dragged order goes into
+    // calState.jobOrder and takes precedence below. Earned 2026-06-18.
+    return _nearFirstFromHome(jobs).sort(_cmpJobByWindow);
   }
   // Phase 2B-1: order is jobId-keyed (phone-keyed entries from pre-2B-1 are silently ignored)
   // _stableId is attached by getScheduledForRig's fromKv path for completed KV cards that lack c.jobId.
@@ -2989,7 +3019,8 @@ function getScheduledForRigOrdered(date, rig) {
     const id = j.jobId || j._stableId;
     if (!id || !savedOrder.includes(id)) ordered.push(j);
   });
-  return ordered;
+  // Window-sort on top of the optimized/manual order — slot wins, order within slot kept.
+  return ordered.sort(_cmpJobByWindow);
 }
 
 function optimizeRoute(jobs) {
@@ -3528,7 +3559,7 @@ function _calVipBadge(c) {
 function _renderAltContacts(c){
   let alts = Array.isArray(c.alternateContacts) ? c.alternateContacts : null;
   if (alts === null) { const full = c.phone ? findCustomer(c.phone) : null; alts = Array.isArray(full?.alternateContacts) ? full.alternateContacts : []; }
-  alts = alts.filter(a => a && (a.phone || a.name));
+  alts = alts.filter(a => a && (a.phone || a.name || a.email));
   if(!alts.length) return '';
   return alts.map(a=>{
     const d=(a.phone||'').replace(/\D/g,'').slice(0,10);
@@ -3537,23 +3568,96 @@ function _renderAltContacts(c){
     const relLbl=rel==='spouse'?'Spouse':rel==='family'?'Family':rel==='property_manager'?'Prop. Mgr':rel==='tenant'?'Tenant':(rel==='merged'?'':rel||'');
     const lbl='Alt'+(relLbl?' · '+relLbl:'');   // WO-H: lead with "Alt" so it reads as the labeled alternative
     const nm=a.name?esc(a.name)+' ':'';
-    const tel=d.length===10?`<a href="tel:${d}" style="color:var(--sky);" onclick="event.stopPropagation()">${esc(pf)}</a>`:esc(pf);
-    return `<div class="js-meta" style="margin-top:1px;">📞 ${nm}<span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;">${lbl}</span> ${tel}</div>`;
+    const tel=d.length===10?`<a href="tel:${d}" style="color:var(--sky);" onclick="event.stopPropagation()">${esc(pf)}</a>`:(pf?esc(pf):'');
+    const em=a.email?`${tel?' · ':''}<a href="mailto:${esc(a.email)}" style="color:var(--sky);" onclick="event.stopPropagation()">${esc(a.email)}</a>`:'';
+    return `<div class="js-meta" style="margin-top:1px;">📞 ${nm}<span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;">${lbl}</span> ${tel}${em}</div>`;
   }).join('');
 }
 
+// ── Shared partner-name resolver (0036) ─────────────────────────────────────────
+// Partner-referral jobs carry BOTH a partner/business name and an end-customer name.
+// Per-job nameDisplay ('partner' default | 'customer') picks which is PRIMARY; both always
+// render. Non-partner jobs return their normal name. ONE function — every card + print
+// surface points here (DL-07). endCustOverride lets a caller pass a site-specific source
+// (e.g. jhEntry.endCustomerName, quoteStatus.partnerWorkSite).
+const _ENDCUST_JUNK_RE = /^(worksite|work\s*site|end\s*customer|placeholder|n\/a|tbd)$/i;
+function resolveJobNames(c, endCustOverride){
+  const isPartner = c.customerType === 'partner_referral';
+  const baseName = ((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim();
+  if (!isPartner) return { primary: baseName || c.businessName || 'Customer', secondary: '', isPartner:false, flipped:false };
+  const partner = (c.businessName || baseName || '').trim();
+  const endRaw  = ((endCustOverride !== undefined ? endCustOverride : c.endCustomerName) || '').trim();
+  const endCust = (endRaw && !_ENDCUST_JUNK_RE.test(endRaw)) ? endRaw : '';
+  const flip    = c.nameDisplay === 'customer' && !!endCust;
+  const primary = flip ? endCust : (partner || endCust || 'Partner job');
+  let secondary = flip ? partner : endCust;
+  if (secondary && secondary === primary) secondary = '';
+  return { primary, secondary, isPartner:true, flipped:flip };
+}
+
+// Rig-split (scheduled) primary designation — display-only. Mirrors Fix 6's
+// completed-side rule (lowest dayNumber ?? 99, tie-break alphabetically-lowest
+// rig) so the scheduled primary and the completed primary land in the SAME
+// column (no card jump on completion). Derived from the CURRENT calendarJobs
+// segment set every render — never cached — so promotion is automatic when the
+// primary is deleted/unassigned/moved (WO point 5). Guarded on the billing
+// PARENT existing with amount>0, so even a lone remaining segment shows the
+// price (no "invisible $900" state). NEVER touches jobAmount() → money math
+// keeps every segment at $0; the parent still adds once via rigGroupTotal.
+function _rigSplitInfo(c) {
+  if (!c || !c.isRigSegment || !c.parentJobId) return null;
+  const parent = calendarJobs.find(j => j.jobId === c.parentJobId);
+  if (!parent || !(Number(parent.amount) > 0)) return null;
+  const segs = calendarJobs.filter(j => j.parentJobId === c.parentJobId && j.isRigSegment
+      && (j.state === 'scheduled' || j.state === 'in_progress'));
+  if (!segs.length) return null;
+  const sorted = segs.slice().sort((a, b) => {
+    const dn = (a.dayNumber ?? 99) - (b.dayNumber ?? 99);
+    if (dn !== 0) return dn;
+    return String(a.rigId || '').localeCompare(String(b.rigId || ''));
+  });
+  const primary = sorted[0];
+  const isPrimary = !!(c.jobId && c.jobId === primary.jobId);
+  const otherRigs = sorted.filter(s => s.jobId !== primary.jobId).map(s => s.rigId);
+  return { isPrimary, parentAmount: Number(parent.amount || 0), primaryRig: primary.rigId, otherRigs, count: sorted.length };
+}
+
 function jobCardScheduled(c) {
-  const name  = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const _rn = resolveJobNames(c);
+  const isPartner = _rn.isPartner;
+  const name = esc(_rn.primary);
+  // Secondary line: "for <customer>" (partner primary) or "via <partner>" (customer primary).
+  const endCustSub = _rn.secondary
+    ? `<div class="js-meta" style="margin-top:0;color:var(--muted);">${_rn.flipped?'via':'for'} ${esc(_rn.secondary)}</div>` : '';
   const ss    = c.scheduledStatus || {};
   const winLbl = windowLabel(ss);
   const dur   = ss.estimatedDuration || 2;
   const state = ss.state || 'scheduled';
   const alerts= alertIcons(c.alerts||[]);
-  const isPartner = (c.customerType === 'partner_referral');
   const _displayCity = c.workSiteCity ? c.workSiteCity : c.city;
   const city  = _displayCity ? esc(formatCity(_displayCity)) : '';
   const badge = state==='completed' ? '✓' : state==='in_progress' ? '▶' : '';
-  const { html: amtHtml } = jobAmount(c);
+  let amtHtml = jobAmount(c).html;
+  // Rig-split primary: show the full job amount (parent), display-only. Non-primary
+  // segments keep "—" plus a reciprocal "w/ {primary rig}" hint so both cards point
+  // at each other. jobAmount().val (the money math) is left untouched at $0.
+  let _splitBadge = '';
+  const _split = _rigSplitInfo(c);
+  if (_split) {
+    if (_split.isPrimary) {
+      if (_split.parentAmount > 0)
+        amtHtml = `<span class="jn-amount">$${_split.parentAmount.toLocaleString('en-US',{maximumFractionDigits:0})}</span>`;
+      if (_split.otherRigs.length === 1) {
+        const _or = _split.otherRigs[0];
+        _splitBadge = `<span class="split-badge" title="Rig-split — other truck: ${esc(RIG_LABELS[_or]||_or)}">w/ ${esc(RIG_LABELS[_or]||_or)}</span>`;
+      } else if (_split.otherRigs.length >= 2) {
+        const _names = _split.otherRigs.map(r => RIG_LABELS[r]||r).join(', ');
+        _splitBadge = `<span class="split-badge" title="Split across ${_split.count} rigs — also: ${esc(_names)}">×${_split.count} rigs</span>`;
+      }
+    } else {
+      _splitBadge = `<span class="split-hint" title="Full amount shown on the ${esc(RIG_LABELS[_split.primaryRig]||_split.primaryRig)} card">w/ ${esc(RIG_LABELS[_split.primaryRig]||_split.primaryRig)}</span>`;
+    }
+  }
   const testBadge = c.isTest ? ' <span class="test-badge">🧪</span>' : '';
   const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
   const firstName = ((c.firstName||c.fn||'').trim().split(' ')[0]) || 'there';
@@ -3568,6 +3672,10 @@ function jobCardScheduled(c) {
     : '';
   const rigPickBtnHtml = state !== 'completed' && !c.isTest && phone
     ? `<button class="rig-pick-btn" onclick="event.stopPropagation();openRigPickModal('${phone}','${c.jobId||''}')">↔ Rig</button>`
+    : '';
+  // 0036: partner-only ⇄ Name toggle — flips which name is primary (partner ↔ end customer).
+  const nameToggleBtnHtml = (isPartner && _rn.secondary && c.jobId)
+    ? `<button class="rig-pick-btn" title="Swap which name is primary (partner ↔ customer)" onclick="event.stopPropagation();toggleNameDisplay('${phone}','${c.jobId}',this)">⇄ Name</button>`
     : '';
   const cmptBadge = hasCmpt ? ' <span class="complaint-badge" title="Complaint logged">⚠</span>' : '';
 
@@ -3688,6 +3796,15 @@ function jobCardScheduled(c) {
     return `<div class="js-roof-info">🏠 ${esc(label)}${sqft}${meth}${warn}</div>`;
   })() : '';
 
+  // Modesta fix — LOUD missing-sqft chip. Print reads Property.sqft (c.sqFt); when a
+  // roof/driveway job has none, the crew sheet prints "SQ FT: N/A". Surface it on the
+  // card so Darla catches it the day before, not at the truck. (T1.21: no fake default —
+  // the sheet still prints N/A; this is only the operator-facing warning.)
+  const _svcIds = _svcAgreed.structured || [];
+  const _needsSqft = !!(_rt || _svcIds.includes('roof_cleaning') || _svcIds.includes('driveway'));
+  const sqftWarnHtml = (_needsSqft && !c.sqFt && (state === 'scheduled' || state === 'in_progress'))
+    ? `<div class="js-sqft-warn" title="Enter sq ft via ✏️ Edit so the printed job sheet isn't N/A">⚠ sq ft missing</div>` : '';
+
   // GPS time-on-site row (populated after Bouncie sync)
   // Skip csv_backfill entries — they never have GPS data and mask real Bouncie-matched entries
   const _gpsEntry = (c.jobHistory || []).slice().reverse().find(j => j.date === ss.scheduledDate && j.source !== 'csv_backfill')
@@ -3767,8 +3884,9 @@ function jobCardScheduled(c) {
   const metaParts = [winLbl, city + propLabelChip].filter(Boolean);
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" data-job-id="${_editJobId}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
-      <span style="display:flex;align-items:center;gap:4px;">${amtHtml}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
+      <span style="display:flex;align-items:center;gap:4px;">${amtHtml}${_splitBadge}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
+    ${endCustSub}
     <div class="js-meta">${metaParts.join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
     ${gpsHtml /* Fix B (2026-06-14): GPS lifted ABOVE the expand fold so completed
@@ -3804,10 +3922,11 @@ function jobCardScheduled(c) {
     ${/* Fix B: gpsHtml moved above .jc-detail — was here, now above */ ''}
     ${_renderAltContacts(c)}
     ${crewQeHtml}
-    ${roofInfoHtml}
+    ${roofInfoHtml}${sqftWarnHtml}
     ${printBtnHtml}
     ${etaBtnHtml}
     ${rigPickBtnHtml}
+    ${nameToggleBtnHtml}
     ${complaintLink}
     ${tipLink}
     ${zelleReqBtnHtml}
@@ -3822,7 +3941,13 @@ function jobCardScheduled(c) {
 }
 
 function jobCardHistoryExtra(c, jhEntry) {
-  const name     = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  // 0036: per-job name toggle lives on the job (jhEntry) — merge it over the customer for the resolver.
+  const _rn = resolveJobNames({ ...c, nameDisplay: jhEntry.nameDisplay || c.nameDisplay },
+                              jhEntry.endCustomerName || c.endCustomerName);
+  const isPartner = _rn.isPartner;
+  const name = esc(_rn.primary);
+  const endCustSub = _rn.secondary
+    ? `<div class="js-meta" style="margin-top:0;color:var(--muted);">${_rn.flipped?'via':'for'} ${esc(_rn.secondary)}</div>` : '';
   const phone    = (c.phone||'').replace(/\D/g,'').slice(-10);
   const jobId    = jhEntry.jobId || '';
   const city     = esc(formatCity(jhEntry.city || c.city || ''));
@@ -3906,6 +4031,7 @@ function jobCardHistoryExtra(c, jhEntry) {
 
   return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}"${jobId ? ` data-job-id="${jobId}"` : ''} onclick="toggleJobCard(this)">
     <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}</span><span>${amtHtml}</span></div>
+    ${endCustSub}
     <div class="js-meta">${[city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
     ${gpsHtml /* Fix B (2026-06-14): GPS lifted above the expand fold on completed cards. */}
@@ -4438,6 +4564,31 @@ async function handleDropToWindow(jobId, phone, date, rig, win) {
 }
 
 // ── RIG PICK MODAL ────────────────────────────────────────────────────────────
+// 0036: flip a partner job's primary name (partner ↔ end customer). Persists to D1 and only
+// updates the card AFTER the write is confirmed (T1.20 — never fire-and-forget).
+async function toggleNameDisplay(phone, jobId, btn){
+  const calJob = calendarJobs.find(j => j.jobId === jobId);
+  const cur    = (calJob?.nameDisplay) || 'partner';
+  const next   = cur === 'customer' ? 'partner' : 'customer';
+  if (btn) btn.disabled = true;
+  try {
+    const res  = await fetch(`${PCPC_API}/admin/job/${encodeURIComponent(jobId)}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ nameDisplay: next }),
+    });
+    const data = await res.json().catch(()=>({}));
+    // Verify the write actually persisted (updatedRow echoes the D1 row) before re-rendering.
+    if (!res.ok || !data.success || (data.updatedRow && data.updatedRow.nameDisplay !== next))
+      throw new Error(data.error || 'write not confirmed');
+    if (calJob) calJob.nameDisplay = next;   // mirror the CONFIRMED value locally
+    showToast(next === 'customer' ? '⇄ End customer is now the primary name' : '⇄ Partner is now the primary name');
+    renderCalGrid(getWeekDates());
+  } catch(e){
+    if (btn) btn.disabled = false;
+    showToast('⚠️ Could not update name: ' + e.message);
+  }
+}
+
 let _rigPickPhone = null;
 let _rigPickJobId = null; // D1 jobId for rig pick modal (Phase 2B-2)
 
@@ -4878,6 +5029,7 @@ function _renderGroupGpsLine(jhEntry) {
   const _durFmt = _dur > 0 ? ` (${Math.floor(_dur/60)}h ${_dur%60}m)` : '';
   const _conf = jhEntry.bouncieMatchStatus === 'matched_high'   ? ' · ✓ high confidence'
               : jhEntry.bouncieMatchStatus === 'matched_medium' ? ' · ~ medium confidence'
+              : jhEntry.bouncieMatchStatus === 'too_short_manual' ? ' · ⚠ short stop — verify'
               : '';
   return `<div style="font-size:11px;color:var(--muted);margin-top:3px;">⏱ ${_arr}${_dep ? ' – ' + _dep : ''}${_durFmt}${_conf}</div>`;
 }
@@ -4998,6 +5150,21 @@ function togglePaymentFields(val) {
   document.getElementById('paymentFields').style.display = val === 'paid' ? 'block' : 'none';
 }
 
+// Resolve per-job values for the SPECIFIC job being completed (keyed to jmJobId),
+// NOT the shared single-slot KV scheduledStatus. With 2+ scheduled jobs the KV slot
+// holds only one of them, so reading it prefilled/recorded the WRONG job's amount or
+// services. Completes the 2026-05-29 date fix across the whole completion modal (DL-07).
+//   amount:   standalone job → its own D1 amount; group parent/child → KV group total;
+//             KV-only legacy (no calJob) → the slot.
+//   services: clicked job's servicesRaw first, KV slot fallback.
+function _completionApprovedAmount(c, cj) {
+  if (cj && Number(cj.amount) > 0 && !cj.isMultiDayParent && !cj.parentJobId) return Number(cj.amount);
+  return c?.scheduledStatus?.groupApprovedAmount || c?.scheduledStatus?.approvedAmount || 0;
+}
+function _completionServices(c, cj) {
+  return (cj && (cj.servicesRaw || cj.jobNotes)) || c?.scheduledStatus?.jobNotes || c?.quoteStatus?.mainServices || '';
+}
+
 function markComplete() {
   const now = new Date();
   document.getElementById('jobEndTime').value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -5013,8 +5180,8 @@ function markComplete() {
   // sealing OR paver-sealing. Prefill prices from /admin/cost-last so Tyler
   // confirms-or-edits rather than retyping every time.
   const _cust = findCustomer(jmPhone);
-  const _ss   = _cust?.scheduledStatus || {};
-  const _jhSvc = _ss.jobNotes || _cust?.quoteStatus?.mainServices || '';
+  const _mcCalJob = jmJobId ? calendarJobs.find(j => j.jobId === jmJobId) : null;
+  const _jhSvc = _completionServices(_cust, _mcCalJob);
   const _svcStr = String(_jhSvc).toLowerCase();
   const _hasSeal = /seal|paver/.test(_svcStr);
   const _sealField = document.getElementById('sealMatField');
@@ -5042,9 +5209,11 @@ function markComplete() {
       }).catch(() => { /* prefill is best-effort */ });
     }
   }
-  // Pre-fill amount from scheduled job total
+  // Pre-fill amount from the CLICKED job's agreed price (jmJobId-keyed) — NOT the shared
+  // KV slot, which holds only one of a customer's multiple scheduled jobs (the bug).
   const c = findCustomer(jmPhone);
-  if (c?.scheduledStatus?.approvedAmount) document.getElementById('paymentAmount').value = c.scheduledStatus.approvedAmount;
+  const _prefillAmt = _completionApprovedAmount(c, _mcCalJob);
+  if (_prefillAmt) document.getElementById('paymentAmount').value = _prefillAmt;
   // Pre-select payment method from customer preference (fallback: cash)
   const _cmPref = (c?.preferredPaymentMethod || c?.paymentMethod || 'cash').toLowerCase();
   const _cmKnown = ['zelle','check','cash','venmo','other'];
@@ -5438,7 +5607,8 @@ function saveJobLog() {
   // approvedAmount fallback preserves the check for all other job types.
   if (payLog.paymentAmount > 0) {
     const c = findCustomer(jmPhone);
-    const approved = c?.scheduledStatus?.groupApprovedAmount || c?.scheduledStatus?.approvedAmount || 0;
+    const _mmCalJob = jmJobId ? calendarJobs.find(j => j.jobId === jmJobId) : null;
+    const approved = _completionApprovedAmount(c, _mmCalJob);
     if (approved > 0 && payLog.paymentAmount !== approved) {
       _pendingJobLog = { satisfied, endTime, issues, notes, ...payLog };
       const fmtAmt = n => `$${Number(n).toLocaleString('en-US', {maximumFractionDigits:0})}`;
@@ -5509,9 +5679,18 @@ function amtMismatchChoice(choice) {
   if (!log) return;
 
   if (choice === 'both') {
-    // Update approvedAmount before _doCompleteJob so jh.amount + lifetimeSpend are correct
+    // Record the corrected amount ON the completion itself so jh.amount + lifetimeSpend
+    // are right regardless of the shared KV slot (read in _doCompleteJob via _correctedAmount).
+    log._correctedAmount = log.paymentAmount;
     const c = findCustomer(jmPhone);
-    if (c?.scheduledStatus) {
+    const _cbCalJob = jmJobId ? calendarJobs.find(j => j.jobId === jmJobId) : null;
+    // Only rewrite the single KV scheduledStatus slot when it actually points at THIS job.
+    // With 2+ scheduled jobs the slot may hold the OTHER job — a blind write clobbered its
+    // amount. D1 PATCH by jobId (in _doCompleteJob) is canonical either way.
+    const _slotIsThisJob = !_cbCalJob || !_cbCalJob.scheduledDate
+      || !c?.scheduledStatus?.scheduledDate
+      || c.scheduledStatus.scheduledDate === _cbCalJob.scheduledDate;
+    if (c?.scheduledStatus && _slotIsThisJob) {
       c.scheduledStatus.approvedAmount = log.paymentAmount;
       const qs = c.quoteStatus || (c.quoteStatus = {});
       qs.mainAmount = log.paymentAmount;
@@ -5539,7 +5718,11 @@ async function _doCompleteJob(log) {
   // Completing ANY member (parent or child) completes ALL non-cancelled members.
   // Group total = sum of all member amounts; ONE jobHistory entry at that total.
   const _isGroupJob = !!(completingJob?.parentJobId || completingJob?.isMultiDayParent);
-  let _groupTotalAmt = ss.approvedAmount || 0;
+  // Per-job amount (jmJobId-keyed), or the operator's corrected amount from the mismatch
+  // 'both' choice. Group jobs recompute from /admin/job/:id/days just below (unchanged).
+  let _groupTotalAmt = (log._correctedAmount != null)
+    ? Number(log._correctedAmount)
+    : _completionApprovedAmount(c, completingJob);
   let _groupSiblings = []; // all non-cancelled members including clicked job
   if (_isGroupJob && jmJobId) {
     try {
@@ -5580,7 +5763,7 @@ async function _doCompleteJob(log) {
     city:            c.city || '',
     scheduledDate:   completingJob?.scheduledDate || ss.scheduledDate || null,
     completedDate,
-    services:        ss.jobNotes || '',
+    services:        _completionServices(c, completingJob),
     total:           amt,
     paymentStatus:   log.paymentStatus || 'not_yet',
     paymentMethod:   log.paymentMethod || null,
@@ -5593,7 +5776,7 @@ async function _doCompleteJob(log) {
 
   const _capturePhone    = jmPhone;
   const _captureDate     = ss.completedDate;
-  const _captureServices = ss.jobNotes || '';
+  const _captureServices = _completionServices(c, completingJob);
 
   // Add to review queue only for jobs on or after 2026-05-01 — prevents historical imports from triggering
   if (completedDate >= '2026-05-01') {
@@ -5717,7 +5900,7 @@ async function _doCompleteJob(log) {
         .filter(d => d.dayPhase || d.servicesRaw)
         .map(d => d.dayPhase || d.servicesRaw)
         .join(' → ')
-    : (ss.jobNotes || '');
+    : _completionServices(c, completingJob);
 
   const _jhEntry = {
     jobId:          _jhJobId,
@@ -6920,6 +7103,23 @@ function _showInvoiceLinkModal(d, phone) {
   render();
 }
 
+// Roof type belongs in Property Details, not the Services list. It gets stored in
+// the services text as one comma-separated item and otherwise renders as a bogus
+// service (e.g. "· Short Barrel Tile"). This shared helper splits the services text
+// into items AND strips any item that is a known roof-type key or label — used by
+// every service-list renderer (job sheet, invoice print, invoice email). DL-07.
+// Mirrors the per-render _ROOF_LABELS object; matches are exact + case-insensitive,
+// so a real service ("Roof Cleaning", "soft wash") is never dropped.
+const _ROOF_LABELS_FOR_SVC = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
+const _ROOF_LABEL_WORDS = new Set([
+  ...Object.keys(_ROOF_LABELS_FOR_SVC),
+  ...Object.values(_ROOF_LABELS_FOR_SVC).map(v => v.toLowerCase()),
+]);
+function _splitServiceItems(services){
+  return (services||'').split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean)
+    .filter(s => !_ROOF_LABEL_WORDS.has(s.toLowerCase()));
+}
+
 // ── INVOICE ───────────────────────────────────────────────────────────────────
 function printInvoice(phone, jhJobId) {
   const c = findCustomer(phone);
@@ -6940,7 +7140,7 @@ function printInvoice(phone, jhJobId) {
   const _printAddr = _partnerAddr(c, _jh);
   const _printCity = _partnerCity(c, _jh);
   const addOns   = c.addOns || [];
-  const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
+  const items    = _splitServiceItems(services);   // roof type stays in Property Details, not Services
 
   // Single-column service list — no blank Amount column, just clean ✓ rows.
   // Add-ons show their bundle price inline (right-aligned, monospace) when present.
@@ -7034,7 +7234,7 @@ function emailInvoice(phone, jhJobId) {
   const services = _jh
     ? (_jh.phaseScope || _jh.services || _jh.jobNotes || 'Professional Pressure Washing Services')   // WO-C/DL-03: completed reprint reads scope from history
     : (ss.phaseScope || ss.jobNotes || qs.mainServices || qs.notes || 'Professional Pressure Washing Services');
-  const svcItems = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean).map(s=>`  ✓  ${s}`).join('\n');
+  const svcItems = _splitServiceItems(services).map(s=>`  ✓  ${s}`).join('\n');   // roof type stays in Property Details, not Services
   // Partner-aware address: worksite first, billing anchor last (helper handles fallback)
   const _emailAddr = _partnerAddr(c, _jh);
   const _emailCity = _partnerCity(c, _jh);
@@ -7088,7 +7288,7 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   // the surface/services list, then "Services as discussed" — render what's stored,
   // never a false default (T1.21).
   const services = ss.phaseScope || ss.jobNotes || qs.mainServices || qs.notes || 'Services as discussed';
-  const items    = services.split(/[,\n·•]+/).map(s=>s.trim()).filter(Boolean);
+  const items    = _splitServiceItems(services);   // roof type stays in Property Details, not Services
   const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
   const addOns   = c.addOns || [];
   const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
@@ -7145,10 +7345,16 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   // For partner_referral: show work site (where we're doing the work), not the
   // partner's own billing address. workSiteAddress is copied into printC from
   // the D1 Job row by printJobSheet. Fall back to c.address if no work site set.
-  const isPartner   = c.customerType === 'partner_referral';
-  // Partner: prefer businessName (e.g. "Carlos Pro Built") over firstName+lastName.
-  // Regular customer: use name as-is.
-  const displayName = (isPartner && c.businessName) ? c.businessName : name;
+  // 0036: shared resolver honors the per-job partner|customer primary-name toggle.
+  const _rn = resolveJobNames(c, _rawEndCust);
+  const isPartner   = _rn.isPartner;
+  const displayName = _rn.primary;
+  // Secondary block: the OTHER name. Label swaps with the toggle; the end-customer name
+  // carries its phone, the partner name does not.
+  const secondaryLabel = _rn.flipped ? 'Referred by' : 'Customer name';
+  const secondaryLine  = _rn.secondary
+    ? (_rn.flipped ? esc(_rn.secondary) : [esc(_rn.secondary), endCustPhone ? fmtPh(endCustPhone) : null].filter(Boolean).join(' &nbsp;·&nbsp; '))
+    : '';
   const displayAddr = c.workSiteAddress || c.address;  // Fix 2: workSiteAddress for all job types
   const displayCity = c.workSiteCity    || c.city;
   const addrLine  = _titleAddr(displayAddr||'');
@@ -7306,18 +7512,19 @@ table{width:auto;border-collapse:collapse;}
       <div>
         <div class="js-cust-address">${addrHtml}</div>
         <div class="js-cust-phone"><span class="js-num-lbl">Main Number</span>${c.phone ? fmtPh(c.phone) : '<span style="color:#c2410c;">No phone on file</span>'}</div>
-        ${(Array.isArray(c.alternateContacts) ? c.alternateContacts : []).filter(a => a && (a.phone || a.name)).map(a => {
+        ${(Array.isArray(c.alternateContacts) ? c.alternateContacts : []).filter(a => a && (a.phone || a.name || a.email)).map(a => {
           const d = (a.phone || '').replace(/\D/g, '').slice(0, 10);
           const pf = d.length === 10 ? fmtPh(d) : (a.phone || '');
-          return `<div class="js-cust-phone" style="margin-top:3px;"><span class="js-num-lbl">Alternative Number</span>${a.name ? esc(a.name) + ' — ' : ''}${esc(pf)}</div>`;
+          const em = a.email ? `${pf ? ' · ' : ''}${esc(a.email)}` : '';
+          return `<div class="js-cust-phone" style="margin-top:3px;"><span class="js-num-lbl">Alternative Number</span>${a.name ? esc(a.name) + ' — ' : ''}${esc(pf)}${em}</div>`;
         }).join('')}
       </div>
     </div>
 
-    ${isPartner && endCustLine ? `
+    ${isPartner && secondaryLine ? `
     <div class="js-endcust">
-      <div class="js-endcust-label">Customer name</div>
-      <div class="js-endcust-val">${endCustLine}</div>
+      <div class="js-endcust-label">${secondaryLabel}</div>
+      <div class="js-endcust-val">${secondaryLine}</div>
     </div>` : ''}
 
     <div class="js-propdetails">
@@ -7328,7 +7535,7 @@ table{width:auto;border-collapse:collapse;}
       </div>
       <div class="js-propdetails-item">
         <span class="js-propdetails-label">Sq Ft</span>
-        <span class="js-propdetails-val">${sqft ? Number(sqft).toLocaleString() : 'N/A'}</span>
+        <span class="js-propdetails-val">${sqft ? Number(sqft).toLocaleString() : (roofLabel ? '⚠ N/A' : 'N/A')}</span>
       </div>
       <div class="js-propdetails-item">
         <span class="js-propdetails-label">Roof Type</span>
@@ -7494,8 +7701,10 @@ function _fullProposalBody(c, splitDays, totalAmt) {
   // Address — identical to _jobSheetBody (work site for partner, else billing).
   const _dirs = new Set(['n','s','e','w','nw','ne','sw','se','nne','nnw','sse','ssw']);
   const _titleAddr = s => (s||'').replace(/\S+/g, w => /^\d/.test(w) ? w : _dirs.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase()+w.slice(1).toLowerCase());
-  const isPartner   = c.customerType === 'partner_referral';
-  const displayName = (isPartner && c.businessName) ? c.businessName : name;
+  // 0036: shared resolver honors the per-job partner|customer primary-name toggle.
+  const _rn = resolveJobNames(c);
+  const isPartner   = _rn.isPartner;
+  const displayName = _rn.primary;
   const displayAddr = c.workSiteAddress || c.address;
   const displayCity = c.workSiteCity    || c.city;
   const addrLine    = _titleAddr(displayAddr||'');
@@ -7621,7 +7830,7 @@ table{width:auto;border-collapse:collapse;}
       </div>
       <div class="js-propdetails-item">
         <span class="js-propdetails-label">Sq Ft</span>
-        <span class="js-propdetails-val">${sqft ? Number(sqft).toLocaleString() : 'N/A'}</span>
+        <span class="js-propdetails-val">${sqft ? Number(sqft).toLocaleString() : (roofLabel ? '⚠ N/A' : 'N/A')}</span>
       </div>
       <div class="js-propdetails-item">
         <span class="js-propdetails-label">Roof Type</span>
@@ -8060,6 +8269,22 @@ function openEditModal(phone, jhJobId, calJobId) {
   document.getElementById('feEmail').value = c.email || '';
   // F3/F4/F5 partner guard — computed once, used by all three fixes below.
   const _isPartner = c.customerType === 'partner_referral';
+  // 0036: partner-name primary toggle in the modal (only when there's a swappable end customer).
+  const _feNameBtn = document.getElementById('feNameToggle');
+  if (_feNameBtn) {
+    const _rnModal = resolveJobNames({ ...c, nameDisplay: _calJob?.nameDisplay }, _calJob?.endCustomerName || c.endCustomerName);
+    if (_isPartner && _feCalJobId && _rnModal.secondary) {
+      const _setLbl = () => {
+        const cj = calendarJobs.find(j => j.jobId === _feCalJobId);
+        _feNameBtn.textContent = ((cj?.nameDisplay) === 'customer') ? '⇄ Primary: Customer' : '⇄ Primary: Partner';
+      };
+      _setLbl();
+      _feNameBtn.style.display = '';
+      _feNameBtn.onclick = async () => { await toggleNameDisplay(_fePhone, _feCalJobId, _feNameBtn); _feNameBtn.disabled = false; _setLbl(); };
+    } else {
+      _feNameBtn.style.display = 'none';
+    }
+  }
   // Job-level address/city: from calJob (correct property), jhEntry, or customer default.
   // F5: for partner_referral, workSiteAddress is the homeowner's address (correct); streetAddress
   // on old jobs is the billing anchor (wrong). Prefer workSiteAddress when available.

@@ -257,23 +257,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <h1 id="formTitle">📞 Add New Quote</h1>
     </div>
 
-    <!-- Path toggle -->
-    <div class="path-toggle">
-      <div id="pathPhone" class="path-opt active" onclick="setPath('phone')">
-        <div class="path-radio" id="radioPhone">⦿</div>
-        <div>
-          <div class="path-title">📞 Quoted on the phone — book it now</div>
-          <div class="path-sub">Services agreed — log it and send a confirmation text</div>
-        </div>
-      </div>
-      <div id="pathDigital" class="path-opt" onclick="setPath('digital')">
-        <div class="path-radio" id="radioDigital">○</div>
-        <div>
-          <div class="path-title">💻 Send digital quote</div>
-          <div class="path-sub">Customer reviews options and confirms online</div>
-        </div>
-      </div>
-    </div>
+    <!-- Path toggle removed 2026-07-23 (Quote Pool WO): the digital
+         send-a-link path is retired; this page is now the booking flow only,
+         reached via Quote Pool → Accept / Log Confirmed Quote, the incoming
+         lead conversion, and mini-quote-builder back-nav. -->
 
     <!-- Customer type selector -->
     <div class="ctype-row">
@@ -617,6 +604,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
             <label><input type="radio" name="nRoofStories" value="2"> 2-Story</label>
             <label><input type="radio" name="nRoofStories" value="" id="nStoriesUnk" checked> Unknown</label>
           </div>
+          <div id="nStoryWarn" class="roof-inline-warn amber" style="display:none;"></div>
         </div>
       </div>
 
@@ -730,22 +718,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   </div>
 </div>
 
-<!-- STATE 3: SUCCESS -->
-<div id="state-success" class="state">
-  <div class="wrap">
-    <div class="success-wrap">
-      <span class="s-emoji">✨</span>
-      <div class="s-title">All set!</div>
-      <div class="s-sub" id="sSub">Quote link ready to send 📲</div>
-    </div>
-    <div class="s-actions">
-      <button class="btn btn-gold" onclick="openSms()">📱 Send Text to <span id="sName"></span></button>
-      <button class="btn btn-outline" onclick="startNew()">Add Another Customer</button>
-      <a href="/pure_cleaning_admin.html" class="s-home">← Back to Admin Home</a>
-    </div>
-  </div>
-</div>
-
 <!-- STATE: PHONE QUOTE SUCCESS -->
 <div id="state-phone-success" class="state">
   <div class="wrap">
@@ -841,42 +813,9 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 
 <script>
 const PCPC_API           = 'https://purecleaning-api.tylerfumero.workers.dev';
-const QUOTE_BASE         = 'https://purecleaningpressurecleaning.com/pure_cleaning_quote.html';
-const CHARSET            = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const _SL_ALPHA          = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-function _genShortCode() {
-  let c = '';
-  for (let i = 0; i < 8; i++) c += _SL_ALPHA[Math.floor(Math.random() * 32)];
-  return c;
-}
-
-// Returns short URL immediately, writes mapping to Worker /links in background
-function shortenUrl(longUrl) {
-  const code = _genShortCode();
-  const short = 'https://purecleaningpressurecleaning.com/q.html?id=' + code;
-  (async () => {
-    try {
-      const r = await fetch(`${PCPC_API}/links`);
-      const data = await r.json();
-      const links = data.links || {};
-      links[code] = longUrl;
-      await fetch(`${PCPC_API}/links`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ links })
-      });
-    } catch(e) { console.warn('[shortenUrl]', e.message); }
-  })();
-  return short;
-}
-
-function generateQuoteCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let c = '';
-  for (let i = 0; i < 8; i++) c += chars[Math.floor(Math.random() * 32)];
-  return c;
-}
+// (digital-quote link helpers removed 2026-07-23 — Quote Pool WO retired the
+//  send-a-link path; PUT /quote/:code + /links stay on the worker for the
+//  mini-quote / reactivation / add_job flows that still use them)
 
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
 async function getCachedCustomerDB() {
@@ -947,10 +886,14 @@ let _svcCustExp      = false;
 let _roofMethod      = null;
 let _roofStories     = null;
 
-function getLastKnownRoofStories(customer) {
+// 0038: when propertyId is given, ONLY that property's roof history counts (silent if none) —
+// so a story-mismatch warning compares against THE PROPERTY BEING BOOKED, not the customer's
+// other properties. Omit propertyId for general/any-property use.
+function getLastKnownRoofStories(customer, propertyId) {
   if (!customer || !Array.isArray(customer.jobHistory)) return null;
   const roofJobs = customer.jobHistory
-    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || ''))
+    .filter(j => j && j.date && j.roofStories && /roof|soft\s*wash|softwash/i.test(j.services || '')
+              && (!propertyId || j.propertyId === propertyId))
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   return roofJobs.length > 0 ? roofJobs[0].roofStories : null;
 }
@@ -1036,6 +979,7 @@ function _fullRerender() {
   renderServicePicker();
   const sec = document.getElementById('secondaryServices');
   if (sec) sec.style.display = _svcSecExp ? 'block' : 'none';
+  if (typeof _draftScheduleSave === 'function') _draftScheduleSave();  // services change via clicks, not input events
 }
 
 function setRoofMethod(method) {
@@ -1258,7 +1202,10 @@ function getServicesAgreedValue() {
   return {
     structured,
     roofMethod:       isRoofSel ? (_roofMethod||null) : null,
-    roofStories:      isRoofSel ? (() => { const v = document.querySelector('input[name=nRoofStories]:checked')?.value; const s = v ? parseInt(v) : null; if (currentCustomerType === 'partner_referral') return s; const _nph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(0,10); const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === _nph); const lastKnown = getLastKnownRoofStories(existing); if (lastKnown && s && lastKnown !== s && !confirm(`${existing?.firstName || 'Customer'}'s most recent roof job had ${lastKnown}-story.\nYou're saving ${s}-story.\n\nClick OK to use ${s}-story, Cancel to keep ${lastKnown}-story.`)) return lastKnown; return s; })() : null,
+    // Story is the source of truth from the radio itself. Mismatch checkpoint lives in
+    // validateQuote() (runs BEFORE the save button disables) — never inside this getter,
+    // which is called mid-payload-build and must never block or throw (was the strand bug).
+    roofStories:      isRoofSel ? (parseInt(document.querySelector('input[name=nRoofStories]:checked')?.value) || null) : null,
     roofType:         isRoofSel ? (_roofType||null) : null,
     roofTypeOther:    isRoofSel && _roofType==='other' ? (document.getElementById('nRoofTypeOther')?.value?.trim()||'') : null,
     roofSqFt:         parseInt(document.getElementById('nRoofSqFt')?.value) || null,
@@ -1326,11 +1273,16 @@ let dbLoaded     = false;
 let currentCustomer = null;
 let isNew        = true;
 let pendingAlerts = [];
-let pendingSms   = '';
 let chooserCtx   = 'new';
 let selPreset    = null;
 let dupPhone     = null;
-let currentPath  = 'phone';
+let currentPath  = 'phone';  // digital path retired 2026-07-23 — always 'phone'
+// Quote Pool hand-off context (Accept / Log Confirmed Quote): the originating
+// Quote row + price quoted on the call. personId links back on save; price
+// flows into schedPrice + quoteStatus.mainAmount so it reaches both the
+// schedule-now modal and the mini-quote builder.
+let _activeQuoteId    = null;
+let _activeQuotePrice = null;
 let currentCustomerType = 'residential';
 let _selectedPropertyId = null;
 let _customerProperties = [];
@@ -1396,6 +1348,14 @@ async function init() {
       if (data.leadId && Array.isArray(data.photos) && data.photos.length) {
         window.__pcpcLeadPhotoConnect = { leadId: data.leadId, photoKeys: data.photos };
       }
+      // Quote Pool hand-off (new caller): the quick-quote modal extends the
+      // blob with svc (service-picker ids), price, quoteId. Services preselect
+      // via toggleService so bundles/sub-options behave exactly as hand-taps.
+      if (Array.isArray(data.svc)) {
+        data.svc.forEach(id => { if (!_svcSel.has(id)) toggleService(id); });
+      }
+      if (data.price != null && data.price !== '') _activeQuotePrice = Number(data.price) || null;
+      if (data.quoteId) _activeQuoteId = data.quoteId;
       checkReq();
       if (data.phone) {
         const phoneEl = document.getElementById('nPhone');
@@ -1408,7 +1368,23 @@ async function init() {
     const normPhone = urlPhone.replace(/\D/g,'').slice(-10);
     const c = allCustomers.find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === normPhone);
     if (c) preloadCustomerForEdit(c);
+    // Quote Pool hand-off (existing customer): the ?phone= prefill above
+    // restored their PRIOR servicesAgreed — overlay what was quoted THIS call.
+    const _sp  = new URLSearchParams(window.location.search);
+    const _qid = _sp.get('quoteId');
+    if (_qid) {
+      _activeQuoteId = _qid;
+      const _qp = _sp.get('qprice');
+      if (_qp != null && _qp !== '') _activeQuotePrice = Number(_qp) || null;
+      (_sp.get('qsvc') || '').split(',').filter(Boolean).forEach(id => {
+        if (!_svcSel.has(id)) toggleService(id);
+      });
+    }
   }
+
+  // Draft autosave: attach listeners always; offer Resume only on a cold open
+  // (not when ?phone= / ?fromOnline= already prefilled a specific customer).
+  _draftInit(!!(urlPhone || fromOnline));
 }
 
 function preloadCustomerForEdit(c) {
@@ -1427,7 +1403,6 @@ function preloadCustomerForEdit(c) {
   document.getElementById('nZip').value   = c.zip||'';
   document.getElementById('nNotes').value = c.notes||'';
   updateNcCopyBtn(); // programmatic set — button enable not triggered by oninput
-  setPath('phone');
   // Restore service picker from servicesAgreed
   const sa = c.quoteStatus?.servicesAgreed;
   // Roof sq ft is always visible — populate regardless of whether structured services exist
@@ -1622,8 +1597,9 @@ function startNew() {
   isNew = true;
   dupPhone = null;
   pendingAlerts = [];
+  _activeQuoteId = null;      // next customer must not inherit the quote link
+  _activeQuotePrice = null;
   resetForm();
-  setPath('phone');
   document.getElementById('formTitle').textContent = '📞 Add New Quote';
   document.getElementById('nPhone').readOnly = false;
   document.getElementById('nPhone').style.cssText = '';
@@ -1631,6 +1607,7 @@ function startNew() {
 }
 
 function resetForm() {
+  _quoteCommitted = false;   // fresh form autosaves again
   resetServicePicker();
   ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nRoofSqFt',
    'nWorkSiteAddr','nWorkSiteCity','nWorkSiteZip','nEndCustName','nEndCustPhone',
@@ -1675,17 +1652,8 @@ function resetForm() {
   updateNcPropLinks();       // hide link row (addr now empty)
 }
 
-function setPath(path) {
-  currentPath = path;
-  document.getElementById('pathPhone').classList.toggle('active', path === 'phone');
-  document.getElementById('pathDigital').classList.toggle('active', path === 'digital');
-  document.getElementById('radioPhone').textContent   = path === 'phone'   ? '⦿' : '○';
-  document.getElementById('radioDigital').textContent = path === 'digital' ? '⦿' : '○';
-  document.getElementById('phoneFields').style.display = path === 'phone' ? 'block' : 'none';
-  const btn = document.getElementById('submitBtn');
-  if (btn) btn.textContent = path === 'phone' ? '✅ Save Quote' : '✨ Send Them a Quote Link';
-  checkReq();
-}
+// setPath() removed 2026-07-23 — the phone/digital toggle is gone; the page is
+// always the phone booking flow (currentPath stays 'phone', phoneFields stay shown).
 
 function setCustomerType(type) {
   currentCustomerType = type;
@@ -2568,12 +2536,277 @@ function buildLeadSource() {
   };
 }
 
-async function submitForm() {
-  if (currentPath === 'phone') {
-    await submitPhonePath();
-  } else {
-    await submitDigitalPath();
+// ═══ Fix 1: Validation checkpoint — runs BEFORE any button disables ══════════
+// The warning is a checkpoint, not a dead end: the form stays fully enabled and
+// filled; the operator corrects the field or overrides, then re-saves.
+let _storyOverrideAck = false;
+
+function _storyMismatch() {
+  // Property-scoped story mismatch, or null. Never throws.
+  if (!_svcSel.has('roof_cleaning')) return null;
+  if (currentCustomerType === 'partner_referral') return null;
+  const v = document.querySelector('input[name=nRoofStories]:checked')?.value;
+  const s = v ? parseInt(v) : null;
+  if (!s) return null;
+  const _nph = (document.getElementById('nPhone')?.value||'').replace(/\D/g,'').slice(0,10);
+  const existing = (dbRecord?.customers||[]).find(c => c.phone?.replace(/\D/g,'').slice(-10) === _nph);
+  const lastKnown = getLastKnownRoofStories(existing, _selectedPropertyId || null);
+  if (lastKnown && lastKnown !== s) return { entered: s, lastKnown };
+  return null;
+}
+
+function _showStoryWarn(mm) {
+  const el = document.getElementById('nStoryWarn');
+  if (!el) return;
+  el.innerHTML = '';
+  const msg = document.createElement('div');
+  msg.style.cssText = 'margin-bottom:8px;';
+  msg.textContent = `⚠️ This property's most recent roof job was ${mm.lastKnown}-story — you entered ${mm.entered}-story. Correct it or confirm the override.`;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;';
+  const keep = document.createElement('button');
+  keep.type = 'button';
+  keep.textContent = `Switch to ${mm.lastKnown}-story`;
+  keep.style.cssText = 'background:#fff;border:1px solid #c9a34a;border-radius:7px;padding:6px 12px;font-weight:600;cursor:pointer;';
+  keep.onclick = () => {
+    const r = document.querySelector(`input[name=nRoofStories][value="${mm.lastKnown}"]`);
+    if (r) r.checked = true;
+    _storyOverrideAck = false;
+    el.style.display = 'none';
+    _draftScheduleSave();
+  };
+  const use = document.createElement('button');
+  use.type = 'button';
+  use.textContent = `Use ${mm.entered}-story anyway`;
+  use.style.cssText = 'background:#d4a72c;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-weight:700;cursor:pointer;';
+  use.onclick = () => { _storyOverrideAck = true; el.style.display = 'none'; submitForm(); };
+  row.appendChild(keep); row.appendChild(use);
+  el.appendChild(msg); el.appendChild(row);
+  el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function validateQuote() {
+  const mm = _storyMismatch();
+  if (mm && !_storyOverrideAck) { _showStoryWarn(mm); return false; }
+  return true;
+}
+
+// ═══ Fix 2: New-Quote draft autosave (localStorage only — no server writes) ═══
+const _DRAFT_KEY    = 'pcpc_newquote_draft_v1';
+const _DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+let _draftTimer     = null;
+let _draftRestoring = false;   // suppress autosave while rehydrating
+let _quoteCommitted = false;   // once saved, don't let modal edits resurrect the draft
+
+function _draftSnapshot() {
+  const val = id => (document.getElementById(id)?.value ?? '');
+  const inputs = {};
+  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nGateCode','nRoofSqFt',
+   'nRoofTypeOther','nDrivewayMaterialOther','customServiceText','nLeadSource','nReferrerDetail','nLeadOtherText',
+   'nWorkSiteAddr','nWorkSiteCity','nWorkSiteZip','nEndCustName','nEndCustPhone','nPartnerFn','nPartnerLn','partnerSelect'
+  ].forEach(id => { inputs[id] = val(id); });
+  return {
+    v: 1,
+    savedAt: Date.now(),
+    path: currentPath,
+    customerType: currentCustomerType,
+    isNew,
+    customerPhone: currentCustomer?.phone || null,
+    customerName: ([val('nFn'), val('nLn')].filter(Boolean).join(' ').trim())
+                  || (currentCustomer ? [currentCustomer.firstName, currentCustomer.lastName].filter(Boolean).join(' ').trim() : '')
+                  || 'this customer',
+    selectedPropertyId: _selectedPropertyId || null,
+    // Quote Pool hand-off context — survives an abandon+resume so the
+    // link-back PATCH still fires when the booking finally completes.
+    activeQuoteId: _activeQuoteId || null,
+    activeQuotePrice: _activeQuotePrice ?? null,
+    inputs,
+    roofStories: document.querySelector('input[name=nRoofStories]:checked')?.value ?? '',
+    svc: {
+      sel: [..._svcSel],
+      roofMethod: _roofMethod,
+      roofType: _roofType,
+      gutterTypes: [..._gutterTypes],
+      bundleFlags: { ..._bundleFlags },
+      drivewayMaterial: _drivewayMaterial,
+      secExp: _svcSecExp,
+      custExp: _svcCustExp,
+    },
+    pendingAlerts: [...pendingAlerts],
+    altContacts: (typeof buildAltContacts === 'function' ? buildAltContacts() : []),
+  };
+}
+
+function _draftHasContent(s) {
+  return !!(s && s.inputs && (s.inputs.nFn || s.inputs.nLn || s.inputs.nPhone || s.inputs.nAddr
+           || (s.svc && s.svc.sel && s.svc.sel.length) || s.customerPhone));
+}
+
+function _draftSaveNow() {
+  if (_draftRestoring || _saving || _quoteCommitted) return;
+  try {
+    const s = _draftSnapshot();
+    if (!_draftHasContent(s)) return;   // never persist an empty form
+    localStorage.setItem(_DRAFT_KEY, JSON.stringify(s));
+  } catch(e) { /* localStorage blocked/full — draft is best-effort */ }
+}
+
+function _draftScheduleSave() {
+  if (_draftRestoring || _saving || _quoteCommitted) return;
+  clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(_draftSaveNow, 2500);
+}
+
+function _draftClear(committed) {
+  clearTimeout(_draftTimer);
+  try { localStorage.removeItem(_DRAFT_KEY); } catch(e) {}
+  const b = document.getElementById('draftBanner'); if (b) b.remove();
+  // committed=true (successful save) blocks modal edits from resurrecting the draft;
+  // Discard leaves it false so a fresh form can autosave again.
+  if (committed) _quoteCommitted = true;
+}
+
+function _draftLoad() {
+  try {
+    const raw = localStorage.getItem(_DRAFT_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || s.v !== 1) return null;
+    if (Date.now() - (s.savedAt || 0) > _DRAFT_TTL_MS) { localStorage.removeItem(_DRAFT_KEY); return null; }
+    return s;
+  } catch(e) { return null; }
+}
+
+function _draftAgeStr(ts) {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1)  return 'just now';
+  if (mins < 60) return mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+  const days = Math.floor(hrs / 24);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+function _draftShowBanner(s) {
+  if (document.getElementById('draftBanner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'draftBanner';
+  bar.style.cssText = 'position:sticky;top:0;z-index:60;background:#fff8e6;border:1px solid #e8c96a;border-radius:10px;padding:10px 14px;margin:0 0 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,.06);';
+  const txt = document.createElement('span');
+  txt.style.cssText = 'flex:1;min-width:180px;color:#7a5c00;font-weight:600;';
+  txt.textContent = `📝 Unfinished quote for ${s.customerName} from ${_draftAgeStr(s.savedAt)}`;
+  const resumeBtn = document.createElement('button');
+  resumeBtn.type = 'button';
+  resumeBtn.textContent = 'Resume';
+  resumeBtn.style.cssText = 'background:#d4a72c;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-weight:700;cursor:pointer;';
+  resumeBtn.onclick = () => _draftResume(s);
+  const discardBtn = document.createElement('button');
+  discardBtn.type = 'button';
+  discardBtn.textContent = 'Discard';
+  discardBtn.style.cssText = 'background:transparent;color:#7a5c00;border:1px solid #d9c48a;border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer;';
+  discardBtn.onclick = () => _draftClear();
+  bar.appendChild(txt); bar.appendChild(resumeBtn); bar.appendChild(discardBtn);
+  const host = document.querySelector('.wrap') || document.body;
+  host.insertBefore(bar, host.firstChild);
+}
+
+async function _draftResume(s) {
+  _draftRestoring = true;
+  _quoteCommitted = false;
+  try {
+    resetForm();                                   // clean slate first
+    setCustomerType(s.customerType || 'residential');
+    _activeQuoteId    = s.activeQuoteId || null;   // Quote Pool link-back context
+    _activeQuotePrice = s.activeQuotePrice ?? null;
+
+    // Full rehydrate of the existing-customer + property-picker context (Laurie case)
+    if (!s.isNew && s.customerPhone) {
+      const norm = String(s.customerPhone).replace(/\D/g,'').slice(-10);
+      const c = (allCustomers || []).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === norm);
+      if (c) {
+        currentCustomer = c; isNew = false; dupPhone = c.phone;
+        pendingAlerts = [...(s.pendingAlerts || c.alerts || [])];
+        const phEl = document.getElementById('nPhone');
+        if (phEl) { phEl.readOnly = true; phEl.style.cssText = 'background:#f5f3ef;color:var(--muted);'; }
+        showJobHistory(c);
+        if ((s.customerType || 'residential') === 'residential') {
+          try {
+            const res  = await fetch(PCPC_API + '/customer/' + norm);
+            const data = await res.json();
+            const props = (data.customer || data)?.properties || [];
+            if (props.length > 1) {
+              _customerProperties = props;
+              showPropertyPicker(props);
+              if (s.selectedPropertyId) {
+                const idx = props.findIndex(p => p.propertyId === s.selectedPropertyId);
+                if (idx >= 0) {
+                  const sel = document.getElementById('propertyPickerSel');
+                  if (sel) { sel.value = String(idx); onPropertySelect(String(idx)); }
+                }
+              }
+            }
+          } catch(e) { /* single-property fallback */ }
+        }
+      }
+    }
+
+    // Restore service picker by driving the real toggles (safe state reconstruction)
+    (s.svc?.sel || []).forEach(id => { if (!_svcSel.has(id)) toggleService(id); });
+    if (s.svc?.roofMethod) { _roofMethod = s.svc.roofMethod; _roofSubLocked = true; }
+    if (s.svc?.roofType) {
+      const opt = document.querySelector(`.roof-type-opt[onclick*="'${s.svc.roofType}'"]`);
+      if (opt) selectRoofType(s.svc.roofType, opt);
+    }
+    (s.svc?.gutterTypes || []).forEach(t => { if (!_gutterTypes.has(t)) toggleGutterType(t); });
+    if (s.svc?.bundleFlags) _bundleFlags = { ..._bundleFlags, ...s.svc.bundleFlags };
+    if (s.svc?.drivewayMaterial) {
+      const opt = document.querySelector(`#drivewayMaterialOpts .roof-type-opt[onclick*="'${s.svc.drivewayMaterial}'"]`);
+      if (opt) selectDrivewayMaterial(s.svc.drivewayMaterial, opt);
+    }
+    _svcSecExp  = !!s.svc?.secExp;
+    _svcCustExp = !!s.svc?.custExp;
+    _fullRerender();
+
+    // Overlay saved input values LAST — user's typed values win over picker auto-populate
+    Object.entries(s.inputs || {}).forEach(([id, v]) => {
+      const el = document.getElementById(id);
+      if (el && v != null && v !== '') el.value = v;
+    });
+    if (s.roofStories) {
+      const r = document.querySelector(`input[name=nRoofStories][value="${s.roofStories}"]`);
+      if (r) r.checked = true;
+    }
+    const lsEl = document.getElementById('nLeadSource');
+    if (lsEl && s.inputs?.nLeadSource) { lsEl.value = s.inputs.nLeadSource; onLeadSourceChange(lsEl); }
+    resetAltContacts();
+    (s.altContacts || []).forEach(ac => addAltContact(ac));
+    if (s.customerType === 'partner_referral' && s.inputs?.partnerSelect) {
+      const psel = document.getElementById('partnerSelect');
+      if (psel) { psel.value = s.inputs.partnerSelect; onPartnerSelectChange(psel); }
+    }
+    renderNewAlerts();
+    updateNcCopyBtn();
+    updateSelectedSummary();
+    checkReq();
+    const b = document.getElementById('draftBanner'); if (b) b.remove();
+  } finally {
+    _draftRestoring = false;
   }
+}
+
+function _draftInit(suppressBanner) {
+  document.addEventListener('input',  _draftScheduleSave, true);
+  document.addEventListener('change', _draftScheduleSave, true);
+  if (suppressBanner) return;
+  const s = _draftLoad();
+  if (s && _draftHasContent(s)) _draftShowBanner(s);
+}
+
+async function submitForm() {
+  if (!validateQuote()) return;      // checkpoint fires BEFORE any button disables
+  await submitPhonePath();           // digital path retired 2026-07-23
+  _storyOverrideAck = false;         // reset for the next save
 }
 
 async function submitPhonePath() {
@@ -2588,9 +2821,10 @@ async function submitPhonePath() {
   const email   = document.getElementById('nEmail').value.trim();
   const zip     = document.getElementById('nZip').value.trim();
   const notes   = document.getElementById('nNotes').value.trim();
-  const svcAgreed = getServicesAgreedValue();
-  const services  = svcAgreed.fullDescription;
   try {
+    // Inside the try — any throw here re-enables the button via finally (no strand).
+    const svcAgreed = getServicesAgreedValue();
+    const services  = svcAgreed.fullDescription;
     let customer;
     if (!isNew && currentCustomer) {
       const _nph = p => String(p||'').replace(/\D/g,'').slice(-10);
@@ -2611,14 +2845,14 @@ async function submitPhonePath() {
         if (!customer.leadSource) customer.leadSource = buildLeadSource();
         customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
-          mainAmount: null,
+          mainAmount: _activeQuotePrice ?? null,
           mainServices: services,
           servicesAgreed: svcAgreed,
 
           quotedDate: new Date().toISOString(),
           miniQuoteCustomData: null
         };
-        customer.sqFt     = svcAgreed.roofSqFt || null;
+        customer.sqFt     = svcAgreed.roofSqFt || svcAgreed.squareFootage?.roof || null;
         customer.roofType = svcAgreed.roofType  || null;
         const _gateCode = document.getElementById('nGateCode')?.value.trim() || null;
         customer.gateCode = _gateCode;
@@ -2645,11 +2879,11 @@ async function submitPhonePath() {
         if (!customer.leadSource) customer.leadSource = buildLeadSource();
         customer.quoteStatus = {
           state: 'phone_quoted_pending_mini_quote',
-          mainAmount: null, mainServices: services,
+          mainAmount: _activeQuotePrice ?? null, mainServices: services,
           servicesAgreed: svcAgreed,
           quotedDate: new Date().toISOString(), miniQuoteCustomData: null
         };
-        customer.sqFt     = svcAgreed.roofSqFt || null;
+        customer.sqFt     = svcAgreed.roofSqFt || svcAgreed.squareFootage?.roof || null;
         customer.roofType = svcAgreed.roofType  || null;
         const _gateCode = document.getElementById('nGateCode')?.value.trim() || null;
         customer.gateCode = _gateCode;
@@ -2662,7 +2896,7 @@ async function submitPhonePath() {
           leadSource: buildLeadSource(),
           quoteStatus: {
             state: 'phone_quoted_pending_mini_quote',
-            mainAmount: null, mainServices: services,
+            mainAmount: _activeQuotePrice ?? null, mainServices: services,
             servicesAgreed: svcAgreed,
             quotedDate: new Date().toISOString(), miniQuoteCustomData: null
           },
@@ -2672,7 +2906,7 @@ async function submitPhonePath() {
         if (!dbRecord.customers) dbRecord.customers=[];
         dbRecord.customers.push(customer);
         // allCustomers is the same array reference as dbRecord.customers — no second push needed
-        customer.sqFt     = svcAgreed.roofSqFt || null;
+        customer.sqFt     = svcAgreed.roofSqFt || svcAgreed.squareFootage?.roof || null;
         customer.roofType = svcAgreed.roofType  || null;
         const _gateCode = document.getElementById('nGateCode')?.value.trim() || null;
         customer.gateCode = _gateCode;
@@ -2726,83 +2960,43 @@ async function submitPhonePath() {
     }
 
     try { await saveDb(); } catch(e) { console.warn('[new_customer] DB save failed:', e.message); }
-    showWhatNextModal(customer);
-  } catch(e) {
-    alert('Error: ' + e.message);
-    btn.disabled=false; btn.textContent='✅ Save Quote';
-  } finally { _saving = false; }
-}
-
-async function submitDigitalPath() {
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = 'Saving…';
-  const fn   = document.getElementById('nFn').value.trim();
-  const ln   = document.getElementById('nLn').value.trim();
-  const ph   = document.getElementById('nPhone').value.replace(/\D/g,'');
-  const addr = document.getElementById('nAddr').value.trim();
-  const city = document.getElementById('nCity').value.trim();
-  const email= document.getElementById('nEmail').value.trim();
-  const zip  = document.getElementById('nZip').value.trim();
-  const notes= document.getElementById('nNotes').value.trim();
-  try {
-    let customer;
-    if (!isNew && currentCustomer) {
-      customer = (dbRecord.customers||[]).find(c=>c.phone===currentCustomer.phone);
-      if (customer) {
-        customer.firstName=fn; customer.lastName=ln;
-        if (addr && (addr !== (customer.address||'') || city !== (customer.city||''))) {
-          const _agPh3 = ph.replace(/\D/g,'').slice(-10);
-          const _agResult3 = await _ncShowAddressGate(customer.address||'', customer.city||'', addr, city, 'person_1'+_agPh3);
-          if (!_agResult3) { btn.disabled=false; btn.textContent='✨ Send Them a Quote Link'; return; }
-          customer.address=addr; customer.city=city;
-        } else {
-          customer.address=addr; customer.city=city;
-        }
-        if(email)customer.email=email; if(zip)customer.zip=zip; customer.notes=notes; customer.alerts=[...pendingAlerts];
-      }
-    } else {
-      const isTestChecked = document.getElementById('isTestRecord')?.checked;
-      customer = { phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes, lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false, linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts], quoteStatus:null,
-        leadSource: buildLeadSource(),
-        ...(isTestChecked ? { isTest:true, testExpiresAt:new Date(Date.now()+24*60*60*1000).toISOString(), testCreatedBy:'system' } : {}) };
-      if (!dbRecord) dbRecord = {customers:[]};
-      if (!dbRecord.customers) dbRecord.customers=[];
-      dbRecord.customers.push(customer);
-      // allCustomers is the same array reference as dbRecord.customers — no second push needed
+    // Modesta fix — write sq ft to Property at QUOTE time (not only at schedule time),
+    // so it can't be lost in a later handoff. Only when a property is already known
+    // (existing customer / picker); new customers get it via submitScheduleNow's sync.
+    const _qSqft = svcAgreed.roofSqFt || svcAgreed.squareFootage?.roof || null;
+    if (_selectedPropertyId && _qSqft) {
+      fetch(`${PCPC_API}/admin/property/${encodeURIComponent(_selectedPropertyId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sqft: parseInt(_qSqft) || null }),
+      }).catch(e => console.warn('[new_customer] quote-time property sqft sync failed:', e.message));
     }
-    // WO-H 2b: capture alt contacts for BOTH new and existing customers (was new-only-dropped).
-    const _altC = buildAltContacts();
-    if (customer && _altC.length) customer.alternateContacts = _altC;
-    const code = await genLink(customer);
-    customer.linkCode = code;
-    customer.quoteStatus = { state:'sent', sentDate:today(), viewedDate:null, approvedDate:null, lostDate:null, lostReason:null, notes:null };
-    // PRIMARY customer create — verify the DB write BEFORE showing the success
-    // screen + quote link. If the PUT fails, the customer is never persisted, so
-    // Tyler must NOT send the link. saveDb() PUT → dual-write infra creates the
-    // Property row before the response lands.
-    try {
-      await saveDb();
-    } catch(e) {
-      console.warn('[new_customer] DB save failed:', e.message);
-      alert('⚠️ Customer not saved — check connection. Do not send the link yet.');
-      btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';
-      return;
-    }
-    // WO-H 2b (T1.22): saveDb()/PUT writes alt contacts to KV only — also PATCH the
-    // Person so they reach Person.alternateContactsJson in D1 (survives KV-bridge removal).
-    // Best-effort after the verified save; KV bridge covers it if this blips.
+    // WO-H 2b (T1.22): saveDb()/PUT writes alt contacts to KV only — also PATCH
+    // the Person so they reach Person.alternateContactsJson in D1 (survives KV
+    // rebuilds, DL-09). Moved from the retired digital path 2026-07-23 — the
+    // phone path had the same KV-only gap once it became the only path.
     if (customer.alternateContacts && customer.alternateContacts.length) {
-      const _pid = 'person_1' + (customer.phone||ph||'').replace(/\D/g,'').slice(-10);
-      fetch(`${PCPC_API}/admin/person/${_pid}`, {
+      const _pidAlt = 'person_1' + (customer.phone || ph || '').replace(/\D/g,'').slice(-10);
+      fetch(`${PCPC_API}/admin/person/${_pidAlt}`, {
         method:'PATCH', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ alternateContacts: customer.alternateContacts }),
       }).then(r=>{ if(!r.ok) console.warn('[new_customer] alt-contacts PATCH failed:', r.status); })
         .catch(e => console.warn('[new_customer] alt-contacts PATCH error:', e.message));
     }
-    showSuccess(customer, `${QUOTE_BASE}?c=${code}`, isNew);
-    // AFTER the verified save, fire the quote-photo connect (T1.22) so any photos
-    // captured on the public quote form re-key onto Property.photoKeys and become
-    // profile-visible. Genuinely fire-and-forget — best-effort and re-runnable.
+    // Quote Pool link-back: the booking-flow save is the "booked" moment —
+    // write personId onto the originating Quote row. Best-effort by design:
+    // if this blips, the quote stays 'accepted, not yet booked' in the pool
+    // (visible, re-linkable) rather than blocking Darla's save.
+    if (_activeQuoteId) {
+      const _qPid = 'person_1' + (customer.phone || ph || '').replace(/\D/g,'').slice(-10);
+      fetch(`${PCPC_API}/admin/quote/${encodeURIComponent(_activeQuoteId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personId: _qPid, status: 'accepted' }),
+      }).then(r => { if (!r.ok) console.warn('[quote link-back] HTTP', r.status); })
+        .catch(e => console.warn('[quote link-back]', e.message));
+    }
+    // Lead-photo connect (T1.22) — moved here 2026-07-23 when the digital path
+    // was retired: incoming.html conversions (?fromOnline= with leadId+photos)
+    // now always land on the phone path, so the re-key must run here.
     (() => {
       const connect = window.__pcpcLeadPhotoConnect;
       if (!connect || !connect.leadId || !Array.isArray(connect.photoKeys) || !connect.photoKeys.length) return;
@@ -2813,19 +3007,24 @@ async function submitDigitalPath() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ leadId: connect.leadId, propertyId: propId, photoKeys: connect.photoKeys }),
       }).then(r => r.json()).then(d => {
-        if (d && d.success) {
-          console.log('[connect] photos migrated to', d.newKeys);
-          window.__pcpcLeadPhotoConnect = null;  // consumed
-        } else {
-          console.warn('[connect] failed', d);
-        }
+        if (d && d.success) { window.__pcpcLeadPhotoConnect = null; }
+        else console.warn('[connect] failed', d);
       }).catch(e => console.warn('[connect] error', e.message));
     })();
+    _draftClear(true);               // quote committed — drop the autosaved draft
+    showWhatNextModal(customer);
   } catch(e) {
     alert('Error: ' + e.message);
-    btn.disabled=false; btn.textContent='✨ Send Them a Quote Link';
+  } finally {
+    // Always restore the button so a rejection/error can never strand the form.
+    _saving = false;
+    if (btn) btn.textContent = '✅ Save Quote';
+    checkReq();
   }
 }
+
+// submitDigitalPath() removed 2026-07-23 — Quote Pool WO retired the
+// send-a-link path (lead-photo connect moved into submitPhonePath).
 
 // ── What's Next modal (post-save: phone-quote path) ──────────────────────────
 function showWhatNextModal(customer) {
@@ -2886,7 +3085,9 @@ function _validateSchedModal() {
 function openScheduleModal() {
   const tom = new Date(); tom.setDate(tom.getDate() + 1);
   document.getElementById('schedDate').value = tom.toISOString().slice(0, 10);
-  document.getElementById('schedPrice').value = '';
+  // Quote Pool hand-off: prefill the price quoted on the call (editable).
+  // No quote context → empty with placeholder, never a 0 default (Rule 18).
+  document.getElementById('schedPrice').value = _activeQuotePrice != null ? String(_activeQuotePrice) : '';
   document.getElementById('schedPrice').classList.remove('err');
   document.getElementById('schedRig').value = '';
   document.getElementById('schedNotes').value = '';
@@ -2928,7 +3129,10 @@ async function submitScheduleNow() {
     rig, jobNotes: c.quoteStatus?.mainServices || notes || null,
     approvedAmount: price, window: 'morning',
     roofStories:      c.quoteStatus?.servicesAgreed?.roofStories || null,
-    sqFt:             parseInt(document.getElementById('nRoofSqFt')?.value) || c.sqFt || null,
+    // sqFt fallback chain (Modesta fix): input → KV mirror → servicesAgreed.roofSqFt →
+    // servicesAgreed.squareFootage.roof. The quote-time value can live in EITHER
+    // servicesAgreed field; reading only the input/c.sqFt silently dropped it to null.
+    sqFt:             parseInt(document.getElementById('nRoofSqFt')?.value) || c.sqFt || c.quoteStatus?.servicesAgreed?.roofSqFt || c.quoteStatus?.servicesAgreed?.squareFootage?.roof || null,
     roofType:         document.querySelector('input[name=roofType]:checked')?.value || c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
     endCustomerName:  (document.getElementById('nEndCustName')?.value?.trim())  || c.endCustomerName  || c.quoteStatus?.partnerWorkSite?.endCustName  || null,
     endCustomerPhone: (document.getElementById('nEndCustPhone')?.value?.trim()) || c.endCustomerPhone || c.quoteStatus?.partnerWorkSite?.endCustPhone || null,
@@ -2958,7 +3162,7 @@ async function submitScheduleNow() {
       workSitePlaceId:        pws.placeId        || null,
       workSiteGoogleVerified: pws.googleVerified || false,
       roofStories:            svcAgreed.roofStories || null,
-      sqFt:             parseInt(document.getElementById('nRoofSqFt')?.value) || c.sqFt || null,
+      sqFt:             parseInt(document.getElementById('nRoofSqFt')?.value) || c.sqFt || svcAgreed.roofSqFt || svcAgreed.squareFootage?.roof || null,
       roofType:         document.querySelector('input[name=roofType]:checked')?.value || c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
       endCustomerName:  (document.getElementById('nEndCustName')?.value?.trim())  || c.endCustomerName  || c.quoteStatus?.partnerWorkSite?.endCustName  || null,
       endCustomerPhone: (document.getElementById('nEndCustPhone')?.value?.trim()) || c.endCustomerPhone || c.quoteStatus?.partnerWorkSite?.endCustPhone || null,
@@ -2991,6 +3195,7 @@ async function submitScheduleNow() {
     // Both writes attempted. D1 confirmed. Show success.
     sucEl.textContent = '✅ Saved! Heading to calendar…';
     sucEl.style.display = 'block';
+    _draftClear(true);               // scheduled — drop the autosaved draft
     setTimeout(() => {
       closeScheduleModal();
       closeWhatNextModal();
@@ -3049,39 +3254,6 @@ async function addToQueue() {
     alert('Failed to add to queue — check connection.');
   }
 }
-
-// ── LINK GENERATION ───────────────────────────────────────────────────────────
-function _linkRec(c) {
-  return {fn:c.firstName, ln:c.lastName, ph:c.phone, em:c.email||'', addr:c.address, city:c.city, zip:c.zip||'', lastService:c.lastService, totalJobs:c.totalJobs, lifetimeSpend:c.lifetimeSpend, created:new Date().toISOString()};
-}
-
-async function genLink(customer) {
-  if (customer.linkCode) return customer.linkCode;
-  const code = generateQuoteCode();
-  const rec = _linkRec(customer);
-  fetch(`${PCPC_API}/quote/${code}`, {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(rec)
-  }).catch(e => console.warn('[link PUT]', e.message));
-  return code;
-}
-
-// ── SUCCESS ───────────────────────────────────────────────────────────────────
-function showSuccess(customer, link, isNewCustomer) {
-  const fn = customer.firstName||'there';
-  const shortLink = shortenUrl(link);
-  const body = isNewCustomer
-    ? `Hi ${fn}! This is Pure Cleaning Pressure Cleaning — South Florida's family-owned pressure washing company since 1995. Thanks for reaching out!\n\nWe've put together a simple way to get your quote — your info is already filled in:\n\n${shortLink}\n\nJust tap to confirm what you'd like cleaned and we'll send pricing same day.\n\nPrefer to skip the link? Just call or text us at 954-389-2642 — we're happy to walk you through it.\n\n— Pure Cleaning Pressure Cleaning\n954-389-2642\nReply STOP to opt out.`
-    : `Hey ${fn}! It's Tyler — Darla and Tony's son with Pure Cleaning. Always great to hear from you!\n\nI built a simple new way to get quotes — your info is already filled in:\n\n${shortLink}\n\nJust tap to confirm what you'd like cleaned today 🙏\n\n— Tyler\n954-389-2642\n\nReply STOP to opt out.`;
-  const smsPhone = '+1' + (customer.phone||'').replace(/\D/g,'');
-  pendingSms = `sms:${smsPhone}?&body=${encodeURIComponent(body)}`;
-  const name = ((customer.firstName||'') + ' ' + (customer.lastName||'')).trim();
-  document.getElementById('sName').textContent = name;
-  document.getElementById('sSub').textContent = `${name}'s quote link is ready to send 📲`;
-  showState('success');
-}
-function openSms() { if (pendingSms) window.location.href = pendingSms; }
 
 // ── ALERT CHOOSER ─────────────────────────────────────────────────────────────
 function buildPresetGrid() {
