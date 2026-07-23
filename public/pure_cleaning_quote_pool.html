@@ -79,6 +79,38 @@
   .loading{text-align:center;color:var(--muted);padding:40px;font-size:15px;}
   .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--sky);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px;}
   @keyframes spin{to{transform:rotate(360deg);}}
+  /* ledger — time nav + dense rows */
+  .lg-periods{display:flex;gap:4px;}
+  .lg-per{border:1.5px solid var(--border);background:var(--white);border-radius:8px;padding:5px 12px;font:700 12px 'DM Sans',sans-serif;color:var(--muted);cursor:pointer;}
+  .lg-per.on{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .lg-nav{display:flex;align-items:center;gap:6px;}
+  .lg-nav button{border:1.5px solid var(--border);background:var(--white);border-radius:8px;min-width:30px;height:30px;font:800 16px 'DM Sans',sans-serif;color:var(--navy);cursor:pointer;line-height:1;}
+  .lg-nav button:disabled{opacity:.35;cursor:default;}
+  .lg-label{font:800 13.5px 'DM Sans',sans-serif;color:var(--navy);min-width:104px;text-align:center;}
+  .lg-summary{font-size:12.5px;color:var(--muted);font-weight:600;margin-bottom:12px;line-height:1.5;}
+  .lg-summary b{color:var(--navy);}
+  .lg-rows{border:1.5px solid var(--border);border-radius:12px;overflow:hidden;background:var(--white);}
+  .lg-row{display:flex;align-items:center;gap:9px;padding:9px 12px;border-top:1px solid var(--border);cursor:pointer;font-size:13px;}
+  .lg-row:first-child{border-top:none;}
+  .lg-row:hover{background:#f8fafc;}
+  .lg-row.acc{background:rgba(22,163,74,.06);}
+  .lg-row.dec{background:rgba(220,38,38,.05);}
+  .lg-row.opn{background:rgba(245,158,11,.06);}
+  .lg-mark{font-weight:800;width:16px;text-align:center;flex:none;}
+  .lg-row.acc .lg-mark{color:var(--green);}
+  .lg-row.dec .lg-mark{color:var(--red);}
+  .lg-row.opn .lg-mark{color:var(--amber);}
+  .lg-date{color:var(--muted);font-weight:700;width:42px;flex:none;font-size:12px;}
+  .lg-name{font-weight:800;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 30%;min-width:0;}
+  .lg-city{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 20%;min-width:0;}
+  .lg-svc{color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 26%;min-width:0;font-size:12px;}
+  .lg-reason{font-size:10px;font-weight:800;background:#fee2e2;color:var(--red);border-radius:999px;padding:1px 7px;flex:none;text-transform:uppercase;letter-spacing:.3px;}
+  .lg-price{font-weight:800;color:var(--navy);flex:none;text-align:right;min-width:44px;}
+  .lg-price.none{color:#cbd5e1;font-weight:600;}
+  @media(max-width:560px){
+    .lg-row{flex-wrap:wrap;gap:5px 8px;}
+    .lg-city{flex-basis:auto;} .lg-svc{flex-basis:100%;order:5;}
+  }
   /* insights */
   .ins-sec{margin:20px 0 8px;font-size:13px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--navy);}
   .ins-note{font-size:12.5px;color:var(--muted);margin:2px 0 10px;line-height:1.5;}
@@ -117,6 +149,7 @@
 
     <div class="tabs">
       <div class="tab on" data-tab="open"     onclick="setTab('open')">Open <span id="tabOpenN"></span></div>
+      <div class="tab"    data-tab="ledger"   onclick="setTab('ledger')">📒 Ledger</div>
       <div class="tab"    data-tab="accepted" onclick="setTab('accepted')">Accepted</div>
       <div class="tab"    data-tab="declined" onclick="setTab('declined')">Declined</div>
       <div class="tab"    data-tab="insights" onclick="setTab('insights')">📊 Insights</div>
@@ -125,6 +158,23 @@
     <div class="monthrow" id="monthRow" style="display:none;">
       <input type="month" id="monthPick" onchange="load()">
       <button onclick="document.getElementById('monthPick').value='';load()">clear</button>
+    </div>
+
+    <!-- Ledger time navigation (Part 3) — period granularity is a list so a
+         [Year] tier drops in later with no rework (Tyler: "sort by year eventually"). -->
+    <div id="ledgerNav" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;">
+        <div class="lg-periods">
+          <button class="lg-per" data-per="week"  onclick="setLedgerPeriod('week')">Week</button>
+          <button class="lg-per on" data-per="month" onclick="setLedgerPeriod('month')">Month</button>
+        </div>
+        <div class="lg-nav">
+          <button id="lgPrev" onclick="ledgerStep(-1)" aria-label="Previous period">‹</button>
+          <span id="lgLabel" class="lg-label"></span>
+          <button id="lgNext" onclick="ledgerStep(1)" aria-label="Next period">›</button>
+        </div>
+      </div>
+      <div id="lgSummary" class="lg-summary"></div>
     </div>
 
     <div id="loading" class="loading"><div class="spinner"></div>Loading the pad…</div>
@@ -144,6 +194,17 @@
         <button onclick="doDecline(null)">Skip — no reason</button>
         <button class="m-cancel" onclick="closeModal('declineModal')">Cancel</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ledger row detail (v1.4) — status-appropriate actions, reuses handlers -->
+  <div class="m-overlay" id="ledgerDetailModal">
+    <div class="m-card">
+      <h3 id="ldName"></h3>
+      <p id="ldStatus" style="font-weight:700;color:var(--navy);margin-bottom:4px;"></p>
+      <p id="ldMeta"></p>
+      <div class="m-btns" id="ldActions"></div>
+      <div class="m-btns" style="margin-top:8px;"><button class="m-cancel" onclick="closeModal('ledgerDetailModal')">Close</button></div>
     </div>
   </div>
 
@@ -193,8 +254,17 @@ const STALE_DAYS = 21;
 let _tab = 'open';
 let _quotes = [];        // current tab's rows
 let _anb = [];           // accepted-not-booked strip rows (open tab)
+let _ledger = [];        // ALL non-deleted rows (Ledger tab), newest-first
 let _counts = { open: 0, acceptedUnbooked: 0 };
 let _target = null;      // quoteId for decline/edit modals
+// Ledger time nav (Part 3). _ledgerAnchor = a Date inside the shown period;
+// period granularity is a switch, so a 'year' case slots in without rework.
+let _ledgerPeriod = 'month';
+let _ledgerAnchor = new Date();
+
+// Any action reachable from multiple views resolves the row from every
+// loaded set — the Ledger is a working view, not read-only (Part 2).
+function _findQuote(id){ return _ledger.find(x=>x.quoteId===id) || _anb.find(x=>x.quoteId===id) || _quotes.find(x=>x.quoteId===id); }
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toast(m){ const t=document.getElementById('qpToast'); t.textContent=m; t.style.opacity='1'; setTimeout(()=>t.style.opacity='0',2200); }
@@ -207,6 +277,7 @@ function setTab(t){
   _tab = t;
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on', x.dataset.tab===t));
   document.getElementById('monthRow').style.display = (t==='accepted'||t==='declined')?'flex':'none';
+  document.getElementById('ledgerNav').style.display = (t==='ledger')?'block':'none';
   load();
 }
 
@@ -216,6 +287,7 @@ async function load(){
   content.style.display='none';
   try{
     if (_tab==='insights'){ await renderInsights(); }
+    else if (_tab==='ledger'){ await loadLedger(); }
     else {
       const status = _tab==='open' ? 'quoted' : _tab;
       const month  = (document.getElementById('monthPick').value||'');
@@ -234,6 +306,149 @@ async function load(){
   }
   document.getElementById('loading').style.display='none';
   content.style.display='block';
+}
+
+// ── LEDGER (v1.4) — one chronological list of every quote, the digital pad ─────
+// GET /admin/quotes with no status returns ALL non-deleted rows newest-first
+// (deleted stays hidden server-side). We fetch once and slice by period
+// client-side so arrow nav is instant and the summary math is honest.
+async function loadLedger(){
+  const r = await fetch(`${API}/admin/quotes`);
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error||`HTTP ${r.status}`);
+  _ledger = data.quotes||[];
+  _counts = data.counts||_counts;
+  document.getElementById('tabOpenN').textContent = _counts.open ? `(${_counts.open})` : '';
+  renderLedger();
+}
+
+// ── period math — a switch on granularity, so 'year' drops in later ───────────
+function _periodRange(anchor, period){
+  const a = new Date(anchor); a.setHours(0,0,0,0);
+  if (period==='week'){
+    const s = new Date(a); s.setDate(a.getDate()-a.getDay());        // Sunday
+    const e = new Date(s); e.setDate(s.getDate()+7);                 // exclusive next Sun
+    return { start:s, end:e };
+  }
+  // month (default)
+  const s = new Date(a.getFullYear(), a.getMonth(), 1);
+  const e = new Date(a.getFullYear(), a.getMonth()+1, 1);
+  return { start:s, end:e };
+}
+function _periodLabel(anchor, period){
+  const { start } = _periodRange(anchor, period);
+  if (period==='week'){
+    const e = new Date(start); e.setDate(start.getDate()+6);
+    const mo = d => d.toLocaleDateString('en-US',{month:'short'});
+    return start.getMonth()===e.getMonth()
+      ? `${mo(start)} ${start.getDate()}–${e.getDate()}`
+      : `${mo(start)} ${start.getDate()} – ${mo(e)} ${e.getDate()}`;
+  }
+  return start.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+}
+// Forward disabled once the shown period contains today (no future quotes).
+function _atCurrentPeriod(){
+  const { start, end } = _periodRange(_ledgerAnchor, _ledgerPeriod);
+  const now = new Date();
+  return now >= start && now < end;
+}
+
+function setLedgerPeriod(p){
+  _ledgerPeriod = p;
+  _ledgerAnchor = new Date();  // reset to the current period on granularity change
+  document.querySelectorAll('.lg-per').forEach(b=>b.classList.toggle('on', b.dataset.per===p));
+  renderLedger();
+}
+function ledgerStep(dir){
+  const a = new Date(_ledgerAnchor);
+  if (_ledgerPeriod==='week') a.setDate(a.getDate()+dir*7);
+  else a.setMonth(a.getMonth()+dir);
+  _ledgerAnchor = a;
+  renderLedger();
+}
+
+function renderLedger(){
+  const { start, end } = _periodRange(_ledgerAnchor, _ledgerPeriod);
+  document.getElementById('lgLabel').textContent = _periodLabel(_ledgerAnchor, _ledgerPeriod);
+  document.getElementById('lgNext').disabled = _atCurrentPeriod();
+
+  // Strictly newest-first by createdAt — enforced here, not assumed from the
+  // API order, so the pad reads top-down like the paper one regardless of
+  // how _ledger was populated.
+  const rows = _ledger
+    .filter(q=>{ const t=new Date(q.createdAt); return t>=start && t<end; })
+    .sort((a,b)=> a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
+  const acc = rows.filter(q=>q.status==='accepted').length;
+  const dec = rows.filter(q=>q.status==='declined').length;
+  const opn = rows.filter(q=>q.status==='quoted').length;
+  const resolved = acc+dec;
+  const pctTxt = resolved ? `${Math.round(acc/resolved*100)}% accepted (resolved)` : 'none resolved yet';
+  document.getElementById('lgSummary').innerHTML = rows.length
+    ? `<b>${rows.length}</b> quote${rows.length===1?'':'s'} · <b>${acc}</b> ✓ · <b>${dec}</b> ✗ · <b>${opn}</b> open · ${pctTxt}`
+    : '';
+
+  const content = document.getElementById('content');
+  if (!rows.length){
+    content.innerHTML = `<div class="empty">No quotes logged this ${_ledgerPeriod}.</div>`;
+    return;
+  }
+  content.innerHTML = `<div class="lg-rows">${rows.map(ledgerRow).join('')}</div>`;
+}
+
+function ledgerRow(q){
+  const cls = q.status==='accepted'?'acc':q.status==='declined'?'dec':'opn';
+  const mark = q.status==='accepted'?'✓':q.status==='declined'?'✗':'○';
+  const d = new Date(q.createdAt);
+  const date = d.toLocaleDateString('en-US',{month:'numeric',day:'numeric'});
+  const svc = (q.services||[]).map(svcLabel).filter(Boolean).join(', ');
+  const price = q.priceQuoted!=null ? `$${Number(q.priceQuoted).toLocaleString()}` : '—';
+  const reason = (q.status==='declined'&&q.declineReason) ? `<span class="lg-reason">${esc(q.declineReason)}</span>` : '';
+  return `<div class="lg-row ${cls}" onclick="openLedgerDetail('${q.quoteId}')">
+    <span class="lg-mark">${mark}</span>
+    <span class="lg-date">${esc(date)}</span>
+    <span class="lg-name">${esc(nameOf(q))}</span>
+    <span class="lg-city">${esc(q.city||'')}</span>
+    <span class="lg-svc">${esc(svc)}</span>
+    ${reason}
+    <span class="lg-price ${q.priceQuoted==null?'none':''}">${esc(price)}</span>
+  </div>`;
+}
+
+// Tap a Ledger row → detail sheet with the same actions available elsewhere
+// (accept/decline/edit/delete) — status-appropriate. Reuses every handler.
+function openLedgerDetail(id){
+  const q = _findQuote(id); if(!q) return;
+  _target = id;
+  document.getElementById('ldName').textContent = nameOf(q);
+  const bits = [fmtPhone(q.phone), q.city, (q.services||[]).map(svcLabel).filter(Boolean).join(', '),
+                q.priceQuoted!=null?`$${Number(q.priceQuoted).toLocaleString()}`:null].filter(Boolean);
+  document.getElementById('ldMeta').textContent = bits.join(' · ') || 'no details yet';
+  const statusTxt = q.status==='accepted'?`✓ Accepted${q.personId?'':' — not yet booked'}`
+                  : q.status==='declined'?`✗ Declined${q.declineReason?' ('+q.declineReason+')':''}`
+                  : '○ Open';
+  document.getElementById('ldStatus').textContent = statusTxt;
+  let acts = '';
+  if (q.status==='quoted'){
+    acts = `<button onclick="_ldAct('accept')" style="background:#f0fdf4;border-color:#bbf7d0;color:#15803d;">✓ Accept & book</button>
+            <button onclick="_ldAct('decline')" style="background:#fef2f2;border-color:#fecaca;color:var(--red);">✗ Decline</button>`;
+  } else {
+    acts = `<button onclick="_ldAct('reopen')">↩ Reopen</button>`;
+    if (q.status==='accepted' && !q.personId) acts = `<button onclick="_ldAct('resume')" style="background:var(--sky);border-color:var(--sky);color:#fff;">Resume booking →</button>` + acts;
+  }
+  acts += `<button onclick="_ldAct('edit')">✏️ Edit</button>
+           <button onclick="_ldAct('delete')" style="color:var(--red);">🗑️ Delete</button>`;
+  document.getElementById('ldActions').innerHTML = acts;
+  document.getElementById('ledgerDetailModal').classList.add('on');
+}
+function _ldAct(kind){
+  const id = _target;
+  closeModal('ledgerDetailModal');
+  if (kind==='accept')      doAccept(id);
+  else if (kind==='decline')openDecline(id);
+  else if (kind==='reopen') undoResolve(id);
+  else if (kind==='resume') resumeBooking(id);
+  else if (kind==='edit')   openEdit(id);
+  else if (kind==='delete') openDelete(id);
 }
 
 // ── OPEN TAB ──────────────────────────────────────────────────────────────────
@@ -332,7 +547,7 @@ async function patchQuote(id, body){
 // Accept → mark accepted, then hand off into the EXISTING booking flow
 // pre-filled (same mechanism as the modal's Log Confirmed Quote).
 async function doAccept(id){
-  const q = _quotes.find(x=>x.quoteId===id); if(!q) return;
+  const q = _findQuote(id); if(!q) return;
   try{
     await patchQuote(id, { status:'accepted' });
     location.href = handoffUrl(q);
@@ -341,7 +556,7 @@ async function doAccept(id){
 
 function resumeBooking(id){
   // Already accepted — just re-enter the booking flow with the same context.
-  const q = _anb.find(x=>x.quoteId===id) || _quotes.find(x=>x.quoteId===id);
+  const q = _findQuote(id);
   if (!q){ toast('Quote not loaded — refresh and retry'); return; }
   location.href = handoffUrl(q);
 }
@@ -366,7 +581,7 @@ function handoffUrl(q){
 
 function openDecline(id){
   _target = id;
-  const q = _quotes.find(x=>x.quoteId===id);
+  const q = _findQuote(id);
   document.getElementById('declineWho').textContent = q?`${nameOf(q)} — $${q.priceQuoted!=null?Number(q.priceQuoted).toLocaleString():'?'}`:'';
   document.getElementById('declineModal').classList.add('on');
 }
@@ -389,7 +604,9 @@ async function undoResolve(id){
   try{
     await patchQuote(id, { status:'quoted' });
     toast('↩ Back in the pool');
-    setTab('open');
+    // From the Ledger, stay put (the row just flips ○); from an archive tab,
+    // jump to Open where the reopened row now lives (unchanged behavior).
+    if (_tab==='ledger') load(); else setTab('open');
   }catch(e){ toast(`Failed: ${e.message}`); }
 }
 function closeModal(id){ document.getElementById(id).classList.remove('on'); }
@@ -400,7 +617,7 @@ function closeModal(id){ document.getElementById(id).classList.remove('on'); }
 // the linked-booking warning makes that explicit.
 function openDelete(id){
   _target = id;
-  const q = _anb.find(x=>x.quoteId===id) || _quotes.find(x=>x.quoteId===id);
+  const q = _findQuote(id);
   document.getElementById('deleteLinkedWarn').style.display = (q && q.personId) ? 'block' : 'none';
   document.getElementById('deleteModal').classList.add('on');
 }
@@ -416,7 +633,7 @@ async function doDelete(){
 // ── EDIT ──────────────────────────────────────────────────────────────────────
 function openEdit(id){
   _target = id;
-  const q = _quotes.find(x=>x.quoteId===id); if(!q) return;
+  const q = _findQuote(id); if(!q) return;
   document.getElementById('eName').value  = [q.firstName,q.lastName].filter(Boolean).join(' ');
   document.getElementById('ePhone').value = fmtPhone(q.phone);
   document.getElementById('eCity').value  = q.city||'';

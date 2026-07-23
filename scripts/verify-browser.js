@@ -2356,9 +2356,63 @@ async function main() {
 
     // ── QUOTE POOL (2026-07-23 WO) — page shell + shared logger modal ──────────
     queuePage(context, `${PAGES_BASE}/pure_cleaning_quote_pool.html`, 'quote-pool', async page => {
-      const tabCount = await page.locator('.tab').count();
-      if (tabCount === 4) pass('Quote Pool — 4 tabs render (Open/Accepted/Declined/Insights)');
-      else fail('Quote Pool — 4 tabs render', `found ${tabCount}`);
+      // v1.4: 5 tabs, order Open · Ledger · Accepted · Declined · Insights; default Open
+      const tabs = await page.locator('.tab').allTextContents();
+      if (tabs.length === 5 && /Open/.test(tabs[0]) && /Ledger/.test(tabs[1]) && /Accepted/.test(tabs[2]) && /Declined/.test(tabs[3]) && /Insights/.test(tabs[4]))
+        pass('Quote Pool — 5 tabs in order Open/Ledger/Accepted/Declined/Insights');
+      else fail('Quote Pool — 5 tabs in order', JSON.stringify(tabs));
+      const defaultOn = await page.locator('.tab.on').getAttribute('data-tab');
+      if (defaultOn === 'open') pass('Quote Pool — default tab is Open');
+      else fail('Quote Pool — default tab is Open', `on=${defaultOn}`);
+
+      // v1.4 Ledger: period math + summary honesty, driven by injected fixtures
+      // (no live data touched — _ledger + render are pure functions of state).
+      const led = await page.evaluate(() => {
+        const iso = (y,m,d) => new Date(y, m-1, d, 12).toISOString();
+        _ledger = [
+          { quoteId:'l1', createdAt: iso(2026,7,10), firstName:'A', status:'accepted', city:'Weston', services:['roof'], priceQuoted:400 },
+          { quoteId:'l2', createdAt: iso(2026,7,12), firstName:'B', status:'declined', declineReason:'price', services:[], priceQuoted:200 },
+          { quoteId:'l3', createdAt: iso(2026,7,15), firstName:'C', status:'quoted', services:['patio'], priceQuoted:null },
+          { quoteId:'l4', createdAt: iso(2026,6,5),  firstName:'D', status:'accepted', services:[], priceQuoted:300 },
+        ];
+        _ledgerPeriod = 'month';
+        _ledgerAnchor = new Date(2026, 6, 20, 12);   // July 2026
+        renderLedger();
+        const rows = [...document.querySelectorAll('.lg-row')];
+        const out = {
+          label: document.getElementById('lgLabel').textContent,
+          rowCount: rows.length,
+          firstMark: rows[0]?.querySelector('.lg-mark')?.textContent,
+          marks: rows.map(r => r.querySelector('.lg-mark').textContent).join(''),
+          hasReason: !!document.querySelector('.lg-reason'),
+          summary: document.getElementById('lgSummary').textContent,
+          nextDisabled: document.getElementById('lgNext').disabled,
+        };
+        // June has 1 row; step back
+        _ledgerAnchor = new Date(2026, 5, 20, 12);
+        renderLedger();
+        out.juneLabel = document.getElementById('lgLabel').textContent;
+        out.juneRows  = document.querySelectorAll('.lg-row').length;
+        // empty month
+        _ledgerAnchor = new Date(2026, 3, 20, 12);
+        renderLedger();
+        out.emptyShown = /No quotes logged this month/.test(document.getElementById('content').textContent);
+        return out;
+      });
+      if (/July 2026/.test(led.label)) pass('Quote Pool Ledger — month label renders'); else fail('Quote Pool Ledger — month label', JSON.stringify(led));
+      if (led.rowCount === 3) pass('Quote Pool Ledger — July scoped to its 3 rows'); else fail('Quote Pool Ledger — July row count', JSON.stringify(led));
+      // newest-first: 7/15 open(○), 7/12 declined(✗), 7/10 accepted(✓)
+      if (led.marks === '○✗✓') pass('Quote Pool Ledger — newest-first + status marks ○✗✓'); else fail('Quote Pool Ledger — order/marks', JSON.stringify(led));
+      if (led.hasReason) pass('Quote Pool Ledger — declined row shows reason chip'); else fail('Quote Pool Ledger — reason chip', JSON.stringify(led));
+      // 3 quotes · 1 ✓ · 1 ✗ · 1 open · 50% accepted (open excluded from the %)
+      if (/1.*✓.*1.*✗.*1.*open.*50%/.test(led.summary.replace(/\s+/g,' '))) pass('Quote Pool Ledger — summary math (50%, open excluded)'); else fail('Quote Pool Ledger — summary math', JSON.stringify(led.summary));
+      // July 2026 IS the current month (session date) → forward arrow disabled
+      if (led.nextDisabled) pass('Quote Pool Ledger — forward arrow disabled at current period'); else fail('Quote Pool Ledger — forward disabled', JSON.stringify(led));
+      if (led.juneRows === 1) pass('Quote Pool Ledger — ← steps to June (1 row)'); else fail('Quote Pool Ledger — June step', JSON.stringify(led));
+      if (led.emptyShown) pass('Quote Pool Ledger — empty month shows empty-state'); else fail('Quote Pool Ledger — empty state', JSON.stringify(led));
+
+      // reset back to Open for the modal checks below
+      await page.evaluate(() => setTab('open'));
 
       // ＋ Log Quote opens the shared 15-second modal (quote-logger.js injected)
       await page.locator('.log-btn').click();

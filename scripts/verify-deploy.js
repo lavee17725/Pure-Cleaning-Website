@@ -218,6 +218,9 @@ const HTML_FILES = [
       'handoffUrl',                // Accept → existing booking flow, pre-filled
       'openDelete',                // v1.2: 🗑️ soft delete on every card mode
       'deleteLinkedWarn',          // v1.2: linked-booking warning in confirm
+      'function renderLedger',     // v1.4: chronological ledger view
+      'function _periodRange',     // v1.4: week/month period math (year-ready)
+      'openLedgerDetail',          // v1.4: ledger row → action sheet
     ],
   },
   // (js/quote-logger.js is exercised via the pages that load it — HTML_FILES
