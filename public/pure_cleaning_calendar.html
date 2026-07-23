@@ -2168,10 +2168,20 @@ async function init() {
   renderShell();
   loadBlockedWeeksCal();  // fire-and-forget — updates button when ready
   try {
-    dbRecord = (await getCachedCustomerDB()) || {};
+    // Perf (2026-07-23 P0): the /customers blob and /admin/calendar-jobs are
+    // INDEPENDENT (loadCalendarJobs reads neither dbRecord nor anything from the
+    // customer DB). They were awaited serially — a two-request waterfall where
+    // the calendar grid couldn't populate until BOTH the large customer blob AND
+    // the jobs query returned in sequence. Run them in parallel: critical path
+    // drops from (customers + jobs) to max(customers, jobs). Not a render
+    // restructure — only the fetch layer changes.
+    const [_db] = await Promise.all([
+      getCachedCustomerDB(),
+      loadCalendarJobs(getWeekDates()[0]), // Phase 2B-1: D1 job data, now fetched alongside /customers
+    ]);
+    dbRecord = _db || {};
     cleanStaleSchedulingStates();
     cleanupExpiredTestRecords(); // fire-and-forget — removes expired test records silently
-    await loadCalendarJobs(getWeekDates()[0]); // Phase 2B-1: populate D1 job data before first render
     render();
     autoGeocodeJobs(); // background geocode any scheduled jobs missing coordinates
     loadWeather();     // fire-and-forget — populates weatherData then re-renders headers
