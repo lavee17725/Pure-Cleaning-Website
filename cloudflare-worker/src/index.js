@@ -1782,6 +1782,17 @@ export default {
         const r = await syncGbpReviews(env);
         return jsonResponse(r, corsHeaders, r.ok ? 200 : (r.status || 500));
       }
+      // Sync-now: what the hub's [⟳ Sync now] button calls — mirrors the daily
+      // cron (sync THEN crossref) in one request so a reconnect/manual refresh
+      // proves itself immediately (P0 2026-07-23: reconnect stored a good token
+      // but nothing re-synced, so the stale banner never cleared). On auth
+      // failure it returns ok:false so the UI can prompt reconnect vs retry.
+      if (path === 'admin/gbp/reviews/sync-now' && request.method === 'POST') {
+        const r = await syncGbpReviews(env);
+        let matched = null;
+        if (r && r.ok) { const x = await crossrefGbpReviews(env, { apply: true }).catch(() => null); matched = x?.counts?.autoMarked ?? (x?.autoMarked?.length ?? null); }
+        return jsonResponse({ ...r, crossrefApplied: matched }, corsHeaders, r.ok ? 200 : (r.status || 500));
+      }
       if (path === 'admin/gbp/reviews' && request.method === 'GET')
         return jsonResponse(await env.DATA.get(KV_GBP_REVIEWS, 'json') || { reviews: [], syncedAt: null }, corsHeaders);
       // Cross-reference all reviews → mark confident reviewers 'left'. GET = dry-run preview,
@@ -12480,18 +12491,40 @@ async function handleGoogleCallback(request, env, url) {
        <p>Go to <a href="https://myaccount.google.com/permissions">Google Account → Security → App access</a>, revoke "Pure Cleaning CRM Export", then retry.</p>`, false);
   }
 
+  // Persist the new token AND stamp token_refreshed_at + clear last_error so the
+  // health flag reflects reality (DL-08: it previously stayed frozen at the old
+  // date with a stale null error, reading "healthy" through a 13-day outage).
   await Promise.all([
     env.DATA.put('google_oauth:refresh_token', tokens.refresh_token),
     env.DATA.put('google_oauth:access_token', JSON.stringify({
       access_token: tokens.access_token,
       expires_at:   Date.now() + ((tokens.expires_in || 3600) - 120) * 1000,
     })),
+    env.DATA.put('google_oauth:token_refreshed_at', new Date().toISOString()),
+    env.DATA.delete('google_oauth:last_error'),
   ]);
 
+  // Prove the reconnect immediately — don't make Tyler wait for the 4 AM cron
+  // (the P0: three successful reconnects looked like failures because nothing
+  // re-synced and the stale banner never cleared). Sync reviews + crossref now,
+  // best-effort, and report the fresh count on the success page.
+  let syncNote = '';
+  try {
+    const s = await syncGbpReviews(env);
+    if (s && s.ok) {
+      await crossrefGbpReviews(env, { apply: true }).catch(() => {});
+      syncNote = `<p style="color:#15803d;font-weight:700;">✓ Synced ${s.totalReviewCount} Google reviews just now — the hub is current.</p>`;
+    } else {
+      syncNote = `<p style="color:#b45309;">Connected, but the first sync didn't complete (${(s && s.error) || 'unknown'}). Open the hub and tap ⟳ Sync now.</p>`;
+    }
+  } catch (e) {
+    syncNote = `<p style="color:#b45309;">Connected; first sync errored (${e.message}). Tap ⟳ Sync now in the hub.</p>`;
+  }
+
   return oauthPage('Google Connected!',
-    `<p>Authorization successful. Refresh token stored in KV (covers Drive export + Business Profile).</p>
-     <p>Weekly exports will begin next Monday 4 AM UTC.</p>
-     <p>Business Profile: run <code>GET /admin/gbp/resolve</code> to cache your account + location, then confirm the primary category.</p>
+    `<p>Authorization successful. Refresh token stored (covers Drive export + Business Profile).</p>
+     ${syncNote}
+     <p><a href="https://purecleaningpressurecleaning.com/pure_cleaning_review_hub.html">← Back to Reviews Hub</a></p>
      <p class="meta">Authorized ${new Date().toLocaleString()}</p>`);
 }
 

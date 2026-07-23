@@ -233,25 +233,71 @@ function renderSyncAlert() {
   const synced = hubData.gbpSyncedAt ? new Date(hubData.gbpSyncedAt) : null;
   const ageHrs = synced ? (Date.now() - synced.getTime()) / 3600000 : Infinity;
   const stale  = src === 'gbp_live_stale' || src === 'manual_override' || ageHrs > 48;
-  if (!stale) { el.style.display = 'none'; return; }
+
+  // Fresh (connected, synced <48h): subtle green status line + Sync now, not an
+  // alarm. Distinguishes "connected, last sync {time}" from the stale/disconnected
+  // banner below (WO: three states from real sync data, not the old health flag).
+  if (!stale) {
+    const hrs = Math.max(0, Math.round(ageHrs));
+    const ago = hrs < 1 ? 'just now' : hrs < 24 ? `${hrs}h ago` : `${Math.round(hrs/24)}d ago`;
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:8px 13px;margin:0 0 14px;">
+        <span style="color:#15803d;font-weight:700;font-size:12.5px;">✓ Google reviews synced ${ago}</span>
+        <button onclick="syncGbpNow(this)" style="margin-left:auto;background:#fff;border:1.5px solid #bbf7d0;color:#15803d;border-radius:8px;padding:5px 11px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;">⟳ Sync now</button>
+        <span id="syncNowMsg" style="font-size:12px;font-weight:700;flex-basis:100%;"></span>
+      </div>`;
+    el.style.display = 'block';
+    return;
+  }
 
   const days = synced ? Math.round(ageHrs / 24) : null;
   const when = days == null ? 'never synced'
              : days <= 1 ? 'last synced yesterday'
              : `last synced ${days} days ago`;
+  // "Sync now" is offered FIRST: the sync often just hasn't run (token fine,
+  // no re-sync since the last cron — the exact P0 where 3 reconnects "failed"
+  // because nothing re-synced). Try the cheap sync before sending Tyler back
+  // through the whole OAuth consent flow. Reconnect is the fallback if sync
+  // returns an auth failure.
   el.innerHTML = `
     <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;padding:13px 15px;margin:0 0 14px;">
       <div style="font-weight:800;color:#b91c1c;font-size:14px;">⚠ Google review sync is behind — ${when}</div>
       <div style="color:#7f1d1d;font-size:12.5px;margin:5px 0 10px;line-height:1.5;">
-        New Google reviews aren't flowing in. This is almost always an expired Google connection —
-        reconnect to resume the daily sync (your reviews then auto-match to customers).
+        New Google reviews may not be showing. Tap <b>Sync now</b> to pull the latest —
+        if that reports a connection problem, reconnect Google.
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a href="${API}/oauth/google/start" style="background:#b91c1c;color:#fff;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Reconnect Google</a>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button onclick="syncGbpNow(this)" style="background:#b91c1c;color:#fff;border:none;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;">⟳ Sync now</button>
+        <a href="${API}/oauth/google/start" style="background:#fff;border:1.5px solid #fecaca;color:#b91c1c;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Reconnect Google</a>
         <a href="https://business.google.com/reviews" target="_blank" rel="noopener" style="background:#fff;border:1.5px solid #fecaca;color:#b91c1c;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Open Google Reviews</a>
       </div>
+      <div id="syncNowMsg" style="font-size:12px;font-weight:700;margin-top:8px;"></div>
     </div>`;
   el.style.display = 'block';
+}
+
+// [⟳ Sync now] — mirrors the daily cron (sync + crossref) on demand so a
+// reconnect/recovery proves itself in seconds. On success the hub reloads and
+// the banner clears (fresh sync); on auth failure it points at Reconnect.
+async function syncGbpNow(btn) {
+  const msg = document.getElementById('syncNowMsg');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing…'; }
+  if (msg) { msg.style.color = '#7f1d1d'; msg.textContent = 'Pulling the latest from Google…'; }
+  try {
+    const r = await fetch(`${API}/admin/gbp/reviews/sync-now`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      const matched = d.crossrefApplied != null ? ` · ${d.crossrefApplied} matched to customers` : '';
+      if (msg) { msg.style.color = '#15803d'; msg.textContent = `✓ Synced ${d.totalReviewCount} reviews${matched}. Refreshing…`; }
+      await loadHub();   // re-pulls; renderSyncAlert hides the banner now that sync is fresh
+    } else {
+      if (msg) { msg.style.color = '#b91c1c'; msg.textContent = `Sync failed (${d.error || r.status}). Try ↗ Reconnect Google.`; }
+      if (btn) { btn.disabled = false; btn.textContent = '⟳ Sync now'; }
+    }
+  } catch (e) {
+    if (msg) { msg.style.color = '#b91c1c'; msg.textContent = `Sync error: ${e.message}. Try ↗ Reconnect Google.`; }
+    if (btn) { btn.disabled = false; btn.textContent = '⟳ Sync now'; }
+  }
 }
 
 function updateBadges() {

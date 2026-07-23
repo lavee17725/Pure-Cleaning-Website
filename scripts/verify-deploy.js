@@ -128,7 +128,9 @@ const HTML_FILES = [
     markers: ['function loadHub', 'function daysBadge', 'CUTOFF',
               'function renderSyncAlert',   // 2026-07-23: GBP stale-sync alert
               'oauth/google/start',         // one-tap reconnect link
-              'Open Google Reviews'],       // header deep link to GBP
+              'Open Google Reviews',        // header deep link to GBP
+              'function syncGbpNow',        // ⟳ Sync now (P0: prove reconnect in seconds)
+              'reviews/sync-now'],          // combined sync+crossref endpoint
     cssChecks: [
       { selector: '.card-name', prop: 'color', forbidden: '#fff' },
     ],

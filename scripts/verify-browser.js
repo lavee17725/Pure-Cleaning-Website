@@ -952,23 +952,30 @@ async function main() {
       // Drives renderSyncAlert off injected hubData (no live dependency).
       const alert = await page.evaluate(() => {
         const out = {};
-        // stale sync → banner + reconnect link visible
+        // stale sync → red banner with BOTH Sync now + Reconnect (P0 fix: sync first)
         hubData = { actualCount: { source: 'gbp_live_stale' }, gbpSyncedAt: new Date(Date.now()-13*864e5).toISOString() };
         renderSyncAlert();
         const el = document.getElementById('syncAlert');
         out.staleShown = el.style.display !== 'none';
         out.hasReconnect = /oauth\/google\/start/.test(el.innerHTML);
+        out.hasSyncNow = /syncGbpNow/.test(el.innerHTML);
         out.saysDays = /13 days ago/.test(el.textContent);
-        // fresh sync → banner hidden
+        // fresh sync → subtle green status line (connected, last sync {time}) — NOT the red alarm
         hubData = { actualCount: { source: 'gbp_live' }, gbpSyncedAt: new Date().toISOString() };
         renderSyncAlert();
-        out.freshHidden = document.getElementById('syncAlert').style.display === 'none';
+        const fresh = document.getElementById('syncAlert');
+        out.freshShown = fresh.style.display !== 'none';
+        out.freshGreen = /synced just now|synced \d/.test(fresh.textContent) && !/oauth\/google\/start/.test(fresh.innerHTML);
+        out.freshHasSyncNow = /syncGbpNow/.test(fresh.innerHTML);
+        out.hasSyncFn = typeof syncGbpNow === 'function';
         return out;
       });
-      if (alert.staleShown && alert.hasReconnect) pass('Review Hub — stale-sync banner shows with reconnect link');
-      else fail('Review Hub — stale-sync banner', JSON.stringify(alert));
+      if (alert.staleShown && alert.hasReconnect && alert.hasSyncNow) pass('Review Hub — stale banner: Sync now + Reconnect both present');
+      else fail('Review Hub — stale banner buttons', JSON.stringify(alert));
       if (alert.saysDays) pass('Review Hub — banner reports sync age'); else fail('Review Hub — banner age', JSON.stringify(alert));
-      if (alert.freshHidden) pass('Review Hub — banner hidden when sync is fresh'); else fail('Review Hub — banner fresh-hide', JSON.stringify(alert));
+      if (alert.freshShown && alert.freshGreen && alert.freshHasSyncNow) pass('Review Hub — fresh state shows subtle synced status + Sync now (no alarm)');
+      else fail('Review Hub — fresh state', JSON.stringify(alert));
+      if (alert.hasSyncFn) pass('Review Hub — syncGbpNow handler present'); else fail('Review Hub — syncGbpNow handler', JSON.stringify(alert));
 
       const deepLink = await page.locator('a[href="https://business.google.com/reviews"]').count();
       if (deepLink >= 1) pass('Review Hub — Open Google Reviews deep link present'); else fail('Review Hub — deep link', `found ${deepLink}`);
