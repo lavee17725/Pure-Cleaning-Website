@@ -27,7 +27,7 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Quote Pool — Pure Cleaning</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/js/quote-logger.js"></script>
+<script src="/js/quote-logger.js?v=2"></script>
 <style>
   :root{
     --navy:#0f172a; --text:#1e293b; --muted:#64748b; --border:#e2e8f0;
@@ -155,6 +155,7 @@
       <div class="e-field"><label>Phone</label><input id="ePhone" type="tel" inputmode="tel"></div>
       <div class="e-field"><label>City</label><input id="eCity"></div>
       <div class="e-field"><label>Services</label><div class="e-chips" id="eChips"></div></div>
+      <div class="e-field"><label>Custom services (comma-separated)</label><input id="eCustom" placeholder="e.g. awning, screen enclosure"></div>
       <div class="e-field"><label>Price quoted ($)</label><input id="ePrice" type="number" min="0" step="1" placeholder="Enter amount"></div>
       <div class="e-field"><label>Note</label><input id="eNotes" placeholder="Optional one-liner"></div>
       <button class="e-save" onclick="saveEdit()">Save changes</button>
@@ -165,9 +166,14 @@
 
 <script>
 const API = 'https://purecleaning-api.tylerfumero.workers.dev';
-const CHIP_LABELS = { roof:'Roof', driveway:'Driveway', patio:'Patio', house_walls:'House/Walls', sealing:'Sealing', rust:'Rust', other:'Other' };
-// chip key → new_customer service-picker id (same map as quote-logger.js)
-const CHIP_SVC = { roof:'roof_cleaning', driveway:'driveway', patio:'patio', house_walls:'rinse_walls', sealing:'sealing', rust:'rust_removal', other:null };
+// v1.1 chip set + v1 legacy keys (house_walls/other) so old rows still render.
+// Entries may be a key string or {custom:"free text"} (the ＋ Other write-in).
+const CHIP_LABELS = { roof:'Roof', walls:'Walls', driveway:'Driveway', patio:'Patio', pool_patio:'Pool Patio', house:'House', sealing:'Sealing', rust:'Rust', gutters:'Gutters', fence:'Fence', house_walls:'House/Walls', other:'Other' };
+// chip key → new_customer service-picker id (same map as quote-logger.js);
+// house carries a "house wash" note into the hand-off custom text.
+const CHIP_SVC = { roof:'roof_cleaning', walls:'rinse_walls', driveway:'driveway', patio:'patio', pool_patio:'pool_deck', house:'rinse_walls', sealing:'sealing', rust:'rust_removal', gutters:'gutters', fence:'fence', house_walls:'rinse_walls', other:null };
+const CHIP_NOTE = { house:'house wash' };
+const svcLabel  = s => typeof s === 'string' ? (CHIP_LABELS[s]||s) : (s && s.custom) || '';
 const STALE_DAYS = 21;
 
 let _tab = 'open';
@@ -246,9 +252,9 @@ async function renderOpen(){
 
 function cardHtml(q, mode){
   const stale = mode==='open' && daysAgo(q.createdAt) >= STALE_DAYS;
-  const chips = (q.services||[]).map(k=>`<span class="c-chip">${esc(CHIP_LABELS[k]||k)}</span>`).join('');
+  const chips = (q.services||[]).map(s=>{ const l=svcLabel(s); return l?`<span class="c-chip">${esc(l)}</span>`:''; }).join('');
   const price = q.priceQuoted!=null ? `<div class="c-price">$${Number(q.priceQuoted).toLocaleString()}</div>` : `<div class="c-price none">no price</div>`;
-  const who   = q.quotedBy ? ` · ${esc(q.quotedBy)}` : '';
+  const who   = '';   // quotedBy retired in v1.1 (old rows keep the D1 value, just not shown)
   const pill  = mode==='archive'
     ? (q.status==='accepted'
         ? `<span class="status-pill acc">✓ accepted${q.personId?'':' — not booked'}</span>`
@@ -323,16 +329,20 @@ function resumeBooking(id){
 }
 
 function handoffUrl(q){
-  const svcIds = (q.services||[]).map(k=>CHIP_SVC[k]).filter(Boolean);
+  const keys    = (q.services||[]).filter(s=>typeof s==='string');
+  const customs = (q.services||[]).filter(s=>s&&typeof s==='object'&&s.custom).map(s=>s.custom);
+  const svcIds  = [...new Set(keys.map(k=>CHIP_SVC[k]).filter(Boolean))];   // dedupe: house+walls → one rinse_walls
+  const customText = [...keys.map(k=>CHIP_NOTE[k]).filter(Boolean), ...customs].join(', ');
   // Existing customer already linked at log time → phone path (existing-customer
   // mode, full history prefill). Otherwise the fromOnline blob (new caller).
   if (q.personId){
     const p = new URLSearchParams({ phone:q.phone, quoteId:q.quoteId });
     if (q.priceQuoted!=null) p.set('qprice', String(q.priceQuoted));
     if (svcIds.length) p.set('qsvc', svcIds.join(','));
+    if (customText) p.set('qcustom', customText);
     return `/pure_cleaning_new_customer.html?${p}`;
   }
-  const blob = { fn:q.firstName||'', ln:q.lastName||'', phone:q.phone, city:q.city||'', svc:svcIds, price:q.priceQuoted, quoteId:q.quoteId };
+  const blob = { fn:q.firstName||'', ln:q.lastName||'', phone:q.phone, city:q.city||'', svc:svcIds, svcCustom:customText||null, price:q.priceQuoted, quoteId:q.quoteId };
   return `/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(blob)))))}`;
 }
 
@@ -375,9 +385,15 @@ function openEdit(id){
   document.getElementById('eCity').value  = q.city||'';
   document.getElementById('ePrice').value = q.priceQuoted!=null?q.priceQuoted:'';
   document.getElementById('eNotes').value = q.notes||'';
+  // v1.1 chips + any legacy keys this row carries (house_walls/other rows
+  // predate the expansion — show them so un-selecting is possible).
+  const V11_KEYS = ['roof','walls','driveway','patio','pool_patio','house','sealing','rust','gutters','fence'];
+  const rowKeys  = (q.services||[]).filter(s=>typeof s==='string');
+  const showKeys = [...V11_KEYS, ...rowKeys.filter(k=>!V11_KEYS.includes(k))];
   const box = document.getElementById('eChips');
-  box.innerHTML = Object.entries(CHIP_LABELS).map(([k,l])=>
-    `<div class="e-chip ${(q.services||[]).includes(k)?'on':''}" data-k="${k}" onclick="this.classList.toggle('on')">${l}</div>`).join('');
+  box.innerHTML = showKeys.map(k=>
+    `<div class="e-chip ${rowKeys.includes(k)?'on':''}" data-k="${k}" onclick="this.classList.toggle('on')">${esc(CHIP_LABELS[k]||k)}</div>`).join('');
+  document.getElementById('eCustom').value = (q.services||[]).filter(s=>s&&typeof s==='object'&&s.custom).map(s=>s.custom).join(', ');
   document.getElementById('editModal').classList.add('on');
 }
 async function saveEdit(){
@@ -391,7 +407,10 @@ async function saveEdit(){
       lastName:  sp===-1?'':nameRaw.slice(sp+1).trim(),
       phone:     document.getElementById('ePhone').value,
       city:      document.getElementById('eCity').value.trim(),
-      services:  [...document.querySelectorAll('#eChips .e-chip.on')].map(x=>x.dataset.k),
+      services:  [
+        ...[...document.querySelectorAll('#eChips .e-chip.on')].map(x=>x.dataset.k),
+        ...document.getElementById('eCustom').value.split(',').map(s=>s.trim()).filter(Boolean).map(custom=>({custom})),
+      ],
       priceQuoted: priceRaw===''?null:Number(priceRaw),
       notes:     document.getElementById('eNotes').value.trim(),
     });

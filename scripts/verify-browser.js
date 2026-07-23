@@ -2293,9 +2293,50 @@ async function main() {
       if (overlayOpen) pass('Quote Pool — Log Quote opens the quick-entry modal');
       else { fail('Quote Pool — Log Quote opens the quick-entry modal', '#qlOverlay.open not found'); return; }
 
+      // v1.1: 10 service chips + ＋ Other = 11 (customs add more at runtime)
       const svcChips = await page.locator('#qlSvcChips .ql-chip').count();
-      if (svcChips === 7) pass('Quote Pool — modal has the 7 service chips');
-      else fail('Quote Pool — modal has the 7 service chips', `found ${svcChips}`);
+      if (svcChips === 11) pass('Quote Pool — modal has 10 service chips + Other');
+      else fail('Quote Pool — modal has 10 service chips + Other', `found ${svcChips}`);
+
+      // v1.1: quotedBy toggle is gone
+      const whoGone = await page.locator('#qlWho').count();
+      if (whoGone === 0) pass('Quote Pool — quotedBy toggle removed');
+      else fail('Quote Pool — quotedBy toggle removed', '#qlWho still present');
+
+      // v1.1 auto-bundle: Roof tap lights Walls; Walls un-taps independently;
+      // Walls works standalone after Roof is off.
+      const bundle = await page.evaluate(() => {
+        const chip = k => document.querySelector(`#qlSvcChips .ql-chip[data-key="${k}"]`);
+        const on = k => chip(k).classList.contains('on');
+        chip('roof').click();
+        const wallsAutoLit = on('walls');
+        chip('walls').click();
+        const wallsUntapped = !on('walls') && on('roof');
+        chip('roof').click();                       // roof off (walls was manual)
+        chip('walls').click();                      // walls standalone
+        const wallsStandalone = on('walls') && !on('roof');
+        chip('walls').click();                      // reset
+        return { wallsAutoLit, wallsUntapped, wallsStandalone };
+      });
+      if (bundle.wallsAutoLit) pass('Quote Pool — Roof auto-lights Walls');
+      else fail('Quote Pool — Roof auto-lights Walls', JSON.stringify(bundle));
+      if (bundle.wallsUntapped) pass('Quote Pool — Walls un-taps independently of Roof');
+      else fail('Quote Pool — Walls un-taps independently', JSON.stringify(bundle));
+      if (bundle.wallsStandalone) pass('Quote Pool — Walls selectable standalone');
+      else fail('Quote Pool — Walls selectable standalone', JSON.stringify(bundle));
+
+      // v1.1 write-in: ＋ Other reveals input; Enter commits a removable chip
+      const custom = await page.evaluate(() => {
+        document.getElementById('qlOtherChip').click();
+        const inp = document.getElementById('qlCustomText');
+        const visible = document.getElementById('qlCustomWrap').style.display !== 'none';
+        inp.value = 'screen enclosure';
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        const chipAdded = !!document.querySelector('#qlSvcChips .ql-chip[data-custom]');
+        return { visible, chipAdded };
+      });
+      if (custom.visible && custom.chipAdded) pass('Quote Pool — write-in service commits as a chip');
+      else fail('Quote Pool — write-in service commits as a chip', JSON.stringify(custom));
 
       const bothActions = await page.locator('#qlSave').count() && await page.locator('#qlConfirm').count();
       if (bothActions) pass('Quote Pool — modal has Save Quote + Confirmed—Book actions');
@@ -2310,7 +2351,7 @@ async function main() {
 
     // ── NEW CUSTOMER — Quote Pool hand-off contract (fromOnline svc/price/quoteId) ──
     queuePage(context,
-      `${PAGES_BASE}/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(Buffer.from(JSON.stringify({ fn:'Handoff', ln:'Test', phone:'8880001111', city:'Weston', svc:['driveway'], price:275, quoteId:'qt_verify_handoff' })).toString('base64'))}`,
+      `${PAGES_BASE}/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(Buffer.from(JSON.stringify({ fn:'Handoff', ln:'Test', phone:'8880001111', city:'Weston', svc:['driveway','roof_cleaning','rinse_walls'], svcCustom:'house wash, screen enclosure', price:275, quoteId:'qt_verify_handoff' })).toString('base64'))}`,
       'new-customer-quote-handoff', async page => {
       // init() awaits the customer-DB fetch before applying the fromOnline blob —
       // wait for the hand-off context to land (45s: full DB pull on a cold context).
@@ -2328,14 +2369,19 @@ async function main() {
             svcSel,
             schedPrice: document.getElementById('schedPrice').value,
             fn: document.getElementById('nFn').value,
+            customText: document.getElementById('customServiceText').value,
           };
         } catch(e) { return { error: e.message }; }
       });
       if (r.error) { fail('New Customer — quote hand-off context', r.error); return; }
       if (r.quoteId === 'qt_verify_handoff') pass('New Customer — hand-off carries quoteId');
       else fail('New Customer — hand-off carries quoteId', `got ${r.quoteId}`);
-      if (r.svcSel.includes('driveway')) pass('New Customer — hand-off preselects services via toggleService');
+      if (r.svcSel.includes('driveway') && r.svcSel.includes('roof_cleaning') && r.svcSel.includes('rinse_walls'))
+        pass('New Customer — hand-off preselects services via toggleService (incl. roof+walls)');
       else fail('New Customer — hand-off preselects services', `svcSel=${JSON.stringify(r.svcSel)}`);
+      // v1.1: write-ins + chip notes land in the picker's custom text
+      if (r.customText === 'house wash, screen enclosure') pass('New Customer — hand-off carries custom service text');
+      else fail('New Customer — hand-off carries custom service text', `got '${r.customText}'`);
       if (r.price === 275 && r.schedPrice === '275') pass('New Customer — quoted price prefills schedule modal', '$275');
       else fail('New Customer — quoted price prefills schedule modal', `price=${r.price} schedPrice='${r.schedPrice}'`);
       if (r.fn === 'Handoff') pass('New Customer — hand-off prefills name');

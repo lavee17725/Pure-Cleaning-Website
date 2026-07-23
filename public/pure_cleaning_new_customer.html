@@ -1349,11 +1349,13 @@ async function init() {
         window.__pcpcLeadPhotoConnect = { leadId: data.leadId, photoKeys: data.photos };
       }
       // Quote Pool hand-off (new caller): the quick-quote modal extends the
-      // blob with svc (service-picker ids), price, quoteId. Services preselect
+      // blob with svc (service-picker ids), price, quoteId, and svcCustom
+      // (v1.1 write-ins + chip notes like "house wash"). Services preselect
       // via toggleService so bundles/sub-options behave exactly as hand-taps.
       if (Array.isArray(data.svc)) {
         data.svc.forEach(id => { if (!_svcSel.has(id)) toggleService(id); });
       }
+      if (data.svcCustom) _applyQuoteCustomText(String(data.svcCustom));
       if (data.price != null && data.price !== '') _activeQuotePrice = Number(data.price) || null;
       if (data.quoteId) _activeQuoteId = data.quoteId;
       checkReq();
@@ -1379,12 +1381,25 @@ async function init() {
       (_sp.get('qsvc') || '').split(',').filter(Boolean).forEach(id => {
         if (!_svcSel.has(id)) toggleService(id);
       });
+      const _qc = _sp.get('qcustom');
+      if (_qc) _applyQuoteCustomText(_qc);
     }
   }
 
   // Draft autosave: attach listeners always; offer Resume only on a cold open
   // (not when ?phone= / ?fromOnline= already prefilled a specific customer).
   _draftInit(!!(urlPhone || fromOnline));
+}
+
+// Quote Pool v1.1: write-in services + chip notes ("house wash") from the
+// quick modal land in the picker's custom-service text, section expanded so
+// Darla sees it. Appends after any existing text rather than clobbering.
+function _applyQuoteCustomText(text) {
+  const el = document.getElementById('customServiceText');
+  if (!el || !text) return;
+  el.value = el.value.trim() ? `${el.value.trim()}, ${text}` : text;
+  if (!_svcCustExp) toggleCustomService();   // reveals the wrap + focuses
+  updateSelectedSummary();
 }
 
 function preloadCustomerForEdit(c) {

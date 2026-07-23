@@ -163,6 +163,8 @@ Static asset routing: worker serves `public/` assets before the API auth gate. R
 
 Cache-Control: HTML files are `no-cache, no-store, must-revalidate`. Hashed JS/CSS bundles are `immutable` (1 year).
 
+**⚠ Un-hashed `/js/*.js` footgun (2026-07-23):** shared scripts like `/js/quote-logger.js` and `/js/reminder-builder.js` get the same `immutable` 1-year policy as hashed bundles, and the Cloudflare edge caches them. Editing one in place deploys fine but browsers + edge keep serving the OLD file — the Quote Pool v1.1 browser verify went red exactly this way (modal still had the v1 chip set live). **Fix: bump the query version on every consumer `<script src="/js/foo.js?v=N">` whenever the file changes.** The browser verifier catches staleness because it exercises live behavior, not file contents — keep it that way (LAW 12).
+
 **Rollback:** GoDaddy → change NS to `ns09/ns10.domaincontrol.com`. GitHub Pages resumes in 5–30 min.
 
 ### Admin Auth

@@ -9460,8 +9460,14 @@ async function handleAllReminders(env, corsHeaders) {
 // through _d1PersonId at link time — never string-compare vs E.164 (Rule 17).
 // ═══════════════════════════════════════════════════════════════════════════
 
-const _QUOTE_CHIPS = new Set(['roof', 'driveway', 'patio', 'house_walls', 'sealing', 'rust', 'other']);
-const _QUOTED_BY   = new Set(['darla', 'tyler', 'tony']);
+// v1.1 chip set + v1 legacy keys (house_walls/other rows predate the expansion
+// and must stay PATCH-able). Entries may also be { custom: "free text" } —
+// the ＋ Other write-in (multiple allowed).
+const _QUOTE_CHIPS = new Set([
+  'roof', 'walls', 'driveway', 'patio', 'pool_patio', 'house', 'sealing', 'rust', 'gutters', 'fence',
+  'house_walls', 'other',   // legacy v1 keys
+]);
+const _QUOTED_BY   = new Set(['darla', 'tyler', 'tony']); // legacy — v1.1 UI no longer writes it
 
 // Shared field validator for create + patch. Returns { error } or { fields }.
 function _validateQuoteFields(body, { partial = false } = {}) {
@@ -9489,12 +9495,19 @@ function _validateQuoteFields(body, { partial = false } = {}) {
   if (has('services')) {
     const s = body.services;
     if (s != null) {
-      if (!Array.isArray(s) || s.length > 10) return { error: 'services must be an array (10 max)' };
+      if (!Array.isArray(s) || s.length > 15) return { error: 'services must be an array (15 max)' };
+      const norm = [];
       for (const c of s) {
-        if (typeof c !== 'string' || !_QUOTE_CHIPS.has(c))
-          return { error: `unknown service chip: ${c}` };
+        if (typeof c === 'string' && _QUOTE_CHIPS.has(c)) { norm.push(c); continue; }
+        if (c && typeof c === 'object' && typeof c.custom === 'string') {
+          const t = c.custom.trim();
+          if (!t || t.length > 100) return { error: 'custom service must be 1..100 chars' };
+          norm.push({ custom: t });
+          continue;
+        }
+        return { error: `unknown service chip: ${typeof c === 'object' ? JSON.stringify(c) : c}` };
       }
-      out.services = s.length ? JSON.stringify(s) : null;
+      out.services = norm.length ? JSON.stringify(norm) : null;
     } else out.services = null;
   }
   if (has('priceQuoted')) {

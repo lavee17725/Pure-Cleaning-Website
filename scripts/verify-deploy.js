@@ -200,6 +200,8 @@ const HTML_FILES = [
       'quote link-back',           // personId PATCH onto the Quote row after save
       'data.svc',                  // fromOnline blob carries service preselects
       'qsvc',                      // ?phone= hand-off carries service preselects
+      '_applyQuoteCustomText',     // v1.1: write-ins + chip notes → customServiceText
+      'qcustom',                   // v1.1: ?phone= hand-off carries custom text
       'setPath() removed',         // toggle stays dead — digital path must not resurrect
     ],
   },
