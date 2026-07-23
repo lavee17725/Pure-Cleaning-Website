@@ -310,6 +310,45 @@ async function main() {
       } else {
         fail('Bulk Reactivation — monthsSince sort descending first', `_sortPrimaryAsc: ${sortPrimaryAsc}`);
       }
+
+      // 2026-07-23: service-specific "last cleaned" — the WO's divergent case
+      // rendered through the REAL buildVariantBody on the live page.
+      const svc = await page.evaluate(() => {
+        const mk = f => Object.assign({fn:'Div',ln:'Ergent',phone:'0',jobHistory:[],monthsSince:999,svcSection:null,lastDateObj:new Date('2024-05-15T12:00:00'),scheduledStatus:null,quoteStatus:null}, f);
+        // roof 26mo ago + driveway 4mo ago
+        const jh = [
+          {date:'2024-05-15', services:'Roof Cleaning', source:'calendar_completion'},
+          {date:'2026-03-20', services:'Driveway',      source:'calendar_completion'},
+        ];
+        const out = {};
+        currentLane = 'tier1Due';
+        // queued ROOF
+        let body = buildVariantBody(REACTIVATION_STANDARD, mk({jobHistory:jh, svcSection:'roof', monthsSince:4}), 'http://x');
+        out.roofSaysRoof = /months since we last cleaned your roof/.test(body);
+        out.roofNot4     = !/\b4 months\b/.test(body);
+        out.roof26       = /2[56] months since we last cleaned your roof/.test(body);  // ~26mo
+        // queued GROUND
+        body = buildVariantBody(REACTIVATION_STANDARD, mk({jobHistory:jh, svcSection:'ground', monthsSince:4}), 'http://x');
+        out.groundSaysDriveway = /months since we last cleaned your driveway/.test(body);
+        // pitched roof but no roof job → serviceless, no number
+        body = buildVariantBody(REACTIVATION_STANDARD, mk({jobHistory:[{date:'2026-03-20',services:'Driveway'}], svcSection:'roof', monthsSince:4}), 'http://x');
+        out.serviceless = /a while since we've been out/.test(body) && !/\d+ months/.test(body);
+        out.hasHelpers = typeof lastServiceDateFor === 'function' && typeof serviceClauseFor === 'function';
+        // 2026-07-23 copy rewrite: short/website-routed, no hedge, no builder pitch, no link.
+        const std = buildVariantBody(REACTIVATION_STANDARD, mk({jobHistory:jh, svcSection:'roof', monthsSince:4}), 'http://x');
+        out.hasWebsite  = /purecleaningpressurecleaning\.com/.test(std);
+        out.noHedge     = !/if we've been out more recently/.test(std);
+        out.noBuilder   = !/quote builder/i.test(std) && !/\{quoteLink\}/.test(std) && !/http:\/\/x/.test(std);
+        out.hasStop     = /Reply STOP to opt out/.test(std);
+        return out;
+      });
+      if (svc.roofSaysRoof && svc.roofNot4 && svc.roof26) pass('Bulk Reactivation — roof pitch says "…your roof" with roof months (not the 4mo driveway)');
+      else fail('Bulk Reactivation — roof pitch service-specific', JSON.stringify(svc));
+      if (svc.groundSaysDriveway) pass('Bulk Reactivation — ground pitch names the driveway'); else fail('Bulk Reactivation — ground pitch', JSON.stringify(svc));
+      if (svc.serviceless) pass('Bulk Reactivation — no qualifying job → serviceless fallback (no number)'); else fail('Bulk Reactivation — serviceless fallback', JSON.stringify(svc));
+      if (svc.hasHelpers) pass('Bulk Reactivation — shared service helpers present'); else fail('Bulk Reactivation — helpers', JSON.stringify(svc));
+      if (svc.hasWebsite && svc.noHedge && svc.noBuilder && svc.hasStop) pass('Bulk Reactivation — new copy: website-routed, no hedge/builder/link, STOP present');
+      else fail('Bulk Reactivation — new copy', JSON.stringify(svc));
     });
 
     // ── CALENDAR ─────────────────────────────────────────────────────────────
@@ -2358,6 +2397,40 @@ async function main() {
       } else {
         pass('New Customer — property picker renders for multi-property customer', `${pickerResult.propCount} properties + __new__ option present`);
       }
+
+      // 2026-07-23 P0 (Jhon Hernandez): adding a NEW property mid-booking must
+      // bind _selectedPropertyId from the server's returned id — NOT a re-fetch
+      // address string match, which silently failed on server normalization and
+      // left the id null → multi-property guard blocked scheduling. Stub both
+      // endpoints so the returned/normalized address DIFFERS from what was typed.
+      await page.route('**/admin/property', route =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ status:200, contentType:'application/json',
+              body: JSON.stringify({ success:true, propertyId:'prop_new_rental_999' }) })
+          : route.continue());
+      await page.route('**/customer/9545550001', route =>
+        route.fulfill({ status:200, contentType:'application/json',
+          body: JSON.stringify({ customer:{ firstName:'Jane', properties:[
+            { propertyId:'prop_test_1', streetAddress:'1000 Main St', city:'Weston', primaryContact:true },
+            // NOTE server-normalized street ("Avenue") ≠ typed ("Ave") — the old match loop breaks here
+            { propertyId:'prop_new_rental_999', streetAddress:'200 Rental Avenue', city:'Davie', primaryContact:false },
+          ]}}) }));
+      const bind = await page.evaluate(async () => {
+        try {
+          // NB: _selectedPropertyId is a top-level `let`, NOT a window property —
+          // read/write the bare identifier (same gotcha as _activeQuoteId).
+          _selectedPropertyId = null;
+          document.getElementById('nPhone').value = '(954) 555-0001';
+          const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
+          set('newPropAddr','200 Rental Ave'); set('newPropCity','Davie'); set('newPropLabel','Rental');
+          const t = document.querySelector('input[name="newPropType"][value="rental"]'); if (t) t.checked = true;
+          await submitNewProperty();
+          return { selected: typeof _selectedPropertyId !== 'undefined' ? _selectedPropertyId : null };
+        } catch(e) { return { error: e.message }; }
+      });
+      await page.unroute('**/admin/property'); await page.unroute('**/customer/9545550001');
+      if (bind.selected === 'prop_new_rental_999') pass('New Customer — new mid-booking property binds _selectedPropertyId from server id (survives address normalization)');
+      else fail('New Customer — new property id binding', JSON.stringify(bind));
     });
 
     // ── DIRECTORY — address normalization (2026-07-23, Todd Griffin case) ──────

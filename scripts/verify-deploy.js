@@ -143,6 +143,11 @@ const HTML_FILES = [
     markers: [
       'function dbRecordToCustomer',
       'effectiveLastService',
+      // 2026-07-23 service-specific "last cleaned" messaging
+      'function lastServiceDateFor',
+      'function pitchedServiceType',
+      'function serviceClauseFor',
+      '{serviceClause}',            // template uses the service-aware clause
       // Law 8 guard: const tc must exist in renderTable .map() callback.
       // If dropped again, ${tc} causes ReferenceError → silent empty list.
       'const tc         = tierClass(c.tier)',
@@ -197,6 +202,7 @@ const HTML_FILES = [
       'onAddressInput',        // Address detection debounce trigger
       'showJobHistory',        // Job history section renderer
       'jhSection',             // Job history container
+      '_selectedPropertyId = data.propertyId',  // 2026-07-23 P0: bind new-property id from server response (not address re-match)
       'alternateContacts',     // alternateContacts persisted to customer record
       'existing_customer_updated', // audit event on existing customer update
       'alt-contacts PATCH',        // WO-H 2b: new_customer persists alt contacts to D1 Person (T1.22 write path)
@@ -224,6 +230,7 @@ const HTML_FILES = [
       'MIN_SAMPLE',                // insights honesty floor (no % from tiny samples)
       'declineModal',              // 4-chip decline reason picker
       'handoffUrl',                // Accept → existing booking flow, pre-filled
+      'handoffUrl(updated',        // 2026-07-23 P0: Accept reads post-PATCH row (edited price flows through)
       'openDelete',                // v1.2: 🗑️ soft delete on every card mode
       'deleteLinkedWarn',          // v1.2: linked-booking warning in confirm
       'function renderLedger',     // v1.4: chronological ledger view
