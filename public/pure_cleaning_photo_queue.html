@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/js/error-tracker.js"></script>
+<script>
+/* Auth gate — do not remove */
+(function(){
+  var t=localStorage.getItem('admin_token');
+  var e=+(localStorage.getItem('admin_token_expires')||0);
+  if(!t||Date.now()>e){
+    localStorage.removeItem('admin_token');localStorage.removeItem('admin_token_expires');
+    location.replace('/login.html?return='+encodeURIComponent(location.pathname));
+    return;
+  }
+  var _f=window.fetch;
+  window.fetch=function(u,o){
+    if(typeof u==='string'&&u.indexOf('purecleaning-api')!==-1){
+      o=Object.assign({},o||{});
+      o.headers=Object.assign({'Authorization':'Bearer '+(localStorage.getItem('admin_token')||'')},o.headers||{});
+    }
+    return _f.call(this,u,o);
+  };
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Photo Queue — Pure Cleaning</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--navy:#0f172a;--text:#1e293b;--muted:#64748b;--border:#e2e8f0;--white:#fff;--bg:#f6f8fb;--sky:#0ea5e9;--amber:#f59e0b;--green:#16a34a;--red:#dc2626;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px 16px 80px;}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 4px;flex-wrap:wrap;}
+  .back{color:var(--muted);text-decoration:none;font-weight:600;font-size:14px;}
+  h1{font-size:23px;font-weight:800;color:var(--navy);margin:8px 0 2px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.5;}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;}
+  .btn{border:1.5px solid var(--border);background:var(--white);border-radius:10px;padding:8px 13px;font:700 13px 'DM Sans',sans-serif;color:var(--text);cursor:pointer;}
+  .btn.pri{background:var(--navy);border-color:var(--navy);color:#fff;}
+  .btn.on{background:var(--sky);border-color:var(--sky);color:#fff;}
+  .count{font-size:13px;color:var(--muted);font-weight:600;}
+  .bulkbar{display:none;position:sticky;top:0;z-index:20;background:#0f172a;color:#fff;border-radius:12px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:8px;flex-wrap:wrap;}
+  .bulkbar.on{display:flex;}
+  .bulkbar .mini{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:#93c5fd;margin-right:2px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+  .card{background:var(--white);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,.04);}
+  .card.sel{border-color:var(--sky);box-shadow:0 0 0 2px var(--sky);}
+  .thumb{width:100%;height:170px;background:#eef2f7 center/cover no-repeat;display:block;position:relative;cursor:pointer;}
+  .thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;}
+  .selbox{position:absolute;top:8px;left:8px;width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.9);border:1.5px solid #cbd5e1;display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--sky);}
+  .card.sel .selbox{background:var(--sky);color:#fff;border-color:var(--sky);}
+  .cbody{padding:9px 11px 11px;}
+  .cpath{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:7px;}
+  .chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
+  .chip{border:1.5px solid var(--border);background:#f8fafc;border-radius:999px;padding:3px 9px;font:700 11px 'DM Sans',sans-serif;color:#334155;cursor:pointer;user-select:none;}
+  .chip.on{background:var(--sky);border-color:var(--sky);color:#fff;}
+  .chip.svc.on{background:var(--green);border-color:var(--green);}
+  .chip.typ.on{background:var(--amber);border-color:var(--amber);}
+  .clbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin:4px 0 2px;}
+  .cacts{display:flex;gap:6px;margin-top:8px;}
+  .cacts .btn{flex:1;padding:6px;font-size:12px;}
+  .cacts .save{background:#f0fdf4;border-color:#bbf7d0;color:#15803d;}
+  .cacts .skip{color:var(--red);}
+  .empty{text-align:center;color:var(--muted);padding:40px 10px;font-size:14px;background:var(--white);border:1.5px dashed var(--border);border-radius:14px;line-height:1.6;}
+  .loading{text-align:center;color:var(--muted);padding:40px;}
+  #pqToast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:11px 18px;border-radius:12px;font-weight:600;font-size:14px;z-index:10000;opacity:0;transition:opacity .2s;box-shadow:0 6px 20px rgba(0,0,0,.25);}
+  select{border:1.5px solid var(--border);border-radius:8px;padding:5px 8px;font:600 12px 'DM Sans',sans-serif;color:var(--text);}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <a class="back" href="/pure_cleaning_admin.html">‹ Admin Hub</a>
+      <div class="count" id="cnt"></div>
+    </div>
+    <h1>📸 Photo Queue — Tag</h1>
+    <div class="sub">Tag city + service + type so the M/W/F scheduler can post them. Skipped photos are hidden forever.<br>
+      New Drive batch? Run <code>npm run photo:scan</code> then <code>npm run photo:thumb</code> locally, then tap <b>Refresh</b>.</div>
+
+    <div class="bar">
+      <button class="btn pri" onclick="load()">↻ Refresh</button>
+      <button class="btn" id="bulkToggle" onclick="toggleBulk()">☑︎ Bulk select</button>
+    </div>
+
+    <div class="bulkbar" id="bulkbar">
+      <span id="bulkN">0 selected</span>
+      <span class="mini">City</span><select id="bulkCity" onchange="bulkApply('city',this.value)"></select>
+      <span class="mini">Service</span><select id="bulkSvc" onchange="bulkApply('service',this.value)"></select>
+      <button class="btn" style="background:#334155;border-color:#334155;color:#fff;" onclick="bulkPair()">🔗 Link as before/after pair</button>
+      <button class="btn" style="background:#7f1d1d;border-color:#7f1d1d;color:#fff;" onclick="bulkSkip()">Skip selected</button>
+      <button class="btn" onclick="clearSel()">Clear</button>
+    </div>
+
+    <div id="content"><div class="loading">Loading…</div></div>
+  </div>
+  <div id="pqToast"></div>
+
+<script>
+const API = 'https://purecleaning-api.tylerfumero.workers.dev';
+const CITIES = ['Weston','Davie','Pembroke Pines','Plantation','Coral Springs','Cooper City','Fort Lauderdale','Hollywood','Miramar','Parkland','Southwest Ranches','Sunrise','Tamarac'];
+const SERVICES = [['roof','Roof'],['driveway','Driveway'],['patio','Patio'],['seal','Seal'],['house','House'],['pool_patio','Pool Patio'],['rust','Rust'],['gutters','Gutters'],['fence','Fence']];
+const TYPES = [['before','Before'],['after','After'],['general','General']];
+
+let _photos = [];      // untagged, needs-city
+let _sel = new Set();  // photoIds selected (bulk)
+let _bulk = false;
+let _blobs = {};       // photoId → objectURL (lazy)
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(m){ const t=document.getElementById('pqToast'); t.textContent=m; t.style.opacity='1'; setTimeout(()=>t.style.opacity='0',2000); }
+
+async function load(){
+  const el = document.getElementById('content');
+  el.innerHTML = '<div class="loading">Loading…</div>';
+  try{
+    const r = await fetch(`${API}/admin/photo-queue?status=untagged`);
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||r.status);
+    // Grid = untagged AND not-yet-tagged (no city). Tagged-but-unscheduled stay
+    // untagged for the scheduler but leave this "needs tagging" view.
+    _photos = (d.photos||[]).filter(p => !p.city);
+    document.getElementById('cnt').textContent = `${_photos.length} to tag · ${d.counts.queued} queued · ${d.counts.posted} posted`;
+    render();
+  }catch(e){ el.innerHTML = `<div class="empty">Couldn't load — ${esc(e.message)}</div>`; }
+}
+
+function render(){
+  const el = document.getElementById('content');
+  if(!_photos.length){ el.innerHTML = `<div class="empty">✓ All caught up — nothing left to tag.<br>Drop a new Drive batch, run <code>npm run photo:scan</code> + <code>photo:thumb</code>, then Refresh.</div>`; return; }
+  el.innerHTML = `<div class="grid">${_photos.map(cardHtml).join('')}</div>`;
+  // lazy-load thumbs
+  const io = new IntersectionObserver((ents)=>{
+    ents.forEach(e=>{ if(e.isIntersecting){ loadThumb(e.target.dataset.pid, e.target); io.unobserve(e.target); } });
+  }, { rootMargin:'200px' });
+  document.querySelectorAll('.thumb[data-pid]').forEach(t=>io.observe(t));
+}
+
+function cardHtml(p){
+  const sel = _sel.has(p.photoId);
+  return `<div class="card ${sel?'sel':''}" id="c-${p.photoId}">
+    <div class="thumb" data-pid="${p.photoId}" onclick="${_bulk?`toggleSel('${p.photoId}')`:`window.open('${API}/admin/photo-thumb/'+'${p.photoId}','_blank')`}">
+      ${_bulk?`<div class="selbox">${sel?'✓':''}</div>`:''}
+      <div class="ph">loading…</div>
+    </div>
+    <div class="cbody">
+      <div class="cpath" title="${esc(p.sourcePath)}">${esc(p.sourcePath.split('/').slice(-1)[0])}${p.batchDate?' · '+esc(p.batchDate):''}</div>
+      <div class="clbl">City</div>
+      <select onchange="setField('${p.photoId}','city',this.value)"><option value="">—</option>${CITIES.map(c=>`<option${p.city===c?' selected':''}>${c}</option>`).join('')}</select>
+      <div class="clbl">Service</div>
+      <div class="chips">${SERVICES.map(([k,l])=>`<span class="chip svc ${p.service===k?'on':''}" onclick="setField('${p.photoId}','service','${k}')">${l}</span>`).join('')}</div>
+      <div class="clbl">Type</div>
+      <div class="chips">${TYPES.map(([k,l])=>`<span class="chip typ ${(p.photoType||'general')===k?'on':''}" onclick="setField('${p.photoId}','photoType','${k}')">${l}</span>`).join('')}</div>
+      <div class="cacts">
+        <button class="btn save" onclick="saveCard('${p.photoId}')">✓ Save</button>
+        <button class="btn skip" onclick="skipCard('${p.photoId}')">Skip</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function loadThumb(pid, el){
+  try{
+    const r = await fetch(`${API}/admin/photo-thumb/${pid}`);
+    if(!r.ok) throw 0;
+    const b = await r.blob();
+    const u = URL.createObjectURL(b); _blobs[pid]=u;
+    el.style.backgroundImage = `url('${u}')`;
+    const ph = el.querySelector('.ph'); if(ph) ph.remove();
+  }catch(_){ const ph = el.querySelector('.ph'); if(ph) ph.textContent='no thumb — run photo:thumb'; }
+}
+
+// local edit state (not saved until Save)
+function _p(pid){ return _photos.find(x=>x.photoId===pid); }
+function setField(pid, field, val){
+  const p=_p(pid); if(!p) return;
+  p[field] = val || null;
+  // re-render just this card's chips
+  const c=document.getElementById('c-'+pid); if(!c) return;
+  c.querySelectorAll('.chip.svc').forEach(ch=>ch.classList.toggle('on', ch.textContent===SERVICES.find(s=>s[0]===p.service)?.[1]));
+  c.querySelectorAll('.chip.typ').forEach(ch=>ch.classList.toggle('on', ch.textContent===TYPES.find(t=>t[0]===(p.photoType||'general'))?.[1]));
+}
+
+async function patchPhoto(pid, body){
+  const r = await fetch(`${API}/admin/photo-queue/${pid}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok||!d.success) throw new Error(d.error||r.status);
+  return d.photo;
+}
+async function saveCard(pid){
+  const p=_p(pid);
+  if(!p.city || !p.service){ toast('Pick a city + service first'); return; }
+  try{
+    await patchPhoto(pid, { city:p.city, service:p.service, photoType:p.photoType||'general' });
+    _photos = _photos.filter(x=>x.photoId!==pid);   // tagged → leaves the grid
+    document.getElementById('c-'+pid)?.remove();
+    toast('✓ Tagged');
+    if(!_photos.length) render();
+  }catch(e){ toast('Failed: '+e.message); }
+}
+async function skipCard(pid){
+  try{ await patchPhoto(pid,{status:'skipped'}); _photos=_photos.filter(x=>x.photoId!==pid); document.getElementById('c-'+pid)?.remove(); toast('Skipped'); if(!_photos.length) render(); }
+  catch(e){ toast('Failed: '+e.message); }
+}
+
+// ── bulk ──
+function toggleBulk(){ _bulk=!_bulk; document.getElementById('bulkToggle').classList.toggle('on',_bulk); document.getElementById('bulkbar').classList.toggle('on',_bulk); if(!_bulk) clearSel(); render(); }
+function toggleSel(pid){ if(_sel.has(pid)) _sel.delete(pid); else _sel.add(pid); document.getElementById('c-'+pid)?.classList.toggle('sel',_sel.has(pid)); const bx=document.querySelector('#c-'+pid+' .selbox'); if(bx) bx.textContent=_sel.has(pid)?'✓':''; document.getElementById('bulkN').textContent=`${_sel.size} selected`; }
+function clearSel(){ _sel.forEach(pid=>{ document.getElementById('c-'+pid)?.classList.remove('sel'); const bx=document.querySelector('#c-'+pid+' .selbox'); if(bx) bx.textContent=''; }); _sel.clear(); document.getElementById('bulkN').textContent='0 selected'; }
+function bulkApply(field,val){ if(!val||!_sel.size) return; _sel.forEach(pid=>setField(pid,field,val)); toast(`Set ${field} on ${_sel.size}`); }
+async function bulkSkip(){ if(!_sel.size) return; const ids=[..._sel]; for(const pid of ids){ try{ await patchPhoto(pid,{status:'skipped'}); }catch(_){} } _photos=_photos.filter(x=>!_sel.has(x.photoId)); clearSel(); render(); toast('Skipped'); }
+async function bulkPair(){
+  const ids=[..._sel];
+  if(ids.length!==2){ toast('Select exactly 2 (a before + an after) to link'); return; }
+  const pairId = 'pair_'+ids[0].slice(0,8)+ids[1].slice(0,8);
+  try{
+    await patchPhoto(ids[0], { pairId, photoType:'before' });
+    await patchPhoto(ids[1], { pairId, photoType:'after' });
+    ids.forEach(id=>{ const p=_p(id); if(p) p.pairId=pairId; });
+    toast('🔗 Linked as before/after pair');
+    clearSel();
+  }catch(e){ toast('Failed: '+e.message); }
+}
+
+// populate bulk selects
+document.getElementById('bulkCity').innerHTML = '<option value="">City…</option>'+CITIES.map(c=>`<option>${c}</option>`).join('');
+document.getElementById('bulkSvc').innerHTML = '<option value="">Service…</option>'+SERVICES.map(([k,l])=>`<option value="${k}">${l}</option>`).join('');
+load();
+</script>
+</body>
+</html>

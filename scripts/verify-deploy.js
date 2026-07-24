@@ -246,6 +246,13 @@ const HTML_FILES = [
   // (js/quote-logger.js is exercised via the pages that load it — HTML_FILES
   //  entries run mobile/viewport checks that only make sense for HTML.)
   {
+    file: 'pure_cleaning_photo_queue.html',
+    markers: [
+      'admin/photo-queue',       // 2026-07-24 M/W/F GBP photo pipeline — tagging grid
+      'function saveCard', 'function bulkPair', 'admin/photo-thumb',
+    ],
+  },
+  {
     file: 'pure_cleaning_admin.html',
     markers: [
       'quote-pool-badge',          // hub tile open-count badge
@@ -263,6 +270,7 @@ const API_ENDPOINTS = [
   { path: '/customers',           expect401: true },   // protected
   { path: '/admin/reviews-hub',   expect401: true },   // protected
   { path: '/admin/quotes',        expect401: true },   // protected — Quote Pool (2026-07-23)
+  { path: '/admin/photo-queue',   expect401: true },   // protected — Photo Queue (2026-07-24)
   // ── Rule 10 tripwire: redirect-shadowing ───────────────────────────────────
   // /reviews is a public worker API (admin review-count widget). On 2026-06-11
   // a `/reviews → /` entry was added to the worker's legacyRedirects dict,

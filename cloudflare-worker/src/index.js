@@ -2149,6 +2149,38 @@ export default {
         return await handlePatchQuote(request, env, qid, corsHeaders);
       }
 
+      // ── Photo Queue — M/W/F GBP prep pipeline (protected) ─────────────────
+      // POST  /admin/photo-queue/scan   — local scan upserts new files (idempotent)
+      //   body: { photos: [{photoId, sourcePath, ext, batchDate, service?, photoType?}] }
+      // GET   /admin/photo-queue[?status=]  — list + counts { untagged, queued, posted }
+      // PATCH /admin/photo-queue/:id    — tag/schedule/status (city, service, photoType, pairId, scheduledFor, caption, seoFilename, processedKey, status)
+      if (path === 'admin/photo-queue/scan' && request.method === 'POST') {
+        return await handlePhotoQueueScan(request, env, corsHeaders);
+      }
+      if (path === 'admin/photo-queue' && request.method === 'GET') {
+        return await handlePhotoQueueList(env, corsHeaders, url);
+      }
+      // Thumbnail upload (local photo:thumb) + serve (tagging grid). Small JPGs
+      // in R2 GBP_PHOTOS under gbp-thumb/ — HEIC originals can't render in the
+      // browser, so the grid shows these.
+      if (path.startsWith('admin/photo-queue/thumb/') && request.method === 'PUT') {
+        const pid = path.slice('admin/photo-queue/thumb/'.length);
+        if (!env.GBP_PHOTOS) return jsonResponse({ error: 'R2 not available' }, corsHeaders, 503);
+        await env.GBP_PHOTOS.put(`gbp-thumb/${pid}.jpg`, request.body, { httpMetadata: { contentType: 'image/jpeg' } });
+        return jsonResponse({ success: true, key: `gbp-thumb/${pid}.jpg` }, corsHeaders);
+      }
+      if (path.startsWith('admin/photo-thumb/') && request.method === 'GET') {
+        const pid = path.slice('admin/photo-thumb/'.length).replace(/\.jpg$/, '');
+        if (!env.GBP_PHOTOS) return new Response('R2 unavailable', { status: 503, headers: corsHeaders });
+        const obj = await env.GBP_PHOTOS.get(`gbp-thumb/${pid}.jpg`);
+        if (!obj) return new Response('not found', { status: 404, headers: corsHeaders });
+        return new Response(obj.body, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400', ...corsHeaders } });
+      }
+      if (path.startsWith('admin/photo-queue/') && request.method === 'PATCH') {
+        const pid = path.slice('admin/photo-queue/'.length);
+        return await handlePhotoQueuePatch(request, env, pid, corsHeaders);
+      }
+
       // ── Cost Hub Phase 1 (protected) ──────────────────────────────────────
       // GET    /admin/cost-categories[?kind=]            — list active categories
       // POST   /admin/cost-entry                          — create CostEntry
@@ -9788,6 +9820,130 @@ async function handleQuoteInsights(env, corsHeaders) {
     await _logD1Failure(env, 'handleQuoteInsights', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHOTO QUEUE — M/W/F GBP prep pipeline (migration 0042)
+//
+// Local `npm run photo:scan` registers new files from website-assets/ (5.5GB,
+// gitignored, unreachable by the Worker). photoId = hash(sourcePath) → scan is
+// a pure INSERT-if-absent: rescan picks up ONLY new files and never disturbs an
+// existing row's status/tags. Web grid tags city/service/type. Scheduler +
+// photo:prep (Segment B) fill M/W/F slots. D1-only (Rule 19).
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _PQ_SERVICES = new Set(['roof','driveway','patio','seal','house','pool_patio','rust','gutters','fence','other']);
+const _PQ_TYPES    = new Set(['before','after','pair','general']);
+
+// POST /admin/photo-queue/scan — bulk INSERT-if-absent. Existing rows untouched.
+async function handlePhotoQueueScan(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  const photos = body && Array.isArray(body.photos) ? body.photos : null;
+  if (!photos) return jsonResponse({ error: 'photos[] required' }, corsHeaders, 400);
+  if (photos.length > 5000) return jsonResponse({ error: 'batch too large (5000 max)' }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  let added = 0, skipped = 0;
+  try {
+    for (const p of photos) {
+      if (!p || !p.photoId || !p.sourcePath) { skipped++; continue; }
+      // INSERT OR IGNORE keyed on photoId → existing row (any status) is preserved.
+      const r = await env.DB.prepare(
+        `INSERT OR IGNORE INTO PhotoQueue
+           (photoId, sourcePath, status, service, photoType, batchDate, ext, createdAt, modifiedAt)
+         VALUES (?, ?, 'untagged', ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        String(p.photoId), String(p.sourcePath),
+        (_PQ_SERVICES.has(p.service) ? p.service : null),
+        (_PQ_TYPES.has(p.photoType) ? p.photoType : 'general'),
+        p.batchDate || null, (p.ext || '').toLowerCase() || null, now, now
+      ).run();
+      if (r.meta && r.meta.changes > 0) added++; else skipped++;
+    }
+  } catch (e) {
+    await _logD1Failure(env, 'handlePhotoQueueScan', e.message);
+    return jsonResponse({ error: 'D1 insert failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({ success: true, added, skipped, total: photos.length }, corsHeaders);
+}
+
+function _photoRowToJson(r) {
+  return {
+    photoId: r.photoId, sourcePath: r.sourcePath, status: r.status,
+    city: r.city || null, service: r.service || null, photoType: r.photoType || 'general',
+    pairId: r.pairId || null, scheduledFor: r.scheduledFor || null,
+    caption: r.caption || null, seoFilename: r.seoFilename || null,
+    processedKey: r.processedKey || null, batchDate: r.batchDate || null,
+    ext: r.ext || null, postedAt: r.postedAt || null, createdAt: r.createdAt,
+  };
+}
+
+// GET /admin/photo-queue?status= — list + whole-table counts (badge feeder).
+async function handlePhotoQueueList(env, corsHeaders, url) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const status = (url.searchParams.get('status') || '').trim();
+  if (status && !['untagged','queued','posted','skipped'].includes(status))
+    return jsonResponse({ error: 'status must be untagged|queued|posted|skipped' }, corsHeaders, 400);
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT * FROM PhotoQueue ${status ? 'WHERE status = ?' : ''} ORDER BY createdAt DESC LIMIT 1000`
+    ).bind(...(status ? [status] : [])).all())?.results || [];
+    const counts = await env.DB.prepare(
+      `SELECT
+         SUM(CASE WHEN status='untagged' THEN 1 ELSE 0 END) AS untagged,
+         SUM(CASE WHEN status='queued'   THEN 1 ELSE 0 END) AS queued,
+         SUM(CASE WHEN status='posted'   THEN 1 ELSE 0 END) AS posted
+       FROM PhotoQueue`
+    ).first();
+    return jsonResponse({
+      photos: rows.map(_photoRowToJson),
+      counts: { untagged: Number(counts?.untagged||0), queued: Number(counts?.queued||0), posted: Number(counts?.posted||0) },
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handlePhotoQueueList', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// PATCH /admin/photo-queue/:id — tag / schedule / status.
+async function handlePhotoQueuePatch(request, env, photoId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+  const existing = await env.DB.prepare('SELECT photoId FROM PhotoQueue WHERE photoId = ?').bind(photoId).first();
+  if (!existing) return jsonResponse({ error: 'photo not found', photoId }, corsHeaders, 404);
+
+  const sets = {};
+  const strFields = ['city','pairId','scheduledFor','caption','seoFilename','processedKey'];
+  for (const k of strFields) if (Object.prototype.hasOwnProperty.call(body, k)) sets[k] = body[k] == null ? null : String(body[k]);
+  if (Object.prototype.hasOwnProperty.call(body, 'service')) {
+    if (body.service != null && !_PQ_SERVICES.has(body.service)) return jsonResponse({ error: 'unknown service' }, corsHeaders, 400);
+    sets.service = body.service || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'photoType')) {
+    if (!_PQ_TYPES.has(body.photoType)) return jsonResponse({ error: 'unknown photoType' }, corsHeaders, 400);
+    sets.photoType = body.photoType;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+    if (!['untagged','queued','posted','skipped'].includes(body.status)) return jsonResponse({ error: 'unknown status' }, corsHeaders, 400);
+    sets.status = body.status;
+    if (body.status === 'posted' && !body.postedAt) sets.postedAt = new Date().toISOString();
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'postedAt')) sets.postedAt = body.postedAt || null;
+  if (!Object.keys(sets).length) return jsonResponse({ error: 'no mutable fields' }, corsHeaders, 400);
+
+  sets.modifiedAt = new Date().toISOString();
+  const cols = Object.keys(sets);
+  try {
+    await env.DB.prepare(`UPDATE PhotoQueue SET ${cols.map(c=>`${c}=?`).join(', ')} WHERE photoId = ?`)
+      .bind(...cols.map(c=>sets[c]), photoId).run();
+  } catch (e) {
+    await _logD1Failure(env, 'handlePhotoQueuePatch', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  const updated = await env.DB.prepare('SELECT * FROM PhotoQueue WHERE photoId = ?').bind(photoId).first();
+  return jsonResponse({ success: true, photo: _photoRowToJson(updated) }, corsHeaders);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
