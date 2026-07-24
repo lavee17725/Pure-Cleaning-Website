@@ -2744,6 +2744,29 @@ async function main() {
       else fail('New Customer — quoted price prefills schedule modal', `price=${r.price} schedPrice='${r.schedPrice}'`);
       if (r.fn === 'Handoff') pass('New Customer — hand-off prefills name');
       else fail('New Customer — hand-off prefills name', `fn='${r.fn}'`);
+
+      // 2026-07-24 Price TBD: the schedule modal's TBD toggle disables/clears the
+      // price input and lets validation pass without an amount (books unpriced).
+      const tbd = await page.evaluate(() => {
+        try {
+          openScheduleModal();
+          document.getElementById('schedDate').value = '2026-07-28';
+          const box = document.getElementById('schedPriceTbd'), price = document.getElementById('schedPrice');
+          price.value = ''; _validateSchedModal();
+          const blockedNoPrice = document.getElementById('schedBtn').disabled;   // no price, no TBD → blocked
+          box.checked = true; _onSchedTbdToggle();
+          return {
+            hasToggle: !!box,
+            priceDisabled: price.disabled && price.value === '',
+            blockedNoPrice,
+            passesWithTbd: document.getElementById('schedBtn').disabled === false,   // TBD + date → allowed
+          };
+        } catch(e) { return { error: e.message }; }
+      });
+      if (tbd.hasToggle && tbd.priceDisabled) pass('New Customer — Price TBD disables/clears the price input');
+      else fail('New Customer — Price TBD toggle', JSON.stringify(tbd));
+      if (tbd.blockedNoPrice && tbd.passesWithTbd) pass('New Customer — TBD passes validation without an amount; no-price-no-TBD is blocked');
+      else fail('New Customer — TBD validation', JSON.stringify(tbd));
     });
 
     // WO-9: run all registered blocks — read-only in parallel batches, mutating serial.

@@ -50,6 +50,8 @@ const HTML_FILES = [
     markers: [
       'function renderDayView', 'PCPC_API', 'function promptRevertJob',
       'function _idbOpen',       // 2026-07-24: customer-DB cache on IndexedDB (removes 5MB quota cliff)
+      'function countTbdForDay', // 2026-07-24 Price TBD: day-header "+N TBD"
+      'jn-amount.tbd', 'completedUnpriced', '_sheetTbd',  // TBD display + completion guard + print blank
       '_idbDel(_CUSTDB_KEY)',    // own-write invalidation via IDB
       '_weekNavDrag',                                     // Regression: drag-to-navigate handler
       'job-scheduled,.win-lane-hdr,.rig-hdr,button',      // Regression: .day-hdr NOT in exclusion (drag from header works)
@@ -205,6 +207,7 @@ const HTML_FILES = [
       'showJobHistory',        // Job history section renderer
       'jhSection',             // Job history container
       '_selectedPropertyId = data.propertyId',  // 2026-07-23 P0: bind new-property id from server response (not address re-match)
+      'schedPriceTbd', '_onSchedTbdToggle',  // 2026-07-24 Price TBD booking toggle
       'alternateContacts',     // alternateContacts persisted to customer record
       'existing_customer_updated', // audit event on existing customer update
       'alt-contacts PATCH',        // WO-H 2b: new_customer persists alt contacts to D1 Person (T1.22 write path)

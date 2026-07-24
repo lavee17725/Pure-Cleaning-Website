@@ -204,6 +204,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;}
 .jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
+.jn-amount.tbd{color:#b45309;font-weight:700;font-size:12px;background:#fef3c7;border:1px solid #fde68a;border-radius:5px;padding:0 5px;}
+.day-tbd{color:#b45309;font-weight:700;font-size:11px;margin-left:4px;}
 .split-badge{font-size:10px;font-weight:700;color:#0369a1;background:#e0f2fe;border-radius:6px;padding:1px 6px;white-space:nowrap;}
 .split-hint{font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap;}
 .rig-gross{font-size:11px;font-weight:700;color:#c2410c;padding:2px 8px 2px;letter-spacing:.2px;}
@@ -2691,9 +2693,22 @@ function jobCardMiniQuote(c) {
 }
 
 function jobAmount(c) {
-  const amt = (c.scheduledStatus || {}).approvedAmount;
+  const ss = c.scheduledStatus || {};
+  // 2026-07-24 "priced after job": TBD is the absence of a price, not $0. Show
+  // "TBD" (amber), contribute 0 to money math (val), and flag it (tbd) so the
+  // day header can surface "+N TBD" and totals are never silently understated.
+  if (ss.priceTbd && !ss.approvedAmount) return { html: '<span class="jn-amount tbd">TBD</span>', val: 0, tbd: true };
+  const amt = ss.approvedAmount;
   if (!amt) return { html: '<span class="jn-amount missing">—</span>', val: 0 };
   return { html: `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>`, val: Number(amt) };
+}
+
+// Count TBD (priced-after-job) jobs scheduled to a rig/day — for the "+N TBD"
+// day-header note so a $0-contributing TBD job is never silently understated.
+function countTbdForDay(date) {
+  return RIGS.reduce((n, rig) => n + getScheduledForRig(date, rig)
+    .filter(c => { const s = c.scheduledStatus?.state; return s !== 'canceled' && s !== 'no_show' && jobAmount(c).tbd; })
+    .length, 0);
 }
 
 function calculateRigTotal(date, rig) {
@@ -3503,7 +3518,7 @@ function renderCalGrid(dates) {
           <div class="dh-right">${wxHtml}</div>
         </div>
         ${totalJobCount > 0
-          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${totalJobCount >= 6 ? `<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">Busy</span>` : ''}${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
+          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})}${(() => { const t = countTbdForDay(date); return t ? `<span class="day-tbd" title="${t} job${t!==1?'s':''} priced after completion — not in this total">+${t} TBD</span>` : ''; })()} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${totalJobCount >= 6 ? `<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">Busy</span>` : ''}${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
           : `<div class="dh-rev dh-rev-empty">—</div>`}
         <div class="wk-cap-bars">${capBarsHtml}</div>
         ${optAllHtml}
@@ -5795,6 +5810,28 @@ async function _doCompleteJob(log) {
     } catch(_) { /* network failure — fall through with single-job amount */ }
   }
   // ── End group detection ────────────────────────────────────────────────────────
+  // 2026-07-24 COMPLETION GUARD: a "Price TBD" job must NEVER complete into
+  // jobHistory/lifetime as $0. Prompt for the final amount; if the operator
+  // enters one it prices the job (clears TBD); if they defer, it completes into
+  // a visible "completed — unpriced" state with NO amount recorded (not $0).
+  const _wasTbd = !!(ss.priceTbd && !ss.approvedAmount);
+  let _completedUnpriced = false;
+  if (_wasTbd && (_groupTotalAmt == null || _groupTotalAmt <= 0)) {
+    const entered = window.prompt(
+      'This job was booked "Price TBD".\n\nEnter the final $ amount to price it now — or leave blank to keep it as "completed — unpriced" (price it later).',
+      ''
+    );
+    const n = entered != null ? parseFloat(entered) : NaN;
+    if (n > 0) {
+      _groupTotalAmt   = n;
+      ss.approvedAmount = n;
+      ss.priceTbd       = false;   // priced → normal job from here (D1 amount+flag persisted in the completion PATCH below)
+    } else {
+      _completedUnpriced = true;   // deferred — do NOT record $0
+      _groupTotalAmt     = null;
+      ss.completedUnpriced = true; // visible "completed, unpriced" state until priced
+    }
+  }
   ss.state = 'completed';
   ss.completedAt = new Date().toISOString();
   ss.completedDate = completedDate;
@@ -5966,6 +6003,7 @@ async function _doCompleteJob(log) {
     date:           completedDate,
     services:       _jhServices,
     amount:         _groupTotalAmt,
+    ...(_completedUnpriced ? { completedUnpriced: true } : {}),  // priced-after-job, deferred → visible unpriced state (never $0)
     rig:            ss.rig || null,
     city:           c.city || null,
     address:        c.address || null,
@@ -6103,6 +6141,10 @@ async function _doCompleteJob(log) {
       patchBody.paymentMethod = log.paymentMethod || null;
       patchBody.paidAt        = log.paidAt || ss.completedAt;
     }
+    // 2026-07-24: a TBD job priced at completion persists the amount + clears the
+    // flag in the same completion write (never $0). Deferred-unpriced leaves
+    // amount NULL + priceTbd=1 → completed-unpriced state in D1.
+    if (_groupTotalAmt != null && _groupTotalAmt > 0) { patchBody.amount = _groupTotalAmt; patchBody.priceTbd = 0; }
     try {
       if (_isGroupJob && _groupSiblings.length > 1) {
         // Group cascade: POST /admin/job/:id/complete-group stamps state=completed +
@@ -7349,6 +7391,8 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const services = ss.phaseScope || ss.jobNotes || qs.mainServices || qs.notes || 'Services as discussed';
   const items    = _splitServiceItems(services);   // roof type stays in Property Details, not Services
   const amount   = ss.approvedAmount || qs.approvedAmount || qs.mainAmount || 0;
+  // 2026-07-24: "priced after job" → print a real writable blank for pen, never $0.
+  const _sheetTbd = !!(ss.priceTbd && !amount);
   const addOns   = c.addOns || [];
   const dateStr  = date ? new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) : 'Date TBD';
   const rigLabel = RIG_LABELS[rig] || rig;
@@ -7632,8 +7676,10 @@ table{width:auto;border-collapse:collapse;}
       <div class="js-stamp-inner"></div>
     </div>
     <div class="js-total">
-      <div class="js-total-label">Job Total</div>
-      <div class="js-total-amount">$${Number(amount).toFixed(0)}</div>
+      <div class="js-total-label">${_sheetTbd ? 'Amount (priced after job)' : 'Job Total'}</div>
+      <div class="js-total-amount">${_sheetTbd
+        ? '$&nbsp;<span style="display:inline-block;min-width:150px;border-bottom:2pt solid #0a1628;">&nbsp;</span>'
+        : '$' + Number(amount).toFixed(0)}</div>
       <div class="js-total-methods">Zelle &nbsp;·&nbsp; Cash &nbsp;·&nbsp; Check &nbsp;·&nbsp; Venmo</div>
     </div>
   </div>

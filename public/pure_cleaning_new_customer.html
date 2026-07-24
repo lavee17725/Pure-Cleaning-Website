@@ -765,6 +765,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     <div class="field" style="margin-bottom:1rem;">
       <label>Price *</label>
       <input id="schedPrice" type="number" class="fi" min="0" step="1" placeholder="Enter amount" inputmode="decimal" style="font-size:15px;" oninput="_validateSchedModal()">
+      <!-- 2026-07-24: "priced after job" — books unpriced (TBD), never $0. -->
+      <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:13px;font-weight:600;color:#92400e;cursor:pointer;">
+        <input type="checkbox" id="schedPriceTbd" onchange="_onSchedTbdToggle()" style="width:16px;height:16px;">
+        Price TBD — priced after the job
+      </label>
     </div>
     <div class="field" style="margin-bottom:1rem;">
       <label>Scheduled date *</label>
@@ -1468,7 +1473,7 @@ async function saveDb() {
 // Sync required: sqFt, roofType, endCustomerName, endCustomerPhone added 2026-05-28.
 // calendar.html copy must also carry these params — verify before any signature change.
 async function scheduleJobWithDualWrite({
-  phone, propertyId, scheduledDate, amount, rigId,
+  phone, propertyId, scheduledDate, amount, priceTbd, rigId,
   services, workSiteAddress, workSiteCity,
   workSitePlaceId, workSiteGoogleVerified,
   roofStories,
@@ -1570,7 +1575,8 @@ async function scheduleJobWithDualWrite({
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       payerId: personId, propertyId: propId, scheduledDate,
-      amount: amount || 0, rigId: rigId || null,
+      // TBD → send null amount + priceTbd:1; the worker stores amount NULL, never $0.
+      amount: priceTbd ? null : (amount || 0), priceTbd: priceTbd ? 1 : 0, rigId: rigId || null,
       servicesRequested: services || 'Pending', servicesRaw: services || 'Pending',
       jobNotes: services || null, workSiteAddress: workSiteAddress || null,
       workSiteCity: workSiteCity || null,
@@ -3100,17 +3106,27 @@ function buildMQFromSuccess() {
 }
 
 // ── Option A: Schedule it now ─────────────────────────────────────────────────
+// 2026-07-24: "Price TBD" disables/clears the price input — the job books
+// unpriced and is priced after completion (never $0).
+function _onSchedTbdToggle() {
+  const tbd = document.getElementById('schedPriceTbd').checked;
+  const priceEl = document.getElementById('schedPrice');
+  priceEl.disabled = tbd;
+  if (tbd) { priceEl.value = ''; priceEl.classList.remove('err'); }
+  _validateSchedModal();
+}
 function _validateSchedModal() {
+  const tbd     = document.getElementById('schedPriceTbd')?.checked;
   const price   = parseFloat(document.getElementById('schedPrice').value);
   const date    = document.getElementById('schedDate').value;
   const priceEl = document.getElementById('schedPrice');
   const errEl   = document.getElementById('schedError');
   const btn     = document.getElementById('schedBtn');
   let err = '';
-  if (!price || price <= 0) err = 'Price must be greater than $0';
-  else if (!date)            err = 'Scheduled date is required';
+  if (!tbd && (!price || price <= 0)) err = 'Price must be greater than $0 (or check Price TBD)';
+  else if (!date)                      err = 'Scheduled date is required';
   if (err) {
-    priceEl.classList.toggle('err', !price || price <= 0);
+    priceEl.classList.toggle('err', !tbd && (!price || price <= 0));
     errEl.textContent = err;
     errEl.style.display = 'block';
     btn.disabled = true;
@@ -3128,6 +3144,8 @@ function openScheduleModal() {
   // No quote context → empty with placeholder, never a 0 default (Rule 18).
   document.getElementById('schedPrice').value = _activeQuotePrice != null ? String(_activeQuotePrice) : '';
   document.getElementById('schedPrice').classList.remove('err');
+  document.getElementById('schedPrice').disabled = false;
+  document.getElementById('schedPriceTbd').checked = false;   // reset TBD each open
   document.getElementById('schedRig').value = '';
   document.getElementById('schedNotes').value = '';
   document.getElementById('schedError').style.display = 'none';
@@ -3142,12 +3160,13 @@ function closeScheduleModal() {
 
 async function submitScheduleNow() {
   const date  = document.getElementById('schedDate').value;
+  const priceTbd = document.getElementById('schedPriceTbd')?.checked || false;
   const price = parseFloat(document.getElementById('schedPrice').value);
   const rig   = document.getElementById('schedRig').value || null;
   const errEl = document.getElementById('schedError');
   const sucEl = document.getElementById('schedSuccess');
-  if (!price || price <= 0) {
-    errEl.textContent = 'Price must be greater than $0';
+  if (!priceTbd && (!price || price <= 0)) {   // TBD books unpriced; else a real amount is required
+    errEl.textContent = 'Price must be greater than $0 (or check Price TBD)';
     errEl.style.display = 'block';
     return;
   }
@@ -3166,7 +3185,8 @@ async function submitScheduleNow() {
   Object.assign(c.scheduledStatus, {
     state: 'scheduled', scheduledDate: date,
     rig, jobNotes: c.quoteStatus?.mainServices || notes || null,
-    approvedAmount: price, window: 'morning',
+    // TBD → no amount (null), priceTbd flag on. Never $0 (T1.21).
+    approvedAmount: priceTbd ? null : price, priceTbd: priceTbd, window: 'morning',
     roofStories:      c.quoteStatus?.servicesAgreed?.roofStories || null,
     // sqFt fallback chain (Modesta fix): input → KV mirror → servicesAgreed.roofSqFt →
     // servicesAgreed.squareFootage.roof. The quote-time value can live in EITHER
@@ -3209,7 +3229,8 @@ async function submitScheduleNow() {
       phone:                  c.phone,
       propertyId:             _selectedPropertyId || null,
       scheduledDate:          date,
-      amount:                 price,
+      amount:                 priceTbd ? null : price,
+      priceTbd:               priceTbd,
       rigId:                  rig || null,
       services:               svcStr,
       workSiteAddress:        pws.address        || c.address || null,

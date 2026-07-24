@@ -6881,6 +6881,10 @@ function _d1BuildScheduledStatus(personJobs) {
     scheduledDate:       ss.scheduledDate  || null,
     rig:                 ss.rigId          || null,
     approvedAmount:      _groupApprovedAmt,
+    // 2026-07-24: "priced after job" — the representative row's TBD flag. amount
+    // is NULL (→ _groupApprovedAmt 0), so every display/money path keys off this
+    // flag, never the 0. Cleared automatically once a real amount is set.
+    priceTbd:            (ss.priceTbd && !ss.amount) ? true : false,
     // Fix 5 (multi-day calendar): explicit group total for payment-warning check.
     // The per-day ss card is suppressed for multi-day parents; day_segment jh entries
     // render each day's card. The payment modal reads groupApprovedAmount so the
@@ -7369,7 +7373,7 @@ async function d1AllCustomersToKvShape(env) {
       + 'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId'
     ).all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
+      'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -7538,7 +7542,7 @@ async function d1CustomerToKvShape(phone, env) {
       + 'FROM PersonProperty pp JOIN Property p ON pp.propertyId=p.propertyId WHERE pp.personId=?'
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
-      'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,' +
+      'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -8343,6 +8347,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.scheduledTimeWindow,
         j.state,
         j.amount,
+        j.priceTbd,
         j.rigId,
         j.servicesRaw,
         j.jobNotes,
@@ -11122,7 +11127,14 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent,
     state,  // 2026-06-22 add_job migration: 'needs_scheduling' OK with null scheduledDate
     customerSelectedDate,  // queue-path requested date (no commit yet)
+    priceTbd,  // 2026-07-24: "priced after job" — amount stays NULL, priceTbd=1 (never $0)
   } = body;
+  // TBD is the absence of a price. Job.amount is NOT NULL (original schema), so
+  // the stored 0 is a placeholder — priceTbd=1 is the SOURCE OF TRUTH and gates
+  // every display/money/completion path, so the 0 never surfaces as a real price
+  // (T1.21 honesty preserved by the flag, not the raw value).
+  const _isTbd  = !!priceTbd;
+  const _amtVal = _isTbd ? 0 : amount;
   // State validation. Default 'scheduled' for backward compat. add_job's
   // queue path uses 'needs_scheduling' with null scheduledDate.
   const _jobState = state || 'scheduled';
@@ -11144,7 +11156,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
   // scheduledDate required UNLESS state='needs_scheduling' (queue path — 2026-06-22).
   if (!scheduledDate && _jobState !== 'needs_scheduling')
     return jsonResponse({ error: 'scheduledDate required (or set state=needs_scheduling for queue)' }, corsHeaders, 400);
-  if (amount == null)     return jsonResponse({ error: 'amount required' }, corsHeaders, 400);
+  if (amount == null && !_isTbd) return jsonResponse({ error: 'amount required (or set priceTbd for priced-after-job)' }, corsHeaders, 400);
   if (!servicesRequested) return jsonResponse({ error: 'servicesRequested required' }, corsHeaders, 400);
 
   // Deterministic jobId: payerId + date (or 'queued_<ts>' when no date yet).
@@ -11201,7 +11213,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     // INSERT OR REPLACE — re-submitting same payer+date+property overwrites cancelled/stale row.
     await env.DB.prepare(
       `INSERT OR REPLACE INTO Job
-         (jobId, payerId, propertyId, scheduledDate, state, amount, paymentStatus,
+         (jobId, payerId, propertyId, scheduledDate, state, amount, priceTbd, paymentStatus,
           servicesRequested, servicesRaw, jobNotes, rigId,
           workSiteAddress, workSiteCity, workSiteZip,
           workSitePlaceId, workSiteGoogleVerified,
@@ -11209,9 +11221,9 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
           roofType,
           source, createdAt, modifiedAt,
           parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      jobId, payerId, propertyId, scheduledDate || null, _jobState, amount, 'pending',
+      jobId, payerId, propertyId, scheduledDate || null, _jobState, _amtVal, _isTbd ? 1 : 0, 'pending',
       _svcTagsVal, servicesRaw || servicesRequested, jobNotes || servicesRequested,
       rigId || null,
       workSiteAddress || null, workSiteCity || null, workSiteZip || null,
@@ -11633,7 +11645,8 @@ async function handleSplitJob(request, env, corsHeaders) {
 
 const _JOB_MUTABLE_FIELDS = new Set([
   'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
-  'amount', 'jobNotes', 'servicesRaw', 'servicesRequested', 'cancellationReason', 'cancelledAt',
+  'amount', 'priceTbd',   // 2026-07-24: TBD flag — editable; setting a real amount clears it (enforced in handlePatchJob)
+  'jobNotes', 'servicesRaw', 'servicesRequested', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
   'workSitePlaceId', 'workSiteGoogleVerified',
@@ -11712,6 +11725,11 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
   const updates = { ...body };
   if (updates.state === 'cancelled' && !updates.cancelledAt) updates.cancelledAt = now;
   if (updates.state === 'completed' && !updates.completedAt) updates.completedAt = now;
+  // 2026-07-24: a real amount and TBD can never coexist. Setting a non-null
+  // amount clears priceTbd (editing/pricing a TBD job makes it a normal job);
+  // setting priceTbd=1 nulls the amount (TBD is the absence of a price, not $0).
+  if (updates.amount != null && Number(updates.amount) > 0) updates.priceTbd = 0;
+  if (updates.priceTbd === 1 || updates.priceTbd === true) { updates.priceTbd = 1; updates.amount = 0; }  // amount is NOT NULL — 0 placeholder, flag is truth
 
   const sets = Object.keys(updates).map(k => `${k}=?`);
   sets.push('modifiedAt=?');
