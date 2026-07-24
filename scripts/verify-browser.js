@@ -373,6 +373,43 @@ async function main() {
         fail('Calendar — calGrid visible');
       }
 
+      // 2026-07-24: customer-DB cache migrated sessionStorage → IndexedDB.
+      // Query the real IndexedDB directly (global API, no dependence on the
+      // page's function scope) — after init()'s getCachedCustomerDB ran, the
+      // blob must be persisted under pcpc_cache/kv/customer_db as {data,timestamp}
+      // and NOT in sessionStorage.
+      const idb = await page.evaluate(async () => {
+        const out = { noSessionCache: sessionStorage.getItem('pcpc_customer_db_cache') === null };
+        const readOnce = () => new Promise((resolve, reject) => {
+          const req = indexedDB.open('pcpc_cache', 1);
+          req.onsuccess = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('kv')) { resolve(null); return; }
+            const g = db.transaction('kv', 'readonly').objectStore('kv').get('customer_db');
+            g.onsuccess = () => resolve(g.result);
+            g.onerror   = () => reject(g.error);
+          };
+          req.onerror = () => reject(req.error);
+        });
+        try {
+          // The cache write is fire-and-forget; a 4.74MB structured-clone write
+          // takes time. Poll up to ~15s for it to land rather than racing it.
+          let rec = null;
+          for (let i = 0; i < 60 && !(rec && rec.data); i++) {
+            rec = await readOnce();
+            if (rec && rec.data) break;
+            await new Promise(r => setTimeout(r, 250));
+          }
+          out.idbHasData     = !!(rec && rec.data && Array.isArray(rec.data.customers) && rec.data.customers.length > 0);
+          out.hasTimestamp   = !!(rec && typeof rec.timestamp === 'number');
+          out.storedAsObject = !!(rec && rec.data && typeof rec.data === 'object');  // structured clone, not a JSON string
+        } catch(e) { out.error = e.message; }
+        return out;
+      });
+      if (idb.idbHasData && idb.hasTimestamp && idb.storedAsObject) pass('Calendar — customer DB persisted to IndexedDB (structured-clone {data,timestamp})');
+      else fail('Calendar — IndexedDB cache', JSON.stringify(idb));
+      if (idb.noSessionCache) pass('Calendar — DB blob no longer in sessionStorage'); else fail('Calendar — sessionStorage still used', JSON.stringify(idb));
+
       // ── Regression: week navigation buttons work ──
       // WO-7 latency-resilient: wait for the week label to actually populate (a slow
       // data load leaves it ""/"Loading…"), then poll for it to change after the

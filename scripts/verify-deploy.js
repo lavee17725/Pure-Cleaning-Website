@@ -49,6 +49,8 @@ const HTML_FILES = [
     file: 'pure_cleaning_calendar.html',
     markers: [
       'function renderDayView', 'PCPC_API', 'function promptRevertJob',
+      'function _idbOpen',       // 2026-07-24: customer-DB cache on IndexedDB (removes 5MB quota cliff)
+      '_idbDel(_CUSTDB_KEY)',    // own-write invalidation via IDB
       '_weekNavDrag',                                     // Regression: drag-to-navigate handler
       'job-scheduled,.win-lane-hdr,.rig-hdr,button',      // Regression: .day-hdr NOT in exclusion (drag from header works)
       'suppressClick',                                    // Regression: click suppressor after week nav
