@@ -1709,7 +1709,16 @@ function openCardSms(phone) {
 // ─── CUSTOMER DB CACHE ───────────────────────────────────────────────────────
 async function getCachedCustomerDB() {
   const CACHE_KEY = 'pcpc_customer_db_cache';
-  const TTL_MS    = 60 * 1000;       // 60s — approved jobs appear within 1 minute
+  // 2026-07-24: 60s → 10min. Returning to the calendar after a minute elsewhere
+  // was paying a full cold ~3.5s /customers fetch every time. Freshness does NOT
+  // depend on this TTL: (1) own-device writes bust it immediately — saveDb()
+  // removes the cache key, other admin pages set pcpc_db_write_ts (checked below);
+  // (2) cross-device changes are caught by pollCustomerUpdates() every 60s, which
+  // fetches /customers fresh and bypasses this cache; (3) STALE_MS keeps SWR
+  // background-refreshing on every load after 30s. So a longer TTL only means the
+  // cache is *served* longer between cold fetches — bounded cross-device staleness
+  // that the 60s poll already covers.
+  const TTL_MS    = 10 * 60 * 1000;  // 10 min served-from-cache window
   const STALE_MS  = 30 * 1000;       // background-refresh after 30s even if still valid
   try {
     const cached = sessionStorage.getItem(CACHE_KEY);
