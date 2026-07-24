@@ -1098,6 +1098,15 @@ export default {
         return await handlePublicGoogleReviews(env, corsHeaders);
       }
 
+      // ── GET /public/reviews — the FULL Google review corpus (our own store) ───
+      // Serves the rolling website carousel from gbp:reviews (synced by the
+      // Reviews Hub), not the 5-review Places proxy above. Text reviews only,
+      // PII-safe (public Google fields only — no CRM join), rendered payload
+      // cached 1h in KV (auto-busted on sync via syncedAt), fails soft.
+      if (path === 'public/reviews' && request.method === 'GET') {
+        return await handlePublicReviews(env, corsHeaders);
+      }
+
       // ── TASKS ─────────────────────────────────────────────────────────────────
       const TASKS_CORS = { ...corsHeaders, 'Cache-Control': 'no-store' };
       if (path === 'api/tasks' && request.method === 'GET') {
@@ -17089,6 +17098,54 @@ async function handleAddressGate(request, env, corsHeaders) {
 // Pressure Cleaning - Google Maps" and the page contained this ChIJ ID.
 // FID-verified: 0x8c3b256eefcdd78b:0x6648a2eb5d461914.
 const PURE_CLEANING_PLACE_ID = 'ChIJi9fN724lO4wRFBlGXeuiSGY';
+
+// GET /public/reviews — the full Google review corpus for the website carousel.
+// Source: gbp:reviews (synced by the Reviews Hub). Text reviews only; PII-safe
+// (public Google fields only, name → "First L."); rendered payload cached 1h in
+// KV keyed on the corpus syncedAt (so a fresh sync auto-invalidates); fails soft.
+function _publicReviewName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'Google user';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+}
+async function handlePublicReviews(env, corsHeaders) {
+  const _fail = () => jsonResponse({ reviews: [], aggregate: { count: 0, rating: null }, ok: false }, corsHeaders);
+  try {
+    const gbp = await env.DATA.get(KV_GBP_REVIEWS, 'json');
+    if (!gbp || !Array.isArray(gbp.reviews)) return _fail();   // no corpus → site hides the section
+
+    const cacheKey = 'pcpc_public_reviews';
+    const cached = await env.DATA.get(cacheKey, 'json');
+    if (cached && cached.syncedAt === gbp.syncedAt) {           // auto-invalidate when the corpus re-syncs
+      return jsonResponse(cached.payload, corsHeaders);
+    }
+
+    const reviews = gbp.reviews
+      .filter(r => (r.comment || '').trim())                    // text reviews only
+      .sort((a, b) => String(b.createTime || '').localeCompare(String(a.createTime || '')))  // newest first
+      .map(r => ({
+        id:     r.reviewId,
+        author: _publicReviewName(r.reviewer),
+        rating: Number(r.rating) || 5,
+        text:   r.comment,                                      // VERBATIM — never edited
+        date:   r.createTime || null,                           // client renders relative
+        reply:  (r.reply && r.reply.comment) ? { text: r.reply.comment, date: r.reply.updateTime || null } : null,
+      }));
+
+    const payload = {
+      reviews,
+      aggregate: { count: Number(gbp.totalReviewCount) || reviews.length, rating: gbp.averageRating != null ? Number(gbp.averageRating) : 5 },
+      googleUrl: 'https://share.google/ChFC1uAe9Xdveb8XN',
+      ok: true,
+    };
+    // Cache the rendered payload 1h, tagged with the corpus syncedAt for invalidation.
+    await env.DATA.put(cacheKey, JSON.stringify({ syncedAt: gbp.syncedAt, payload }), { expirationTtl: 3600 }).catch(() => {});
+    return jsonResponse(payload, corsHeaders);
+  } catch (e) {
+    return _fail();   // fail soft — the website section hides, page otherwise intact
+  }
+}
 
 async function handlePublicGoogleReviews(env, corsHeaders) {
   const CACHE_TTL_MS = 24 * 60 * 60 * 1000;

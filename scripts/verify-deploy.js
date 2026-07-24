@@ -268,6 +268,7 @@ const HTML_FILES = [
 // We verify auth is enforced (expect 401), and use /health for DB sanity.
 const API_ENDPOINTS = [
   { path: '/health',              expectKey: 'customerCount', expectPublic: true },
+  { path: '/public/reviews',      expectKey: 'reviews', expectPublic: true },  // 2026-07-24 rolling website reviews
   { path: '/incoming',            expect401: true },   // protected — no token in verify script
   { path: '/customers',           expect401: true },   // protected
   { path: '/admin/reviews-hub',   expect401: true },   // protected

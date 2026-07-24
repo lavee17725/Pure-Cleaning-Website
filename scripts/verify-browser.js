@@ -2769,6 +2769,28 @@ async function main() {
       else fail('New Customer — TBD validation', JSON.stringify(tbd));
     });
 
+    // ── PUBLIC HOMEPAGE — rolling Google reviews carousel (2026-07-24) ─────────
+    queuePage(context, `${PAGES_BASE}/`, 'homepage-reviews', async page => {
+      // Reviews section is lazy (fetches near-viewport) — scroll it into view + wait.
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(()=>{});
+      const ok = await page.waitForFunction(() => document.querySelectorAll('.rr-card').length > 0, { timeout: 30000 })
+        .then(() => true).catch(() => false);
+      if (!ok) { fail('Homepage — reviews carousel renders', 'no .rr-card after scroll+wait'); return; }
+      const r = await page.evaluate(() => {
+        const cards = [...document.querySelectorAll('.rr-card')];
+        const attrib = [...document.querySelectorAll('.rr-google')].some(e => /Posted on Google/.test(e.textContent));
+        const cnt = document.querySelector('.rr-agg')?.textContent || '';           // "See all 136+ Google reviews →"
+        const text = (cards[0]?.querySelector('p')?.textContent || '').trim();
+        const noMidWord = !/\w…/.test(text) || /\s…”?$/.test(text) || text.length < 210;  // truncation not mid-word
+        return { cards: cards.length, attrib, cnt, hasText: text.length > 10, noMidWord };
+      });
+      if (r.cards > 0 && r.hasText) pass('Homepage — real review cards render with text', `${r.cards} cards`);
+      else fail('Homepage — review cards', JSON.stringify(r));
+      if (r.attrib) pass('Homepage — "Posted on Google" attribution present'); else fail('Homepage — attribution', JSON.stringify(r));
+      const m = r.cnt.match(/(\d{2,4})\+?\s+Google reviews/i);   // live aggregate from /public/reviews, not the static 120
+      if (m && Number(m[1]) >= 100) pass('Homepage — live aggregate count shown', r.cnt.trim()); else fail('Homepage — aggregate count', r.cnt);
+    });
+
     // WO-9: run all registered blocks — read-only in parallel batches, mutating serial.
     await drainQueue();
 
