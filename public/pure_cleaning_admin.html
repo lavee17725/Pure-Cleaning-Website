@@ -248,7 +248,7 @@ const DAILY_DRIVERS = [
   { icon: '👥', name: 'Customer Directory',     description: 'Search and view all 1,200+ customer profiles',                   url: '/pure_cleaning_customer_directory.html', badgeId: 'dir-badge' },
   { icon: '📋', name: 'Bulk Reactivation',      description: 'Tier customers, send reactivation texts, track responses',       url: '/pure_cleaning_bulk_reactivation.html' },
   { icon: '⏰', name: 'Reminders',              description: 'Follow-ups due now + coming up — text, snooze, or complete',     url: '/pure_cleaning_reminders.html',         badgeId: 'reminders-badge' },
-  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html' },
+  { icon: '⭐', name: 'Reviews Hub',             description: 'Manage review requests, track toward 300 reviews',              url: '/pure_cleaning_review_hub.html', badgeId: 'photo-post-badge' },
   { icon: '📊', name: 'Insights',               description: 'Conversion funnel, behavior trends, customer analysis',          url: '/pure_cleaning_insights.html' },
   { icon: '💰', name: 'Operations / Costs',     description: 'Gas, chlorine, equipment, fixed monthly — COGS capture',          url: '/pure_cleaning_costs.html' },
 ];
@@ -338,6 +338,20 @@ async function loadQuotePoolCount() {
       badge.textContent   = count > 0 ? String(count) : '';
       badge.style.display = count > 0 ? 'inline-flex' : 'none';
     }
+  } catch {}
+}
+
+// ── PHOTO-READY-TO-POST BADGE (M/W/F GBP pipeline) ──────────────────────────────
+async function loadPhotoPostBadge() {
+  try {
+    const res = await fetch(`${PCPC_API}/admin/photo-queue/posting-card`);
+    if (!res.ok) return;
+    const d = await res.json();
+    const badge = document.getElementById('photo-post-badge');
+    if (!badge) return;
+    const show = !!d.card;   // a photo is due to post now
+    badge.textContent   = show ? '📸' : '';
+    badge.style.display = show ? 'inline-flex' : 'none';
   } catch {}
 }
 
@@ -1062,6 +1076,7 @@ renderTools();
 loadIncomingCount();
 loadRemindersCount();
 loadQuotePoolCount();
+loadPhotoPostBadge();
 
 loadReviewCount();
 checkAlerts();

@@ -550,6 +550,10 @@ export default {
           console.log('[GBP crossref]', JSON.stringify(x.counts || x));
         })
         .catch(e => console.error('[GBP reviews sync] error:', e.message)));
+      // M/W/F photo pipeline: nightly auto-fill upcoming slots from tagged
+      // photos (idempotent — only fills empty slots). Keeps the queue topped up
+      // without a manual tap; photo:prep still runs locally for the images.
+      ctx.waitUntil(handlePhotoSchedule(new Request('https://x/'), env, {}).catch(e => console.error('[photo schedule] error:', e.message)));
     } else if (event.cron === '0 */4 * * *') {
       // Bouncie auth keepalive — every 4 hours, keeps refresh token exercised
       ctx.waitUntil(bouncieKeepalive(env).catch(e => console.error('bouncie keepalive error:', e.message)));
@@ -2159,6 +2163,29 @@ export default {
       }
       if (path === 'admin/photo-queue' && request.method === 'GET') {
         return await handlePhotoQueueList(env, corsHeaders, url);
+      }
+      // Segment B: scheduler + posting card + processed-image (gbp-processed/).
+      if (path === 'admin/photo-queue/schedule' && request.method === 'POST') {
+        return await handlePhotoSchedule(request, env, corsHeaders);
+      }
+      if (path === 'admin/photo-queue/posting-card' && request.method === 'GET') {
+        return await handlePhotoPostingCard(env, corsHeaders);
+      }
+      if (path.startsWith('admin/photo-queue/processed/') && request.method === 'PUT') {
+        const pid = path.slice('admin/photo-queue/processed/'.length);
+        if (!env.GBP_PHOTOS) return jsonResponse({ error: 'R2 not available' }, corsHeaders, 503);
+        await env.GBP_PHOTOS.put(`gbp-processed/${pid}.jpg`, request.body, { httpMetadata: { contentType: 'image/jpeg' } });
+        // mark the processed R2 key on the row so the posting card can serve it
+        await env.DB.prepare("UPDATE PhotoQueue SET processedKey=?, modifiedAt=? WHERE photoId=?")
+          .bind(`gbp-processed/${pid}.jpg`, new Date().toISOString(), pid).run().catch(()=>{});
+        return jsonResponse({ success: true, key: `gbp-processed/${pid}.jpg` }, corsHeaders);
+      }
+      if (path.startsWith('admin/photo-processed/') && request.method === 'GET') {
+        const pid = path.slice('admin/photo-processed/'.length).replace(/\.jpg$/, '');
+        if (!env.GBP_PHOTOS) return new Response('R2 unavailable', { status: 503, headers: corsHeaders });
+        const obj = await env.GBP_PHOTOS.get(`gbp-processed/${pid}.jpg`);
+        if (!obj) return new Response('not found', { status: 404, headers: corsHeaders });
+        return new Response(obj.body, { headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400', ...corsHeaders } });
       }
       // Thumbnail upload (local photo:thumb) + serve (tagging grid). Small JPGs
       // in R2 GBP_PHOTOS under gbp-thumb/ — HEIC originals can't render in the
@@ -9944,6 +9971,143 @@ async function handlePhotoQueuePatch(request, env, photoId, corsHeaders) {
   }
   const updated = await env.DB.prepare('SELECT * FROM PhotoQueue WHERE photoId = ?').bind(photoId).first();
   return jsonResponse({ success: true, photo: _photoRowToJson(updated) }, corsHeaders);
+}
+
+// ── Photo Queue — Segment B: scheduler + SEO + posting card ───────────────────
+// City-center coords for the 13 real service cities. Kept for the GEOTAG SEAM:
+// injection is not done today (exiftool unavailable on Tyler's Mac), but the
+// coords + the photo:prep seam are ready to switch on if it's ever installed.
+const _PQ_CITY_COORDS = {
+  'weston':[26.1003,-80.3998], 'davie':[26.0765,-80.2521], 'pembroke pines':[26.0128,-80.3382],
+  'plantation':[26.1276,-80.2331], 'coral springs':[26.2712,-80.2706], 'cooper city':[26.0576,-80.2717],
+  'fort lauderdale':[26.1224,-80.1373], 'hollywood':[26.0112,-80.1495], 'miramar':[25.9861,-80.3035],
+  'parkland':[26.3103,-80.2372], 'southwest ranches':[26.0592,-80.4103], 'sunrise':[26.1669,-80.2564],
+  'tamarac':[26.2131,-80.2497],
+};
+// Service → SEO slug + human phrase for filename + caption.
+const _PQ_SVC_SEO = {
+  roof:['roof-cleaning','Roof cleaning'], driveway:['driveway-cleaning','Driveway cleaning'],
+  patio:['patio-cleaning','Patio cleaning'], seal:['paver-sealing','Paver sealing'],
+  house:['house-washing','House washing'], pool_patio:['pool-deck-cleaning','Pool deck cleaning'],
+  rust:['rust-removal','Rust removal'], gutters:['gutter-cleaning','Gutter cleaning'],
+  fence:['fence-cleaning','Fence cleaning'], other:['pressure-washing','Pressure washing'],
+};
+function _pqCitySlug(city) { return (city||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+function _pqSeoFilename(service, city, date) {
+  const [svc] = _PQ_SVC_SEO[service] || _PQ_SVC_SEO.other;
+  return `${svc}-${_pqCitySlug(city)}-fl-pure-cleaning-${date}.jpg`;
+}
+// 3 rotating caption templates (deterministic pick by photoId → stable, editable).
+function _pqCaption(service, city, isPair, photoId) {
+  const [, phrase] = _PQ_SVC_SEO[service] || _PQ_SVC_SEO.other;
+  const svc = phrase; const ba = isPair ? ' Before & after says it all.' : '';
+  const T = [
+    `${svc} completed in ${city}, FL ✨ Family-owned Pure Cleaning has been keeping South Florida homes spotless since 1995.${ba} 📞 954-389-2642 · purecleaningpressurecleaning.com`,
+    `Another ${svc.toLowerCase()} done right in ${city}, FL 🏡 Three decades of local, family-owned pressure washing.${ba} Book yours: 954-389-2642 · purecleaningpressurecleaning.com`,
+    `${city}, FL — fresh ${svc.toLowerCase()} by Pure Cleaning 💦 Trusted by your neighbors since 1995.${ba} 📞 954-389-2642 · purecleaningpressurecleaning.com`,
+  ];
+  const h = Math.abs([...(photoId||'x')].reduce((a,c)=>((a<<5)-a+c.charCodeAt(0))|0,0));
+  return T[h % T.length];
+}
+// Next N Mon/Wed/Fri dates (YYYY-MM-DD) on/after `fromDate`.
+function _nextMwfSlots(fromDate, n) {
+  const out = []; const d = new Date(fromDate + 'T12:00:00');
+  while (out.length < n) {
+    const dow = d.getDay();               // 1=Mon 3=Wed 5=Fri
+    if (dow === 1 || dow === 3 || dow === 5) out.push(d.toISOString().slice(0,10));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+// POST /admin/photo-queue/schedule — fill upcoming M/W/F slots from tagged
+// (city+service set, status 'untagged'), unscheduled photos. Idempotent: only
+// fills slots that don't already have a queued photo. Rotation: pairs first
+// (engagement), newest batch first, and avoid repeating BOTH service+city from
+// the immediately-previous filled slot (no monotonous runs). Sets scheduledFor +
+// caption + seoFilename + status='queued'.
+async function handlePhotoSchedule(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const today = new Date().toISOString().slice(0,10);
+  try {
+    // Slots already filled with a still-pending (queued, not posted) photo.
+    const filled = new Set(((await env.DB.prepare(
+      "SELECT DISTINCT scheduledFor FROM PhotoQueue WHERE status='queued' AND scheduledFor >= ?"
+    ).bind(today).all())?.results || []).map(r => r.scheduledFor));
+    const slots = _nextMwfSlots(today, 6).filter(s => !filled.has(s));
+    if (!slots.length) return jsonResponse({ success: true, assigned: 0, message: 'all 6 upcoming slots already filled' }, corsHeaders);
+
+    // Candidates: tagged + unscheduled. Group before/after pairs into one unit.
+    const rows = (await env.DB.prepare(
+      "SELECT * FROM PhotoQueue WHERE status='untagged' AND city IS NOT NULL AND service IS NOT NULL AND scheduledFor IS NULL"
+    ).all())?.results || [];
+    const pairs = new Map(); const singles = [];
+    for (const r of rows) {
+      if (r.pairId) { if (!pairs.has(r.pairId)) pairs.set(r.pairId, []); pairs.get(r.pairId).push(r); }
+      else singles.push(r);
+    }
+    // Unit = {rep, members, isPair}. Pairs first, then singles; each by batchDate desc.
+    const byDateDesc = (a,b) => String(b.rep.batchDate||'').localeCompare(String(a.rep.batchDate||''));
+    const units = [
+      ...[...pairs.values()].filter(m => m.length >= 2).map(m => ({ rep: m[0], members: m, isPair: true })),
+      ...singles.map(r => ({ rep: r, members: [r], isPair: false })),
+    ].sort((a,b) => (b.isPair?1:0)-(a.isPair?1:0) || byDateDesc(a,b));
+
+    // Greedy assign with anti-monotony: skip a unit that repeats BOTH service+city
+    // of the previous slot when an alternative exists.
+    let prev = null, assigned = 0; const used = new Set();
+    for (const slot of slots) {
+      let pick = units.find(u => !used.has(u.rep.photoId) && !(prev && u.rep.service===prev.service && u.rep.city===prev.city))
+              || units.find(u => !used.has(u.rep.photoId));
+      if (!pick) break;
+      used.add(pick.rep.photoId);
+      const isPair = pick.isPair;
+      const caption = _pqCaption(pick.rep.service, pick.rep.city, isPair, pick.rep.photoId);
+      const seo = _pqSeoFilename(pick.rep.service, pick.rep.city, slot);
+      for (const m of pick.members) {
+        await env.DB.prepare(
+          "UPDATE PhotoQueue SET status='queued', scheduledFor=?, caption=?, seoFilename=?, photoType=?, modifiedAt=? WHERE photoId=?"
+        ).bind(slot, caption, seo, isPair ? m.photoType : m.photoType, new Date().toISOString(), m.photoId).run();
+      }
+      prev = { service: pick.rep.service, city: pick.rep.city };
+      assigned++;
+    }
+    return jsonResponse({ success: true, assigned, slotsFilled: slots.slice(0, assigned) }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handlePhotoSchedule', e.message);
+    return jsonResponse({ error: 'schedule failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// GET /admin/photo-queue/posting-card — the ONE photo due to post now, plus a
+// low-queue signal. Missed-day roll-forward: the OLDEST unposted queued slot
+// (<= today) is "today's card" — a missed Wednesday shows up Friday, never
+// "post 3 today". Returns null card when nothing is due yet.
+async function handlePhotoPostingCard(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const today = new Date().toISOString().slice(0,10);
+  try {
+    const due = await env.DB.prepare(
+      "SELECT * FROM PhotoQueue WHERE status='queued' AND scheduledFor <= ? ORDER BY scheduledFor ASC LIMIT 1"
+    ).bind(today).first();
+    const queuedAhead = Number((await env.DB.prepare(
+      "SELECT COUNT(DISTINCT scheduledFor) n FROM PhotoQueue WHERE status='queued' AND scheduledFor >= ?"
+    ).bind(today).first())?.n || 0);
+    let pair = null;
+    if (due && due.pairId) {
+      const members = (await env.DB.prepare("SELECT * FROM PhotoQueue WHERE pairId=? ORDER BY photoType").bind(due.pairId).all())?.results || [];
+      pair = members.map(_photoRowToJson);
+    }
+    return jsonResponse({
+      card: due ? _photoRowToJson(due) : null,
+      pair,
+      slotsAhead: queuedAhead,
+      lowQueue: queuedAhead < 4,
+    }, corsHeaders);
+  } catch (e) {
+    await _logD1Failure(env, 'handlePhotoPostingCard', e.message);
+    return jsonResponse({ error: 'posting-card failed', detail: e.message }, corsHeaders, 500);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

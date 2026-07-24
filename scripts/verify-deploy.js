@@ -137,7 +137,8 @@ const HTML_FILES = [
               'reviews/sync-now',           // combined sync+crossref endpoint
               'REPLY_QUEUE_FLOOR',          // 2026-07-23: reply queue floored July-forward
               'All reviews &amp; reply history',  // pure to-do: history collapsed out of the queue
-              'All caught up — no reviews need a reply'],  // empty state
+              'All caught up — no reviews need a reply',  // empty state
+      'function loadPhotoPostCard', 'function postToGbp', 'photo-queue/posting-card'],  // 2026-07-24 Segment B posting card + seam
     cssChecks: [
       { selector: '.card-name', prop: 'color', forbidden: '#fff' },
     ],
@@ -257,6 +258,7 @@ const HTML_FILES = [
     markers: [
       'quote-pool-badge',          // hub tile open-count badge
       'openQuoteLogger',           // ＋ Log Quote tile action
+      'function loadPhotoPostBadge',  // 📸 photo-ready badge (Segment B)
     ],
   },
 ];

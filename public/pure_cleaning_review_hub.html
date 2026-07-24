@@ -150,6 +150,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
      'healthy' while refresh was failing invalid_grant). -->
 <div id="syncAlert" style="display:none;"></div>
 
+<!-- M/W/F photo posting card (Segment B, 2026-07-24). Tyler already visits the
+     hub for the reply queue, so the "photo ready to post" lives here. -->
+<div id="photoPostCard" style="display:none;"></div>
+
 <div class="tabs">
   <div class="tab active" data-tab="ready" onclick="switchTab('ready')">🎯 Ready <span class="tab-badge" id="badge-ready">—</span></div>
   <div class="tab" data-tab="requested" onclick="switchTab('requested')">📬 Requested <span class="tab-badge" id="badge-requested" style="background:rgba(45,125,210,.4);color:#93c5fd;">—</span></div>
@@ -224,6 +228,7 @@ async function loadHub() {
     renderSyncAlert();
     updateBadges();
     renderCurrentTab();
+    loadPhotoPostCard();   // M/W/F GBP photo (non-blocking)
   } catch(e) {
     showToast('⚠️ Failed to load hub: ' + e.message);
   }
@@ -306,6 +311,92 @@ async function syncGbpNow(btn) {
     if (msg) { msg.style.color = '#b91c1c'; msg.textContent = `Sync error: ${e.message}. Try ↗ Reconnect Google.`; }
     if (btn) { btn.disabled = false; btn.textContent = '⟳ Sync now'; }
   }
+}
+
+// ── M/W/F GBP photo posting card (Segment B) ──────────────────────────────────
+// SWAPPABLE POSTING SEAM: the "post" step is manual today (GBP deprecated the
+// photo-upload API for standard profiles). To automate later, implement this
+// one function against a third-party scheduler (Publer/OneUp) — the queue,
+// scheduler, SEO prep, and card all stay unchanged. Returns whether it posted.
+async function postToGbp(photo) {
+  // return await publerApi.schedule(photo);   // <-- future: one line here
+  return { manual: true };                     // today: Tyler posts by hand
+}
+
+let _photoCard = null, _photoCardPair = null;
+async function loadPhotoPostCard() {
+  const el = document.getElementById('photoPostCard');
+  if (!el) return;
+  try {
+    const r = await fetch(`${API}/admin/photo-queue/posting-card`);
+    const d = await r.json();
+    if (!r.ok) return;
+    _photoCard = d.card; _photoCardPair = d.pair;
+    if (!d.card && !d.lowQueue) { el.style.display = 'none'; return; }
+    if (!d.card && d.lowQueue) {
+      el.innerHTML = `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:13px 15px;margin:0 0 14px;">
+        <b style="color:#92400e;">📸 Photo queue running low</b> — ${d.slotsAhead} M/W/F slot${d.slotsAhead===1?'':'s'} filled.
+        Tag more in the <a href="/pure_cleaning_photo_queue.html" style="color:#b45309;font-weight:700;">Photo Queue</a>, then
+        <button onclick="fillPhotoSlots(this)" style="background:#b45309;color:#fff;border:none;border-radius:8px;padding:5px 11px;font-weight:700;font-size:12px;cursor:pointer;">Fill slots</button></div>`;
+      el.style.display = 'block'; return;
+    }
+    const c = d.card;
+    const lowNote = d.lowQueue ? `<span style="color:#b45309;font-weight:700;font-size:12px;"> · ⚠ queue low (${d.slotsAhead} ahead)</span>` : '';
+    el.innerHTML = `
+      <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:14px;padding:14px 15px;margin:0 0 14px;">
+        <div style="font-weight:800;color:#1e40af;font-size:15px;margin-bottom:8px;">📸 Photo ready to post — ${esc(c.scheduledFor)}${lowNote}</div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;">
+          <div style="flex:0 0 auto;">
+            <img id="ppImg" alt="processed" style="width:180px;height:180px;object-fit:cover;border-radius:10px;background:#dbeafe;display:block;">
+            <a id="ppDl" download="${esc(c.seoFilename||'pure-cleaning.jpg')}" style="display:block;text-align:center;margin-top:6px;background:#1d4ed8;color:#fff;border-radius:8px;padding:6px;font-weight:700;font-size:12px;text-decoration:none;">⬇ Save image</a>
+            <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:3px;">${esc(c.seoFilename||'')}</div>
+          </div>
+          <div style="flex:1 1 260px;min-width:220px;">
+            <textarea id="ppCaption" style="width:100%;min-height:120px;padding:9px;border-radius:9px;border:1.5px solid #bfdbfe;background:#fff;color:#1e293b;font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;">${esc(c.caption||'')}</textarea>
+            <div style="display:flex;gap:7px;margin-top:8px;flex-wrap:wrap;">
+              <button onclick="copyPhotoCaption(this)" style="background:#1d4ed8;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy caption</button>
+              <a href="https://business.google.com/posts" target="_blank" rel="noopener" style="background:#fff;border:1.5px solid #bfdbfe;color:#1d4ed8;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Open GBP</a>
+              <button onclick="markPhotoPosted('${c.photoId}',this)" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">✓ Posted</button>
+            </div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:7px;">Save image → open GBP → upload → paste caption → ✓ Posted. Edit the caption above before copying.</div>
+          </div>
+        </div>
+      </div>`;
+    el.style.display = 'block';
+    // processed image via authed blob (R2 route is auth-gated)
+    try {
+      const ir = await fetch(`${API}/admin/photo-processed/${c.photoId}`);
+      if (ir.ok) { const u = URL.createObjectURL(await ir.blob()); document.getElementById('ppImg').src = u; document.getElementById('ppDl').href = u; }
+      else { document.getElementById('ppImg').alt = 'run npm run photo:prep'; }
+    } catch(_) {}
+  } catch(e) { /* non-blocking */ }
+}
+async function fillPhotoSlots(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Filling…'; }
+  try { const r = await fetch(`${API}/admin/photo-queue/schedule`, { method:'POST' }); const d = await r.json();
+    showToast(d.success ? `✓ Filled ${d.assigned} slot(s) — run npm run photo:prep` : (d.error||'failed'));
+    loadPhotoPostCard();
+  } catch(e){ showToast('Failed: '+e.message); if(btn){btn.disabled=false;btn.textContent='Fill slots';} }
+}
+function copyPhotoCaption(btn) {
+  const t = document.getElementById('ppCaption'); t.select();
+  navigator.clipboard.writeText(t.value).then(()=>{ btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent='📋 Copy caption',1500); }).catch(()=>{});
+}
+async function markPhotoPosted(pid, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
+  try {
+    await postToGbp(_photoCard);   // seam (manual today)
+    // A before/after PAIR is one GBP post in one slot — mark BOTH members
+    // posted so the partner doesn't linger as a second card on the same day.
+    const ids = (_photoCardPair && _photoCardPair.length) ? _photoCardPair.map(p => p.photoId) : [pid];
+    for (const id of ids) {
+      const r = await fetch(`${API}/admin/photo-queue/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:'posted' }) });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error||r.status);
+    }
+    showToast('✓ Marked posted — next photo advanced');
+    loadPhotoPostCard();   // advances to the next due (or hides)
+  } catch(e) { showToast('Failed: '+e.message); if(btn){btn.disabled=false;btn.textContent='✓ Posted';} }
 }
 
 function updateBadges() {
