@@ -146,7 +146,7 @@ thead th.sorted .sort-ind{opacity:1;color:var(--sky);}
 tbody tr{border-top:1px solid var(--border);transition:background .1s;cursor:pointer;}
 tbody tr:hover{background:rgba(45,125,210,.08);}
 tbody tr:active{background:rgba(45,125,210,.15);}
-td{padding:0 8px;height:80px;vertical-align:middle;white-space:nowrap;}
+td{padding:0 8px;height:104px;vertical-align:middle;white-space:nowrap;}
 @media(max-width:1100px){.col-city{display:none;}}
 /* Option A row redesign — name+meta cell */
 .td-name-cell{max-width:240px;}
@@ -161,6 +161,23 @@ td{padding:0 8px;height:80px;vertical-align:middle;white-space:nowrap;}
 .last-svc-date{font-size:13px;font-weight:600;}
 td.money{font-family:'DM Mono',monospace;}
 .tier-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;}
+/* Elapsed-time-first triage (2026-07-27). Tyler triages by ONE number: months
+   since the last cleaning of the PITCHED service. It lives in the sticky
+   column (left:32px) so on mobile it's always in the same viewport as
+   [Text Now] — no horizontal scroll, no expand. Value comes from
+   svcAgeDisplay() → serviceClauseFor(), the SAME source as {serviceClause} in
+   the outgoing text, so card and message can never diverge. */
+.svc-age{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 4px;line-height:1.05;margin-bottom:6px;}
+.sa-num{font-size:26px;font-weight:800;letter-spacing:-1px;}
+.sa-unit{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+.sa-svc{font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap;}
+.sa-red   .sa-num,.sa-red   .sa-unit{color:#b91c1c;}
+.sa-amber .sa-num,.sa-amber .sa-unit{color:#c2410c;}
+.sa-warn  .sa-num,.sa-warn  .sa-unit{color:#a16207;}
+.sa-ok    .sa-num,.sa-ok    .sa-unit{color:var(--navy);}
+/* Serviceless fallback — the message omits the number, so the card must too.
+   Reads as a real state, never a blank that looks broken. */
+.svc-age-none{font-size:11.5px;font-weight:700;color:var(--muted);font-style:italic;white-space:normal;line-height:1.25;margin-bottom:6px;}
 
 /* generate bar */
 .gen-bar{display:none;position:sticky;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:.875rem 1.25rem;display:none;align-items:center;justify-content:space-between;gap:12px;z-index:100;}
@@ -653,7 +670,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);}
       <thead>
         <tr>
           <th style="width:32px;cursor:default;"></th>
-          <th style="width:138px;cursor:default;">Text Now</th>
+          <th style="width:146px;cursor:default;">Since Last · Text</th>
           <th data-sort="name" onclick="clickSort('name')">Customer <span class="sort-ind">▲▼</span></th>
           <th data-sort="city" onclick="clickSort('city')" class="col-city">City <span class="sort-ind">▲▼</span></th>
           <th data-sort="lastService" onclick="clickSort('lastService')">Last Service <span class="sort-ind">▲▼</span></th>
@@ -2163,6 +2180,9 @@ function renderTable() {
     } else {
       textBtn = `<div style="display:flex;flex-direction:column;gap:4px;"><button class="text-now-btn" data-contact-phone="${c.phone}" onclick="textNow('${c.phone}')">Text Now</button><button class="test-send-btn" onclick="event.stopPropagation();testSendToMe('${c.phone}')" title="Test this message on your own phone">Test Send to Me</button></div>`;
     }
+    // Lead element of the row: months since the last cleaning of the PITCHED
+    // service, in the sticky cell so it rides alongside [Text Now] on mobile.
+    const _svcAge = svcAgeDisplay(c);
     const _ageM = c.monthsSince < 999 ? Math.round(c.monthsSince) : null;
     const _ageCls = _ageM !== null ? (_ageM >= 24 ? 'age-red' : _ageM >= 18 ? 'age-amber' : _ageM >= 12 ? 'age-warn' : '') : '';
     const _ageBadge = _ageM !== null ? `<span class="age-badge ${_ageCls}">${_ageM} mo ago</span>` : '';
@@ -2174,7 +2194,7 @@ function renderTable() {
       : c.lifetimeSpend.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
     return `<tr onclick="goToProfile('${c.phone}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" data-phone="${c.phone}" ${checked ? 'checked' : ''} onchange="toggleRow(this)"></td>
-      <td onclick="event.stopPropagation()">${textBtn}</td>
+      <td onclick="event.stopPropagation()">${_svcAge}${textBtn}</td>
       <td class="td-name-cell"><div class="name-big">${sealIcon}${c.fn} ${c.ln}${alertBadge}</div><div class="meta-row">${formatPhone(c.phone)} · ${c.city||'—'} · ${c.totalJobs} job${c.totalJobs!==1?'s':''}</div></td>
       <td class="col-city" style="font-size:12px;color:var(--muted);">${c.city||'—'}</td>
       <td class="last-svc-cell"><div class="last-svc-date">${_lastSvcDate}</div>${_ageBadge}</td>
@@ -2270,6 +2290,7 @@ function renderTimelineCard(c, status) {
 
   return `<div class="tl-card tl-${status}">
     <div class="tl-info">
+      ${svcAgeDisplay(c)}
       <div class="tl-name">${c.fn} ${c.ln}${c.city ? ' · ' + c.city : ''}</div>
       <div class="tl-meta">Last service: ${lastStr} (${mo}) · Due: ${dueStr}</div>
       <div class="tl-badges">
@@ -2705,6 +2726,17 @@ function nameGroundSurfaces(servicesStr) {
 // fallbacks: pitched service with no qualifying job → serviceless, NO number
 // (never a number from a different service); unclassified but have an overall
 // date → generic "your home". Returns { clause, months, found }.
+// HTML-escape for values interpolated into row markup. Was referenced by the
+// DNS-tab branch of renderTable but never actually defined anywhere — that
+// branch only renders when DNS records exist, so the ReferenceError stayed
+// masked. Defining it here fixes that latent crash too. (2026-07-27)
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+const _slessWarned = new Set();
 function serviceClauseFor(customer, variant) {
   const pitch = pitchedServiceType(customer, variant);
   if (pitch) {
@@ -2718,12 +2750,48 @@ function serviceClauseFor(customer, variant) {
       return { clause: `It's been about ${m} months since we last ${verb} ${noun}`, months: m, found: true };
     }
     // Pitched but no qualifying job (classification drift) — drop the number.
-    console.warn(`[reactivation] no qualifying ${pitch} job for ${customer.phone} (${customer.fn} ${customer.ln}) — serviceless fallback, review record`);
+    // Warn once per phone: serviceClauseFor is now also called per row on every
+    // render (svcAgeDisplay), and an unthrottled warn would flood the console.
+    if (!_slessWarned.has(customer.phone)) {
+      _slessWarned.add(customer.phone);
+      console.warn(`[reactivation] no qualifying ${pitch} job for ${customer.phone} (${customer.fn} ${customer.ln}) — serviceless fallback, review record`);
+    }
     return { clause: `It's been a while since we've been out`, months: 0, found: false };
   }
   const om = Math.round(customer.monthsSince < 999 ? customer.monthsSince : 0);
   if (om > 0) return { clause: `It's been about ${om} months since our records show we cleaned your home`, months: om, found: true };
   return { clause: `It's been a while since we've been out`, months: 0, found: false };
+}
+
+// ─── ELAPSED-TIME-FIRST TRIAGE DISPLAY ───────────────────────────────────────
+// The one number Tyler triages by, rendered as the lead element of the queue
+// row. DISPLAY ONLY — it reads serviceClauseFor(), the exact same call that
+// produces {serviceClause}/{monthsText} in the outgoing text, so the card and
+// the message are the same number by construction and cannot drift.
+// Passing variant=null is equivalent to the live send path: the only
+// variant-sensitive branch in pitchedServiceType is the tier2 grounds-upsell
+// lane, which is already forced by the currentLane global.
+// Serviceless fallback (message shows NO number) → honest "no prior X job",
+// never a number borrowed from another service, never a blank.
+function svcAgeDisplay(c) {
+  const pitch = pitchedServiceType(c, null);
+  const svc   = serviceClauseFor(c, null);
+  const label = pitch === 'roof' ? 'roof' : pitch === 'ground' ? 'ground' : 'last service';
+  if (!svc.found || !svc.months) {
+    // No number in the message → no number here. Say WHY, accurately: a
+    // customer with jobs on file whose elapsed time rounds under a month is a
+    // different state from one with no qualifying job at all, and calling the
+    // first "no prior job" would be a lie about their record. Reason is read
+    // from lastServiceDateFor — the same helper serviceClauseFor used — so
+    // this stays one source of truth.
+    const has = pitch ? lastServiceDateFor(c, pitch) : (c.lastDateObj ? {} : null);
+    const txt = has ? (pitch ? `just cleaned · ${label}` : 'just serviced')
+                    : (pitch ? `no prior ${label} job` : 'no prior job on record');
+    return `<div class="svc-age-none" title="The text message omits the month count for this customer">${txt}</div>`;
+  }
+  const m   = svc.months;
+  const cls = m >= 24 ? 'sa-red' : m >= 18 ? 'sa-amber' : m >= 12 ? 'sa-warn' : 'sa-ok';
+  return `<div class="svc-age ${cls}" title="${esc(svc.clause)}"><span class="sa-num">${m}</span><span class="sa-unit">mo</span><span class="sa-svc">· ${label}</span></div>`;
 }
 
 function resolveTemplateVars(customer, link, variant) {
