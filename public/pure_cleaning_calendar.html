@@ -2307,45 +2307,40 @@ async function scheduleJobWithDualWrite({
   services, workSiteAddress, workSiteCity,
   workSitePlaceId, workSiteGoogleVerified,
   roofStories,
+  firstName, lastName,
   source,
 }) {
-  const ph       = (phone || '').replace(/\D/g, '').slice(-10);
-  const personId = 'person_1' + ph;
+  const ph = (phone || '').replace(/\D/g, '').slice(-10);
+  // let, not const: the resolver returns the ACTIVE successor when this phone
+  // belongs to a retired/merged record, and the job must bill to them.
+  let personId = 'person_1' + ph;
 
-  // Resolve propertyId via single-customer endpoint (has full properties[]).
-  // allCustomers (dbRecord) uses _d1PersonToKv shape which excludes properties[].
-  let propId = propertyId || null;
-  if (!propId) {
-    try {
-      const fullR = await fetch(`${PCPC_API}/customer/${ph}`).catch(() => null);
-      if (fullR && fullR.ok) {
-        const fullD = await fullR.json().catch(() => null);
-        const props = (fullD?.customer?.properties) || [];
-        // Law T1.11: multi-property customer — NEVER silently guess the service address.
-        // Single-property (the normal case): safe to auto-resolve, only one option exists.
-        // Multi-property + no explicit propertyId passed: fail loud so the caller is forced
-        // to resolve which property this job is for. A silent wrong-address booking is worse
-        // than a visible error — the latter gets fixed immediately.
-        //
-        // Partner exemption: partner_referral customers resolve location via workSiteAddress
-        // (the homeowner's address), not property selection. Their propertyId is always the
-        // billing anchor — auto-resolve to primaryContact is correct. Skip the guard.
-        if (props.length > 1 && fullD?.customer?.customerType !== 'partner_referral') {
-          return {
-            success: false,
-            error: 'multi_property_ambiguous',
-            message: `Cannot schedule — ${fullD?.customer?.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
-          };
-        }
-        propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
-      }
-    } catch(_) {}
-  }
+  // ── P0 2026-07-29: ONE server-side resolver decides the service property ────
+  // This block and new_customer.html's had drifted apart (this copy never had
+  // the partner worksite binding at all) and neither could turn a just-typed
+  // address into a Property. Both now call the same endpoint, so no scheduling
+  // entry path can diverge again (DL-07). Same contract as new_customer.html.
+  const _rp = await fetch(`${PCPC_API}/admin/resolve-service-property`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },   // Authorization added by the page-level fetch wrapper
+    body: JSON.stringify({
+      phone: ph,
+      propertyId: propertyId || null,
+      address: workSiteAddress || null,
+      city:    workSiteCity    || null,
+      placeId: workSitePlaceId || null,
+      firstName: firstName || null,
+      lastName:  lastName  || null,
+    }),
+  }).then(r => r.json()).catch(() => ({ success: false, error: 'resolve_unreachable', message: 'Could not reach the server to confirm the service address. Check connection and retry.' }));
 
-  if (!propId) {
-    const msg = 'Cannot schedule — no confirmed address on file. Save customer record first.';
-    return { success: false, error: 'no_property_id', message: msg };
+  if (!_rp.success) {
+    return { success: false, error: _rp.error || 'no_property_id', message: _rp.message || 'Cannot schedule — could not resolve the service address.' };
   }
+  const propId = _rp.propertyId;
+  if (_rp.personId) personId = _rp.personId;
+  if (!workSiteAddress && _rp.streetAddress) workSiteAddress = _rp.streetAddress;
+  if (!workSiteCity    && _rp.city)          workSiteCity    = _rp.city;
 
   // D1 write — calendar reads D1 only for state='scheduled'.
   const d1Res = await fetch(`${PCPC_API}/admin/scheduled-job`, {
@@ -9859,6 +9854,13 @@ async function confirmTapSchedule() {
       rigId:         c.scheduledStatus.rig || null,
       services:      c.scheduledStatus.jobNotes || c.quoteStatus?.mainServices || '',
       roofStories:   c.scheduledStatus.roofStories || null,
+      // Carry the customer's address so the resolver can bind (or create) the
+      // right Property instead of hard-failing on a customer whose D1 property
+      // row is missing or whose record was merged (P0 2026-07-29).
+      workSiteAddress: c.address || null,
+      workSiteCity:    c.city    || null,
+      firstName:       c.firstName || null,
+      lastName:        c.lastName  || null,
       source:        'tap_schedule',
     });
     if (!d1Result.success) {
@@ -10285,6 +10287,10 @@ async function handleDropToPool(phone, date, jobId) {
     rigId:         null,
     services:      (c.scheduledStatus || {}).jobNotes || c.quoteStatus?.mainServices || '',
     roofStories:   (c.scheduledStatus || {}).roofStories || null,
+    workSiteAddress: c.address || null,
+    workSiteCity:    c.city    || null,
+    firstName:       c.firstName || null,
+    lastName:        c.lastName  || null,
     source:        'drag_to_pool',
   });
   if (!d1Result.success) {

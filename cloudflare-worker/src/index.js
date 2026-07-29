@@ -2339,6 +2339,12 @@ export default {
       if (path === 'admin/property' && request.method === 'POST') {
         return await handleCreateProperty(request, env, corsHeaders);
       }
+      // POST /admin/resolve-service-property — the one place that answers
+      // "which Property is this job for?". Every scheduling entry path calls it
+      // so they cannot drift apart again (P0 2026-07-29, DL-07).
+      if (path === 'admin/resolve-service-property' && request.method === 'POST') {
+        return await handleResolveServiceProperty(request, env, corsHeaders);
+      }
       // POST /admin/person — create new Person + dual-write KV. 2026-06-22 added
       // for the add_job migration off full-DB PUT. Reusable for commercial_quick_add.
       if (path === 'admin/person' && request.method === 'POST') {
@@ -14931,6 +14937,279 @@ function _streetsFuzzyMatch(a, b) {
   // formatted address. Min length 4 to avoid stub collisions ("123" matching "1234").
   if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) return true;
   return false;
+}
+
+// ── POST /admin/resolve-service-property ─────────────────────────────────────
+// THE single answer to "which Property does this job belong to?" — the choke
+// point every scheduling entry path goes through (pool Accept, Already Booked
+// fast path, incoming conversion, walk-in add_job, directory profile, calendar).
+//
+// P0 2026-07-29 (Lynn Felson): booking died on "no confirmed address on file"
+// while the operator had *just typed the address* in that same flow. Two client
+// copies of this resolution had drifted (new_customer.html / calendar.html) and
+// NEITHER could turn a typed address into a Property unless the customer was a
+// partner_referral. On top of that, a phone belonging to a RETIRED (merged)
+// Person resolves to nothing, because every read path filters retiredAt IS NULL
+// — so a merged customer became permanently unbookable by their old number.
+// Both failures are the same class: the guard read state no entry path set.
+//
+// Resolution order (first hit wins):
+//   1. explicit propertyId          — the multi-property picker's choice, always honored
+//   2. retired person               — follow replacedBy to the active successor
+//   3. partner_referral + worksite  — bind to the WORKSITE, never the billing anchor
+//   4. exactly one property         — the normal case
+//   5. many properties              — match the supplied address; else fail loud (T1.11)
+//   6. none, but an address given   — CREATE it (this is the P0 fix)
+//   7. nothing anywhere             — the only case that still errors
+//
+// Returns { success, propertyId, personId, source, created, followedReplacedBy }.
+// personId is authoritative: when a retired phone was followed, the caller MUST
+// bill the job to the returned successor, not the phone-derived id.
+// Single success exit for the resolver — also hands back the resolved street/city
+// so the caller can backfill Job.workSiteAddress/workSiteCity without a second round trip.
+async function _okProp(env, corsHeaders, propertyId, personId, source, created, followedReplacedBy) {
+  const row = await env.DB.prepare('SELECT streetAddress, city, zip FROM Property WHERE propertyId=?')
+    .bind(propertyId).first().catch(() => null);
+  return jsonResponse({
+    success: true, propertyId, personId, source, created, followedReplacedBy,
+    streetAddress: row?.streetAddress || null,
+    city:          row?.city || null,
+    zip:           row?.zip || null,
+  }, corsHeaders);
+}
+
+async function handleResolveServiceProperty(request, env, corsHeaders) {
+  const body = await request.json().catch(() => null);
+  if (!body) return jsonResponse({ error: 'JSON body required' }, corsHeaders, 400);
+
+  // addressEntered: true ONLY when the operator typed this address in the
+  // booking flow itself. It is what licenses step (5) to disambiguate a
+  // multi-property customer. Callers that merely echo the customer blob's
+  // stored address (calendar tap/drag) must leave it false, or T1.11 would be
+  // silently defeated — auto-picking the primary is exactly what that law bans.
+  // probe: dry-run. Resolves and reports what WOULD happen without creating a
+  // Person or Property. Exists so the deploy gate can exercise the real P0
+  // paths (including the brand-new-customer create branch) against production
+  // without leaving test rows behind.
+  const { phone, propertyId, address, city, zip, placeId, firstName, lastName, addressEntered, probe } = body;
+  const ph = (phone || '').replace(/\D/g, '').slice(-10);
+  if (ph.length !== 10) {
+    return jsonResponse({ error: 'valid 10-digit phone required' }, corsHeaders, 400);
+  }
+  const addr = (address || '').trim();
+  const cty  = (city    || '').trim();
+
+  const PSEL = 'SELECT personId, primaryPhone, firstName, lastName, customerType, retiredAt, replacedBy FROM Person WHERE personId=?';
+
+  try {
+    // (1) Explicit selection always wins — never second-guess the picker.
+    if (propertyId) {
+      const row = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+        .bind(propertyId).first();
+      if (row) {
+        return await _okProp(env, corsHeaders, propertyId, _d1PersonId(ph), 'explicit', false, null);
+      }
+    }
+
+    // (2) Resolve the person, walking the replacedBy chain when the phone lands
+    // on a retired row. Depth-capped so a cyclic chain can't hang the request.
+    let personId = _d1PersonId(ph);
+    let person   = await env.DB.prepare(PSEL).bind(personId).first();
+    let followedReplacedBy = null;
+    const seen = new Set([personId]);
+    while (person && person.retiredAt && person.replacedBy && !seen.has(person.replacedBy)) {
+      const next = await env.DB.prepare(PSEL).bind(person.replacedBy).first();
+      if (!next) break;
+      seen.add(next.personId);
+      person = next;
+      personId = next.personId;
+      followedReplacedBy = next.personId;
+    }
+
+    // (6a) Person missing entirely (brand-new customer whose KV→D1 sync hasn't
+    // landed). Create them so the Property FK can bind. Requires an address —
+    // a Person with no property would just re-trigger the same guard.
+    if (!person) {
+      if (!addr || !cty) {
+        return jsonResponse({
+          success: false, error: 'no_property_id',
+          message: 'Cannot schedule — no address on file and none was entered. Add a service address first.',
+        }, corsHeaders, 200);
+      }
+      if (probe) {
+        return jsonResponse({
+          success: true, wouldCreate: true, propertyId: _d1PropId(addr, cty),
+          personId, source: 'created', created: false, followedReplacedBy, probe: true,
+        }, corsHeaders);
+      }
+      const nowP = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO Person (personId, firstName, lastName, primaryPhone, isHomeowner, customerType, createdAt, modifiedAt)
+         VALUES (?, ?, ?, ?, 1, 'residential', ?, ?)`
+      ).bind(personId, (firstName||'').trim() || null, (lastName||'').trim() || null, '+1'+ph, nowP, nowP).run();
+      person = await env.DB.prepare(PSEL).bind(personId).first();
+      if (!person) {
+        return jsonResponse({ success: false, error: 'person_create_failed',
+          message: 'Cannot schedule — could not create the customer record.' }, corsHeaders, 200);
+      }
+    }
+
+    const isPartner = person.customerType === 'partner_referral';
+
+    // Partner picked a Google suggestion but typed no street. Resolve the
+    // placeId here so the worksite Property can still be built — otherwise the
+    // job silently falls back to the partner's billing anchor, which is the
+    // wrong house. (Ported from the client copy this endpoint replaced; it
+    // lived in new_customer.html only, so calendar bookings never had it.)
+    let rAddr = addr, rCity = cty, rZip = zip || null;
+    if (isPartner && placeId && !rAddr && env.GOOGLE_PLACES_API_KEY) {
+      try {
+        const pr = await fetch(
+          `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}` +
+          `&fields=address_components,formatted_address&key=${env.GOOGLE_PLACES_API_KEY}`
+        ).then(r => r.json());
+        if (pr.status === 'OK' && pr.result) {
+          const comps = pr.result.address_components || [];
+          const find  = t => comps.find(c => (c.types || []).includes(t));
+          const street = [find('street_number')?.long_name || '', find('route')?.long_name || '']
+            .filter(Boolean).join(' ').trim();
+          if (street) {
+            rAddr = street;
+            rCity = rCity || find('locality')?.long_name || find('postal_town')?.long_name || null;
+            rZip  = rZip  || find('postal_code')?.long_name || null;
+          }
+        }
+      } catch (_) { /* best-effort — a partial address beats blocking the booking */ }
+    }
+
+    const props = await env.DB.prepare(
+      `SELECT pp.propertyId, pp.primaryContact, pr.streetAddress, pr.city
+       FROM PersonProperty pp JOIN Property pr ON pr.propertyId=pp.propertyId
+       WHERE pp.personId=?`
+    ).bind(personId).all().then(r => r.results || []);
+
+    // (3) Partner jobs bind to the actual worksite, not the partner's billing
+    // anchor — every partner job is at a different homeowner's house.
+    // (6b) Non-partner with no property on file but an address in hand → create.
+    // Both are the same call; only the label/primary differ.
+    const needsCreate = (isPartner && rAddr && rCity) || (props.length === 0 && rAddr && rCity);
+    if (needsCreate && probe) {
+      return jsonResponse({
+        success: true, wouldCreate: true, propertyId: _d1PropId(rAddr, rCity),
+        personId, source: isPartner ? 'worksite' : 'created', created: false,
+        followedReplacedBy, probe: true,
+      }, corsHeaders);
+    }
+    if (needsCreate) {
+      const created = await _ensurePropertyForPerson({
+        personId, streetAddress: rAddr, city: rCity, zip: rZip,
+        googlePlaceId: placeId || null,
+        propertyLabel: isPartner ? 'Work Site' : 'Main Residence',
+        primaryContact: isPartner ? 0 : 1,
+      }, env);
+      if (created) {
+        return await _okProp(env, corsHeaders, created, personId, isPartner ? 'worksite' : 'created', true, followedReplacedBy);
+      }
+      // Creation failed — fall through to whatever exists rather than hard-fail.
+    }
+
+    // (4) The normal case: exactly one property.
+    if (props.length === 1) {
+      return await _okProp(env, corsHeaders, props[0].propertyId, personId, 'single', false, followedReplacedBy);
+    }
+
+    // (5) Multi-property. If the caller supplied an address, match it — an
+    // operator who typed "15814 Cotswold Ct" has already disambiguated. Only
+    // fail loud when we genuinely cannot tell which house (Law T1.11).
+    if (props.length > 1) {
+      if (rAddr && addressEntered) {
+        const wantId = _d1PropId(rAddr, rCity);
+        const hit = props.find(p => p.propertyId === wantId)
+                 || props.find(p => _streetsFuzzyMatch(p.streetAddress, rAddr));
+        if (hit) {
+          return await _okProp(env, corsHeaders, hit.propertyId, personId, 'address_match', false, followedReplacedBy);
+        }
+      }
+      if (isPartner) {
+        const anchor = props.find(p => p.primaryContact) || props[0];
+        return await _okProp(env, corsHeaders, anchor.propertyId, personId, 'partner_anchor', false, followedReplacedBy);
+      }
+      return jsonResponse({
+        success: false, error: 'multi_property_ambiguous',
+        message: `Cannot schedule — ${person.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
+      }, corsHeaders, 200);
+    }
+
+    // (7) Nothing on file and nothing typed — the only genuine no-address case.
+    return jsonResponse({
+      success: false, error: 'no_property_id',
+      message: 'Cannot schedule — no address on file and none was entered. Add a service address first.',
+    }, corsHeaders, 200);
+  } catch (e) {
+    await _logD1Failure(env, `handleResolveServiceProperty:${ph}`, e.message);
+    return jsonResponse({ success: false, error: 'resolve_failed', message: e.message }, corsHeaders, 200);
+  }
+}
+
+// Create-or-reuse a Property at this address and link it to the person.
+// Idempotent on the deterministic _d1PropId, so re-submitting the same address
+// never duplicates. Returns the propertyId, or null if the write failed.
+async function _ensurePropertyForPerson({ personId, streetAddress, city, zip, googlePlaceId, propertyLabel, primaryContact }, env) {
+  const now = new Date().toISOString();
+  const propId = _d1PropId(streetAddress, city);
+
+  const existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+    .bind(propId).first();
+
+  if (!existing) {
+    let lat = null, lng = null, formatted = null, gsrc = null, gprec = null, pid = googlePlaceId || null;
+    try {
+      const geo = await geocodeAddress(`${streetAddress}, ${city}, FL`, env);
+      if (geo) {
+        lat = geo.lat; lng = geo.lng;
+        pid = pid || geo.placeId || null;
+        formatted = geo.formattedAddress || null;
+        gsrc = geo.source || null; gprec = geo.locationType || null;
+      }
+    } catch (_) { /* geocode is best-effort — never block a booking on it */ }
+
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO Property
+         (propertyId, googlePlaceId, formattedAddress, streetAddress, city, state, zip,
+          latitude, longitude, googleVerified, geocodeSource, geocodePrecision, createdAt, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, 'FL', ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(propId, pid, formatted, streetAddress, city, zip || null,
+           lat, lng, pid ? 1 : 0, gsrc, gprec, now, now).run();
+
+    // INSERT OR IGNORE swallows a UNIQUE(googlePlaceId) clash with an unrelated
+    // property. If our row didn't land, retry without the place id so this
+    // booking gets its own row instead of latching onto someone else's house.
+    const landed = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+      .bind(propId).first();
+    if (!landed) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO Property
+           (propertyId, googlePlaceId, formattedAddress, streetAddress, city, state, zip,
+            latitude, longitude, googleVerified, geocodeSource, geocodePrecision, createdAt, modifiedAt)
+         VALUES (?, NULL, ?, ?, ?, 'FL', ?, ?, ?, 0, ?, ?, ?, ?)`
+      ).bind(propId, formatted, streetAddress, city, zip || null,
+             lat, lng, gsrc, gprec, now, now).run();
+      const landed2 = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+        .bind(propId).first();
+      if (!landed2) return null;
+    }
+  }
+
+  if (primaryContact) {
+    await env.DB.prepare('UPDATE PersonProperty SET primaryContact=0 WHERE personId=?').bind(personId).run();
+  }
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO PersonProperty (personId, propertyId, relationship, primaryContact, propertyLabel)
+     VALUES (?, ?, 'owner', ?, ?)`
+  ).bind(personId, propId, primaryContact ? 1 : 0, propertyLabel).run();
+
+  _invalidateCustomersCache();
+  return propId;
 }
 
 async function handleCreateProperty(request, env, corsHeaders) {

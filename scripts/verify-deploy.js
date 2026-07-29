@@ -1308,6 +1308,95 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 14: Service-property resolution (P0 2026-07-29, Lynn Felson) ────────
+// The bug: booking from the quote flow died on "Cannot schedule — no confirmed
+// address on file. Save customer record first." while the operator had JUST
+// typed the address. Two causes, one class — the schedule-time guard read a
+// state no entry path ever set:
+//   • a phone belonging to a RETIRED (merged) Person resolved to nothing,
+//     because every read path filters retiredAt IS NULL;
+//   • a typed address could not become a Property for anyone but a partner.
+//
+// These checks hit the live resolver with the real shapes. They FAIL against
+// the pre-fix code (the endpoint 404s — it did not exist, and the client-side
+// resolution it replaced had no path to either outcome), so a green here means
+// the actual failure is exercised, not a synthetic stand-in (Rule 24).
+//
+// Read-only: every case either resolves an EXISTING property or is a dry-run
+// (probe:true) that must never write. Nothing here creates production rows.
+const RESOLVE_CASES = [
+  {
+    label: 'retired/merged phone resolves to the active successor',
+    // Lynn Felson's original record was retired 2026-06-23 and replaced by
+    // "Philip & Lynn Felson". Her old number must still book.
+    body: { phone: '9546146831', address: '15814 Cotswold Ct', city: 'Davie', addressEntered: true, probe: true },
+    expect: r => r.success && r.propertyId && r.followedReplacedBy,
+    describe: r => `propertyId=${r.propertyId} personId=${r.personId} followed=${r.followedReplacedBy}`,
+  },
+  {
+    label: 'existing single-property customer still resolves (regression)',
+    body: { phone: '9546147750', probe: true },
+    expect: r => r.success && r.propertyId === 'prop_15814_cotswold_ct_davie' && r.source === 'single',
+    describe: r => `${r.propertyId} via ${r.source}`,
+  },
+  {
+    label: 'brand-new phone + typed address does NOT hard-fail',
+    // The core P0: no Person, no Property, but an address in hand. Pre-fix this
+    // was the "no confirmed address on file" dead end. probe:true so the
+    // verifier never creates a Person/Property in production.
+    body: { phone: '9995550137', address: '1 Verify Test Way', city: 'Davie',
+            firstName: 'Verify', lastName: 'Probe', addressEntered: true, probe: true },
+    expect: r => r.success && r.wouldCreate === true,
+    describe: r => `wouldCreate=${r.wouldCreate} source=${r.source}`,
+  },
+  {
+    label: 'no address anywhere still fails loud (guard intact)',
+    body: { phone: '9995550138', probe: true },
+    expect: r => r.success === false && r.error === 'no_property_id',
+    describe: r => `error=${r.error}`,
+  },
+];
+
+async function checkServicePropertyResolution() {
+  const token = await getToken();
+  if (!token) { warn('Service-property resolver', 'no admin token configured — skipped'); return; }
+
+  for (const c of RESOLVE_CASES) {
+    try {
+      const r = await fetchRetry(`${WORKERS_API}/admin/resolve-service-property`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(c.body),
+      });
+      if (r.status === 404) {
+        fail(`Resolver — ${c.label}`, 'POST /admin/resolve-service-property returned 404 (endpoint missing)');
+        continue;
+      }
+      const j = await r.json().catch(() => null);
+      if (!j) { fail(`Resolver — ${c.label}`, `non-JSON response (HTTP ${r.status})`); continue; }
+      if (c.expect(j)) pass(`Resolver — ${c.label}`, c.describe(j));
+      else fail(`Resolver — ${c.label}`, `unexpected: ${JSON.stringify(j).slice(0, 220)}`);
+    } catch (e) {
+      fail(`Resolver — ${c.label}`, e.message);
+    }
+  }
+
+  // Both client copies must route through the resolver — no page may keep a
+  // private copy of this logic and drift again (DL-07). Guards the real
+  // regression risk: someone "restores" the old inline block.
+  for (const f of ['pure_cleaning_new_customer.html', 'pure_cleaning_calendar.html']) {
+    try {
+      const html = await fetchText(`${GITHUB_PAGES}/${f}`);
+      const routed = html.includes('/admin/resolve-service-property');
+      const stale  = html.includes('no confirmed address on file. Save customer record first');
+      if (routed && !stale) pass(`Resolver wiring — ${f}`, 'calls the shared endpoint');
+      else fail(`Resolver wiring — ${f}`, routed ? 'still carries the old dead-end guard text' : 'does NOT call /admin/resolve-service-property');
+    } catch (e) {
+      fail(`Resolver wiring — ${f}`, e.message);
+    }
+  }
+}
+
 // ── Cache-Control headers ─────────────────────────────────────────────────
 async function checkCacheHeaders() {
   const base = process.env.PAGES_BASE || WORKERS_API;
@@ -1359,6 +1448,7 @@ async function main() {
   await checkCustomerFlows();
   await checkEditModalWrites();
   await checkMobileCompatibility();
+  await checkServicePropertyResolution();  // P0 2026-07-29 service-property resolution
   await checkCacheHeaders();
 
   // Print results

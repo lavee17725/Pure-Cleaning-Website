@@ -1479,97 +1479,52 @@ async function scheduleJobWithDualWrite({
   roofStories,
   sqFt, roofType,
   endCustomerName, endCustomerPhone,
+  firstName, lastName,
   source,
 }) {
   const ph       = (phone || '').replace(/\D/g, '').slice(-10);
-  const personId = 'person_1' + ph;
-  let propId = propertyId || null;
-  if (!propId) {
-    try {
-      const fullR = await fetch(`${PCPC_API}/customer/${ph}`).catch(() => null);
-      if (fullR && fullR.ok) {
-        const fullD = await fullR.json().catch(() => null);
-        const props = (fullD?.customer?.properties) || [];
-        const isPartner = fullD?.customer?.customerType === 'partner_referral';
+  // let, not const: the resolver may return an ACTIVE successor personId when
+  // this phone belongs to a retired/merged record.
+  let personId   = 'person_1' + ph;
+  // ── P0 2026-07-29: ONE server-side resolver decides the service property ────
+  // Was: ~90 lines of client-side resolution duplicated here and in calendar.html,
+  // already drifted apart, and unable to turn a just-typed address into a Property
+  // for anyone but a partner_referral. A merged customer (retired Person) or a
+  // brand-new one therefore hit "no confirmed address on file" while the operator
+  // was staring at the address they had just entered. All of that logic — explicit
+  // picker selection, replacedBy chain, partner worksite binding, multi-property
+  // T1.11 guard, create-from-typed-address — now lives in POST
+  // /admin/resolve-service-property so every entry path resolves identically (DL-07).
+  const _rp = await fetch(`${PCPC_API}/admin/resolve-service-property`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },   // Authorization added by the page-level fetch wrapper
+    body: JSON.stringify({
+      phone: ph,
+      propertyId: propertyId || null,
+      address: workSiteAddress || null,
+      city:    workSiteCity    || null,
+      placeId: workSitePlaceId || null,
+      firstName: firstName || null,
+      lastName:  lastName  || null,
+      // This page's address comes from the form the operator just filled in, so
+      // it may disambiguate a multi-property customer. The calendar's paths
+      // echo the stored blob address and deliberately do NOT set this.
+      addressEntered: true,
+    }),
+  }).then(r => r.json()).catch(e => ({ success: false, error: 'resolve_unreachable', message: 'Could not reach the server to confirm the service address. Check connection and retry.' }));
 
-        // Entry-guard (Reza-class repair): partner submitted a Google PlaceID picker selection
-        // but no typed street. Without resolution, the partner branch below would fail its
-        // (workSiteAddress && workSiteCity) gate and fall back to the billing anchor (BUG).
-        // Resolve placeId → street/city/zip server-side, then proceed normally.
-        // Non-blocking on failure: we log & fall through (better a partial address than no schedule).
-        let _wsAddr = workSiteAddress, _wsCity = workSiteCity, _wsZip = null;
-        if (isPartner && workSitePlaceId && !_wsAddr) {
-          try {
-            const rRes = await fetch(`${PCPC_API}/admin/places/resolve`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ placeId: workSitePlaceId }),
-            });
-            const rJson = rRes.ok ? await rRes.json().catch(() => null) : null;
-            if (rJson?.success && rJson.streetAddress) {
-              _wsAddr = rJson.streetAddress;
-              _wsCity = _wsCity || rJson.city || null;
-              _wsZip  = rJson.zip || null;
-              console.log(`[partner-resolve] placeId ${workSitePlaceId} → ${_wsAddr}, ${_wsCity}`);
-            } else {
-              console.warn('[partner-resolve] placeId resolve failed:', rJson?.error || 'unknown');
-            }
-          } catch(e) {
-            console.warn('[partner-resolve] network error:', e.message);
-          }
-        }
-
-        // Model fix (Step 2): partner jobs bind to the ACTUAL WORKSITE as their D1 Property,
-        // not the partner's billing anchor. Every Harts/Carlos/etc. job is at a different
-        // homeowner's house — the property row should represent THAT house, so handleCalendarJobs
-        // JOINs return the correct address, roofType=null (new house), sqFt=null.
-        // POST /admin/property is idempotent: same streetAddress+city → same _d1PropId →
-        // INSERT OR IGNORE, so re-submitting the same worksite never duplicates the row.
-        // The worksite property links to the partner with primaryContact=0 — billing anchor untouched.
-        if (isPartner && _wsAddr && _wsCity) {
-          const wsResp = await fetch(`${PCPC_API}/admin/property`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              personId,
-              streetAddress: _wsAddr,
-              city:          _wsCity,
-              ...(_wsZip ? { zip: _wsZip } : {}),
-              propertyLabel: 'Work Site',
-              ...(workSitePlaceId ? { googlePlaceId: workSitePlaceId } : {}),
-            }),
-          }).catch(() => null);
-          const wsResult = wsResp && wsResp.ok ? await wsResp.json().catch(() => null) : null;
-          if (wsResult?.success && wsResult.propertyId) {
-            propId = wsResult.propertyId;
-            // Update outer scope so the Job row's workSiteAddress backup fields get the
-            // resolved values (not the original nulls).
-            workSiteAddress = _wsAddr;
-            workSiteCity    = _wsCity;
-          }
-          // If POST /admin/property failed (network/D1 error), fall through to billing-anchor
-          // fallback below so scheduling still succeeds rather than silently blocking.
-        }
-
-        if (!propId) {
-          // Non-partner, or partner where workSiteAddress missing / property-create failed.
-          // Law T1.11: multi-property residential — NEVER silently guess the service address.
-          if (props.length > 1 && !isPartner) {
-            return {
-              success: false,
-              error: 'multi_property_ambiguous',
-              message: `Cannot schedule — ${fullD?.customer?.firstName || 'This customer'} has ${props.length} properties. Select the service property first.`,
-            };
-          }
-          propId = (props.find(p => p.primaryContact) || props[0])?.propertyId || null;
-        }
-      }
-    } catch(_) {}
+  if (!_rp.success) {
+    return { success: false, error: _rp.error || 'no_property_id', message: _rp.message || 'Cannot schedule — could not resolve the service address.' };
   }
-  if (!propId) {
-    const msg = 'Cannot schedule — no confirmed address on file. Save customer record first.';
-    return { success: false, error: 'no_property_id', message: msg };
-  }
+  const propId = _rp.propertyId;
+  // The resolver is authoritative on identity: when the phone belonged to a
+  // retired/merged record it returns the ACTIVE successor, and the job must be
+  // billed to them, not to the retired id this page derived from the phone.
+  if (_rp.personId) personId = _rp.personId;
+  // Backfill the Job's worksite echo from whatever the resolver actually bound to.
+  if (!workSiteAddress && _rp.streetAddress) workSiteAddress = _rp.streetAddress;
+  if (!workSiteCity    && _rp.city)          workSiteCity    = _rp.city;
+
   const d1Res = await fetch(`${PCPC_API}/admin/scheduled-job`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3242,6 +3197,11 @@ async function submitScheduleNow() {
       roofType:         document.querySelector('input[name=roofType]:checked')?.value || c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
       endCustomerName:  (document.getElementById('nEndCustName')?.value?.trim())  || c.endCustomerName  || c.quoteStatus?.partnerWorkSite?.endCustName  || null,
       endCustomerPhone: (document.getElementById('nEndCustPhone')?.value?.trim()) || c.endCustomerPhone || c.quoteStatus?.partnerWorkSite?.endCustPhone || null,
+      // Needed when the resolver has to CREATE the Person (brand-new customer
+      // whose KV→D1 sync hasn't landed yet) — otherwise the Property FK has
+      // nothing to bind to and we'd be back to the "save customer first" error.
+      firstName:              c.firstName || null,
+      lastName:               c.lastName  || null,
       source:                 'new_customer_form',
     });
     if (!d1Result.success) {
