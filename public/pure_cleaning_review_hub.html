@@ -150,9 +150,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
      'healthy' while refresh was failing invalid_grant). -->
 <div id="syncAlert" style="display:none;"></div>
 
-<!-- M/W/F photo posting card (Segment B, 2026-07-24). Tyler already visits the
-     hub for the reply queue, so the "photo ready to post" lives here. -->
-<div id="photoPostCard" style="display:none;"></div>
+<!-- The M/W/F photo posting card was removed 2026-07-31 (Tyler: it didn't work
+     in practice). The pipeline behind it is INTACT — PhotoQueue D1 table,
+     photo:scan / photo:thumb / photo:prep, the Photo Queue tagging page + its
+     hub tile, the scheduler and the nightly cron. Only this posting surface is
+     gone, so nothing already tagged is lost. -->
 
 <div class="tabs">
   <div class="tab active" data-tab="ready" onclick="switchTab('ready')">🎯 Ready <span class="tab-badge" id="badge-ready">—</span></div>
@@ -228,29 +230,63 @@ async function loadHub() {
     renderSyncAlert();
     updateBadges();
     renderCurrentTab();
-    loadPhotoPostCard();   // M/W/F GBP photo (non-blocking)
   } catch(e) {
     showToast('⚠️ Failed to load hub: ' + e.message);
   }
 }
 
-// GBP sync-health banner. Incoming reviews sync via a daily cron; when the
-// Google OAuth token dies the sync stops SILENTLY (no exception surfaces to
-// Tyler). We detect it from the real data — how old the last sync is — not
-// from the server health flag, which reported "healthy" through a 13-day
-// invalid_grant outage. >48h stale or never-synced → loud, actionable banner.
+// GBP sync-health banner. Incoming reviews sync on a cron; when the Google
+// OAuth token dies the sync stops SILENTLY (no exception surfaces to Tyler).
+// We detect it from the real data — how old the last sync is — not from the
+// server health flag, which reported "healthy" through a 13-day invalid_grant
+// outage.
+//
+// Thresholds (2026-07-31): the sync now runs every 6 hours, so
+//   >24h  = 4 consecutive failures  → BEHIND (red banner)
+//   >72h  = 12 consecutive failures → DEAD  (unmissable: sticky top bar + tab title)
+// 24h was chosen so Tyler learns within a day, per the work order, and is only
+// reachable by real failure now that the cron fires 4×/day — under the old
+// once-daily cron a 24h threshold would have false-fired on ordinary timing.
+const SYNC_BEHIND_HRS = 24;
+const SYNC_DEAD_HRS   = 72;
+
+// The DEAD state has to survive Tyler not scrolling: a sticky bar pinned to the
+// top of the viewport plus a tab-title marker he can see from another tab.
+function _setSyncDeadChrome(on, whenTxt) {
+  let bar = document.getElementById('syncDeadBar');
+  if (on) {
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'syncDeadBar';
+      bar.style.cssText = 'position:sticky;top:0;z-index:9999;background:#b91c1c;color:#fff;'
+        + 'padding:11px 16px;font-weight:800;font-size:14px;display:flex;align-items:center;'
+        + 'gap:12px;flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,.25);';
+      document.body.insertBefore(bar, document.body.firstChild);
+    }
+    bar.innerHTML = `<span>🚨 Google review sync is DEAD — ${whenTxt}. New reviews are NOT arriving.</span>`
+      + `<button onclick="syncGbpNow(this)" style="background:#fff;color:#b91c1c;border:none;border-radius:8px;padding:6px 13px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">⟳ Sync now</button>`
+      + `<a href="${API}/oauth/google/start" style="background:#7f1d1d;color:#fff;border-radius:8px;padding:6px 13px;font-weight:800;font-size:13px;text-decoration:none;">↗ Reconnect Google</a>`;
+    if (!/^🚨/.test(document.title)) document.title = '🚨 SYNC DEAD — ' + document.title;
+  } else {
+    if (bar) bar.remove();
+    document.title = document.title.replace(/^🚨 SYNC DEAD — /, '');
+  }
+}
+
 function renderSyncAlert() {
   const el = document.getElementById('syncAlert');
   if (!el || !hubData) return;
   const src    = hubData.actualCount?.source || '';
   const synced = hubData.gbpSyncedAt ? new Date(hubData.gbpSyncedAt) : null;
   const ageHrs = synced ? (Date.now() - synced.getTime()) / 3600000 : Infinity;
-  const stale  = src === 'gbp_live_stale' || src === 'manual_override' || ageHrs > 48;
+  const stale  = src === 'gbp_live_stale' || src === 'manual_override' || ageHrs > SYNC_BEHIND_HRS;
+  const dead   = !hubData.gbpSyncedAt || ageHrs > SYNC_DEAD_HRS;
 
   // Fresh (connected, synced <48h): subtle green status line + Sync now, not an
   // alarm. Distinguishes "connected, last sync {time}" from the stale/disconnected
   // banner below (WO: three states from real sync data, not the old health flag).
   if (!stale) {
+    _setSyncDeadChrome(false);
     const hrs = Math.max(0, Math.round(ageHrs));
     const ago = hrs < 1 ? 'just now' : hrs < 24 ? `${hrs}h ago` : `${Math.round(hrs/24)}d ago`;
     el.innerHTML = `
@@ -267,6 +303,9 @@ function renderSyncAlert() {
   const when = days == null ? 'never synced'
              : days <= 1 ? 'last synced yesterday'
              : `last synced ${days} days ago`;
+  // Behind → red banner only. Dead → banner PLUS sticky bar + tab title, so a
+  // silent multi-day outage cannot look like a normal page again (DL-08).
+  _setSyncDeadChrome(dead, when);
   // "Sync now" is offered FIRST: the sync often just hasn't run (token fine,
   // no re-sync since the last cron — the exact P0 where 3 reconnects "failed"
   // because nothing re-synced). Try the cheap sync before sending Tyler back
@@ -311,92 +350,6 @@ async function syncGbpNow(btn) {
     if (msg) { msg.style.color = '#b91c1c'; msg.textContent = `Sync error: ${e.message}. Try ↗ Reconnect Google.`; }
     if (btn) { btn.disabled = false; btn.textContent = '⟳ Sync now'; }
   }
-}
-
-// ── M/W/F GBP photo posting card (Segment B) ──────────────────────────────────
-// SWAPPABLE POSTING SEAM: the "post" step is manual today (GBP deprecated the
-// photo-upload API for standard profiles). To automate later, implement this
-// one function against a third-party scheduler (Publer/OneUp) — the queue,
-// scheduler, SEO prep, and card all stay unchanged. Returns whether it posted.
-async function postToGbp(photo) {
-  // return await publerApi.schedule(photo);   // <-- future: one line here
-  return { manual: true };                     // today: Tyler posts by hand
-}
-
-let _photoCard = null, _photoCardPair = null;
-async function loadPhotoPostCard() {
-  const el = document.getElementById('photoPostCard');
-  if (!el) return;
-  try {
-    const r = await fetch(`${API}/admin/photo-queue/posting-card`);
-    const d = await r.json();
-    if (!r.ok) return;
-    _photoCard = d.card; _photoCardPair = d.pair;
-    if (!d.card && !d.lowQueue) { el.style.display = 'none'; return; }
-    if (!d.card && d.lowQueue) {
-      el.innerHTML = `<div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:12px;padding:13px 15px;margin:0 0 14px;">
-        <b style="color:#92400e;">📸 Photo queue running low</b> — ${d.slotsAhead} M/W/F slot${d.slotsAhead===1?'':'s'} filled.
-        Tag more in the <a href="/pure_cleaning_photo_queue.html" style="color:#b45309;font-weight:700;">Photo Queue</a>, then
-        <button onclick="fillPhotoSlots(this)" style="background:#b45309;color:#fff;border:none;border-radius:8px;padding:5px 11px;font-weight:700;font-size:12px;cursor:pointer;">Fill slots</button></div>`;
-      el.style.display = 'block'; return;
-    }
-    const c = d.card;
-    const lowNote = d.lowQueue ? `<span style="color:#b45309;font-weight:700;font-size:12px;"> · ⚠ queue low (${d.slotsAhead} ahead)</span>` : '';
-    el.innerHTML = `
-      <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:14px;padding:14px 15px;margin:0 0 14px;">
-        <div style="font-weight:800;color:#1e40af;font-size:15px;margin-bottom:8px;">📸 Photo ready to post — ${esc(c.scheduledFor)}${lowNote}</div>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;">
-          <div style="flex:0 0 auto;">
-            <img id="ppImg" alt="processed" style="width:180px;height:180px;object-fit:cover;border-radius:10px;background:#dbeafe;display:block;">
-            <a id="ppDl" download="${esc(c.seoFilename||'pure-cleaning.jpg')}" style="display:block;text-align:center;margin-top:6px;background:#1d4ed8;color:#fff;border-radius:8px;padding:6px;font-weight:700;font-size:12px;text-decoration:none;">⬇ Save image</a>
-            <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:3px;">${esc(c.seoFilename||'')}</div>
-          </div>
-          <div style="flex:1 1 260px;min-width:220px;">
-            <textarea id="ppCaption" style="width:100%;min-height:120px;padding:9px;border-radius:9px;border:1.5px solid #bfdbfe;background:#fff;color:#1e293b;font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;">${esc(c.caption||'')}</textarea>
-            <div style="display:flex;gap:7px;margin-top:8px;flex-wrap:wrap;">
-              <button onclick="copyPhotoCaption(this)" style="background:#1d4ed8;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy caption</button>
-              <a href="https://business.google.com/posts" target="_blank" rel="noopener" style="background:#fff;border:1.5px solid #bfdbfe;color:#1d4ed8;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;text-decoration:none;">↗ Open GBP</a>
-              <button onclick="markPhotoPosted('${c.photoId}',this)" style="background:#16a34a;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">✓ Posted</button>
-            </div>
-            <div style="font-size:11.5px;color:var(--muted);margin-top:7px;">Save image → open GBP → upload → paste caption → ✓ Posted. Edit the caption above before copying.</div>
-          </div>
-        </div>
-      </div>`;
-    el.style.display = 'block';
-    // processed image via authed blob (R2 route is auth-gated)
-    try {
-      const ir = await fetch(`${API}/admin/photo-processed/${c.photoId}`);
-      if (ir.ok) { const u = URL.createObjectURL(await ir.blob()); document.getElementById('ppImg').src = u; document.getElementById('ppDl').href = u; }
-      else { document.getElementById('ppImg').alt = 'run npm run photo:prep'; }
-    } catch(_) {}
-  } catch(e) { /* non-blocking */ }
-}
-async function fillPhotoSlots(btn) {
-  if (btn) { btn.disabled = true; btn.textContent = 'Filling…'; }
-  try { const r = await fetch(`${API}/admin/photo-queue/schedule`, { method:'POST' }); const d = await r.json();
-    showToast(d.success ? `✓ Filled ${d.assigned} slot(s) — run npm run photo:prep` : (d.error||'failed'));
-    loadPhotoPostCard();
-  } catch(e){ showToast('Failed: '+e.message); if(btn){btn.disabled=false;btn.textContent='Fill slots';} }
-}
-function copyPhotoCaption(btn) {
-  const t = document.getElementById('ppCaption'); t.select();
-  navigator.clipboard.writeText(t.value).then(()=>{ btn.textContent='✓ Copied'; setTimeout(()=>btn.textContent='📋 Copy caption',1500); }).catch(()=>{});
-}
-async function markPhotoPosted(pid, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = 'Posting…'; }
-  try {
-    await postToGbp(_photoCard);   // seam (manual today)
-    // A before/after PAIR is one GBP post in one slot — mark BOTH members
-    // posted so the partner doesn't linger as a second card on the same day.
-    const ids = (_photoCardPair && _photoCardPair.length) ? _photoCardPair.map(p => p.photoId) : [pid];
-    for (const id of ids) {
-      const r = await fetch(`${API}/admin/photo-queue/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:'posted' }) });
-      const d = await r.json();
-      if (!r.ok || !d.success) throw new Error(d.error||r.status);
-    }
-    showToast('✓ Marked posted — next photo advanced');
-    loadPhotoPostCard();   // advances to the next due (or hides)
-  } catch(e) { showToast('Failed: '+e.message); if(btn){btn.disabled=false;btn.textContent='✓ Posted';} }
 }
 
 function updateBadges() {

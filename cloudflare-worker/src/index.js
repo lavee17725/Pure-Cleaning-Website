@@ -563,6 +563,18 @@ export default {
         console.error('auto-snapshot cron error:', e.message);
         return appendToSnapshotFailures(env, { ranAt: new Date().toISOString(), error: e.message, type: 'unhandled' }).catch(() => {});
       }));
+      // GBP reviews sync — ALSO every 6 hours (2026-07-31). It used to run only
+      // in the 4 AM cron, so a review landing at 6 AM sat invisible for ~22h and
+      // Tyler read that as "the sync is broken again" when the token was fine.
+      // 4×/day puts a new review in the reply queue within 6h, and makes the
+      // 24h staleness alarm below unambiguous: 24h stale = 4 consecutive
+      // failures, never just "the daily cron hasn't fired yet".
+      ctx.waitUntil(syncGbpReviews(env)
+        .then(async r => {
+          if (!r.ok) { console.error('[GBP reviews sync 6h] failed:', r.error); return; }
+          await crossrefGbpReviews(env, { apply: true }).catch(e => console.error('[GBP crossref 6h]', e.message));
+        })
+        .catch(e => console.error('[GBP reviews sync 6h] error:', e.message)));
     } else if (event.cron === '0 9 1 * *') {
       // Google OAuth proactive renewal — 9 AM UTC on the 1st of each month (DL-08)
       ctx.waitUntil(proactiveRefreshGoogleOAuthToken(env).then(r => {

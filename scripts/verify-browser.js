@@ -326,7 +326,17 @@ async function main() {
         let body = buildVariantBody(REACTIVATION_STANDARD, mk({jobHistory:jh, svcSection:'roof', monthsSince:4}), 'http://x');
         out.roofSaysRoof = /months since we last cleaned your roof/.test(body);
         out.roofNot4     = !/\b4 months\b/.test(body);
-        out.roof26       = /2[56] months since we last cleaned your roof/.test(body);  // ~26mo
+        // Derive the expected month count from the fixture date instead of
+        // hardcoding it. The old assertion (/2[56] months/) was a time bomb: the
+        // roof job date is fixed at 2024-05-15 but "months since" grows with real
+        // time, so it silently rotted and went red on 2026-07-31 at ~27 months.
+        // What actually matters is that the ROOF pitch uses the ROOF job's age,
+        // not the 4-month driveway — so assert against the roof date, plus a
+        // sanity floor so a degenerate 0/NaN can't pass.
+        const _roofMo = Math.round(monthsSince(new Date('2024-05-15T12:00:00')));
+        out.roofExpectedMo = _roofMo;
+        out.roof26       = _roofMo >= 20
+                           && new RegExp(`\\b${_roofMo} months since we last cleaned your roof\\b`).test(body);
         // queued GROUND
         body = buildVariantBody(REACTIVATION_STANDARD, mk({jobHistory:jh, svcSection:'ground', monthsSince:4}), 'http://x');
         out.groundSaysDriveway = /months since we last cleaned your driveway/.test(body);
@@ -342,7 +352,7 @@ async function main() {
         out.hasStop     = /Reply STOP to opt out/.test(std);
         return out;
       });
-      if (svc.roofSaysRoof && svc.roofNot4 && svc.roof26) pass('Bulk Reactivation — roof pitch says "…your roof" with roof months (not the 4mo driveway)');
+      if (svc.roofSaysRoof && svc.roofNot4 && svc.roof26) pass('Bulk Reactivation — roof pitch says "…your roof" with roof months (not the 4mo driveway)', `roof=${svc.roofExpectedMo}mo`);
       else fail('Bulk Reactivation — roof pitch service-specific', JSON.stringify(svc));
       if (svc.groundSaysDriveway) pass('Bulk Reactivation — ground pitch names the driveway'); else fail('Bulk Reactivation — ground pitch', JSON.stringify(svc));
       if (svc.serviceless) pass('Bulk Reactivation — no qualifying job → serviceless fallback (no number)'); else fail('Bulk Reactivation — serviceless fallback', JSON.stringify(svc));

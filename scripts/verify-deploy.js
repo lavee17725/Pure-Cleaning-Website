@@ -138,7 +138,9 @@ const HTML_FILES = [
               'REPLY_QUEUE_FLOOR',          // 2026-07-23: reply queue floored July-forward
               'All reviews &amp; reply history',  // pure to-do: history collapsed out of the queue
               'All caught up — no reviews need a reply',  // empty state
-      'function loadPhotoPostCard', 'function postToGbp', 'photo-queue/posting-card'],  // 2026-07-24 Segment B posting card + seam
+      'SYNC_BEHIND_HRS', 'SYNC_DEAD_HRS',   // 2026-07-31 escalating GBP staleness alarm
+      '_setSyncDeadChrome',                 // sticky top bar + tab title on a dead sync
+      ],  // photo posting card removed 2026-07-31 (Tyler) — pipeline kept, surface gone
     cssChecks: [
       { selector: '.card-name', prop: 'color', forbidden: '#fff' },
     ],
@@ -258,7 +260,7 @@ const HTML_FILES = [
     markers: [
       'quote-pool-badge',          // hub tile open-count badge
       'openQuoteLogger',           // ＋ Log Quote tile action
-      'function loadPhotoPostBadge',  // 📸 photo-ready badge (Segment B)
+      'pure_cleaning_photo_queue.html',  // Photo Queue tile SURVIVES the 2026-07-31 posting-card removal
     ],
   },
 ];
@@ -1308,6 +1310,35 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 15: Photo posting card stays REMOVED; pipeline stays INTACT ─────────
+// 2026-07-31 (Tyler): the "📸 Photo ready to post" card didn't work in practice.
+// Removing a surface is easy to silently re-add later, and the surrounding
+// pipeline is easy to delete by accident — so assert BOTH directions.
+async function checkPhotoCardRemoval() {
+  const gone = {
+    'pure_cleaning_review_hub.html': ['photoPostCard', 'loadPhotoPostCard', 'Photo ready to post',
+                                      'Photo queue running low', 'markPhotoPosted', 'function postToGbp'],
+    'pure_cleaning_admin.html':      ['loadPhotoPostBadge', 'photo-post-badge'],
+  };
+  for (const [file, needles] of Object.entries(gone)) {
+    try {
+      const html = await fetchText(`${GITHUB_PAGES}/${file}`);
+      const found = needles.filter(n => html.includes(n));
+      if (found.length) fail(`Photo card removed — ${file}`, `posting-card code is back: ${found.join(', ')}`);
+      else pass(`Photo card removed — ${file}`, 'no posting-card code present');
+    } catch (e) { fail(`Photo card removed — ${file}`, e.message); }
+  }
+  // The pipeline Tyler explicitly kept: tagging page + its hub tile.
+  try {
+    const admin = await fetchText(`${GITHUB_PAGES}/pure_cleaning_admin.html`);
+    if (admin.includes('pure_cleaning_photo_queue.html')) pass('Photo pipeline kept — hub tile', 'Photo Queue tile still present');
+    else fail('Photo pipeline kept — hub tile', 'Photo Queue tile was removed — it must stay');
+    const pq = await fetchText(`${GITHUB_PAGES}/pure_cleaning_photo_queue.html`);
+    if (pq.includes('admin/photo-queue')) pass('Photo pipeline kept — tagging page', 'tagging page still wired');
+    else fail('Photo pipeline kept — tagging page', 'tagging page lost its API wiring');
+  } catch (e) { fail('Photo pipeline kept', e.message); }
+}
+
 // ── CHECK 14: Service-property resolution (P0 2026-07-29, Lynn Felson) ────────
 // The bug: booking from the quote flow died on "Cannot schedule — no confirmed
 // address on file. Save customer record first." while the operator had JUST
@@ -1449,6 +1480,7 @@ async function main() {
   await checkEditModalWrites();
   await checkMobileCompatibility();
   await checkServicePropertyResolution();  // P0 2026-07-29 service-property resolution
+  await checkPhotoCardRemoval();          // 2026-07-31 posting card gone, pipeline intact
   await checkCacheHeaders();
 
   // Print results
