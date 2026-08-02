@@ -270,19 +270,9 @@
     var badge = document.getElementById('badgeReviewCount');
     if (badge) badge.textContent = String(d.count);
   }).catch(function(){});
-  function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function truncate(s, n){ s = String(s||''); return s.length > n ? s.slice(0, n-1).trimEnd() + '…' : s; }
-  fetch(API + '/public/google-reviews').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
-    if (!d || !Array.isArray(d.reviews) || !d.reviews.length) return;
-    var grid = document.getElementById('revGrid');
-    if (!grid) return;
-    grid.innerHTML = d.reviews.slice(0, 4).map(function(r){
-      var who = r.author ? escapeHtml(r.author) + ' · Google' : 'Google review';
-      return '<div class="rcard"><div class="rs">★★★★★</div><p>"' + escapeHtml(truncate(r.text, 320)) + '"</p><div class="who">— ' + who + '</div></div>';
-    }).join('');
-  }).catch(function(){});
 })();
 </script>
 
+<script src="/js/rolling-reviews.js?v=2" defer></script>
 </body>
 </html>

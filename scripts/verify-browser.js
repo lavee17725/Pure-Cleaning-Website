@@ -2596,6 +2596,17 @@ async function main() {
         _ledgerAnchor = new Date(2026, 3, 20, 12);
         renderLedger();
         out.emptyShown = /No quotes logged this month/.test(document.getElementById('content').textContent);
+        // Forward-arrow rule, anchored to the REAL current month rather than a
+        // hardcoded July: you may not page into the future, but you may always
+        // page forward out of a past month. (The old assertion pinned July as
+        // "current" and went red on its own the moment the month rolled to
+        // August — same class of time bomb as the roof-months fixture.)
+        _ledgerAnchor = new Date();
+        renderLedger();
+        out.currentMonthNextDisabled = document.getElementById('lgNext').disabled;
+        _ledgerAnchor = new Date(2026, 0, 15, 12);
+        renderLedger();
+        out.pastMonthNextDisabled = document.getElementById('lgNext').disabled;
         return out;
       });
       if (/July 2026/.test(led.label)) pass('Quote Pool Ledger — month label renders'); else fail('Quote Pool Ledger — month label', JSON.stringify(led));
@@ -2605,8 +2616,11 @@ async function main() {
       if (led.hasReason) pass('Quote Pool Ledger — declined row shows reason chip'); else fail('Quote Pool Ledger — reason chip', JSON.stringify(led));
       // 3 quotes · 1 ✓ · 1 ✗ · 1 open · 50% accepted (open excluded from the %)
       if (/1.*✓.*1.*✗.*1.*open.*50%/.test(led.summary.replace(/\s+/g,' '))) pass('Quote Pool Ledger — summary math (50%, open excluded)'); else fail('Quote Pool Ledger — summary math', JSON.stringify(led.summary));
-      // July 2026 IS the current month (session date) → forward arrow disabled
-      if (led.nextDisabled) pass('Quote Pool Ledger — forward arrow disabled at current period'); else fail('Quote Pool Ledger — forward disabled', JSON.stringify(led));
+      // Forward is blocked in the current month, allowed from a past one.
+      if (led.currentMonthNextDisabled && led.pastMonthNextDisabled === false)
+        pass('Quote Pool Ledger — forward arrow disabled at current period, enabled in the past');
+      else
+        fail('Quote Pool Ledger — forward disabled', JSON.stringify({ current: led.currentMonthNextDisabled, past: led.pastMonthNextDisabled }));
       if (led.juneRows === 1) pass('Quote Pool Ledger — ← steps to June (1 row)'); else fail('Quote Pool Ledger — June step', JSON.stringify(led));
       if (led.emptyShown) pass('Quote Pool Ledger — empty month shows empty-state'); else fail('Quote Pool Ledger — empty state', JSON.stringify(led));
 

@@ -249,18 +249,10 @@ const HTML_FILES = [
   // (js/quote-logger.js is exercised via the pages that load it — HTML_FILES
   //  entries run mobile/viewport checks that only make sense for HTML.)
   {
-    file: 'pure_cleaning_photo_queue.html',
-    markers: [
-      'admin/photo-queue',       // 2026-07-24 M/W/F GBP photo pipeline — tagging grid
-      'function saveCard', 'function bulkPair', 'admin/photo-thumb',
-    ],
-  },
-  {
     file: 'pure_cleaning_admin.html',
     markers: [
       'quote-pool-badge',          // hub tile open-count badge
       'openQuoteLogger',           // ＋ Log Quote tile action
-      'pure_cleaning_photo_queue.html',  // Photo Queue tile SURVIVES the 2026-07-31 posting-card removal
     ],
   },
 ];
@@ -275,7 +267,6 @@ const API_ENDPOINTS = [
   { path: '/customers',           expect401: true },   // protected
   { path: '/admin/reviews-hub',   expect401: true },   // protected
   { path: '/admin/quotes',        expect401: true },   // protected — Quote Pool (2026-07-23)
-  { path: '/admin/photo-queue',   expect401: true },   // protected — Photo Queue (2026-07-24)
   // ── Rule 10 tripwire: redirect-shadowing ───────────────────────────────────
   // /reviews is a public worker API (admin review-count widget). On 2026-06-11
   // a `/reviews → /` entry was added to the worker's legacyRedirects dict,
@@ -857,6 +848,11 @@ const PUBLIC_API_PATHS = new Set([
 ]);
 const PUBLIC_API_PREFIXES = [
   'quote', 'agreement', 'appointment', 'receipt', 'customer',
+  // The worker allows the whole scoped public namespace on GET
+  // (isPublic: path.startsWith('public/') && GET) — review-count, reviews,
+  // google-reviews, quote-photo. The mirror was missing it, so a customer page
+  // reading its own live review count looked like a protected-endpoint call.
+  'public',
 ];
 
 function isKnownPublicPath(rawPath) {
@@ -1310,33 +1306,49 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
-// ── CHECK 15: Photo posting card stays REMOVED; pipeline stays INTACT ─────────
-// 2026-07-31 (Tyler): the "📸 Photo ready to post" card didn't work in practice.
-// Removing a surface is easy to silently re-add later, and the surrounding
-// pipeline is easy to delete by accident — so assert BOTH directions.
-async function checkPhotoCardRemoval() {
-  const gone = {
-    'pure_cleaning_review_hub.html': ['photoPostCard', 'loadPhotoPostCard', 'Photo ready to post',
-                                      'Photo queue running low', 'markPhotoPosted', 'function postToGbp'],
-    'pure_cleaning_admin.html':      ['loadPhotoPostBadge', 'photo-post-badge'],
+// ── CHECK 15: GBP photo pipeline stays fully REMOVED ─────────────────────────
+// 2026-07-31 (Tyler): dropped entirely — Google deprecated the photo-upload API
+// for standard profiles, so it could never auto-post, which was its only point.
+// This guards against a partial resurrection leaving dead routes or a broken
+// hub tile, AND against collateral damage to the SEPARATE crew/job photo system.
+async function checkPhotoPipelineRemoved() {
+  const gonePages = {
+    'pure_cleaning_review_hub.html': ['photoPostCard', 'loadPhotoPostCard', 'Photo ready to post', 'markPhotoPosted'],
+    'pure_cleaning_admin.html':      ['loadPhotoPostBadge', 'photo-post-badge', 'pure_cleaning_photo_queue.html'],
   };
-  for (const [file, needles] of Object.entries(gone)) {
+  for (const [file, needles] of Object.entries(gonePages)) {
     try {
       const html = await fetchText(`${GITHUB_PAGES}/${file}`);
       const found = needles.filter(n => html.includes(n));
-      if (found.length) fail(`Photo card removed — ${file}`, `posting-card code is back: ${found.join(', ')}`);
-      else pass(`Photo card removed — ${file}`, 'no posting-card code present');
-    } catch (e) { fail(`Photo card removed — ${file}`, e.message); }
+      if (found.length) fail(`Photo pipeline removed — ${file}`, `still present: ${found.join(', ')}`);
+      else pass(`Photo pipeline removed — ${file}`, 'no photo-pipeline code');
+    } catch (e) { fail(`Photo pipeline removed — ${file}`, e.message); }
   }
-  // The pipeline Tyler explicitly kept: tagging page + its hub tile.
+  // Tagging page must be gone (404/redirect, not a live page).
   try {
-    const admin = await fetchText(`${GITHUB_PAGES}/pure_cleaning_admin.html`);
-    if (admin.includes('pure_cleaning_photo_queue.html')) pass('Photo pipeline kept — hub tile', 'Photo Queue tile still present');
-    else fail('Photo pipeline kept — hub tile', 'Photo Queue tile was removed — it must stay');
-    const pq = await fetchText(`${GITHUB_PAGES}/pure_cleaning_photo_queue.html`);
-    if (pq.includes('admin/photo-queue')) pass('Photo pipeline kept — tagging page', 'tagging page still wired');
-    else fail('Photo pipeline kept — tagging page', 'tagging page lost its API wiring');
-  } catch (e) { fail('Photo pipeline kept', e.message); }
+    const r = await fetchRetry(`${GITHUB_PAGES}/pure_cleaning_photo_queue.html`, CACHE_BUST);
+    const body = r.ok ? await r.text() : '';
+    if (!r.ok || !body.includes('Photo Queue — Tag')) pass('Photo pipeline removed — tagging page', `gone (HTTP ${r.status})`);
+    else fail('Photo pipeline removed — tagging page', 'pure_cleaning_photo_queue.html still serves the tagging grid');
+  } catch { pass('Photo pipeline removed — tagging page', 'unreachable (removed)'); }
+  // Routes must be gone. Unauthenticated they used to 401 (route existed);
+  // now the path falls through to the catch-all, so 401 means it is BACK.
+  const token = await getToken();
+  if (token) {
+    for (const path of ['/admin/photo-queue', '/admin/photo-queue/posting-card']) {
+      try {
+        const r = await fetchRetry(`${WORKERS_API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.status === 404) pass(`Photo pipeline removed — ${path}`, '404 (route gone)');
+        else fail(`Photo pipeline removed — ${path}`, `HTTP ${r.status} — route still live`);
+      } catch (e) { fail(`Photo pipeline removed — ${path}`, e.message); }
+    }
+  }
+  // COLLATERAL GUARD: the crew/job photo system is a different system entirely.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/photos`, CACHE_BUST);
+    if (r.status !== 404) pass('Job-photo system intact', `GET /photos → HTTP ${r.status} (route alive)`);
+    else fail('Job-photo system intact', 'GET /photos 404 — the crew photo system was removed by mistake');
+  } catch (e) { fail('Job-photo system intact', e.message); }
 }
 
 // ── CHECK 14: Service-property resolution (P0 2026-07-29, Lynn Felson) ────────
@@ -1480,7 +1492,7 @@ async function main() {
   await checkEditModalWrites();
   await checkMobileCompatibility();
   await checkServicePropertyResolution();  // P0 2026-07-29 service-property resolution
-  await checkPhotoCardRemoval();          // 2026-07-31 posting card gone, pipeline intact
+  await checkPhotoPipelineRemoved();      // 2026-07-31 GBP photo pipeline fully removed
   await checkCacheHeaders();
 
   // Print results
