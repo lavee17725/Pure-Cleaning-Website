@@ -12074,6 +12074,18 @@ async function _d1SyncPersonUpdate(newC, prevC, env, now) {
   } else {
     diff('customerType', _incomingType, _prevType);
   }
+  // businessName (2026-08-03): the booking form can now carry a business name so
+  // a commercial account with no personal name is bookable. Without this sync it
+  // would live in the KV blob only and vanish on the next D1→KV rebuild (DL-09).
+  // DL-10 guard: never write businessName for a partner_referral from this path —
+  // Person.businessName is the PARTNER's own identity, and a homeowner name
+  // landing there corrupts their name on every future job. Partner business
+  // names are edited through the directory tool, which has the proper guard.
+  if (_prevType !== 'partner_referral' && _incomingType !== 'partner_referral') {
+    diff('businessName', newC.businessName, prevC.businessName);
+  } else if ((newC.businessName || '') !== (prevC.businessName || '')) {
+    console.warn(`[_d1SyncPersonUpdate] skipped businessName write for partner ${personId} (DL-10)`);
+  }
   diff('partnerNotes',  newC.partnerNotes, prevC.partnerNotes);
   diff('internalNotes', newC.notes,        prevC.notes);
   const newDnc = newC.optOut ? 1 : 0, prevDnc = prevC.optOut ? 1 : 0;

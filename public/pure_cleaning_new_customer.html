@@ -447,9 +447,30 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
         <input id="nLn" class="fi" type="text" placeholder="Wilson" oninput="checkReq();onNameInput()">
       </div>
     </div>
+    <!-- P0 2026-08-03 (Lenny Eterno / KGN Holdings): a commercial account can
+         legitimately have a business name and NO personal name. The form
+         demanded First + Last, so such a customer could never satisfy
+         validation and the Save button stayed dead. This field carries
+         Person.businessName (which already exists) and satisfies the name
+         requirement on its own. Hidden for plain residential rows so Darla's
+         daily flow is untouched. -->
+    <div class="field" id="nBusinessField" style="display:none;">
+      <label>🏢 Business name</label>
+      <input id="nBusinessName" class="fi" type="text" placeholder="KGN Holdings LLC" oninput="checkReq()">
+      <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">Used instead of a personal name for business accounts.</div>
+    </div>
     <div class="field">
       <label>📞 Phone<span class="field-req">*</span></label>
       <input id="nPhone" class="fi" type="tel" placeholder="(954) 555-1234" oninput="onPhoneInput(this)">
+      <!-- Phone is the identity key (personId = person_1<phone>), so it locks on
+           an existing customer to stop a silent identity swap. It must still be
+           correctable when booking — this unlocks it and re-runs the dedupe
+           lookup on the new number. -->
+      <button type="button" id="nPhoneChangeBtn" style="display:none;" class="add-alt-btn" onclick="unlockPhoneForEdit()">✏️ Change phone</button>
+      <div id="nPhoneEditWarn" style="display:none;font-size:11.5px;color:#b45309;margin-top:4px;line-height:1.45;">
+        Changing the number looks this customer up again. If it belongs to someone else you'll see the match;
+        if it's a brand-new number this saves as a <b>new</b> record rather than renaming the existing one.
+      </div>
       <div id="altContactsContainer"></div>
       <button type="button" class="add-alt-btn" onclick="addAltContact()">+ Add another contact</button>
     </div>
@@ -1417,6 +1438,8 @@ function preloadCustomerForEdit(c) {
   document.getElementById('nPhone').value = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
   document.getElementById('nPhone').readOnly = true;
   document.getElementById('nPhone').style.cssText = 'background:#f5f3ef;color:var(--muted);';
+  { const _b = document.getElementById('nPhoneChangeBtn'); if (_b) _b.style.display = ''; }
+  syncBusinessField(c.businessName || '');
   document.getElementById('nAddr').value  = c.address||'';
   document.getElementById('nCity').value  = c.city||'';
   document.getElementById('nEmail').value = c.email||'';
@@ -1579,13 +1602,17 @@ function startNew() {
   document.getElementById('formTitle').textContent = '📞 Add New Quote';
   document.getElementById('nPhone').readOnly = false;
   document.getElementById('nPhone').style.cssText = '';
+  _phoneUnlocked = false;
+  { const _b = document.getElementById('nPhoneChangeBtn'); if (_b) _b.style.display = 'none'; }
+  { const _w = document.getElementById('nPhoneEditWarn');  if (_w) _w.style.display = 'none'; }
+  syncBusinessField('');
   showState('new');
 }
 
 function resetForm() {
   _quoteCommitted = false;   // fresh form autosaves again
   resetServicePicker();
-  ['nFn','nLn','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nRoofSqFt',
+  ['nFn','nLn','nBusinessName','nPhone','nAddr','nCity','nEmail','nZip','nNotes','nRoofSqFt',
    'nWorkSiteAddr','nWorkSiteCity','nWorkSiteZip','nEndCustName','nEndCustPhone',
    'nPartnerFn','nPartnerLn',
    'nAddrSearch','nPlaceId','nFormattedAddress','nLat','nLng',
@@ -1794,6 +1821,8 @@ function useDuplicate() {
   document.getElementById('nPhone').value = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
   document.getElementById('nPhone').readOnly = true;
   document.getElementById('nPhone').style.cssText = 'background:#f5f3ef;color:var(--muted);';
+  { const _b = document.getElementById('nPhoneChangeBtn'); if (_b) _b.style.display = ''; }
+  syncBusinessField(c.businessName || '');
   document.getElementById('nAddr').value  = c.address||'';
   document.getElementById('nCity').value  = c.city||'';
   document.getElementById('nEmail').value = c.email||'';
@@ -1986,6 +2015,8 @@ async function useMatch(idx) {
   document.getElementById('nPhone').value = ph.length===10 ? `(${ph.slice(0,3)}) ${ph.slice(3,6)}-${ph.slice(6)}` : ph;
   document.getElementById('nPhone').readOnly = true;
   document.getElementById('nPhone').style.cssText = 'background:#f5f3ef;color:var(--muted);';
+  { const _b = document.getElementById('nPhoneChangeBtn'); if (_b) _b.style.display = ''; }
+  syncBusinessField(c.businessName || '');
   document.getElementById('nAddr').value  = c.address||'';
   document.getElementById('nCity').value  = c.city||'';
   document.getElementById('nEmail').value = c.email||'';
@@ -2399,6 +2430,41 @@ function showNcCopyToast(msg) {
   t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
 }
 
+
+// P0 2026-08-03 — phone is the identity key (personId = person_1<phone>) so it
+// locks on an existing customer; that is deliberate, not a stray attribute. But
+// booking must still be able to correct a wrong number. Unlock explicitly, then
+// let the normal dedupe lookup run on the new value: if it matches a DIFFERENT
+// customer the existing match UI surfaces them (never a silent duplicate), and
+// if it matches nobody the operator is warned that this creates a new record
+// rather than renaming the current one — renaming an identity needs the
+// retire/replacedBy merge flow, which this form does not perform.
+function unlockPhoneForEdit() {
+  const el = document.getElementById('nPhone');
+  if (!el) return;
+  el.readOnly = false;
+  el.style.cssText = '';
+  el.focus();
+  el.select();
+  const btn = document.getElementById('nPhoneChangeBtn');
+  if (btn) btn.style.display = 'none';
+  const warn = document.getElementById('nPhoneEditWarn');
+  if (warn) warn.style.display = '';
+  _phoneUnlocked = true;
+}
+let _phoneUnlocked = false;
+
+// Show the business-name field whenever the row actually has one, or the
+// operator is working a non-residential account. Residential stays untouched.
+function syncBusinessField(businessName) {
+  const f  = document.getElementById('nBusinessField');
+  const el = document.getElementById('nBusinessName');
+  if (!f || !el) return;
+  if (businessName != null) el.value = businessName || '';
+  const show = !!(el.value || '').trim() || currentCustomerType === 'commercial';
+  f.style.display = show ? '' : 'none';
+}
+
 function checkReq() {
   const fn   = (document.getElementById('nFn').value||'').trim();
   const ln   = (document.getElementById('nLn').value||'').trim();
@@ -2432,7 +2498,10 @@ function checkReq() {
     const wsWarn = document.getElementById('nWorkSiteNotVerifiedWarn');
     if (wsWarn) wsWarn.style.display = (wsAddr && !wsPlaceId) ? '' : 'none';
   } else {
-    if (!fn || !ln)        missing.push('Full name');
+    // A business name is a valid identity for a commercial/business account —
+    // requiring First + Last made business-only rows unbookable (P0 2026-08-03).
+    const biz = (document.getElementById('nBusinessName')?.value || '').trim();
+    if (!biz && (!fn || !ln)) missing.push('Full name (or business name)');
     if (ph.length !== 10)  missing.push('Phone number');
     if (!addr)             missing.push('Street address');
     if (!city)             missing.push('City');
@@ -2855,6 +2924,7 @@ async function submitPhonePath() {
           customer.address=addr; customer.city=city;
         }
         if (email) customer.email=email; if (zip) customer.zip=zip; customer.notes=notes;
+        { const _bn=(document.getElementById('nBusinessName')?.value||'').trim(); if (_bn) customer.businessName=_bn; }
         customer.alerts=[...pendingAlerts];
         customer.source = 'phone_quoted';
         if (!customer.leadSource) customer.leadSource = buildLeadSource();
@@ -2871,6 +2941,8 @@ async function submitPhonePath() {
       } else {
         customer = {
           phone:ph, firstName:fn, lastName:ln, address:addr, city, email, zip, notes,
+          ...( (document.getElementById('nBusinessName')?.value||'').trim()
+               ? { businessName: (document.getElementById('nBusinessName').value||'').trim() } : {} ),
           lastService:null, totalJobs:0, lifetimeSpend:0, hasSealHistory:false,
           linkCode:null, lastTextedDate:null, alerts:[...pendingAlerts],
           source: 'phone_quoted',

@@ -1306,6 +1306,45 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 16: business-name accounts stay bookable (P0 2026-08-03) ───────────
+// Lenny Eterno / KGN Holdings: a commercial account whose Person row carries a
+// businessName and EMPTY firstName/lastName. The booking form required First +
+// Last, so Save stayed permanently disabled and the job could never reach the
+// calendar; the phone was also locked (it is the identity key) with no way to
+// correct it. Both are guarded here — a regression in either re-blocks a real
+// customer type, not a cosmetic detail.
+async function checkBusinessNameBookable() {
+  try {
+    const html = await fetchText(`${GITHUB_PAGES}/pure_cleaning_new_customer.html`);
+    const checks = [
+      ['nBusinessName',              'business-name input exists'],
+      ['Full name (or business name)','validation accepts a business name'],
+      ['unlockPhoneForEdit',         'phone can be unlocked when booking'],
+      ['nPhoneChangeBtn',            'change-phone affordance present'],
+      ['syncBusinessField',          'business name prefills from the record'],
+    ];
+    const missing = checks.filter(([needle]) => !html.includes(needle)).map(([, d]) => d);
+    if (missing.length) fail('Business-name accounts bookable', `missing: ${missing.join('; ')}`);
+    else pass('Business-name accounts bookable', 'business name + phone-unlock path intact');
+  } catch (e) { fail('Business-name accounts bookable', e.message); }
+
+  // The live record must keep its type — this form defaults to residential, and a
+  // downgrade would silently pull a commercial account into residential
+  // reactivation/review blasts (DL-06).
+  const token = await getToken();
+  if (!token) return;
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/customer/9549310928`, CACHE_BUST);
+    const d = r.ok ? await r.json() : null;
+    const c = d && (d.customer || d);
+    if (!c) { warn('KGN Holdings — record readable', 'lookup returned nothing'); return; }
+    const okType = c.customerType === 'commercial';
+    const okBiz  = !!(c.businessName || '').trim();
+    if (okType && okBiz) pass('KGN Holdings — commercial type + business name intact', `${c.businessName} / ${c.customerType}`);
+    else fail('KGN Holdings — commercial type + business name intact', `customerType=${c.customerType} businessName=${c.businessName || '(empty)'}`);
+  } catch (e) { warn('KGN Holdings — record readable', e.message); }
+}
+
 // ── CHECK 15: GBP photo pipeline stays fully REMOVED ─────────────────────────
 // 2026-07-31 (Tyler): dropped entirely — Google deprecated the photo-upload API
 // for standard profiles, so it could never auto-post, which was its only point.
@@ -1493,6 +1532,7 @@ async function main() {
   await checkMobileCompatibility();
   await checkServicePropertyResolution();  // P0 2026-07-29 service-property resolution
   await checkPhotoPipelineRemoved();      // 2026-07-31 GBP photo pipeline fully removed
+  await checkBusinessNameBookable();      // P0 2026-08-03 Lenny/KGN business-name booking
   await checkCacheHeaders();
 
   // Print results
