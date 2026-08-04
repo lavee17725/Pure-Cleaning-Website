@@ -3498,6 +3498,32 @@ document.addEventListener('DOMContentLoaded', init);
         <button class="btn btn-gold" id="ncAgCorrBtn" style="width:auto;padding:12px 20px;" onclick="_ncAgConfirmCorrection()">Update Address</button>
       </div>
     </div>
+    <!-- AMBIGUOUS VIEW (2026-08-04) — same street, different house number.
+         The legacy-import typo case. Three explicit choices, no default. -->
+    <div id="ncAgAmbView" style="display:none;">
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.7;">
+        <div><span style="color:var(--muted);">On file:</span> <strong id="ncAgAmbOld"></strong></div>
+        <div><span style="color:var(--muted);">You entered:</span> <strong style="color:#16a34a;" id="ncAgAmbNew"></strong></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px;">
+        <button class="btn btn-gold" style="width:100%;padding:13px;text-align:left;" onclick="_ncAgAmbCorrect()">
+          ✏️ <strong>Correct the record</strong> — the new one is right, fix it everywhere
+          <div style="font-size:11.5px;font-weight:400;opacity:.85;margin-top:3px;">Updates this customer's address, past jobs included, and re-geocodes. Reversible.</div>
+        </button>
+        <button class="mbtn-c" style="width:100%;padding:13px;text-align:left;" onclick="_ncAgAmbSecond()">
+          🏠 <strong>This is a second property</strong> — keep both
+          <div style="font-size:11.5px;font-weight:400;opacity:.75;margin-top:3px;">Adds it alongside the existing address. You'll label it next.</div>
+        </button>
+        <button class="mbtn-c" style="width:100%;padding:13px;text-align:left;" onclick="_ncAgAmbKeepOld()">
+          ↩ <strong>Keep the address on file</strong> — use it for this job
+          <div style="font-size:11.5px;font-weight:400;opacity:.75;margin-top:3px;">Nothing changes; what you typed is discarded.</div>
+        </button>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button class="mbtn-c" onclick="_ncAgCancel()">Cancel</button>
+      </div>
+    </div>
+
     <!-- MOVE VIEW -->
     <div id="ncAgMoveView" style="display:none;">
       <div style="font-size:13px;margin-bottom:14px;line-height:1.7;">
@@ -3539,16 +3565,46 @@ document.addEventListener('DOMContentLoaded', init);
 </div>
 <script>
 // ── Address Gate — new-customer page ─────────────────────────────────────────
+
+// Street identity for the gate: drop the house number, fold the street-type and
+// directional variants the same way search does ("Hunting Lodge Dr" ≡ "Hunting
+// Lodge Drive"). Kept local + tiny so the gate never depends on page load order.
+var _NCAG_DICT = { northwest:'nw', northeast:'ne', southwest:'sw', southeast:'se',
+  north:'n', south:'s', east:'e', west:'w', avenue:'ave', street:'st', drive:'dr',
+  road:'rd', court:'ct', circle:'cir', boulevard:'blvd', lane:'ln', place:'pl',
+  terrace:'ter', trail:'trl', highway:'hwy', parkway:'pkwy' };
+function _ncAgNormStreet(a) {
+  return String(a || '').toLowerCase().replace(/\./g, '').replace(/,/g, ' ')
+    .split(/\s+/).filter(Boolean)
+    .filter(function (t, i) { return !(i === 0 && /^\d+$/.test(t)); })   // drop house number
+    .map(function (t) { return _NCAG_DICT[t] || t; })
+    .join(' ').trim();
+}
+
 var _ncAgResolve = null, _ncAgPersonId = null, _ncAgNewAddr = null, _ncAgNewCity = null;
 
 function _ncShowAddressGate(oldAddr, oldCity, newAddr, newCity, personId) {
   return new Promise(function(resolve) {
     _ncAgResolve = resolve; _ncAgPersonId = personId;
     _ncAgNewAddr = newAddr; _ncAgNewCity  = newCity;
+    // 2026-08-04 reclassify. The old rule was "same house number + same city =
+    // correction", which meant a WRONG HOUSE NUMBER — the single most common
+    // legacy-import error — was routed to the move branch and silently created a
+    // second property (Tommy: 918 vs 915). A house-number typo and a real move
+    // are indistinguishable by rule, so when they're on the SAME STREET in the
+    // SAME CITY we stop guessing and let Tyler decide.
+    var _same = function(a, b) {
+      return _ncAgNormStreet(a) === _ncAgNormStreet(b) && a !== undefined;
+    };
     var oH = (oldAddr.match(/^(\d+)/) || [])[1];
     var nH = (newAddr.match(/^(\d+)/) || [])[1];
-    var isCorr = !!(oH && nH && oH === nH &&
-      oldCity.toLowerCase().trim() === newCity.toLowerCase().trim());
+    var sameCity   = oldCity.toLowerCase().trim() === newCity.toLowerCase().trim();
+    var sameStreet = _ncAgNormStreet(oldAddr) === _ncAgNormStreet(newAddr);
+    // Pure spelling fix (same number, same street, same city) — still an
+    // unambiguous correction, keep the one-button view.
+    var isCorr = !!(oH && nH && oH === nH && sameCity);
+    // Same street + city but a different house number → genuinely ambiguous.
+    var isAmbiguous = !isCorr && sameCity && sameStreet;
     document.getElementById('ncAgError').style.display = 'none';
     document.getElementById('ncAgLabel').value = '';
     document.getElementById('ncAgLabelOther').style.display = 'none';
@@ -3561,17 +3617,62 @@ function _ncShowAddressGate(oldAddr, oldCity, newAddr, newCity, personId) {
       document.getElementById('ncAgNewAddrCorr').textContent = [newAddr, newCity].filter(Boolean).join(', ');
       document.getElementById('ncAgCorrView').style.display = '';
       document.getElementById('ncAgMoveView').style.display = 'none';
+      document.getElementById('ncAgAmbView').style.display = 'none';
       var cb = document.getElementById('ncAgCorrBtn');
       cb.disabled = false; cb.textContent = 'Update Address';
+    } else if (isAmbiguous) {
+      // Same street, different number — the legacy-typo case. All three options,
+      // no default, no guess.
+      document.getElementById('ncAgTitle').textContent = '🤔 Correction or second property?';
+      document.getElementById('ncAgAmbOld').textContent = [oldAddr, oldCity].filter(Boolean).join(', ');
+      document.getElementById('ncAgAmbNew').textContent = [newAddr, newCity].filter(Boolean).join(', ');
+      document.getElementById('ncAgCorrView').style.display = 'none';
+      document.getElementById('ncAgMoveView').style.display = 'none';
+      document.getElementById('ncAgAmbView').style.display = '';
+      document.getElementById('ncAddrGateModal').classList.remove('hidden');
+      return;
     } else {
       document.getElementById('ncAgTitle').textContent = '🏠 Different Address Detected';
       document.getElementById('ncAgOldAddrMove').textContent = [oldAddr, oldCity].filter(Boolean).join(', ');
       document.getElementById('ncAgNewAddrMove').textContent = [newAddr, newCity].filter(Boolean).join(', ');
       document.getElementById('ncAgCorrView').style.display = 'none';
       document.getElementById('ncAgMoveView').style.display = '';
+      document.getElementById('ncAgAmbView').style.display = 'none';
     }
     document.getElementById('ncAddrGateModal').classList.remove('hidden');
   });
+}
+
+
+// ── Ambiguous-view handlers (2026-08-04) ─────────────────────────────────────
+// Correct: reuse the hardened correction action — it propagates to past jobs,
+// absorbs a duplicate row from an earlier mis-classified move, backfills
+// workSiteAddress copies that mirrored the old value, re-geocodes, and writes a
+// reversible FieldCorrection audit row.
+function _ncAgAmbCorrect() { _ncAgConfirmCorrection(); }
+
+// Second property: fall through to the existing MOVE view so it gets a label
+// and a primary/secondary choice — the July property-picker flow, unchanged.
+function _ncAgAmbSecond() {
+  document.getElementById('ncAgAmbView').style.display = 'none';
+  document.getElementById('ncAgMoveView').style.display = '';
+  document.getElementById('ncAgTitle').textContent = '🏠 Second Property';
+  document.getElementById('ncAgOldAddrMove').textContent = document.getElementById('ncAgAmbOld').textContent;
+  document.getElementById('ncAgNewAddrMove').textContent = document.getElementById('ncAgAmbNew').textContent;
+}
+
+// Keep the old value: write nothing, and put the stored address back in the form
+// so what Tyler sees matches what will be saved.
+function _ncAgAmbKeepOld() {
+  var el = document.getElementById('ncAgAmbOld');
+  var parts = (el.textContent || '').split(',');
+  var a = (parts[0] || '').trim(), c = (parts.slice(1).join(',') || '').trim();
+  var aEl = document.getElementById('nAddr'), cEl = document.getElementById('nCity');
+  if (aEl && a) aEl.value = a;
+  if (cEl && c) cEl.value = c;
+  document.getElementById('ncAddrGateModal').classList.add('hidden');
+  document.getElementById('ncAgAmbView').style.display = 'none';
+  if (_ncAgResolve) { _ncAgResolve({ action: 'keep_existing' }); _ncAgResolve = null; }
 }
 
 function _ncAgCancel() {

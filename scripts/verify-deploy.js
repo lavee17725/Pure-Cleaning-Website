@@ -1306,6 +1306,59 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 19: quote-time data correction (2026-08-04) ────────────────────────
+// ~1,800 jobs came from CSVs at ~90-95% accuracy, so the quote call is where
+// wrong addresses surface. The Address Gate used to classify "same house number
+// + same city" as a correction and everything else as a MOVE — so a wrong house
+// number (the most common legacy error) silently created a second property and
+// split the customer's history (Tommy: 918 vs 915). These guard the fix.
+async function checkQuoteTimeCorrection() {
+  try {
+    const html = await fetchText(`${GITHUB_PAGES}/pure_cleaning_new_customer.html`);
+    const need = [
+      ['isAmbiguous',        'ambiguous classification exists'],
+      ['ncAgAmbView',        'three-choice view present'],
+      ['_ncAgAmbCorrect',    'correct-everywhere action'],
+      ['_ncAgAmbSecond',     'second-property action'],
+      ['_ncAgAmbKeepOld',    'keep-existing action'],
+      ['_ncAgNormStreet',    'street-identity normalizer'],
+    ];
+    const missing = need.filter(([n]) => !html.includes(n)).map(([, d]) => d);
+    if (missing.length) fail('Address gate — three-way prompt', `missing: ${missing.join('; ')}`);
+    else pass('Address gate — three-way prompt', 'ambiguous house-number case asks instead of guessing');
+  } catch (e) { fail('Address gate — three-way prompt', e.message); }
+
+  const token = await getToken();
+  if (!token) return;
+
+  // The audit trail must exist and be reversible — a wrong "correction" that
+  // silently overwrites good data is worse than the original error.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/address-gate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ personId: 'person_17862297178', action: 'correction',
+                             streetAddress: '915 Hunting Lodge Dr', city: 'Miami Springs',
+                             absorbPropertyId: 'prop_DOES_NOT_EXIST_probe' }),
+    });
+    if (r.status === 400) pass('Address gate — absorb target validated', 'a bogus absorb id is rejected, never guessed');
+    else fail('Address gate — absorb target validated', `expected 400, got ${r.status}`);
+  } catch (e) { fail('Address gate — absorb target validated', e.message); }
+
+  // Tommy is the live proof: one property, both jobs, no split history.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/customer/7862297178`, CACHE_BUST);
+    const c = r.ok ? (await r.json()).customer : null;
+    if (!c) { warn('Tommy — repaired record readable', 'lookup returned nothing'); return; }
+    const props = c.properties || [];
+    const addrs = [...new Set((c.jobHistory || []).map(j => j.address).filter(Boolean))];
+    const ok = props.length === 1 && props[0].streetAddress === '915 Hunting Lodge Dr'
+            && addrs.every(a => a === '915 Hunting Lodge Dr');
+    if (ok) pass('Tommy — split record repaired', `1 property, history unified at ${props[0].streetAddress}`);
+    else fail('Tommy — split record repaired', `props=${JSON.stringify(props.map(p => p.streetAddress))} historyAddrs=${JSON.stringify(addrs)}`);
+  } catch (e) { fail('Tommy — split record repaired', e.message); }
+}
+
 // ── CHECK 18: customer search — punctuated phones + fragments (2026-08-04) ───
 // Darla writes phone numbers WITH DASHES. The old matcher compared her raw
 // query against a digits-only stored number, so "786-229-7178" returned nothing
@@ -1660,6 +1713,7 @@ async function main() {
   await checkBusinessNameBookable();      // P0 2026-08-03 Lenny/KGN business-name booking
   await checkQuoteDirectoryRoundTrip();   // 2026-08-04 quote <-> directory draft round-trip
   await checkCustomerSearch();            // 2026-08-04 punctuated phones + fragment recall
+  await checkQuoteTimeCorrection();       // 2026-08-04 address gate + correction propagation
   await checkCacheHeaders();
 
   // Print results

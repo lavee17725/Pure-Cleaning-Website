@@ -11940,6 +11940,16 @@ function _d1PropId(street, city) {
 
 // Extract the leading house number from a street address for the correction-vs-move fork.
 // Returns null when absent; callers treat null as "unknown → default to Case 2 (new property)".
+// Street-type + directional folding, shared by the address-change classifier.
+// Same dictionary the search engine and the Address Gate use — one vocabulary.
+const _ADDR_TYPE_FOLD = {
+  northwest:'nw', northeast:'ne', southwest:'sw', southeast:'se',
+  north:'n', south:'s', east:'e', west:'w',
+  avenue:'ave', street:'st', drive:'dr', road:'rd', court:'ct', circle:'cir',
+  boulevard:'blvd', lane:'ln', place:'pl', terrace:'ter', trail:'trl',
+  highway:'hwy', parkway:'pkwy',
+};
+
 function _extractHouseNum(addr) {
   const m = (addr||'').trim().match(/^(\d+)/);
   return m ? m[1] : null;
@@ -12194,7 +12204,27 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
             _newHouseNum === _oldHouseNum && _newCity === _oldCity &&
             _primaryProp?.propertyId);
 
-          if (_isCorrection) {
+          // 2026-08-04: same street + city but a DIFFERENT house number is
+          // ambiguous — a legacy typo and a real move look identical here, and
+          // this sync path has no human to ask. Silently creating a second
+          // property is what split Tommy's history (918 vs 915), so this path
+          // now declines to decide: it leaves the existing property alone and
+          // lets the Address Gate resolve it the next time a human is present.
+          const _normStreet = a => String(a || '').toLowerCase()
+            .replace(/\./g, '').replace(/,/g, ' ').split(/\s+/).filter(Boolean)
+            .filter((t, i) => !(i === 0 && /^\d+$/.test(t)))
+            .map(t => (_ADDR_TYPE_FOLD[t] || t)).join(' ').trim();
+          const _sameStreet = _primaryProp && _normStreet(c.address) === _normStreet(_primaryProp.streetAddress);
+          const _ambiguousHouseNum = !_isCorrection && _sameStreet && _newCity === _oldCity
+            && _newHouseNum && _oldHouseNum && _newHouseNum !== _oldHouseNum;
+          if (_ambiguousHouseNum) {
+            console.warn(`[addr] ambiguous house-number change for ${personId}: `
+              + `"${_primaryProp.streetAddress}" → "${c.address}" — left unchanged for the Address Gate`);
+          }
+
+          if (_ambiguousHouseNum) {
+            // Deliberately no write — see above.
+          } else if (_isCorrection) {
             await env.DB.prepare(
               'UPDATE Property SET streetAddress=?, city=?, modifiedAt=? WHERE propertyId=?'
             ).bind(c.address, c.city||'', now, _primaryProp.propertyId).run();
@@ -17034,12 +17064,126 @@ async function handleAddressGate(request, env, corsHeaders) {
       ).bind(targetPropertyId, now, personId).run();
 
     } else if (action === 'correction') {
-      // UPDATE primary Property text in place — no new row, no FK changes
+      // CORRECTION (hardened 2026-08-04). The record was ALWAYS this address —
+      // the migrated value was simply wrong. So unlike a move, this rewrites the
+      // one Property in place AND drags everything that referenced the bad value
+      // with it: history included. Fully audited and reversible.
       if (!primaryProp)
         return jsonResponse({ error: 'No primary property found for this person' }, corsHeaders, 404);
+
+      const _oldAddr = primaryProp.streetAddress || '';
+      const _oldCity = primaryProp.city || '';
+      const _newAddr = streetAddress.trim();
+      const _newCity = city.trim();
+      const _corrPropId = primaryProp.propertyId;
+
+      // Prior state captured BEFORE any write, so undo can restore exactly.
+      const _beforeProp = await env.DB.prepare(
+        'SELECT * FROM Property WHERE propertyId=?'
+      ).bind(_corrPropId).first();
+
+      // A correction may collide with a duplicate row created by an earlier
+      // mis-classified "move" (the 918/915 case). If a row already exists at the
+      // corrected address, absorb it: re-point its jobs here, drop its link.
+      // Which duplicate to absorb is NEVER inferred — a customer can genuinely
+      // own two houses on one street. Either the caller names it explicitly
+      // (absorbPropertyId, used by the repair pass), or we absorb only a row
+      // sitting exactly at the corrected address, which by definition is the
+      // same house.
+      let _absorbed = null;
+      if (body.absorbPropertyId && body.absorbPropertyId !== _corrPropId) {
+        const _named = await env.DB.prepare(
+          `SELECT pr.propertyId FROM Property pr
+             JOIN PersonProperty pp ON pp.propertyId=pr.propertyId
+            WHERE pr.propertyId=? AND pp.personId=?`
+        ).bind(body.absorbPropertyId, personId).first();
+        if (!_named) {
+          return jsonResponse({ error: 'absorbPropertyId is not a property of this person' }, corsHeaders, 400);
+        }
+        _absorbed = body.absorbPropertyId;
+      } else {
+        const _dupPropId = _d1PropId(_newAddr, _newCity);
+        if (_dupPropId !== _corrPropId) {
+          const _dup = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+            .bind(_dupPropId).first();
+          if (_dup) _absorbed = _dupPropId;
+        }
+      }
+
+      // Every job that pointed at either row belongs at the corrected address —
+      // INCLUDING completed ones. For a typo the work never happened at the old
+      // number, so leaving history behind would be preserving a falsehood (this
+      // is the one place we deliberately differ from the MOVE branch).
+      const _ids = _absorbed ? [_corrPropId, _absorbed] : [_corrPropId];
+      const _jobRows = (await env.DB.prepare(
+        `SELECT jobId FROM Job WHERE payerId=? AND propertyId IN (${_ids.map(() => '?').join(',')})`
+      ).bind(personId, ..._ids).all())?.results || [];
+      const _jobIds = _jobRows.map(r => r.jobId);
+
       await env.DB.prepare(
         'UPDATE Property SET streetAddress=?, city=?, modifiedAt=? WHERE propertyId=?'
-      ).bind(streetAddress.trim(), city.trim(), now, primaryProp.propertyId).run();
+      ).bind(_newAddr, _newCity, now, _corrPropId).run();
+
+      if (_absorbed) {
+        await env.DB.prepare('UPDATE Job SET propertyId=?, modifiedAt=? WHERE propertyId=?')
+          .bind(_corrPropId, now, _absorbed).run();
+        await env.DB.prepare('DELETE FROM PersonProperty WHERE propertyId=?').bind(_absorbed).run();
+        // Only drop the row itself once nothing anywhere references it.
+        const _stillUsed = await env.DB.prepare(
+          'SELECT COUNT(*) AS n FROM Job WHERE propertyId=?'
+        ).bind(_absorbed).first();
+        if (!Number(_stillUsed?.n || 0)) {
+          await env.DB.prepare('DELETE FROM Property WHERE propertyId=?').bind(_absorbed).run();
+        }
+      }
+
+      // Job.workSiteAddress is a literal COPY on some jobs. Backfill ONLY where
+      // it currently equals the old address — i.e. it was a mirror of the value
+      // being corrected. For partner jobs workSiteAddress is the HOMEOWNER's
+      // address (12 of 24 legitimately differ), and residential rows like the
+      // Janille-mother case point at a different house on purpose; matching on
+      // the old value leaves all of those untouched.
+      const _copyRows = (await env.DB.prepare(
+        'SELECT jobId FROM Job WHERE payerId=? AND workSiteAddress=?'
+      ).bind(personId, _oldAddr).all())?.results || [];
+      const _copyIds = _copyRows.map(r => r.jobId);
+      if (_copyIds.length) {
+        await env.DB.prepare(
+          'UPDATE Job SET workSiteAddress=?, workSiteCity=?, modifiedAt=? WHERE payerId=? AND workSiteAddress=?'
+        ).bind(_newAddr, _newCity, now, personId, _oldAddr).run();
+      }
+
+      // Re-geocode — routing, drive-time and proximity all read these.
+      let _geo = null;
+      try {
+        _geo = await geocodeAddress(`${_newAddr}, ${_newCity}, FL`, env);
+        if (_geo) {
+          await env.DB.prepare(
+            `UPDATE Property SET latitude=?, longitude=?, formattedAddress=?, geocodeSource=?,
+             geocodePrecision=?, googlePlaceId=COALESCE(?, googlePlaceId), googleVerified=?, modifiedAt=?
+             WHERE propertyId=?`
+          ).bind(_geo.lat, _geo.lng, _geo.formattedAddress || null, _geo.source || null,
+                 _geo.locationType || null, _geo.placeId || null, _geo.placeId ? 1 : 0,
+                 now, _corrPropId).run();
+        }
+      } catch (e) { /* never block a correction on geocoding */ }
+
+      await env.DB.prepare(
+        `INSERT INTO FieldCorrection
+           (correctionId, personId, entity, entityId, field, oldValue, newValue,
+            beforeJson, afterJson, jobsRepointed, copiesFixed, source, createdAt, createdBy, notes)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        'fc_' + now.replace(/\D/g, '').slice(0, 14) + '_' + Math.random().toString(36).slice(2, 8),
+        personId, 'property', _corrPropId, 'address',
+        [_oldAddr, _oldCity].filter(Boolean).join(', '),
+        [_newAddr, _newCity].filter(Boolean).join(', '),
+        JSON.stringify({ property: _beforeProp, absorbedPropertyId: _absorbed }),
+        JSON.stringify({ streetAddress: _newAddr, city: _newCity, geocoded: !!_geo }),
+        JSON.stringify(_jobIds), JSON.stringify(_copyIds),
+        body.source || 'quote_time_gate', now, body.correctedBy || null,
+        _absorbed ? `absorbed duplicate property ${_absorbed}` : null
+      ).run();
 
     } else {
       // MOVE: create new Property row
