@@ -537,6 +537,11 @@ async function init(){
       searchVal = _restore.toLowerCase();
       document.getElementById('searchClear').classList.add('vis');
     }
+    // Build the search index ONCE here — every keystroke reuses it, so typing
+    // stays instant across the full customer set (Rule: normalize at load, not
+    // per keystroke).
+    try { CustomerSearch.buildIndex(allCustomers); }
+    catch (e) { console.warn('[search index]', e); }
     buildSegmentTabs();
     applyAll();
   }catch(e){
@@ -578,100 +583,11 @@ function setSegment(key){
 // Bi-directional: a query maps to its variants (Beth→Elizabeth, Elizabeth→Beth/Liz).
 // 30 years of handwritten sheets means the DB holds both formal names and nicknames —
 // this bridges them so "Bill" surfaces "William" and vice-versa.
-const NICKNAMES = {
-  bill:['william','billy'], billy:['william','bill'], bob:['robert','bobby'], bobby:['robert','bob'],
-  chuck:['charles'], dick:['richard'], jim:['james','jimmy'], jimmy:['james','jim'],
-  joe:['joseph','joey'], joey:['joseph','joe'], ken:['kenneth','kenny'], kenny:['kenneth','ken'],
-  mike:['michael','mikey'], mikey:['michael','mike'], nick:['nicholas','nicky'], nicky:['nicholas','nick'],
-  pat:['patrick','patricia','patty'], rich:['richard','richie'], richie:['richard','rich'],
-  rob:['robert','robby'], robby:['robert','rob'], ron:['ronald','ronny'], ronny:['ronald','ron'],
-  sam:['samuel','samantha','sammy'], sammy:['samuel','samantha','sam'],
-  steve:['steven','stephen','stevie'], stevie:['steven','stephen','steve'],
-  ted:['theodore','edward','teddy'], teddy:['theodore','edward','ted'], tom:['thomas','tommy'], tommy:['thomas','tom'],
-  tony:['anthony'], vinny:['vincent'], vince:['vincent'], will:['william','willy'], willy:['william','will'],
-  chris:['christopher','christina','christian'],
-  cathy:['catherine','katherine'], kathy:['catherine','katherine'], debbie:['deborah'],
-  jen:['jennifer','jenny'], jenny:['jennifer','jen'], kate:['katherine','catherine','katie'],
-  katie:['katherine','catherine','kate'], liz:['elizabeth','lizzy'], lizzy:['elizabeth','liz'],
-  beth:['elizabeth'], maggie:['margaret'], meg:['megan','margaret'], molly:['mary'], peggy:['margaret'],
-  sally:['sarah'], sue:['susan','susanna','susie'], susie:['susan','susanna','sue'],
-  terry:['teresa','theresa'], patty:['patricia','pat'], patricia:['pat','patty'],
-  // Reverse (formal → nicknames)
-  william:['bill','billy','will','willy'], robert:['bob','bobby','rob','robby'], charles:['chuck'],
-  richard:['dick','rich','richie'], james:['jim','jimmy'], joseph:['joe','joey'], kenneth:['ken','kenny'],
-  michael:['mike','mikey'], nicholas:['nick','nicky'], patrick:['pat'], ronald:['ron','ronny'],
-  samuel:['sam','sammy'], samantha:['sam','sammy'], steven:['steve','stevie'], stephen:['steve','stevie'],
-  theodore:['ted','teddy'], edward:['ted','teddy'], thomas:['tom','tommy'], anthony:['tony'],
-  vincent:['vinny','vince'], christopher:['chris'], christina:['chris'], christian:['chris'],
-  catherine:['cathy','kathy','kate','katie'], katherine:['cathy','kathy','kate','katie'], deborah:['debbie'],
-  jennifer:['jen','jenny'], elizabeth:['liz','lizzy','beth'], margaret:['maggie','meg','peggy'],
-  megan:['meg'], mary:['molly'], sarah:['sally'], susan:['sue','susie'], susanna:['sue','susie'],
-  teresa:['terry'], theresa:['terry'],
-};
-function expandNicknames(word){
-  const n = (word||'').toLowerCase().trim();
-  const out = new Set([n]);
-  (NICKNAMES[n]||[]).forEach(v => out.add(v));
-  return [...out];
-}
-
-// ── Fuzzy name scoring (tightened 2026-07-16) ─────────────────────────────────
-// Name field = firstName + lastName + businessName. Phone/email/address/city match
-// by substring elsewhere. Tiers, highest first:
-// T1 (100): exact substring anywhere in the name — always surfaces exact spellings.
-// T2  (90): any name word starts with the query — prefix hit.
-// T2.2 (60–80): NICKNAME expansion — a query variant matches a name word (Beth→Elizabeth).
-// T2.5 (45–70): multi-word token match — right surname surfaces despite a wrong first name.
-// T3 (30–60): per-WORD bigram typo tolerance — overlap ≥ 0.66, OR ≥ 0.50 when the name
-//   word shares the query's first letter (anchor). Per-word + anchor is what stops "Smith"
-//   from matching "Mitchell" while still catching "Smyth"/"Bargello".
-function _fuzzyNameScore(query, c) {
-  const nameWords = c._name.split(/\s+/).filter(Boolean);
-  if (c._name.includes(query)) return 100;
-  if (nameWords.some(p => p.startsWith(query))) return 90;
-
-  const _qTok = query.split(/\s+/).filter(t => t.length > 1);
-
-  // T2.2 — nickname expansion (single- or multi-token query)
-  let nickBest = 0;
-  for (const qt of (_qTok.length ? _qTok : [query])) {
-    for (const v of expandNicknames(qt)) {
-      if (v === qt) continue;                                  // only expanded variants here
-      for (const nw of nameWords) {
-        if (nw === v)              nickBest = Math.max(nickBest, 80);   // nickname exact
-        else if (nw.startsWith(v)) nickBest = Math.max(nickBest, 60);   // nickname prefix
-      }
-    }
-  }
-  if (nickBest) return nickBest;
-
-  // T2.5 — multi-word token match (earned: "Thomas Bargello" → "Tom Bargaglio")
-  if (_qTok.length >= 2 && nameWords.length >= 1) {
-    const hits = _qTok.filter(qt => nameWords.some(nt =>
-      nt === qt || nt.startsWith(qt) || qt.startsWith(nt)
-    ));
-    if (hits.length > 0)
-      return Math.max(45, Math.round(70 * hits.length / _qTok.length));
-  }
-
-  // T3 — per-word bigram typo tolerance with first-letter anchor
-  if (query.length < 4) return 0;
-  const q = query.replace(/\s+/g, '');
-  const qBi = new Set();
-  for (let i = 0; i < q.length - 1; i++) qBi.add(q[i] + q[i+1]);
-  if (!qBi.size) return 0;
-  let best = 0;
-  for (const nw of nameWords) {
-    if (nw.length < 3) continue;
-    let shared = 0;
-    for (const bg of qBi) if (nw.includes(bg)) shared++;
-    const overlap = shared / qBi.size;
-    const anchored = nw[0] === q[0];
-    if (overlap >= 0.66 || (anchored && overlap >= 0.50))
-      best = Math.max(best, Math.round(overlap * 60));
-  }
-  return best;
-}
+// Name matching, nickname expansion and address normalization now live in the
+// ONE shared engine (/js/customer-search.js). The duplicates that used to sit
+// here were removed 2026-08-04 — a second copy is exactly what drifts.
+// _normalizeAddress is kept below only because the load-time index still
+// precomputes _normAddr for the render/sort paths.
 
 // ── Address normalization (2026-07-23 — Todd Griffin case) ────────────────────
 // "2010 NW" must find "2010 Northwest 85th Avenue": 30 years of data stores
@@ -697,26 +613,6 @@ function _normalizeAddress(s){
     .map(t => _ADDR_DICT[t] || t)
     .join(' ');
 }
-// Match if the normalized query is a substring of the normalized address, OR
-// the query tokens align to a consecutive run of address tokens by equality
-// or prefix — "2010 nw 85" hits ["2010","nw","85th",...] ("85" prefixes
-// "85th", covering ordinals). Address field only; names/phones untouched.
-function _addrMatch(nq, nqTokens, c){
-  const na = c._normAddr;
-  if (!na || !nq) return false;
-  if (na.includes(nq)) return true;
-  const at = c._normAddrTokens;
-  outer:
-  for (let i = 0; i + nqTokens.length <= at.length; i++){
-    for (let j = 0; j < nqTokens.length; j++){
-      const q = nqTokens[j], a = at[i + j];
-      if (a !== q && !a.startsWith(q)) continue outer;
-    }
-    return true;
-  }
-  return false;
-}
-
 // ── Search ────────────────────────────────────────────────────────────────────
 let _searchDebounceTimer = null;
 function onSearch(val){
@@ -739,6 +635,34 @@ function clearSearch(){
 }
 
 // ── Filter + Sort + Render ────────────────────────────────────────────────────
+
+// Tells Darla where the other matches are instead of showing her an empty list.
+// Auto-reveals when the active tab has none (never empty when a real fragment
+// exists on a real record); offers a one-tap jump when it has some.
+function _renderCrossSegmentHint(others, hereCount){
+  let el = document.getElementById('xsegHint');
+  const segs = Object.keys(others||{});
+  if (!segs.length) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'xsegHint';
+    el.style.cssText = 'margin:8px 0 4px;padding:9px 12px;border-radius:10px;background:#eff6ff;'
+      + 'border:1px solid #bfdbfe;font:600 12.5px "DM Sans",sans-serif;color:#1e3a8a;'
+      + 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+    const anchor = document.getElementById('resultCount') || document.getElementById('tblScroll');
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor);
+    else document.body.insertBefore(el, document.body.firstChild);
+  }
+  const LABEL = { residential:'🏠 Residential', partner:'🤝 Partner', commercial:'🏢 Commercial' };
+  const lead = hereCount === 0
+    ? 'No matches in this tab — but found elsewhere:'
+    : 'Also matching in:';
+  el.innerHTML = `<span>${lead}</span>` + segs.map(sg =>
+    `<button onclick="setSegment('${sg}')" style="background:#1d4ed8;color:#fff;border:none;border-radius:8px;`
+    + `padding:5px 11px;font:700 12px 'DM Sans',sans-serif;cursor:pointer;">${LABEL[sg]||sg} (${others[sg]})</button>`
+  ).join('');
+}
+
 function applyAll(){
   // 2026-06-22: segment filter is the outer-most gate — applied before search,
   // tier pills, or sort. Default 'residential'. Partner/Commercial are
@@ -747,27 +671,31 @@ function applyAll(){
 
   // Search — fuzzy name + exact phone/email/city + normalized address, ranked by score
   if(searchVal){
-    // Phone/email/city: exact substring only (never fuzzy-match digits).
-    // Address (2026-07-23): normalized both ways — see _normalizeAddress above.
-    // Query normalized ONCE per applyAll, not per customer.
-    // 2026-06-22 Phase 2 (c): altPhoneDigits carries every alternate number (legacy altPhone +
-    // alternateContacts[].phone + merged-record carries) — searching any of a customer's
-    // numbers surfaces them.
-    const _nq = _normalizeAddress(searchVal);
-    const _nqTokens = _nq.split(' ').filter(Boolean);
-    const _exactFields = c =>
-      (c.phone||'').includes(searchVal) ||
-      (c.altPhoneDigits||'').includes(searchVal) ||
-      (c.email||'').toLowerCase().includes(searchVal) ||
-      _addrMatch(_nq, _nqTokens, c) ||
-      (c.city||'').toLowerCase().includes(searchVal);
-    data = data
-      .map(c => ({ c, _s: _exactFields(c) ? 100 : _fuzzyNameScore(searchVal, c) }))
-      .filter(x => x._s > 0)
-      .sort((a, b) => b._s - a._s || a.c._name.localeCompare(b.c._name))
-      .map(x => x.c);
-  }
+    // ONE engine (/js/customer-search.js) — the directory and the quote modal
+    // both call it, so there is no second implementation to drift.
+    //
+    // 2026-08-04: phones are matched DIGITS-ONLY on both sides. The old
+    // `c.phone.includes(query)` compared a raw punctuated query against a
+    // digits-only stored number, so "786-229-7178" found nothing — Darla writes
+    // numbers with dashes, so every punctuated search silently failed.
+    data = CustomerSearch.search(data, searchVal);
 
+    // Cross-segment recall. The segment tab is the outer gate (DL-06: partner
+    // and commercial are separate worldviews), but a customer must never be
+    // unfindable just because Darla is on the wrong tab. If the active segment
+    // has no hits, fall through to the ones that do; if it has some, offer the
+    // rest as a one-tap jump instead of silently hiding them.
+    const _others = {};
+    for (const seg of ['residential','partner','commercial']) {
+      if (seg === activeSegment) continue;
+      const n = CustomerSearch.search(
+        allCustomers.filter(c => _segmentOf(c) === seg), searchVal).length;
+      if (n) _others[seg] = n;
+    }
+    _renderCrossSegmentHint(_others, data.length);
+  } else {
+    _renderCrossSegmentHint({}, 0);
+  }
   // Sort
   if(_sortCol){
     const col=_sortCol;
@@ -1420,6 +1348,7 @@ init();
 addEventListener('load', () => { try { _initQuoteReturnBar(); } catch (e) { console.warn('[quote return bar]', e); } });
 </script>
 
+<script src="/js/customer-search.js?v=2"></script>
 <script src="/js/quote-logger.js?v=4"></script>
 </body>
 </html>

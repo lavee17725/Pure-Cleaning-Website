@@ -107,7 +107,7 @@ const HTML_FILES = [
   },
   {
     file: 'pure_cleaning_customer_directory.html',
-    markers: ['function _normalizeAddress', 'function _addrMatch',   // 2026-07-23 address normalization (Todd Griffin case)
+    markers: ['function _normalizeAddress', 'CustomerSearch.search',   // 2026-07-23 address normalization (Todd Griffin case)
               'function applyAll', 'TIER_RANK', 'function _segmentOf', 'function _displayName',
               '_dirAltContacts',   // WO-2: alternate-contacts render on directory card + row (T1.21 read surface)
               'dir-sat-thumb', '_dirMapsUrl'],  // satellite thumbnail → opens Google Maps (superseded WO-B lightbox)
@@ -1306,6 +1306,82 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 18: customer search — punctuated phones + fragments (2026-08-04) ───
+// Darla writes phone numbers WITH DASHES. The old matcher compared her raw
+// query against a digits-only stored number, so "786-229-7178" returned nothing
+// while "7862297178" worked — every punctuated search silently failed. These
+// run the REAL shipped engine over fixtures covering each reported case plus
+// the regressions it must not break.
+async function checkCustomerSearch() {
+  let src;
+  try { src = await fetchText(`${GITHUB_PAGES}/js/customer-search.js?v=2`); }
+  catch (e) { fail('Customer search — engine reachable', e.message); return; }
+
+  let CS;
+  try {
+    const sandbox = { window: {} };
+    new Function('window', src)(sandbox.window);
+    CS = sandbox.window.CustomerSearch;
+    if (!CS) throw new Error('CustomerSearch not exported');
+  } catch (e) { fail('Customer search — engine loads', e.message); return; }
+
+  const people = [
+    { firstName:'Tommy', lastName:'Tonsmeire', phone:'7862297178', address:'918 Hunting Lodge Dr', city:'Miami Springs' },
+    { firstName:'Edgar', lastName:'Salgado',   phone:'9542877139', address:'4130 Staghorn Lane',   city:'Weston' },
+    { firstName:'Philip', lastName:'& Lynn Felson', phone:'9546147750', altPhoneDigits:'9546146831', address:'15814 Cotswold Ct', city:'Davie' },
+    { firstName:'', lastName:'', businessName:'Lenny - KGN Holdings LLC', phone:'9549310928', address:'10620 SW 37 Place', city:'Davie' },
+    { firstName:'Todd', lastName:'Griffin', phone:'9541112222', address:'2010 Northwest 85th Avenue', city:'Sunrise' },
+    { firstName:'Christopher', lastName:'Kaderaber', phone:'9544410399', address:'6001 SW 195th Ave', city:'Pembroke Pines' },
+    { firstName:'Maria', lastName:'Lopez', phone:'3055559999', address:'77 Palm Ct', city:'Davie',
+      alternateContacts:[{ name:'Rosa Gonzalez', phone:'(786) 555-0143' }] },
+  ];
+  CS.buildIndex(people);
+  const names = q => CS.search(people, q).map(c => c.businessName || `${c.firstName||''} ${c.lastName||''}`.trim());
+
+  const cases = [
+    // CASE B — the actual bug: every punctuation form must find the same person.
+    ['dashes',        '786-229-7178',   'Tommy Tonsmeire'],
+    ['parens+spaces', '(786) 229 7178', 'Tommy Tonsmeire'],
+    ['dots',          '786.229.7178',   'Tommy Tonsmeire'],
+    ['bare digits',   '7862297178',     'Tommy Tonsmeire'],
+    ['E.164 +1',      '+17862297178',   'Tommy Tonsmeire'],
+    ['last 4 only',   '7178',           'Tommy Tonsmeire'],
+    // CASE A — the paths that must work for Tommy (918 is his REAL number;
+    // "413" was a misremembered house number, see the commit message).
+    ['name',          'Tommy',                   'Tommy Tonsmeire'],
+    ['full address',  '918 Hunting Lodge Drive', 'Tommy Tonsmeire'],
+    ['house number',  '918',                     'Tommy Tonsmeire'],
+    // CASE C — a bare numeric fragment matches anywhere, not just at the start.
+    ['fragment 413 → 4130', '413',               'Edgar Salgado'],
+    // Recall guarantees that must not regress.
+    ['merged old name',  'Felson',        'Philip & Lynn Felson'],
+    ['merged old phone', '954-614-6831',  'Philip & Lynn Felson'],
+    ['business name',    'KGN',           'Lenny - KGN Holdings LLC'],
+    ['alt-contact phone','786-555-0143',  'Maria Lopez'],
+    ['alt-contact name', 'Rosa Gonzalez', 'Maria Lopez'],
+    ['Todd Griffin short','2010 NW',      'Todd Griffin'],
+    ['Todd Griffin long', '2010 Northwest 85th Ave', 'Todd Griffin'],
+    ['nickname chris',   'chris',         'Christopher Kaderaber'],
+  ];
+  const bad = [];
+  for (const [label, q, expect] of cases) {
+    let got = [];
+    try { got = names(q); } catch (e) { bad.push(`${label} threw ${e.message}`); continue; }
+    if (!got.includes(expect)) bad.push(`${label} (${q}) → ${JSON.stringify(got.slice(0,3))}`);
+  }
+  if (bad.length) fail('Customer search — all cases', bad.join(' | '));
+  else pass('Customer search — all cases', `${cases.length} queries incl. 6 punctuation forms`);
+
+  // The engine must be the ONE implementation — the directory has to call it
+  // rather than keep a private copy.
+  try {
+    const dir = await fetchText(`${GITHUB_PAGES}/pure_cleaning_customer_directory.html`);
+    if (dir.includes('CustomerSearch.search') && dir.includes('customer-search.js'))
+      pass('Customer search — one engine', 'directory calls the shared engine');
+    else fail('Customer search — one engine', 'directory is not using CustomerSearch');
+  } catch (e) { fail('Customer search — one engine', e.message); }
+}
+
 // ── CHECK 17: quote ↔ directory round-trip (2026-08-04) ──────────────────────
 // Tyler steps out of a half-written quote to check the directory. Before this,
 // navigating away destroyed the quote and he retyped it. Guards the pieces that
@@ -1583,6 +1659,7 @@ async function main() {
   await checkPhotoPipelineRemoved();      // 2026-07-31 GBP photo pipeline fully removed
   await checkBusinessNameBookable();      // P0 2026-08-03 Lenny/KGN business-name booking
   await checkQuoteDirectoryRoundTrip();   // 2026-08-04 quote <-> directory draft round-trip
+  await checkCustomerSearch();            // 2026-08-04 punctuated phones + fragment recall
   await checkCacheHeaders();
 
   // Print results

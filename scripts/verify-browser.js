@@ -2482,15 +2482,14 @@ async function main() {
 
     // ── DIRECTORY — address normalization (2026-07-23, Todd Griffin case) ──────
     queuePage(context, `${PAGES_BASE}/pure_cleaning_customer_directory.html`, 'directory-addr-search', async page => {
+      // 2026-08-04: search now runs through the ONE shared engine
+      // (/js/customer-search.js). This test drives the SHIPPED entry point
+      // rather than the page-private helpers it used to reach into — those were
+      // deleted precisely so a second implementation can't drift.
       await page.waitForFunction(() => typeof allCustomers !== 'undefined' && allCustomers.length > 0
-        && typeof _normalizeAddress === 'function' && typeof _addrMatch === 'function', { timeout: 45000 });
+        && typeof CustomerSearch !== 'undefined', { timeout: 45000 });
       const r = await page.evaluate(() => {
-        const run = q => {
-          searchVal = q.trim().toLowerCase();
-          const nq = _normalizeAddress(searchVal);
-          const nqT = nq.split(' ').filter(Boolean);
-          return allCustomers.filter(c => _addrMatch(nq, nqT, c));
-        };
+        const run = q => CustomerSearch.search(allCustomers, q);
         const names = rs => rs.map(c => c._name);
         const out = {};
         // The live regression case: Todd Griffin @ 2010 Northwest 85th Avenue
@@ -2505,17 +2504,35 @@ async function main() {
           const m = abbrev._normAddr.match(/\b(nw|ne|sw|se)\b/);
           const q = abbrev._normAddr.split(' ')[0] + ' ' + longDir[m[1]];
           out.reverse = run(q).includes(abbrev);
+          out.reverseQuery = q;
         }
         // Street-name-only + both ave forms hit the same records
         out.canary  = names(run('Canary Island')).some(n => n.includes('wolf'));
         out.aveSame = names(run('85th Ave')).join('|') === names(run('85th Avenue')).join('|');
         // REGRESSION GUARD — name + phone paths byte-identical in code, spot-check live:
-        const nameHit = (q, who) => { searchVal = q; return allCustomers.some(c => _fuzzyNameScore(q, c) > 0 && c._name.includes(who)); };
+        const nameHit = (q, who) => run(q).some(c => (c._name || '').includes(who));
         out.nick1 = nameHit('beth', 'elizabeth') || !allCustomers.some(c => c._name.includes('elizabeth'));
         out.nick2 = nameHit('chris', 'christopher') || !allCustomers.some(c => c._name.includes('christopher'));
         out.exact = nameHit('griffin', 'griffin');
         const phoned = allCustomers.find(c => (c.phone||'').length === 10);
-        out.phone = phoned ? (phoned.phone.slice(0,6).length && allCustomers.filter(c => (c.phone||'').includes(phoned.phone.slice(0,6))).includes(phoned)) : null;
+        out.phone = phoned ? run(phoned.phone.slice(0, 6)).includes(phoned) : null;
+        // CASE B (2026-08-04) — the live bug: Darla types numbers WITH DASHES.
+        // Every punctuation form must return the identical record.
+        if (phoned) {
+          const d = phoned.phone;
+          const forms = [d, `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`,
+                         `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`,
+                         `${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6)}`, '+1' + d];
+          out.punctForms = forms.every(f => run(f).includes(phoned));
+          out.lastFour   = run(d.slice(-4)).includes(phoned);
+        }
+        // CASE C — a bare numeric fragment matches anywhere, not just at the start.
+        const houseNum = allCustomers.find(c => /^\d{3,}\s/.test(c.address || ''));
+        if (houseNum) {
+          const hn = (houseNum.address.match(/^\d+/) || [''])[0];
+          out.bareHouseNumber = run(hn).includes(houseNum);
+          out.bareHouseCase   = hn + ' → ' + houseNum.address;
+        }
         searchVal = '';
         return out;
       });
@@ -2530,6 +2547,9 @@ async function main() {
         ['name search regression (nickname chris→christopher)', r.nick2],
         ['name search regression (exact surname)', r.exact],
         ['partial-phone search regression', r.phone !== false],
+        ['CASE B — dashes/parens/dots/+1 all find the same customer', r.punctForms !== false],
+        ['CASE B — last-4 fragment finds the customer', r.lastFour !== false],
+        [`CASE C — bare house number finds the house (${r.bareHouseCase || 'n/a'})`, r.bareHouseNumber !== false],
       ];
       for (const [label, ok] of checks) {
         if (ok) pass(`Directory addr — ${label}`);
