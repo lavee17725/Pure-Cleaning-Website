@@ -353,6 +353,61 @@ function fmtElapsed(s) {
   return parts.join(' ');
 }
 
+
+// ── QUOTE ↔ DIRECTORY ROUND-TRIP (2026-08-04) ────────────────────────────────
+// Arriving with ?from=quote means Tyler stepped out of a half-written quote to
+// look something up. The logger is loaded here too, so "Back to your quote"
+// reopens the modal IN PLACE with every field restored — one tap, no second
+// page load, no browser-back guesswork.
+function _initQuoteReturnBar() {
+  const fromQuote = new URLSearchParams(location.search).get('from') === 'quote';
+  if (!fromQuote || !window.QuoteLogger) return;
+  const draft = QuoteLogger.readDraft();
+  if (!draft) return;                       // nothing to come back to
+
+  const who = (draft.name || '').trim();
+  const bar = document.createElement('div');
+  bar.id = 'quoteReturnBar';
+  bar.style.cssText = 'position:sticky;top:0;z-index:9999;background:#0f172a;color:#fff;'
+    + 'padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;'
+    + 'font:700 13.5px "DM Sans",sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.25);';
+  bar.innerHTML = `<span>📝 Quote in progress${who ? ' — ' + _esc(who) : ''}</span>`
+    + `<button id="qrbBack" style="margin-left:auto;background:#f59e0b;color:#0f172a;border:none;`
+    + `border-radius:8px;padding:7px 14px;font:800 13px 'DM Sans',sans-serif;cursor:pointer;">← Back to your quote</button>`
+    + `<button id="qrbDiscard" style="background:none;border:1px solid rgba(255,255,255,.35);color:#fff;`
+    + `border-radius:8px;padding:7px 12px;font:700 12px 'DM Sans',sans-serif;cursor:pointer;">Discard</button>`;
+  document.body.insertBefore(bar, document.body.firstChild);
+
+  document.getElementById('qrbBack').onclick = () => QuoteLogger.open({ resumeDraft: true });
+  document.getElementById('qrbDiscard').onclick = () => {
+    if (!confirm('Discard the quote in progress? What you typed will be lost.')) return;
+    QuoteLogger.clearDraft();
+    bar.remove();
+  };
+}
+
+function _esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Reverse direction: start a quote already knowing this customer. Explicit
+// action → the quote attaches to them. Merely BROWSING never attaches.
+function quoteThisCustomer(phone, ev) {
+  if (ev) ev.stopPropagation();
+  const ph = String(phone || '').replace(/\D/g, '').slice(-10);
+  const c = (allCustomers || []).find(x => String(x.phone || '').replace(/\D/g, '').slice(-10) === ph)
+         || { phone: ph };
+  QuoteLogger.openForCustomer({
+    personId:     c.personId || ('person_1' + ph),
+    firstName:    c.firstName || '',
+    lastName:     c.lastName || '',
+    businessName: c.businessName || '',
+    phone:        ph,
+    city:         c.city || '',
+    customerType: c.customerType || 'residential',
+    totalJobs:    c.totalJobs || 0,
+    lastService:  c.lastService || null,
+  });
+}
+
 function fmtMin(m){ const h=Math.floor(m/60),mins=m%60; return h>0?`${h}h ${mins}m`:`${mins}m`; }
 function _computeAvgTPW(c){
   // 2026-06-22: /customers/summary now pre-computes these 5 labels server-side.
@@ -906,7 +961,7 @@ function buildRow(c){
   const ph=String(c.phone||'').replace(/\D/g,'');
   const _tchip=`<span class="tier-chip" style="background:${c._tierColor};">${c._tierEmoji} ${c._tier}${c._vip?' ★':''}</span>`;
   return `<tr data-phone="${ph}" onclick="navProfile('${ph}')">
-    <td class="wrap">${esc(_displayName(c))}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button>${_clockBtn(c, ph)}</td>
+    <td class="wrap">${esc(_displayName(c))}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Start a quote for this customer" aria-label="Quote this customer" onclick="quoteThisCustomer('${ph}',event)">＋</button>${_clockBtn(c, ph)}</td>
     <td>${_tchip}</td>
     <td class="muted">${(Array.isArray(c.alternateContacts)&&c.alternateContacts.length)?`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:3px;">Main</span>`:''}${fmtPh(c.phone)}${_dirAltContacts(c,{inline:true})}</td>
     <td class="muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;">${c.email?`<a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>`:'<span style="color:#d1d5db;">—</span>'}</td>
@@ -936,7 +991,7 @@ function buildCard(c){
   return `<div class="cust-card" data-phone="${ph}" onclick="navProfile('${ph}')">
     <div class="cust-card-badge" style="border-color:${c._tierColor};color:${c._tierColor};">${c._tierEmoji||c._tier.slice(0,2)}</div>
     <div class="cust-card-body">
-      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button>${_clockBtn(c, ph)}</div>
+      <div class="cust-card-name">${esc(name)}${flagIcons(c)}${reviewBadge(c)}<button class="dir-edit-btn" title="Edit name / email / business" aria-label="Edit customer" onclick="openEditModal('${ph}',event)">✏️</button><button class="dir-edit-btn" title="Start a quote for this customer" aria-label="Quote this customer" onclick="quoteThisCustomer('${ph}',event)">＋</button>${_clockBtn(c, ph)}</div>
       <div class="cust-card-meta" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc([c.address,c.city].filter(Boolean).join(' · ')||'—')} · ${c.lastService ? 'Last: '+fmtDate(c.lastService)+(fmtElapsed(c.lastService)?' · '+fmtElapsed(c.lastService)+' ago':'') : 'No history'}</div>
       <div class="cust-card-meta">${(Array.isArray(c.alternateContacts)&&c.alternateContacts.length)?`<span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-right:3px;">Main</span>`:''}${fmtPh(c.phone)}${c.email ? ` · <a href="mailto:${esc(c.email)}" onclick="event.stopPropagation()" style="color:var(--sky);text-decoration:none;">${esc(c.email)}</a>` : ''}</div>
       ${_dirAltContacts(c)}
@@ -1360,7 +1415,11 @@ function exportCsv(){
 }
 
 init();
+// Return bar must wait for the logger script (loaded at end of body) and for
+// allCustomers to populate — init() is async, so hook it on window load.
+addEventListener('load', () => { try { _initQuoteReturnBar(); } catch (e) { console.warn('[quote return bar]', e); } });
 </script>
 
+<script src="/js/quote-logger.js?v=4"></script>
 </body>
 </html>

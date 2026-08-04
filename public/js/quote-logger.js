@@ -107,6 +107,10 @@
       .ql-citychips{margin-bottom:6px;}
       .ql-typechips .ql-chip{padding:6px 12px;font-size:12.5px;}
       .ql-typechips .ql-chip.on{background:#0f172a;border-color:#0f172a;}
+      .ql-lookup{margin:2px 0 10px;}
+      .ql-lookup button{width:100%;background:none;border:1.5px dashed #cbd5e1;border-radius:10px;padding:9px;
+        font:700 12.5px 'DM Sans',sans-serif;color:#475569;cursor:pointer;}
+      .ql-lookup button:hover{border-color:#94a3b8;color:#0f172a;}
       .ql-match{display:none;background:#fefce8;border:1.5px solid #fde047;border-radius:10px;padding:8px 11px;font:600 12.5px 'DM Sans',sans-serif;color:#713f12;margin-top:6px;line-height:1.45;}
       .ql-price{position:relative;}
       .ql-price span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font:700 15px 'DM Sans',sans-serif;color:#94a3b8;}
@@ -155,6 +159,9 @@
           </div>
         </div>
         <div class="ql-field ql-price"><span>$</span><input id="qlPrice" type="number" inputmode="decimal" min="0" step="1" placeholder="Price quoted"></div>
+        <div class="ql-lookup">
+          <button type="button" id="qlLookup">🔍 Look up a customer — your quote is kept</button>
+        </div>
         <div class="ql-actions">
           <button class="ql-btn ql-save" id="qlSave">Save Quote</button>
           <button class="ql-btn ql-confirm" id="qlConfirm">Already Booked →</button>
@@ -243,6 +250,16 @@
     ph.addEventListener('input', () => { ph.value = _fmtPhone(ph.value); });
     ph.addEventListener('blur', _dedupeLookup);
 
+    wrap.querySelector('#qlLookup').onclick = lookUpCustomer;
+    // Persist as he types so the draft is already current when he steps out —
+    // debounced, so Darla's straight-through flow pays nothing noticeable.
+    ['qlName','qlPhone','qlCity','qlPrice','qlCustomText'].forEach(id => {
+      const e = wrap.querySelector('#' + id);
+      if (e) e.addEventListener('input', _saveDraftDebounced);
+    });
+    wrap.addEventListener('click', e => {
+      if (e.target.classList && e.target.classList.contains('ql-chip')) _saveDraftDebounced();
+    });
     wrap.querySelector('#qlClose').onclick = close;
     wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
     wrap.querySelector('#qlSave').onclick    = () => _save(false);
@@ -268,6 +285,19 @@
   // Darla instantly knows it's a repeat customer; save is never gated on it.
   // Rule 12: csv_backfill entries are excluded from the "last job" line
   // (count still includes them — they're real history, just synthetic rows).
+
+  // Shared match banner so a restored draft / prefilled customer shows the same
+  // "existing customer" line the live lookup does, instead of a blank strip.
+  function _showMatchBanner() {
+    const el = document.getElementById('qlMatch');
+    if (!el) return;
+    if (!_match) { el.style.display = 'none'; return; }
+    const n = _match.jobs != null ? _match.jobs : null;
+    const jobsTxt = n != null ? `, ${n} job${n === 1 ? '' : 's'}` : '';
+    el.innerHTML = `↩ Existing customer — <b>${_match.name || 'existing customer'}</b>${jobsTxt}${_match.lastTxt || ''}`;
+    el.style.display = 'block';
+  }
+
   async function _dedupeLookup() {
     _match = null;
     const el = document.getElementById('qlMatch');
@@ -286,9 +316,8 @@
       const lastTxt = last
         ? `, last ${(last.services || last.mainServices || 'job')} ${(last.date || last.completedDate)}`
         : '';
-      _match = { personId: 'person_1' + p10, name };
-      el.innerHTML = `↩ Existing customer — <b>${name}</b>, ${jobs.length} job${jobs.length === 1 ? '' : 's'}${lastTxt}`;
-      el.style.display = 'block';
+      _match = { personId: 'person_1' + p10, name, jobs: jobs.length, lastTxt };
+      _showMatchBanner();
     } catch (_) { /* lookup is best-effort; never block the entry */ }
   }
 
@@ -376,6 +405,9 @@
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.success) throw new Error(data.error || `HTTP ${r.status}`);
+      // The quote is now a real row — the draft has served its purpose and must
+      // not resurface on the next call.
+      clearDraft();
       if (confirmed) {
         // Same pad row, already accepted — keep going straight into booking.
         location.href = _handoffUrl(q, data.quoteId);
@@ -402,6 +434,7 @@
     _match = null;
     _customs = [];
     _wallsAuto = false;
+    clearTimeout(_draftTimer);
     // Type is per-quote, never sticky — the next call is residential until told
     // otherwise, so a one-off commercial quote can't silently retype the day.
     _type = 'residential';
@@ -410,14 +443,147 @@
     _renderCustoms();
   }
 
+
+  // ── DRAFT + DIRECTORY ROUND-TRIP (2026-08-04) ──────────────────────────────
+  // Tyler mid-quote needs to check the directory (past pricing, history, an
+  // address). The directory is a separate page, and the modal held everything
+  // in memory + DOM, so navigating away destroyed the whole quote and he
+  // retyped it. Now the modal snapshots itself before leaving and restores on
+  // return.
+  //
+  // localStorage, mirroring new_customer.html's proven pcpc_newquote_draft_v1
+  // (same debounce + "never persist an empty form" guard). NOT IndexedDB —
+  // that's reserved for the big customer-DB cache; a tiny synchronous form
+  // snapshot doesn't warrant it, and a third storage pattern is exactly what
+  // we're avoiding.
+  //
+  // Deliberately NOT a Quote row: an in-progress quote never touches D1, so
+  // nothing can pollute the pad, insights, or acceptance-rate math.
+  const _DRAFT_KEY = 'pcpc_quotelogger_draft_v1';
+  const _DRAFT_TTL_DAYS = 7;
+  let _draftTimer = null, _restoring = false;
+
+  function _val(id) { const e = document.getElementById(id); return e ? e.value : ''; }
+
+  function _snapshot() {
+    return {
+      v: 1,
+      savedAt: new Date().toISOString(),
+      returnTo: location.pathname + location.search,
+      name:  _val('qlName'),
+      phone: _val('qlPhone'),
+      city:  _val('qlCity'),
+      price: _val('qlPrice'),
+      customText: _val('qlCustomText'),
+      type: _type,
+      chips: [...document.querySelectorAll('#qlSvcChips .ql-chip.on')].map(b => b.dataset.key).filter(Boolean),
+      customs: [..._customs],
+      // The matched customer is remembered so the dedupe banner survives the
+      // trip. It is NOT an attachment on its own — see _save(): personId only
+      // ships when _match was set by an explicit user action.
+      match: _match,
+    };
+  }
+
+  function _hasContent(d) {
+    return !!(d && (String(d.name||'').trim() || String(d.phone||'').replace(/\D/g,'') ||
+                    String(d.city||'').trim() || String(d.price||'').trim() ||
+                    (d.chips && d.chips.length) || (d.customs && d.customs.length)));
+  }
+
+  function saveDraft() {
+    if (_restoring) return;
+    try {
+      const d = _snapshot();
+      if (!_hasContent(d)) { localStorage.removeItem(_DRAFT_KEY); return; }   // never persist an empty form
+      localStorage.setItem(_DRAFT_KEY, JSON.stringify(d));
+    } catch (_) { /* quota / private mode — the quote still works, it just won't survive a trip */ }
+  }
+  function _saveDraftDebounced() { clearTimeout(_draftTimer); _draftTimer = setTimeout(saveDraft, 700); }
+  function clearDraft() { try { localStorage.removeItem(_DRAFT_KEY); } catch (_) {} }
+
+  function readDraft() {
+    try {
+      const raw = localStorage.getItem(_DRAFT_KEY);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      if (!d || d.v !== 1 || !_hasContent(d)) return null;
+      // Expire stale drafts so an abandoned quote can't resurface weeks later.
+      if (d.savedAt && (Date.now() - new Date(d.savedAt).getTime()) > _DRAFT_TTL_DAYS * 86400000) {
+        clearDraft(); return null;
+      }
+      return d;
+    } catch (_) { return null; }
+  }
+
+  function _applyDraft(d) {
+    _restoring = true;
+    try {
+      const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v || ''; };
+      set('qlName', d.name); set('qlPhone', d.phone); set('qlCity', d.city);
+      set('qlPrice', d.price); set('qlCustomText', d.customText);
+      _type = d.type || 'residential';
+      document.querySelectorAll('#qlTypeChips .ql-chip').forEach(b =>
+        b.classList.toggle('on', b.dataset.type === _type));
+      document.querySelectorAll('#qlCityChips .ql-chip').forEach(b =>
+        b.classList.toggle('on', b.textContent === d.city));
+      document.querySelectorAll('#qlSvcChips .ql-chip').forEach(b =>
+        b.classList.toggle('on', (d.chips || []).includes(b.dataset.key)));
+      if (d.customText) document.getElementById('qlCustomWrap').style.display = '';
+      _customs = [...(d.customs || [])];
+      _renderCustoms();
+      _match = d.match || null;
+      _showMatchBanner();
+    } finally { _restoring = false; }
+  }
+
+  // Leave for the directory, carrying the quote with us. Seeds the directory
+  // search with whatever identifies this caller so the lookup starts warm.
+  function lookUpCustomer() {
+    saveDraft();
+    const seed = String(_val('qlPhone') || '').replace(/\D/g, '') || String(_val('qlName') || '').trim();
+    const p = new URLSearchParams({ from: 'quote' });
+    if (seed) p.set('search', seed);
+    location.href = '/pure_cleaning_customer_directory.html?' + p;
+  }
+
+  // Reverse direction: start a quote already knowing the customer. Called from
+  // the directory's "Quote this customer". This DOES attach (personId), because
+  // picking them was the explicit action — unlike merely browsing.
+  function openForCustomer(c) {
+    open({ ...( _opts || {} ), _prefill: c });
+  }
+
   function open(opts) {
     _opts = opts || {};
     _ensureDom();
     _reset();
+
+    if (_opts._prefill) {
+      // From a customer record — nothing already known should be retyped.
+      const c = _opts._prefill;
+      const nm = (c.businessName || `${c.firstName || ''} ${c.lastName || ''}`).trim();
+      document.getElementById('qlName').value  = nm;
+      document.getElementById('qlPhone').value = _fmtPhone(String(c.phone || '').replace(/\D/g, ''));
+      document.getElementById('qlCity').value  = c.city || '';
+      document.querySelectorAll('#qlCityChips .ql-chip').forEach(b =>
+        b.classList.toggle('on', b.textContent === (c.city || '')));
+      _type = ['residential', 'partner_referral', 'commercial'].includes(c.customerType) ? c.customerType : 'residential';
+      document.querySelectorAll('#qlTypeChips .ql-chip').forEach(b =>
+        b.classList.toggle('on', b.dataset.type === _type));
+      // Explicit choice → attach. (Browsing the directory never does this.)
+      if (c.personId) _match = { personId: c.personId, name: nm, jobs: c.totalJobs || 0, last: c.lastService || null };
+      _showMatchBanner();
+      saveDraft();
+    } else if (_opts.resumeDraft) {
+      const d = readDraft();
+      if (d) _applyDraft(d);
+    }
+
     document.getElementById('qlOverlay').classList.add('open');
     setTimeout(() => document.getElementById('qlName').focus(), 60);
   }
   function close() { const o = document.getElementById('qlOverlay'); if (o) o.classList.remove('open'); }
 
-  window.QuoteLogger = { open, close };
+  window.QuoteLogger = { open, close, lookUpCustomer, openForCustomer, readDraft, clearDraft, saveDraft };
 })();

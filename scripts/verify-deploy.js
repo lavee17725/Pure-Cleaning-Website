@@ -1306,6 +1306,49 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 17: quote ↔ directory round-trip (2026-08-04) ──────────────────────
+// Tyler steps out of a half-written quote to check the directory. Before this,
+// navigating away destroyed the quote and he retyped it. Guards the pieces that
+// make the round-trip work AND the two rules that keep it safe: drafts never
+// become Quote rows (insights/acceptance math untouched), and browsing never
+// attaches the quote to whoever he happened to look at.
+async function checkQuoteDirectoryRoundTrip() {
+  try {
+    const js = await fetchText(`${GITHUB_PAGES}/js/quote-logger.js?v=4`);
+    const need = [
+      ['pcpc_quotelogger_draft_v1', 'draft key present'],
+      ['function lookUpCustomer',   '"look up a customer" exit'],
+      ['function openForCustomer',  'reverse: quote from a customer record'],
+      ['resumeDraft',               'draft restore on return'],
+      ['clearDraft();',             'draft cleared once the quote is real'],
+      ['_hasContent',               'never persists an empty form'],
+    ];
+    const missing = need.filter(([n]) => !js.includes(n)).map(([, d]) => d);
+    if (missing.length) fail('Quote↔directory round-trip — logger', `missing: ${missing.join('; ')}`);
+    else pass('Quote↔directory round-trip — logger', 'draft + lookup + prefill wired');
+
+    // Drafts must be localStorage (matching new_customer's draft), NOT a new
+    // storage pattern and NOT a Quote row.
+    if (js.includes('localStorage') && !/POST[^\n]*admin\/quote[^\n]*draft/i.test(js))
+      pass('Quote drafts stay client-side', 'localStorage only — no draft rows in D1');
+    else fail('Quote drafts stay client-side', 'a draft path appears to write server-side');
+  } catch (e) { fail('Quote↔directory round-trip — logger', e.message); }
+
+  try {
+    const dir = await fetchText(`${GITHUB_PAGES}/pure_cleaning_customer_directory.html`);
+    const need = [
+      ['_initQuoteReturnBar', 'return bar'],
+      ['Back to your quote',  'one-tap return'],
+      ['quoteThisCustomer',   'quote-this-customer action'],
+      ['quote-logger.js',     'logger loaded so the quote resumes in place'],
+      ['fmtElapsed',          'precise elapsed time still present'],
+    ];
+    const missing = need.filter(([n]) => !dir.includes(n)).map(([, d]) => d);
+    if (missing.length) fail('Quote↔directory round-trip — directory', `missing: ${missing.join('; ')}`);
+    else pass('Quote↔directory round-trip — directory', 'return bar + reverse entry wired');
+  } catch (e) { fail('Quote↔directory round-trip — directory', e.message); }
+}
+
 // ── CHECK 16: business-name accounts stay bookable (P0 2026-08-03) ───────────
 // Lenny Eterno / KGN Holdings: a commercial account whose Person row carries a
 // businessName and EMPTY firstName/lastName. The booking form required First +
@@ -1539,6 +1582,7 @@ async function main() {
   await checkServicePropertyResolution();  // P0 2026-07-29 service-property resolution
   await checkPhotoPipelineRemoved();      // 2026-07-31 GBP photo pipeline fully removed
   await checkBusinessNameBookable();      // P0 2026-08-03 Lenny/KGN business-name booking
+  await checkQuoteDirectoryRoundTrip();   // 2026-08-04 quote <-> directory draft round-trip
   await checkCacheHeaders();
 
   // Print results
