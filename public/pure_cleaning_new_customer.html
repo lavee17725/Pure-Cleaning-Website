@@ -437,6 +437,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       </div>
     </div>
 
+    <!-- Explicit escape hatch for real multi-building bids. Shown only for
+         Commercial; carries the phone so the builder opens on the same account. -->
+    <button type="button" id="ncProposalBtn" style="display:none;width:100%;margin:0 0 14px;padding:11px;border:1.5px solid var(--border);background:#fff;border-radius:10px;font:700 13.5px 'DM Sans',sans-serif;color:var(--navy);cursor:pointer;"
+            onclick="goToProposalBuilder()">📄 Build a full proposal instead →</button>
+
     <div class="field-row">
       <div class="field">
         <label>First name<span class="field-req">*</span></label>
@@ -1384,6 +1389,9 @@ async function init() {
       if (data.svcCustom) _applyQuoteCustomText(String(data.svcCustom));
       if (data.price != null && data.price !== '') _activeQuotePrice = Number(data.price) || null;
       if (data.quoteId) _activeQuoteId = data.quoteId;
+      // Type chosen at Log Quote time — applied after the fields are populated
+      // so the section toggles land on a filled form.
+      applyQuotedCustomerType(data.ctype);
       checkReq();
       if (data.phone) {
         const phoneEl = document.getElementById('nPhone');
@@ -1410,6 +1418,10 @@ async function init() {
       const _qc = _sp.get('qcustom');
       if (_qc) _applyQuoteCustomText(_qc);
     }
+    // An existing customer's OWN type wins over what was picked on the call —
+    // the record is the authority, and a mis-tap in the modal must not retype a
+    // known partner. Falls back to the quoted type for rows with no type yet.
+    applyQuotedCustomerType((c && c.customerType) || _sp.get('ctype'));
   }
 
   // Draft autosave: attach listeners always; offer Resume only on a cold open
@@ -1664,12 +1676,12 @@ function setCustomerType(type) {
   document.getElementById('ctypePartner').classList.toggle('active', type === 'partner_referral');
   document.getElementById('ctypeCommercial')?.classList.toggle('active', type === 'commercial');
 
-  if (type === 'commercial') {
-    // Commercial routes to the proposal builder — pass phone context if already typed
-    const ph = (document.getElementById('nPhone')?.value || '').replace(/\D/g, '').slice(-10);
-    location.href = '/pure_cleaning_proposal_builder.html' + (ph.length === 10 ? '?phone=' + ph : '');
-    return;
-  }
+  // Commercial used to hard-redirect to the proposal builder. It no longer does
+  // (Tyler, 2026-08-03): small commercial jobs book fine through this flow —
+  // Lenny / KGN proved it — and a real multi-building bid is now an explicit
+  // choice via the button below, not something the system decides for him.
+  const propBtn = document.getElementById('ncProposalBtn');
+  if (propBtn) propBtn.style.display = (type === 'commercial') ? '' : 'none';
 
   const partnerSec = document.getElementById('partnerSection');
   if (partnerSec) {
@@ -2465,6 +2477,23 @@ function syncBusinessField(businessName) {
   f.style.display = show ? '' : 'none';
 }
 
+
+// Explicit hand-off to the proposal builder for multi-building commercial bids.
+// Only reachable by tapping the button — never automatic (Tyler, 2026-08-03).
+function goToProposalBuilder() {
+  const ph = (document.getElementById('nPhone')?.value || '').replace(/\D/g, '').slice(-10);
+  location.href = '/pure_cleaning_proposal_builder.html' + (ph.length === 10 ? '?phone=' + ph : '');
+}
+
+// Customer type chosen at Log Quote time rides in on ?ctype= (existing-customer
+// path) or blob.ctype (new-caller path). Applied AFTER the form is populated so
+// setCustomerType's section toggles land on a filled form.
+function applyQuotedCustomerType(t) {
+  if (!t || t === 'residential') return;
+  if (!['partner_referral', 'commercial'].includes(t)) return;
+  setCustomerType(t);
+}
+
 function checkReq() {
   const fn   = (document.getElementById('nFn').value||'').trim();
   const ln   = (document.getElementById('nLn').value||'').trim();
@@ -2971,6 +3000,15 @@ async function submitPhonePath() {
     if (customer && !isNew && currentCustomer) {
       if (!customer.auditLog) customer.auditLog = [];
       customer.auditLog.push({ event:'existing_customer_updated', via:'new_customer_page', at:new Date().toISOString() });
+    }
+
+    // Commercial: stamp the type so the record lands in the right lane from the
+    // first save (reactivation + review-request exclusion read Person.customerType).
+    // Never downgrade — an existing partner/commercial row keeps its type even if
+    // this form is sitting on its residential default (the worker also guards this).
+    if (customer && currentCustomerType === 'commercial') {
+      customer.customerType = 'commercial';
+      customer.isCommercialAccount = true;
     }
 
     // Partner-referral: tag customer type + store work site in quoteStatus

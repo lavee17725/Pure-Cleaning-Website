@@ -9547,6 +9547,15 @@ function _validateQuoteFields(body, { partial = false, phoneOptional = false } =
     else if (p10.length !== 10) return { error: 'phone must be 10 digits' };
     else out.phone = p10;
   }
+  // customerType (2026-08-03): Residential / Partner / Commercial picked at Log
+  // Quote time. Same three values as Person.customerType — one concept, not a
+  // parallel one. Absent → the column default ('residential') applies.
+  if (has('customerType')) {
+    const t = String(body.customerType || '').trim() || 'residential';
+    if (!['residential', 'partner_referral', 'commercial'].includes(t))
+      return { error: 'customerType must be residential | partner_referral | commercial' };
+    out.customerType = t;
+  }
   if (has('quotedBy')) {
     const q = String(body.quotedBy || '').toLowerCase().trim();
     if (q && !_QUOTED_BY.has(q)) return { error: 'quotedBy must be darla | tyler | tony' };
@@ -9600,6 +9609,8 @@ function _quoteRowToJson(r) {
     status: r.status, declineReason: r.declineReason || null,
     resolvedAt: r.resolvedAt || null, personId: r.personId || null,
     notes: r.notes || '', source: r.source || 'phone', modifiedAt: r.modifiedAt,
+    // Rows written before migration 0044 have no value — they were residential.
+    customerType: r.customerType || 'residential',
   };
 }
 
@@ -9637,12 +9648,13 @@ async function handleCreateQuote(request, env, corsHeaders) {
     await env.DB.prepare(
       `INSERT INTO Quote
          (quoteId, createdAt, quotedBy, firstName, lastName, phone, city, services,
-          priceQuoted, status, declineReason, resolvedAt, personId, notes, source, modifiedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'phone', ?)`
+          priceQuoted, status, declineReason, resolvedAt, personId, notes, source, customerType, modifiedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'phone', ?, ?)`
     ).bind(
       quoteId, now, f.quotedBy ?? null, f.firstName ?? null, f.lastName ?? null,
       f.phone, f.city ?? null, f.services ?? null, f.priceQuoted ?? null,
-      status, status === 'accepted' ? now : null, personId, f.notes ?? null, now
+      status, status === 'accepted' ? now : null, personId, f.notes ?? null,
+      f.customerType ?? 'residential', now
     ).run();
   } catch (e) {
     await _logD1Failure(env, 'handleCreateQuote', e.message);
@@ -9774,15 +9786,38 @@ async function handleQuoteInsights(env, corsHeaders) {
     const band = p => p == null ? null : p < 200 ? '$0–200' : p < 400 ? '$200–400' : p < 600 ? '$400–600' : '$600+';
     const cityKey = c => (c || '').trim() || '(no city)';
 
-    const perMonth = {}, byCity = {}, byBandCity = {}, reasonsByMonth = {};
+    // 2026-08-03 type split: a $250 driveway and a commercial building bid are
+    // not the same number and averaging them makes both meaningless. Price
+    // analytics (city averages + bands) stay RESIDENTIAL-ONLY; partner and
+    // commercial get their own counts + totals in byType. Rows predating the
+    // customerType column read as residential, which is what they were.
+    const perMonth = {}, byCity = {}, byBandCity = {}, reasonsByMonth = {}, byType = {};
     for (const r of rows) {
       const m = (r.createdAt || '').slice(0, 7);
       const c = cityKey(r.city);
+      const t = r.customerType || 'residential';
+
+      byType[t] ??= { customerType: t, given: 0, accepted: 0, declined: 0, open: 0, acceptedValue: 0, acceptedPriceN: 0 };
+      byType[t].given++;
+      if (r.status === 'accepted') {
+        byType[t].accepted++;
+        if (r.priceQuoted != null) { byType[t].acceptedValue += Number(r.priceQuoted); byType[t].acceptedPriceN++; }
+      } else if (r.status === 'declined') byType[t].declined++;
+      else byType[t].open++;
+
+      // Monthly VOLUME counts every quote — the pad's throughput is the pad's
+      // throughput regardless of type, and excluding rows here would make the
+      // monthly totals disagree with totalQuotes.
       perMonth[m] ??= { month: m, given: 0, accepted: 0, declined: 0, open: 0 };
       perMonth[m].given++;
       if (r.status === 'accepted') perMonth[m].accepted++;
       else if (r.status === 'declined') perMonth[m].declined++;
       else perMonth[m].open++;
+
+      // PRICE analytics below (city averages, price bands, decline reasons) are
+      // residential-only — that is the comparison that would otherwise be
+      // corrupted by commercial bids.
+      if (t !== 'residential') continue;
 
       byCity[c] ??= { city: c, given: 0, accepted: 0, declined: 0, acceptedPriceSum: 0, acceptedPriceN: 0, declinedPriceSum: 0, declinedPriceN: 0 };
       byCity[c].given++;
@@ -9808,6 +9843,12 @@ async function handleQuoteInsights(env, corsHeaders) {
 
     return jsonResponse({
       totalQuotes: rows.length,
+      // byType is the whole pad; perMonth/byCity/byPriceBandCity are residential only.
+      byType: Object.values(byType).map(t => ({
+        ...t, resolved: t.accepted + t.declined,
+        avgAcceptedPrice: t.acceptedPriceN ? t.acceptedValue / t.acceptedPriceN : null,
+      })).sort((a, b) => b.given - a.given),
+      residentialQuotes: Object.values(byType).reduce((n, t) => n + (t.customerType === 'residential' ? t.given : 0), 0),
       perMonth: Object.values(perMonth).sort((a, b) => a.month < b.month ? -1 : 1),
       byCity: Object.values(byCity).map(c => ({
         city: c.city, given: c.given, accepted: c.accepted, declined: c.declined,

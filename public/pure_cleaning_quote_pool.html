@@ -27,7 +27,7 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Quote Pool — Pure Cleaning</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/js/quote-logger.js?v=3"></script>
+<script src="/js/quote-logger.js?v=2"></script>
 <style>
   :root{
     --navy:#0f172a; --text:#1e293b; --muted:#64748b; --border:#e2e8f0;
@@ -244,7 +244,7 @@ const API = 'https://purecleaning-api.tylerfumero.workers.dev';
 // v1.1 chip set + v1 legacy keys (house_walls/other) so old rows still render.
 // Entries may be a key string or {custom:"free text"} (the ＋ Other write-in).
 const CHIP_LABELS = { roof:'Roof', walls:'Walls', driveway:'Driveway', patio:'Patio', pool_patio:'Pool Patio', house:'House', sealing:'Sealing', rust:'Rust', gutters:'Gutters', fence:'Fence', house_walls:'House/Walls', other:'Other' };
-// chip key → new_customer service-picker id (same map as quote-logger.js);
+// chip key → new_customer service-picker id (same map as quote-logger.js?v=2);
 // house carries a "house wash" note into the hand-off custom text.
 const CHIP_SVC = { roof:'roof_cleaning', walls:'rinse_walls', driveway:'driveway', patio:'patio', pool_patio:'pool_deck', house:'rinse_walls', sealing:'sealing', rust:'rust_removal', gutters:'gutters', fence:'fence', house_walls:'rinse_walls', other:null };
 const CHIP_NOTE = { house:'house wash' };
@@ -517,6 +517,8 @@ function cardHtml(q, mode){
       </div>
       ${price}
     </div>
+    ${(q.customerType && q.customerType !== 'residential')
+        ? `<div class="c-chips"><span class="c-chip" style="background:#e0e7ff;color:#3730a3;">${q.customerType === 'commercial' ? '🏢 Commercial' : '🤝 Partner'}</span></div>` : ''}
     ${chips?`<div class="c-chips">${chips}</div>`:''}
     ${q.notes?`<div class="c-age">📝 ${esc(q.notes)}</div>`:''}
     <div class="c-age">quoted ${esc(agoTxt(q.createdAt))}${who}${stale?' · <span class="stale-tag">gone quiet</span>':''}${mode==='archive'&&q.resolvedAt?` · resolved ${esc(agoTxt(q.resolvedAt))}`:''}</div>
@@ -577,9 +579,10 @@ function handoffUrl(q){
     if (q.priceQuoted!=null) p.set('qprice', String(q.priceQuoted));
     if (svcIds.length) p.set('qsvc', svcIds.join(','));
     if (customText) p.set('qcustom', customText);
+    if (q.customerType && q.customerType !== 'residential') p.set('ctype', q.customerType);
     return `/pure_cleaning_new_customer.html?${p}`;
   }
-  const blob = { fn:q.firstName||'', ln:q.lastName||'', phone:q.phone, city:q.city||'', svc:svcIds, svcCustom:customText||null, price:q.priceQuoted, quoteId:q.quoteId };
+  const blob = { fn:q.firstName||'', ln:q.lastName||'', phone:q.phone, city:q.city||'', svc:svcIds, svcCustom:customText||null, price:q.priceQuoted, quoteId:q.quoteId, ctype:q.customerType||'residential' };
   return `/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(blob)))))}`;
 }
 
@@ -713,7 +716,26 @@ async function renderInsights(){
         <td${p?'':' class="na"'}>${p||'n/a — nothing resolved'}</td></tr>`;
     }).join('') + `</table></div>`;
 
+  // Type split (2026-08-03). A $250 driveway and a commercial building bid are
+  // not comparable, so everything below "By city" is RESIDENTIAL ONLY and this
+  // table carries the whole pad.
+  const types = (d.byType||[]).filter(t=>t.given>0);
+  if (types.length){
+    const TYPE_LABEL = { residential:'🏠 Residential', partner_referral:'🤝 Partner', commercial:'🏢 Commercial' };
+    html += `<div class="ins-sec">By customer type</div><div class="ins-wrap"><table class="ins">
+      <tr><th>Type</th><th>Given</th><th>Accepted</th><th>Declined</th><th>Open</th><th>Accept %</th><th>Accepted value</th></tr>` +
+      types.map(t=>{
+        const enough = t.resolved >= MIN_SAMPLE;
+        const p = enough ? pct(t.accepted,t.declined) : null;
+        return `<tr><td>${esc(TYPE_LABEL[t.customerType]||t.customerType)}</td>
+          <td>${t.given}</td><td>${t.accepted}</td><td>${t.declined}</td><td>${t.open}</td>
+          <td${p?'':' class="na"'}>${p || `n/a (only ${t.resolved} resolved)`}</td>
+          <td>${t.acceptedValue ? '$'+Math.round(t.acceptedValue).toLocaleString() : '—'}</td></tr>`;
+      }).join('') + `</table></div>`;
+  }
+
   const cities = (d.byCity||[]).filter(c=>c.given>0);
+  html += `<div class="ins-note" style="margin-top:14px;">🏠 The price tables below are <b>residential only</b> — commercial and partner jobs are counted above but kept out of the averages so they can't distort residential pricing.</div>`;
   html += `<div class="ins-sec">By city</div><div class="ins-wrap"><table class="ins">
     <tr><th>City</th><th>Given</th><th>Accept %</th><th>Avg $ accepted</th><th>Avg $ declined</th></tr>` +
     cities.map(c=>{

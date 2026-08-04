@@ -29,6 +29,13 @@
 
   // Top 5 by real quote frequency (per Darla's pads), then the rest of the
   // service area alphabetically. Free-type input always available.
+  const TYPES = [
+    { key: 'residential',      label: '🏠 Residential' },
+    { key: 'partner_referral', label: '🤝 Partner' },
+    { key: 'commercial',       label: '🏢 Commercial' },
+  ];
+  let _type = 'residential';   // reset to this every time the modal opens
+
   const CITIES_TOP  = ['Weston', 'Davie', 'Pembroke Pines', 'Plantation', 'Coral Springs'];
   const CITIES_REST = ['Cooper City', 'Fort Lauderdale', 'Hollywood', 'Miramar', 'Parkland', 'Southwest Ranches', 'Sunrise', 'Tamarac'];
 
@@ -98,6 +105,8 @@
       .ql-chip.on{background:#0ea5e9;border-color:#0ea5e9;color:#fff;}
       .ql-citychips .ql-chip{padding:6px 11px;font-size:12px;}
       .ql-citychips{margin-bottom:6px;}
+      .ql-typechips .ql-chip{padding:6px 12px;font-size:12.5px;}
+      .ql-typechips .ql-chip.on{background:#0f172a;border-color:#0f172a;}
       .ql-match{display:none;background:#fefce8;border:1.5px solid #fde047;border-radius:10px;padding:8px 11px;font:600 12.5px 'DM Sans',sans-serif;color:#713f12;margin-top:6px;line-height:1.45;}
       .ql-price{position:relative;}
       .ql-price span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font:700 15px 'DM Sans',sans-serif;color:#94a3b8;}
@@ -124,6 +133,12 @@
           <button class="ql-x" id="qlClose" aria-label="Close">✕</button>
         </div>
         <div class="ql-field"><input id="qlName" placeholder="Name — First Last" autocomplete="off"></div>
+        <!-- Customer type (2026-08-03). Same three values as Person.customerType —
+             one concept, not a parallel one. Defaults to Residential so Darla's
+             daily path is an unchanged number of taps. -->
+        <div class="ql-field">
+          <div class="ql-chips ql-typechips" id="qlTypeChips"></div>
+        </div>
         <div class="ql-field">
           <input id="qlPhone" type="tel" inputmode="tel" placeholder="Phone (required for Save Quote)" autocomplete="off">
           <div class="ql-match" id="qlMatch"></div>
@@ -147,6 +162,20 @@
         <div class="ql-err" id="qlErr"></div>
       </div>`;
     document.body.appendChild(wrap);
+
+    // customer-type chips — exactly one always selected; residential preselected.
+    const tc = document.getElementById('qlTypeChips');
+    TYPES.forEach(t => {
+      const b = document.createElement('div');
+      b.className = 'ql-chip' + (t.key === _type ? ' on' : '');
+      b.dataset.type = t.key;
+      b.textContent = t.label;
+      b.onclick = () => {
+        _type = t.key;
+        tc.querySelectorAll('.ql-chip').forEach(x => x.classList.toggle('on', x.dataset.type === _type));
+      };
+      tc.appendChild(b);
+    });
 
     // city chips
     const cc = wrap.querySelector('#qlCityChips');
@@ -281,6 +310,7 @@
       services:  [...chipKeys, ..._customs.map(t => ({ custom: t }))],
       priceQuoted: priceRaw === '' ? null : Number(priceRaw),
       personId:  _match ? _match.personId : null,
+      customerType: _type,
     };
   }
 
@@ -299,11 +329,12 @@
       if (q.priceQuoted != null) p.set('qprice', String(q.priceQuoted));
       if (svcIds.length) p.set('qsvc', svcIds.join(','));
       if (customText) p.set('qcustom', customText);
+      if (q.customerType && q.customerType !== 'residential') p.set('ctype', q.customerType);
       return `/pure_cleaning_new_customer.html?${p}`;
     }
     // New caller → the existing ?fromOnline= base64-JSON prefill blob,
     // extended with svc/svcCustom/price/quoteId (see new_customer init).
-    const blob = { fn: q.firstName, ln: q.lastName, phone: q.phone, city: q.city, svc: svcIds, svcCustom: customText || null, price: q.priceQuoted, quoteId };
+    const blob = { fn: q.firstName, ln: q.lastName, phone: q.phone, city: q.city, svc: svcIds, svcCustom: customText || null, price: q.priceQuoted, quoteId, ctype: q.customerType || 'residential' };
     return `/pure_cleaning_new_customer.html?fromOnline=${encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(blob)))))}`;
   }
 
@@ -371,6 +402,11 @@
     _match = null;
     _customs = [];
     _wallsAuto = false;
+    // Type is per-quote, never sticky — the next call is residential until told
+    // otherwise, so a one-off commercial quote can't silently retype the day.
+    _type = 'residential';
+    document.querySelectorAll('#qlTypeChips .ql-chip').forEach(b =>
+      b.classList.toggle('on', b.dataset.type === 'residential'));
     _renderCustoms();
   }
 

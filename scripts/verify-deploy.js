@@ -1338,10 +1338,16 @@ async function checkBusinessNameBookable() {
     const d = r.ok ? await r.json() : null;
     const c = d && (d.customer || d);
     if (!c) { warn('KGN Holdings — record readable', 'lookup returned nothing'); return; }
-    const okType = c.customerType === 'commercial';
+    // Assert the PROPERTY that matters, not one specific value: this account must
+    // stay non-residential (so it can't leak into residential reactivation/review
+    // blasts, DL-06) and must keep a business name (the thing that makes it
+    // bookable at all). Tyler legitimately reclassified this row commercial →
+    // partner_referral on 2026-08-03; pinning 'commercial' made the gate fail on
+    // a correct human edit, which is a check bug, not a data bug.
+    const okType = c.customerType && c.customerType !== 'residential';
     const okBiz  = !!(c.businessName || '').trim();
-    if (okType && okBiz) pass('KGN Holdings — commercial type + business name intact', `${c.businessName} / ${c.customerType}`);
-    else fail('KGN Holdings — commercial type + business name intact', `customerType=${c.customerType} businessName=${c.businessName || '(empty)'}`);
+    if (okType && okBiz) pass('KGN Holdings — non-residential type + business name intact', `${c.businessName} / ${c.customerType}`);
+    else fail('KGN Holdings — non-residential type + business name intact', `customerType=${c.customerType} businessName=${c.businessName || '(empty)'}`);
   } catch (e) { warn('KGN Holdings — record readable', e.message); }
 }
 
