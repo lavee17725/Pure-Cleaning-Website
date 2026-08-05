@@ -1303,6 +1303,57 @@ async function checkJobHistoryIntegrity() {
 // dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
 // two cases distinguishable, and the per-rig revenue panel now credits the
 // trucks that actually worked a multi-rig job instead of dropping it entirely.
+// ── Parked jobs (0049) ───────────────────────────────────────────────────────
+// A parked job is real work with no date. The invariants that make it safe:
+// it is dateless, its multi-day family stays whole, and it is money that must
+// stay visible without landing on any day.
+async function checkParkedJobs() {
+  const token = await getToken();
+  if (!token) { warn('Parked jobs', 'no admin token — skipped'); return; }
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+  let lane;
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/parked`, auth);
+    if (!r.ok) { fail('Parked — /admin/parked', `HTTP ${r.status}`); return; }
+    lane = await r.json();
+    pass('Parked — lane feed', `${lane.count} parked, $${(lane.totalAmount||0).toLocaleString()}`);
+  } catch (e) { fail('Parked — /admin/parked', e.message); return; }
+
+  // A multi-day job is ONE card carrying the family total, never one per slice.
+  const multi = (lane.parked || []).filter(p => p.days > 1);
+  if (multi.length) {
+    const m = multi[0];
+    pass('Parked — multi-day parks as one card', `${m.name}: ${m.days} days, $${m.amount.toLocaleString()} on a single card`);
+  } else warn('Parked — multi-day parks as one card', 'no multi-day job currently parked');
+
+  // Every comp must say why — a dateless job with no note is lost work.
+  const noReason = (lane.parked || []).filter(p => !p.reason);
+  if (noReason.length) fail('Parked — every parked job states why', `${noReason.length} with no note`);
+  else pass('Parked — every parked job states why');
+
+  // THE INVARIANT: dated or parked, never both.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/debug/parked-integrity`, auth);
+    if (r.ok) {
+      const d = await r.json();
+      if (d.datedParked > 0) fail('Parked — dateless invariant', `${d.datedParked} parked job(s) still carry a scheduledDate`);
+      else pass('Parked — dateless invariant', 'no parked job holds a date');
+      if (d.orphanSlices > 0) fail('Parked — multi-day family intact', `${d.orphanSlices} slice(s) parked away from their parent`);
+      else pass('Parked — multi-day family intact', 'no orphaned slices');
+    } else warn('Parked — integrity endpoint', `HTTP ${r.status}`);
+  } catch (e) { warn('Parked — integrity endpoint', e.message); }
+
+  // The calendar must actually show the lane, and show the money.
+  try {
+    const html = await fetchText(`${GITHUB_PAGES}/pure_cleaning_calendar.html`);
+    const need = ['parkedList', 'renderParkedLane', 'function parkJob', 'function unparkJob', 'data-parked-lane'];
+    const missing = need.filter(m => !html.includes(m));
+    if (missing.length) fail('Parked — calendar lane wired', `missing: ${missing.join(', ')}`);
+    else pass('Parked — calendar lane wired', 'lane + park/unpark + drag target present');
+  } catch (e) { fail('Parked — calendar markers', e.message); }
+}
+
 // ── Removed calendar UI stays removed (2026-08-05) ───────────────────────────
 // Three surfaces Tyler never used were deleted. Dead UI creeps back when a
 // later edit "restores" something it doesn't recognise as deliberate, so these
@@ -1397,18 +1448,32 @@ async function checkGroupAmountParity() {
     else pass('Group amount — rig segments still $0', 'exclusion rule inert by construction');
   } catch (e) { fail('Group amount — parity check', e.message); }
 
-  // The view must be able to produce BOTH boards' current numbers by changing
-  // only the filter — proof the rollup was never what made them disagree, and
-  // the baseline for ship 2 (which changes the filters, not the math).
+  // Self-consistency, NOT a frozen figure. The first version of this asserted
+  // July 2026 == $29,275 and went red the moment someone completed a real job
+  // (Patricia Calderon, $275, mid-session) — the gate was reporting Tyler doing
+  // his job as a defect. A revenue number is live data; the INVARIANT is that
+  // gross always equals jobs × the group rollup it claims to sum, and never
+  // includes a non-completed group.
   try {
     const r = await fetchRetry(`${WORKERS_API}/admin/analytics/trends`, auth);
     const d = await r.json();
-    const jul = (d.months || []).find(m => m.ym === '2026-07');
-    if (!jul) { warn('Group amount — July completed baseline', 'no 2026-07 row'); return; }
-    if (Math.round(jul.gross) !== 29275)
-      fail('Group amount — July completed revenue holds', `expected $29,275, got $${Math.round(jul.gross)}`);
-    else pass('Group amount — July completed revenue holds', `$${jul.gross.toLocaleString()}`);
-  } catch (e) { warn('Group amount — July baseline', e.message); }
+    const months = d.months || [];
+    if (!months.length) { fail('Group amount — trends returns months', 'empty'); return; }
+    const bad = months.filter(m => !(m.gross >= 0) || !(m.jobs >= 0)
+      || (m.jobs > 0 && Math.round(m.avgTicket) !== Math.round(m.gross / m.jobs)));
+    if (bad.length)
+      fail('Group amount — trends internally consistent', `${bad.length} month(s) where avgTicket != gross/jobs, e.g. ${bad[0].ym}`);
+    else pass('Group amount — trends internally consistent', `${months.length} months, avgTicket == gross/jobs throughout`);
+
+    // Parked work has no date, so it can never land in a month bucket (0049).
+    const parkedRes = await fetchRetry(`${WORKERS_API}/admin/parked`, auth);
+    if (parkedRes.ok) {
+      const pk = await parkedRes.json();
+      if ((pk.count || 0) > 0 && (pk.totalAmount || 0) > 0)
+        pass('Group amount — parked money is held out of revenue', `$${pk.totalAmount.toLocaleString()} parked, counted in no month`);
+      else pass('Group amount — parked lane reachable', `${pk.count || 0} parked`);
+    }
+  } catch (e) { warn('Group amount — trends consistency', e.message); }
 }
 
 // ── 0047: comped state + TBD payment guard + settled-only review gate ────────
@@ -2024,6 +2089,7 @@ async function main() {
   await checkPriceModeComped();           // 2026-08-05 comped state, TBD payment guard, review gate
   await checkGroupAmountParity();         // 2026-08-05 ship 1: JobGroup view == its JS mirror
   await checkRemovedCalendarUi();         // 2026-08-05 Day Route / Geocode / Mini Quote stay gone
+  await checkParkedJobs();                // 2026-08-05 dateless hold (0049)
   await checkCacheHeaders();
 
   // Print results

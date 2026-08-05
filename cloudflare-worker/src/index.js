@@ -1476,6 +1476,35 @@ export default {
         return await handleGroupParity(env, corsHeaders);
       }
 
+      // ── Parked jobs (0049) — dateless hold for real work with no known date.
+      if (path === 'admin/parked' && request.method === 'GET') {
+        return await handleParkedJobs(env, corsHeaders);
+      }
+      // GET /admin/debug/parked-integrity — the two invariants, checked against
+      // the whole table rather than trusted: parked ⇒ no date, and a parked
+      // slice never sits apart from its parent.
+      if (path === 'admin/debug/parked-integrity' && request.method === 'GET') {
+        try {
+          const a = await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM Job WHERE state='parked' AND scheduledDate IS NOT NULL AND scheduledDate != ''`
+          ).first();
+          const b = await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM Job c JOIN Job p ON p.jobId = c.parentJobId
+              WHERE c.state='parked' AND p.state != 'parked'`
+          ).first();
+          return jsonResponse({ datedParked: Number(a?.n) || 0, orphanSlices: Number(b?.n) || 0 },
+            { ...corsHeaders, 'Cache-Control': 'no-store' });
+        } catch (e) {
+          return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+        }
+      }
+      if (path.startsWith('admin/job/') && path.endsWith('/park') && request.method === 'POST') {
+        return await handleParkJob(request, env, path.slice('admin/job/'.length, -'/park'.length), corsHeaders);
+      }
+      if (path.startsWith('admin/job/') && path.endsWith('/unpark') && request.method === 'POST') {
+        return await handleUnparkJob(request, env, path.slice('admin/job/'.length, -'/unpark'.length), corsHeaders);
+      }
+
       // GET /admin/reminders/alarm-preview?asOf=YYYY-MM-DD — what the daily alarm
       // WOULD send on a given date. Dry-run only; sends nothing, writes nothing.
       // Exists so the alarm can be proven against a future fire date instead of
@@ -4996,7 +5025,7 @@ async function handleReactivationEligibility(env, corsHeaders) {
     excluded_deleted: 0, excluded_optOut: 0, excluded_movedAway: 0,
     excluded_referralPhone: 0, excluded_referralOnly: 0,
     excluded_noPhone: 0, excluded_noService: 0, excluded_tooRecent: 0,
-    excluded_cooldown: 0, excluded_retryCap_to_review: 0,
+    excluded_cooldown: 0, excluded_retryCap_to_review: 0, excluded_parked: 0,
     residential_eligible: 0, commercial_eligible: 0, partner_eligible: 0,
     // Tier breakdown for residential (2026-06-22)
     tier1_ground: 0, tier1_roof: 0, tier2_grounds_upsell: 0,
@@ -5010,6 +5039,12 @@ async function handleReactivationEligibility(env, corsHeaders) {
     const ph10 = _norm10(c.phone);
     if ((c.phone || '').startsWith('REFERRAL_')) { counters.excluded_referralPhone++; continue; }
     if (ph10.length !== 10)                       { counters.excluded_noPhone++;       continue; }
+    // 0049: a parked job is COMMITTED work waiting on the customer (rain,
+    // construction). "It's been a while since your last cleaning" is wrong and
+    // slightly insulting when we're the ones waiting — Casa Grande, parked six
+    // weeks for rain, is the live case. Reactivation keys off last COMPLETED
+    // service, so without this they'd qualify while their job sits in the lane.
+    if (c.hasParkedJob)   { counters.excluded_parked = (counters.excluded_parked || 0) + 1; continue; }
     if (!c.lastService)                           { counters.excluded_noService++;     continue; }
 
     const lastSvcMs = new Date(c.lastService + 'T12:00:00').getTime();
@@ -7228,6 +7263,10 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
     lastService,
     jobHistory,
     scheduledStatus:        _d1BuildScheduledStatus(pjobs),
+    // 0049: does this customer have work sitting in the parked lane? Read by
+    // reactivation so we never text "been a while" at someone whose job we are
+    // holding for them. Cheap boolean — the lane itself reads /admin/parked.
+    hasParkedJob:           pjobs.some(j => j.state === 'parked'),
     geocoded:               (primaryProp.latitude && primaryProp.longitude)
                               ? { lat: primaryProp.latitude, lng: primaryProp.longitude,
                                   formattedAddress: addr, geocodedAt: null,
@@ -7521,6 +7560,7 @@ async function d1AllCustomersToKvShape(env) {
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
       'priceMode,compedReason,compedForPersonId,compedValue,' +
+      'parkedReason,parkedAt,parkedFromDate,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -7691,6 +7731,7 @@ async function d1CustomerToKvShape(phone, env) {
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
       'priceMode,compedReason,compedForPersonId,compedValue,' +
+      'parkedReason,parkedAt,parkedFromDate,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -8500,6 +8541,9 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.compedReason,
         j.compedForPersonId,
         j.compedValue,
+        j.parkedReason,
+        j.parkedAt,
+        j.parkedFromDate,
         j.rigId,
         j.servicesRaw,
         j.jobNotes,
@@ -8632,6 +8676,198 @@ async function handleCalendarJobs(request, env, corsHeaders) {
     return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: dedupedRows }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handleCalendarJobs', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── Parked jobs (0049) ───────────────────────────────────────────────────────
+// Real work with no knowable date. Parked jobs are DATELESS: scheduledDate is
+// NULL, so every date-filtered query — revenue, day-health, per-truck math,
+// the week feed, past-due flags — already excludes them by construction. That
+// is the point: they contribute $0 to days that will never be worked.
+//
+// They must not VANISH though, so the lane header carries count and total
+// dollars (Janice's $2,400 stays visible).
+//
+// MULTI-DAY PARKS AS ONE. Parking a multi-day parent parks its children too,
+// and every structural field survives untouched — parentJobId, dayNumber,
+// totalDays, isMultiDayParent, each child's own amount slice, services, notes,
+// person and property links. Nothing is rewritten except state, scheduledDate
+// and the parked bookkeeping.
+
+// The family of a job: the row itself plus its children (day slices AND rig
+// segments). Parking or restoring must move the whole family together or the
+// slices orphan.
+async function _jobFamily(env, jobId) {
+  const head = await env.DB.prepare(
+    'SELECT jobId, payerId, state, scheduledDate, amount, rigId, parentJobId, dayNumber, totalDays, isMultiDayParent, isRigSegment, servicesRaw, parkedReason, parkedAt, parkedFromDate FROM Job WHERE jobId = ?'
+  ).bind(jobId).first();
+  if (!head) return null;
+  // Always operate on the PARENT. Dragging a day-2 card parks the whole job,
+  // never one orphaned slice.
+  const rootId = head.parentJobId || head.jobId;
+  const root = rootId === head.jobId ? head : await env.DB.prepare(
+    'SELECT jobId, payerId, state, scheduledDate, amount, rigId, parentJobId, dayNumber, totalDays, isMultiDayParent, isRigSegment, servicesRaw, parkedReason, parkedAt, parkedFromDate FROM Job WHERE jobId = ?'
+  ).bind(rootId).first();
+  if (!root) return null;
+  // Cancelled/completed children are NOT part of the live job. Parking must not
+  // resurrect a cancelled day, and un-parking must not schedule one. Found the
+  // hard way: Casa Grande's two cancelled day-slices got parked with the parent
+  // and inflated the lane from $1,250 to $2,083.
+  const kids = (await env.DB.prepare(
+    `SELECT jobId, state, scheduledDate, amount, dayNumber, isRigSegment FROM Job
+      WHERE parentJobId = ? AND state NOT IN ('cancelled','completed')
+      ORDER BY COALESCE(dayNumber, 0) ASC`
+  ).bind(rootId).all())?.results || [];
+  return { root, kids };
+}
+
+// POST /admin/job/:jobId/park  { reason }
+async function handleParkJob(request, env, jobId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => ({}));
+  const reason = String(body.reason || '').trim();
+  if (!reason) return jsonResponse({ error: 'reason required — a dateless job with no note is indistinguishable from lost work' }, corsHeaders, 400);
+
+  const fam = await _jobFamily(env, jobId);
+  if (!fam) return jsonResponse({ error: 'job not found', jobId }, corsHeaders, 404);
+  const { root, kids } = fam;
+  if (root.state === 'completed' || root.state === 'cancelled')
+    return jsonResponse({ error: `cannot park a ${root.state} job` }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  const stmts = [
+    // parkedFromDate remembers the date it held, so un-park can offer it back.
+    env.DB.prepare(
+      `UPDATE Job SET state='parked', parkedReason=?, parkedAt=?, parkedFromDate=COALESCE(parkedFromDate, scheduledDate),
+                     scheduledDate=NULL, modifiedAt=? WHERE jobId=?`
+    ).bind(reason, now, now, root.jobId),
+  ];
+  for (const k of kids) {
+    stmts.push(env.DB.prepare(
+      `UPDATE Job SET state='parked', parkedReason=?, parkedAt=?, parkedFromDate=COALESCE(parkedFromDate, scheduledDate),
+                     scheduledDate=NULL, modifiedAt=? WHERE jobId=?`
+    ).bind(reason, now, now, k.jobId));
+  }
+  try { await env.DB.batch(stmts); }
+  catch (e) {
+    await _logD1Failure(env, 'handleParkJob', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({ success: true, jobId: root.jobId, parked: 1 + kids.length,
+                        wasDated: root.scheduledDate || null, reason }, corsHeaders);
+}
+
+// POST /admin/job/:jobId/unpark  { date, rigId? }
+// Restores the family. The parent takes the chosen date; day-children follow on
+// CONSECUTIVE days in dayNumber order — see the note in the response, which the
+// UI shows, because "consecutive" is an assumption, not a fact about the job.
+async function handleUnparkJob(request, env, jobId, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const body = await request.json().catch(() => ({}));
+  const date = String(body.date || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+    return jsonResponse({ error: 'date required as YYYY-MM-DD' }, corsHeaders, 400);
+
+  const fam = await _jobFamily(env, jobId);
+  if (!fam) return jsonResponse({ error: 'job not found', jobId }, corsHeaders, 404);
+  const { root, kids } = fam;
+  if (root.state !== 'parked') return jsonResponse({ error: 'job is not parked', state: root.state }, corsHeaders, 400);
+
+  const now = new Date().toISOString();
+  const addDays = (iso, n) => {
+    const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const stmts = [env.DB.prepare(
+    `UPDATE Job SET state='scheduled', scheduledDate=?, rigId=COALESCE(?, rigId),
+                   parkedReason=NULL, parkedAt=NULL, parkedFromDate=NULL, modifiedAt=? WHERE jobId=?`
+  ).bind(date, body.rigId || null, now, root.jobId)];
+
+  // Rig segments share the PARENT's date (same day, multiple trucks). Day
+  // children step forward. Conflating those two is the split-type bug we
+  // already fixed once — keep them apart here too.
+  const dayKids = kids.filter(k => !k.isRigSegment);
+  const placements = [{ jobId: root.jobId, date, dayNumber: root.dayNumber ?? 1, amount: root.amount }];
+  dayKids.forEach((k, i) => {
+    const d = addDays(date, i + 1);
+    placements.push({ jobId: k.jobId, date: d, dayNumber: k.dayNumber ?? (i + 2), amount: k.amount });
+    stmts.push(env.DB.prepare(
+      `UPDATE Job SET state='scheduled', scheduledDate=?, rigId=COALESCE(?, rigId),
+                     parkedReason=NULL, parkedAt=NULL, parkedFromDate=NULL, modifiedAt=? WHERE jobId=?`
+    ).bind(d, body.rigId || null, now, k.jobId));
+  });
+  for (const k of kids.filter(k => k.isRigSegment)) {
+    stmts.push(env.DB.prepare(
+      `UPDATE Job SET state='scheduled', scheduledDate=?, parkedReason=NULL, parkedAt=NULL, parkedFromDate=NULL, modifiedAt=? WHERE jobId=?`
+    ).bind(date, now, k.jobId));
+  }
+
+  try { await env.DB.batch(stmts); }
+  catch (e) {
+    await _logD1Failure(env, 'handleUnparkJob', e.message);
+    return jsonResponse({ error: 'D1 update failed', detail: e.message }, corsHeaders, 500);
+  }
+  return jsonResponse({
+    success: true, jobId: root.jobId, restored: stmts.length, placements,
+    note: dayKids.length
+      ? `Day 1 placed on ${date}; the remaining ${dayKids.length} day(s) were placed on consecutive days. Drag any day to move it — the slices stay with their own day.`
+      : null,
+  }, corsHeaders);
+}
+
+// GET /admin/parked — the lane feed. One card per JOB FAMILY (a 3-day job is
+// one card carrying the family total), never one per slice.
+async function handleParkedJobs(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const rows = (await env.DB.prepare(
+      `SELECT j.jobId, j.payerId, j.amount, j.servicesRaw, j.jobNotes, j.rigId,
+              j.parentJobId, j.dayNumber, j.totalDays, j.isMultiDayParent, j.isRigSegment,
+              j.parkedReason, j.parkedAt, j.parkedFromDate, j.priceMode,
+              p.firstName, p.lastName, p.businessName, p.primaryPhone,
+              prop.streetAddress, prop.city
+         FROM Job j
+         JOIN Person p ON p.personId = j.payerId
+         LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+        WHERE j.state = 'parked'
+        ORDER BY j.parkedAt DESC, COALESCE(j.dayNumber, 0) ASC`
+    ).all())?.results || [];
+
+    const byRoot = new Map();
+    for (const r of rows) {
+      const rootId = r.parentJobId || r.jobId;
+      if (!byRoot.has(rootId)) {
+        byRoot.set(rootId, {
+          jobId: rootId, payerId: r.payerId,
+          name: (r.businessName || [r.firstName, r.lastName].filter(Boolean).join(' ') || '').trim(),
+          phone: (r.primaryPhone || '').replace(/\D/g, '').replace(/^1/, '').slice(-10),
+          address: [r.streetAddress, r.city].filter(Boolean).join(', '),
+          services: r.servicesRaw || r.jobNotes || '',
+          amount: 0, days: 0, rigId: r.rigId || null,
+          reason: r.parkedReason || '', parkedAt: r.parkedAt || null,
+          parkedFromDate: r.parkedFromDate || null,
+          totalDays: r.totalDays ?? null,
+        });
+      }
+      const card = byRoot.get(rootId);
+      // Rig segments are $0 attribution markers — never money (DL-06).
+      if (!r.isRigSegment) { card.amount += Number(r.amount) || 0; card.days += 1; }
+      if (r.jobId === rootId) {
+        card.services = r.servicesRaw || r.jobNotes || card.services;
+        card.reason = r.parkedReason || card.reason;
+        card.parkedFromDate = r.parkedFromDate || card.parkedFromDate;
+      }
+    }
+    const parked = [...byRoot.values()];
+    return jsonResponse({
+      parked,
+      count: parked.length,
+      totalAmount: parked.reduce((s, c) => s + c.amount, 0),
+      generatedAt: new Date().toISOString(),
+    }, { ...corsHeaders, 'Cache-Control': 'no-store' });
+  } catch (e) {
+    await _logD1Failure(env, 'handleParkedJobs', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }
@@ -12169,6 +12405,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
   'amount', 'priceTbd',   // priceTbd is a DERIVED MIRROR of priceMode since 0047 — never set it alone
   'priceMode', 'compedReason', 'compedForPersonId', 'compedValue',
+  'parkedReason', 'parkedAt', 'parkedFromDate',   // 0049
   'jobNotes', 'servicesRaw', 'servicesRequested', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
@@ -12200,6 +12437,10 @@ const _JOB_VALID_STATES = new Set([
   // scheduledDate is null when state='needs_scheduling'; the queue UI promotes
   // it to 'scheduled' once the date+rig are picked.
   'needs_scheduling',
+  // 0049: real work with no knowable date (construction, weeks of rain).
+  // scheduledDate is NULL. DISTINCT from needs_scheduling, which means "pick a
+  // date soon" — parked means "there is no date to pick yet, stop asking".
+  'parked',
 ]);
 
 async function handlePatchJob(request, env, jobId, corsHeaders) {
