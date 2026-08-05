@@ -66,6 +66,29 @@ When in doubt, follow this file. The other two are reference.
 
 **24.** (T1.24) **Plausibility is not correctness — a check that doesn't reproduce the symptom is not verification.** Before declaring a fix done, confirm the check *fails on the broken code and passes on the fixed code*, so it exercises the real failure — not a synthetic stand-in. A green result on a case the bug never hits is not proof. Never assert a fix works — or any fact — from a plausible-looking diff or an inferred guess; verify against the live source (run it, read it, query D1). This applies to subagents too: their confident conclusions are unverified until checked against real data. When an automated gate genuinely cannot reproduce the symptom (a headless render ≠ the real Chrome print dialog), say so plainly and treat Tyler's real-world test as the gate. *Earned 2026-06-29: the rig fix passed a synthetic browser test (a completed job injected into `calendarJobs`, where one never exists live), the print fix passed a headless page-count check while the real dialog still printed 2 pages — both shipped green-but-broken — and a diagnostic subagent asserted "no satellite data" while D1 held 1,406 images.*
 
+**25.** (T1.25) **Pages render; the worker decides.** When a page needs a JUDGMENT — is this ready, is this unpaid, what is this worth, does this qualify — it asks the worker. A page may format, sort, and **narrow** the worker's answer (a local skip or a device-side suppression may remove someone the worker approved); it may never **widen** one, and it may never compute its own version. If the worker has no endpoint for the judgment, add one — do not grow a second opinion on the page. When the worker is unreachable, show nothing and say so; a wrong answer is worse than no answer. *Earned 2026-08-05, three times in one week: (1) the UNPAID badge — the primary job card never called `_jobIsUnpaid` and badged on a customer-level field instead, so paid jobs read as owed and it shipped green twice; (2) the calendar's review banner — five conditions against the worker's ten, so a partner (Richard Painting) sat in Tyler's "ready for a review" list that the Review Hub correctly excluded, and today's paid-gate never reached it; (3) a third review rule on the same page using a 4–14 day window under a label that said 1–2 days. The gate could not catch any of them: checks that assert on the worker's answer, or on the existence of a function, cannot see a caller that never calls it.*
+
+**26.** **A check that can go green while the screen is wrong is not a check.** Assert on rendered output against the data, and compute the expected answer with an expression the check owns — never by calling the function under test, which inherits its bugs and agrees with it no matter what it does. Prove the check fails on the broken code before shipping it (T1.24). If a check navigates, it must verify it arrived; a check that silently audits the wrong week is worse than no check. *Earned 2026-08-05: `window.dayOffset = n` does nothing — `dayOffset` is a top-level `let`, a script-scope binding, not a window property — so `per-job-address` spent months auditing the current week while reporting on May 5, and warned instead of failing so nobody noticed.*
+
+---
+
+## Known Drift Register
+
+> Places where one question is answered by more than one code path. Logged
+> 2026-08-05, **not yet fixed** — recorded so the next edit knows the copy it is
+> looking at is not the only one. Fixing any entry means collapsing it to one
+> implementation under Rule 25, not syncing the copies.
+
+| # | The duplicated question | Where | Risk if they drift |
+|---|---|---|---|
+| D-1 | **Group amount** (parent + children rollup) — 5 implementations | worker `_d1BuildScheduledStatus` (JS reduce), `handleAnalyticsTrends` (SQL), `handleMonthlyBreakdown` (SQL), the per-rig revenue query (own `NOT EXISTS`), calendar `calculateRigTotal` | **Highest. Already drew blood twice in one week**: the $400 per-rig double-count, and the comped ledger reporting $4,267 of Premier's $11,200. Revenue reads wrong with no error. Consolidation plan pending Tyler's approval. |
+| D-2 | **`_d1PropId`** — property primary-key generation | worker `index.js:12267`, copy-pasted into `pure_cleaning_commercial_quick_add.html:256` | Silent orphan properties. Two records for one address, history splits, and nothing throws. This one generates **primary keys** — divergence is unrecoverable without a merge. |
+| D-3 | **`scheduleJobWithDualWrite`** — the booking write path | `calendar.html:1962` ↔ `new_customer.html:1516`, self-admitted duplicate with a hand-maintained field list (FWQ 1.10, open since May) | A field added to one path is dropped on the other — exactly the T1.21 failure mode. Already required 4 manual syncs (sqFt, roofType, endCustomerName, endCustomerPhone). |
+| D-4 | **Address normalization** — 4 implementations with different dictionaries | `js/customer-search.js normAddr` (search), `new_customer._ncAgNormStreet` (address gate), worker `_d1PropId` (keys), commercial_quick_add's copy | Two addresses are "the same place" on one screen and different on another — the Todd Griffin / Tommy class of bug. |
+| D-5 | **Elapsed since last service** — 3 implementations | directory `fmtElapsed` (y/mo/d), bulk reactivation `monthsSince`, worker `lastServiceDateFor` | The number Tyler reads and the number the customer is texted disagree. WO1 unified display+SMS *inside* reactivation only. |
+
+Not logged, deliberately: ~200 inline copies of `phone.replace(/\D/g,'').slice(-10)`. Identical one-liners that agree by construction — noise, not risk (Tyler's call, 2026-08-05).
+
 ---
 
 ## Data Integrity Laws

@@ -1266,13 +1266,26 @@ async function main() {
 
       // Navigate to May 5, 2026 (use dayOffset to reach it — relative to today)
       const result = await page.evaluate(async () => {
-        // Jump to 2026-05-05 by setting dayOffset
-        const today = new Date('2026-05-13');
-        const target = new Date('2026-05-05');
-        const diff = Math.round((target - today) / 86400000); // -8 days
-        window.dayOffset = diff;
-        render();
-        await new Promise(r => setTimeout(r, 1500));
+        // Navigate with the page's OWN controls. This used to set
+        // `window.dayOffset` — but dayOffset is a top-level `let`, a
+        // script-scope binding, NOT a window property. The assignment created
+        // an unrelated window property the calendar never reads, the view never
+        // moved, and this check spent months auditing the current week while
+        // reporting on May 5. It warns rather than fails, which is why nobody
+        // noticed. It also pinned "today" to 2026-05-13, so the offset rotted
+        // further every day since.
+        const target = '2026-05-05';
+        await goToday();
+        await new Promise(r => setTimeout(r, 600));
+        const onTarget = () => getWeekDates().includes(target);
+        // Walk back a week at a time until the target date is in view. 80 weeks
+        // covers ~18 months of drift between "today" and a fixed test date.
+        for (let i = 0; i < 80 && !onTarget(); i++) {
+          await changeWeek(-1);
+          await new Promise(r => setTimeout(r, 200));
+        }
+        if (!onTarget()) return { navFailed: true, cardCount: 0, addresses: [] };
+        await new Promise(r => setTimeout(r, 800));
 
         // Find cards for Christina Seeber (9542493300)
         const cards = [...document.querySelectorAll('.job-scheduled, .job-card-extra')].filter(el =>
@@ -1284,9 +1297,15 @@ async function main() {
           return addrEl ? addrEl.textContent.replace('📍','').trim() : null;
         }).filter(Boolean);
 
-        return { cardCount: cards.length, addresses };
+        return { cardCount: cards.length, addresses, week: getWeekDates() };
       });
 
+      // A check that can't reach the week it claims to audit must go RED, not
+      // quietly report on whatever happened to be on screen.
+      if (result.navFailed) {
+        fail('Per-job address — reached the week of May 5 2026', 'week navigation never landed on the target date');
+        return;
+      }
       if (result.cardCount < 2) {
         warn('Per-job address — Christina Seeber shows 2 cards for May 5', `Only ${result.cardCount} card(s) visible — may need May 5 in view`);
       } else {

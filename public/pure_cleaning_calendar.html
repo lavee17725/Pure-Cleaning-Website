@@ -877,7 +877,7 @@ body{background:#f0f2f5;}
 <!-- REVIEW ALERT BAR -->
 <div class="review-alert-bar hidden" id="reviewAlertBar">
   <span>⭐</span>
-  <span><span class="review-alert-count" id="reviewAlertCount">0</span> customer(s) in optimal review request window (1–2 days after job)</span>
+  <span><span class="review-alert-count" id="reviewAlertCount">0</span> customer(s) ready for a review request</span>
   <span class="review-alert-cta" onclick="openReviewAlertPanel()">See list →</span>
 </div>
 
@@ -2568,6 +2568,7 @@ function render() {
   try { renderSidebar(); } catch(e) { _calPanelErr('sidebarContent', 'renderSidebar', e); }
   try { renderCrewPanel(dates); } catch(e) { _calPanelErr('crewPanel', 'renderCrewPanel', e); }
   updateReviewAlertBanner();
+  if (_reviewReadyPhones === null && !_reviewReadyPending) { _reviewReadyPending = true; loadReviewReady(); }
   if (currentView === 'week') {
     const fmt1 = d => new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
     document.getElementById('weekLabel').textContent = `${fmt1(dates[0])} – ${fmt1(dates[6])}`;
@@ -6930,17 +6931,52 @@ async function saveTip() {
 }
 
 // ── REVIEW ALERT BANNER & PANEL ───────────────────────────────────────────────
+// PAGES RENDER; THE WORKER DECIDES (Tyler, 2026-08-05).
+// This used to be the calendar's own opinion of who was review-ready — five
+// conditions against the worker's ten. It didn't know about partners,
+// commercial accounts, opt-outs, neverAskReview, the queue floor, or (as of
+// today) whether the customer has actually paid. Richard Painting, a partner,
+// was sitting in this banner while the Review Hub correctly excluded him.
+//
+// The worker's reviewIsReadyToRequest is the only answer now. This holds the
+// phones it returned; the page just renders them.
+let _reviewReadyPending = false;  // one in-flight load, not one per render
+let _reviewReadyPhones  = null;   // Set<phone> | null = not loaded yet
+let _reviewReadyCapped  = false;  // hub returned a truncated list (>100 ready)
+
+async function loadReviewReady() {
+  try {
+    const r = await fetch(`${PCPC_API}/admin/reviews-hub`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (!Array.isArray(d.readyToRequest)) throw new Error('unexpected shape');
+    _reviewReadyPhones = new Set(d.readyToRequest
+      .map(c => (c.phone || '').replace(/\D/g,'').slice(-10)).filter(Boolean));
+    // The hub caps its list at 100; readyTotal is the true count.
+    _reviewReadyCapped = (d.readyTotal ?? 0) > d.readyToRequest.length;
+  } catch (e) {
+    // Fail SILENT, never fall back to a local guess. A wrong count is worse
+    // than no count — it's what put a partner in front of Tyler.
+    console.warn('[reviewReady] worker unavailable:', e.message);
+    _reviewReadyPhones = null; _reviewReadyCapped = false;
+  }
+  _reviewReadyPending = false;   // let a later render retry after a failure
+  updateReviewAlertBanner();
+  renderDayHealth?.();
+}
+
 function getOptimalReviewCandidates() {
+  if (!_reviewReadyPhones) return [];
   return (dbRecord?.customers||[]).filter(c => {
     if (c.isTest) return false;
-    const ss = c.scheduledStatus || {};
-    if (ss.state !== 'completed') return false;
-    if (!ss.completedDate) return false;
-    if (getReviewTiming(ss.completedDate).state !== 'optimal') return false;
     const phone = (c.phone||'').replace(/\D/g,'').slice(-10);
+    if (!_reviewReadyPhones.has(phone)) return false;
+    // The page may only NARROW the worker's answer, never widen it. Skip and
+    // complaint are local, same-device suppressions Tyler applies from this
+    // panel; the worker doesn't know about them. Removing someone the worker
+    // approved is safe. Adding someone it excluded is the bug we just removed.
     if (isComplaintLogged(phone)) return false;
     if (isReviewSkipped(phone)) return false;
-    if (getReviewRequestedDate(phone)) return false;
     return true;
   });
 }
@@ -6949,8 +6985,11 @@ function updateReviewAlertBanner() {
   const bar = document.getElementById('reviewAlertBar');
   const cnt = document.getElementById('reviewAlertCount');
   if (!bar || !cnt) return;
+  // readyTotal, not the rendered subset: the hub returns at most 100 records,
+  // and a customer can be review-ready without being in the loaded calendar
+  // window. The list below the banner still shows who we can name.
   const n = getOptimalReviewCandidates().length;
-  cnt.textContent = n;
+  cnt.textContent = n + (_reviewReadyCapped ? '+' : '');
   bar.classList.toggle('hidden', n === 0);
 }
 
@@ -7006,7 +7045,7 @@ function sendReviewRequestFromPanel(phone, firstName, rowEl) {
     body: JSON.stringify({ templateUsedId: null })
   }).catch(() => {});
   rowEl?.remove();
-  updateReviewAlertBanner();
+  loadReviewReady();   // the worker's answer changed — re-ask it, don't guess
   showToast(`✓ Review requested · iMessage opened`);
 }
 
@@ -10224,12 +10263,9 @@ function renderPriorityStrip(date) {
   });
   if (notTexted.length) issues.push({ color:'#ef4444', bg:'rgba(239,68,68,.15)', icon:'🔴', text:`${notTexted.length} not texted yet` });
 
-  const reviewReady = (dbRecord.customers||[]).filter(c => {
-    const rq = c.reviewQueue;
-    if (!rq || rq.status !== 'pending') return false;
-    const ageDays = rq.jobDate ? (Date.now()-new Date(rq.jobDate+'T12:00:00').getTime())/86400000 : 0;
-    return ageDays >= 4 && ageDays <= 14;
-  });
+  // Was a third rule (reviewQueue.status + a 4–14 day window) that agreed with
+  // neither the banner above it nor the worker. Same single answer now.
+  const reviewReady = getOptimalReviewCandidates();
   if (reviewReady.length) issues.push({ color:'#a855f7', bg:'rgba(168,85,247,.15)', icon:'🟣', text:`${reviewReady.length} reviews ready to send` });
 
   if (date === today) {
