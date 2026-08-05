@@ -3738,7 +3738,7 @@ function jobCardScheduled(c) {
   const jobDate  = ss.scheduledDate || '';
   const jobRig   = ss.rig || '';
   const hasCmpt  = !c.isTest && isComplaintLogged(phone);
-  const etaSlot  = getCardEtaSlot(phone, ss);
+  const etaSlot  = getCardEtaSlot(phone, ss, jobDate, jobRig);
   const etaSent  = phone ? isArrivalSent(jobDate, jobRig, phone) : false;
   const etaSvc   = friendlyServiceDesc(c);
   const etaBtnHtml = (state === 'scheduled' || state === 'in_progress') && !c.isTest && phone
@@ -8052,18 +8052,34 @@ function categorizeService(text) {
   return 'unknown';
 }
 
-function getCardEtaSlot(phone, ss) {
-  const et = _estTimeMap.get(phone);
-  if (et) {
-    const h = Math.floor(et.startMin / 60);
-    if (h < 12) return 'morning';
-    if (h < 15) return 'early_afternoon';
-    return 'late_afternoon';
-  }
-  const w = ss.window || 'morning';
-  if (w === 'morning')         return 'morning';
-  if (w === 'early_afternoon') return 'early_afternoon';
-  return 'late_afternoon';
+// The per-card "Text ETA" button and the per-rig button list must agree — they
+// send the same message to the same customer. Both now derive the slot from the
+// job's POSITION on its truck's day (2026-08-04). Previously this path fell back
+// to ss.window, which is unset on every job, so every card ETA said "morning".
+//
+// Precedence: an explicit start time, then position on the truck's day. The
+// drive-time estimate (_estTimeMap) is deliberately NOT used here — it's a
+// routing projection, not a promise, and it disagreed with the per-rig buttons.
+function getCardEtaSlot(phone, ss, jobDate, jobRig) {
+  const explicit = arrivalSlotFromExplicitTime(ss);
+  if (explicit) return explicit;
+  const idx = arrivalPositionOf(jobDate, jobRig, phone);
+  return arrivalSlotForIndex(idx);
+}
+
+// Position of a job within its truck's day, using the calendar's own ordering
+// (manual drag order if set, else nearest-first-from-home then window-sorted) and
+// the same "active jobs only" filter the per-rig button list applies — otherwise
+// the two paths could number the same job differently.
+function arrivalPositionOf(date, rig, phone) {
+  if (!date || !rig) return 0;
+  const p10 = String(phone || '').replace(/\D/g, '').slice(-10);
+  try {
+    const active = getScheduledForRigOrdered(date, rig)
+      .filter(c => !c.isTest && (c.scheduledStatus?.state || 'scheduled') !== 'completed');
+    const i = active.findIndex(c => String(c.phone || '').replace(/\D/g, '').slice(-10) === p10);
+    return i < 0 ? 0 : i;
+  } catch (_) { return 0; }
 }
 
 // Derive customer-friendly service description for ETA text.
@@ -8078,16 +8094,56 @@ function friendlyServiceDesc(c) {
   return 'your home';
 }
 
+// ── Customer arrival text (2026-08-04, approved wording) ─────────────────────
+// A truck runs 1-3 jobs a day in order, so the job's POSITION in that truck's
+// day already tells the customer when to expect us. Derived at render time from
+// the calendar's current order — never stored, so dragging a job to a new
+// position changes its text with no action from Tyler.
+//
+// Position keys replace the old morning/early_afternoon/late_afternoon names,
+// which described a window nobody set (0 of 26 scheduled jobs had one) and made
+// every text read generic. The legacy keys are kept as aliases so a stale
+// reference still renders instead of falling through to a raw key string.
+//
+// NOT the driver text — that's the internal per-rig job list (textDriver) and is
+// deliberately untouched.
 const ARRIVAL_SLOTS = {
-  'morning':        { label: '10 AM',          msg: (n) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning your home tomorrow in the morning. Thank you.` },
-  'early_afternoon':{ label: 'early afternoon', msg: (n) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning your home tomorrow in the afternoon. Thank you.` },
-  'late_afternoon': { label: 'late afternoon',  msg: (n) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning your home tomorrow in the late afternoon. Thank you.` },
+  // svc comes from friendlyServiceDesc() — "your roof" / "your home" /
+  // "your roof and home". It was already computed and passed in, but the old
+  // templates ignored it and always said "your home" (approved 2026-08-04).
+  'pos1': { label: '10 AM',     msg: (n, svc) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning ${svc || 'your home'} tomorrow around 10 AM. Thank you.` },
+  'pos2': { label: 'noon',      msg: (n, svc) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning ${svc || 'your home'} tomorrow around noon. Thank you.` },
+  'pos3': { label: 'afternoon', msg: (n, svc) => `Hi ${n}, I wanted to confirm that we will be pressure cleaning ${svc || 'your home'} tomorrow in the afternoon. Thank you.` },
 };
+// Legacy aliases — old localStorage/event rows and any missed call site.
+ARRIVAL_SLOTS['morning']         = ARRIVAL_SLOTS['pos1'];
+ARRIVAL_SLOTS['early_afternoon'] = ARRIVAL_SLOTS['pos2'];
+ARRIVAL_SLOTS['late_afternoon']  = ARRIVAL_SLOTS['pos3'];
+
+// Position (0-based) → slot. 1st = 10 AM, 2nd = noon, 3rd and beyond = afternoon.
+// Note this changes two-job days: the second customer now hears "noon" rather
+// than the old "late afternoon" (approved 2026-08-04).
+function arrivalSlotForIndex(i) {
+  return i <= 0 ? 'pos1' : i === 1 ? 'pos2' : 'pos3';
+}
 
 function getArrivalSlots(count) {
-  if (count === 1) return ['morning'];
-  if (count === 2) return ['morning', 'late_afternoon'];
-  return ['morning', 'early_afternoon', 'late_afternoon'].slice(0, Math.min(count, 3));
+  const n = Math.max(0, count | 0);
+  return Array.from({ length: n }, (_, i) => arrivalSlotForIndex(i));
+}
+
+// An explicitly set start time always wins over position — the operator knows
+// something the ordering doesn't. No job carries one today (Job.estimatedStartTime
+// and scheduledStatus.startTime are unset on all 26 scheduled jobs), so this is
+// dormant until that changes, but it means position never overrides a real time.
+function arrivalSlotFromExplicitTime(ss) {
+  const t = (ss && (ss.startTime || ss.estimatedStartTime)) || '';
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(t));
+  if (!m) return null;
+  const h = parseInt(m[1], 10) + (parseInt(m[2], 10) >= 30 ? 0.5 : 0);
+  if (h < 11)   return 'pos1';
+  if (h < 13.5) return 'pos2';
+  return 'pos3';
 }
 
 function isArrivalSent(date, rig, phone) {
@@ -8108,7 +8164,7 @@ function renderArrivalButtons(date, rig, jobs) {
   if (!active.length) return '';
   const slots = getArrivalSlots(active.length);
   const btns = active.map((c, i) => {
-    const slot = slots[i] || slots[slots.length - 1];
+    const slot = arrivalSlotFromExplicitTime(c.scheduledStatus) || slots[i] || slots[slots.length - 1];
     const phone = (c.phone || '').replace(/\D/g,'').slice(-10);
     const firstName = ((c.firstName || c.fn || '') + ' ' + (c.lastName || c.ln || '')).trim().split(' ')[0] || 'there';
     const sent = phone ? isArrivalSent(date, rig, phone) : false;

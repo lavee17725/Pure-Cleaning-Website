@@ -1306,6 +1306,64 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 20: arrival text derives from position on the truck's day ──────────
+// Arrival texts used to say "morning"/"afternoon" off a window field that was
+// set on 0 of 26 scheduled jobs, so every text read generic and Tyler
+// hand-edited each one. The slot is now derived from the job's POSITION on its
+// truck's day. Runs the SHIPPED templates.
+async function checkArrivalText() {
+  let html;
+  try { html = await fetchText(`${GITHUB_PAGES}/pure_cleaning_calendar.html`); }
+  catch (e) { fail('Arrival text — page reachable', e.message); return; }
+
+  let M;
+  try {
+    const a = html.indexOf('const ARRIVAL_SLOTS = {');
+    const b = html.indexOf('function isArrivalSent');
+    M = new Function(html.slice(a, b) + '; return {ARRIVAL_SLOTS,getArrivalSlots,arrivalSlotForIndex,arrivalSlotFromExplicitTime};')();
+  } catch (e) { fail('Arrival text — templates load', e.message); return; }
+
+  const bad = [];
+  // Position mapping, including 3+ collapsing to the afternoon slot.
+  const map = n => M.getArrivalSlots(n).map(k => M.ARRIVAL_SLOTS[k].label).join(' | ');
+  if (map(1) !== '10 AM')                      bad.push(`1 job → ${map(1)}`);
+  if (map(2) !== '10 AM | noon')               bad.push(`2 jobs → ${map(2)}`);
+  if (map(3) !== '10 AM | noon | afternoon')   bad.push(`3 jobs → ${map(3)}`);
+  if (map(4) !== '10 AM | noon | afternoon | afternoon') bad.push(`4 jobs → ${map(4)}`);
+
+  // Exact approved wording, and the service description must be used.
+  const m = (k, svc) => M.ARRIVAL_SLOTS[k].msg('Tommy', svc);
+  const expect = {
+    pos1: 'Hi Tommy, I wanted to confirm that we will be pressure cleaning your roof tomorrow around 10 AM. Thank you.',
+    pos2: 'Hi Tommy, I wanted to confirm that we will be pressure cleaning your roof tomorrow around noon. Thank you.',
+    pos3: 'Hi Tommy, I wanted to confirm that we will be pressure cleaning your roof tomorrow in the afternoon. Thank you.',
+  };
+  for (const k of Object.keys(expect)) {
+    if (m(k, 'your roof') !== expect[k]) bad.push(`${k} wording drifted: ${m(k, 'your roof')}`);
+  }
+  if (!/your home/.test(m('pos1', ''))) bad.push('missing service fallback to "your home"');
+
+  // An explicit start time must beat position.
+  if (M.arrivalSlotFromExplicitTime({ startTime: '08:30' }) !== 'pos1') bad.push('08:30 should be pos1');
+  if (M.arrivalSlotFromExplicitTime({ startTime: '15:00' }) !== 'pos3') bad.push('15:00 should be pos3');
+  if (M.arrivalSlotFromExplicitTime({}) !== null)                        bad.push('no time should yield null');
+
+  if (bad.length) fail('Arrival text — position mapping + wording', bad.join(' | '));
+  else pass('Arrival text — position mapping + wording', '1st=10 AM, 2nd=noon, 3rd+=afternoon; service description used');
+
+  // Both entry points must share one source — they text the same customer.
+  if (html.includes('arrivalPositionOf') && /getCardEtaSlot\(phone, ss, jobDate, jobRig\)/.test(html))
+    pass('Arrival text — one source for both paths', 'card ETA button uses the same position derivation');
+  else fail('Arrival text — one source for both paths', 'card ETA path is not position-derived');
+
+  // Driver text is a separate system and must stay untouched.
+  const di = html.indexOf('function textDriver');
+  const dsrc = di >= 0 ? html.slice(di, di + 2500) : '';
+  if (dsrc && !/ARRIVAL_SLOTS|getArrivalSlots|pos1/.test(dsrc))
+    pass('Driver text unchanged', 'internal rig text does not use the customer arrival slots');
+  else fail('Driver text unchanged', 'driver text now references the customer arrival slots');
+}
+
 // ── CHECK 19: quote-time data correction (2026-08-04) ────────────────────────
 // ~1,800 jobs came from CSVs at ~90-95% accuracy, so the quote call is where
 // wrong addresses surface. The Address Gate used to classify "same house number
@@ -1714,6 +1772,7 @@ async function main() {
   await checkQuoteDirectoryRoundTrip();   // 2026-08-04 quote <-> directory draft round-trip
   await checkCustomerSearch();            // 2026-08-04 punctuated phones + fragment recall
   await checkQuoteTimeCorrection();       // 2026-08-04 address gate + correction propagation
+  await checkArrivalText();               // 2026-08-04 position-derived arrival time
   await checkCacheHeaders();
 
   // Print results
