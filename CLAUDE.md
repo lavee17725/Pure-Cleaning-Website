@@ -77,17 +77,25 @@ When in doubt, follow this file. The other two are reference.
 ## Known Drift Register
 
 > Places where one question is answered by more than one code path. Logged
-> 2026-08-05, **not yet fixed** — recorded so the next edit knows the copy it is
-> looking at is not the only one. Fixing any entry means collapsing it to one
-> implementation under Rule 25, not syncing the copies.
+> 2026-08-05. Everything still listed is **open** — recorded so the next edit
+> knows the copy it is looking at is not the only one. Fixing an entry means
+> collapsing it to ONE implementation under Rule 25, not syncing the copies,
+> and then striking it from this table.
+>
+> **Resolved 2026-08-05 — Group amount** (was D-1, 5 implementations): now the
+> `JobGroup` view (migration 0048) plus one JS mirror (`_groupAmountOf`) for the
+> single caller that works over in-memory rows. They are not trusted to agree —
+> `GET /admin/debug/group-parity` compares them across every group and the gate
+> fails on any mismatch. Filters stayed at the call sites, since "what is it
+> worth" and "does it count" are different questions; conflating them is what
+> made monthly-breakdown report booked work as earned revenue.
 
 | # | The duplicated question | Where | Risk if they drift |
 |---|---|---|---|
-| D-1 | **Group amount** (parent + children rollup) — 5 implementations | worker `_d1BuildScheduledStatus` (JS reduce), `handleAnalyticsTrends` (SQL), `handleMonthlyBreakdown` (SQL), the per-rig revenue query (own `NOT EXISTS`), calendar `calculateRigTotal` | **Highest. Already drew blood twice in one week**: the $400 per-rig double-count, and the comped ledger reporting $4,267 of Premier's $11,200. Revenue reads wrong with no error. Consolidation plan pending Tyler's approval. |
-| D-2 | **`_d1PropId`** — property primary-key generation | worker `index.js:12267`, copy-pasted into `pure_cleaning_commercial_quick_add.html:256` | Silent orphan properties. Two records for one address, history splits, and nothing throws. This one generates **primary keys** — divergence is unrecoverable without a merge. |
-| D-3 | **`scheduleJobWithDualWrite`** — the booking write path | `calendar.html:1962` ↔ `new_customer.html:1516`, self-admitted duplicate with a hand-maintained field list (FWQ 1.10, open since May) | A field added to one path is dropped on the other — exactly the T1.21 failure mode. Already required 4 manual syncs (sqFt, roofType, endCustomerName, endCustomerPhone). |
-| D-4 | **Address normalization** — 4 implementations with different dictionaries | `js/customer-search.js normAddr` (search), `new_customer._ncAgNormStreet` (address gate), worker `_d1PropId` (keys), commercial_quick_add's copy | Two addresses are "the same place" on one screen and different on another — the Todd Griffin / Tommy class of bug. |
-| D-5 | **Elapsed since last service** — 3 implementations | directory `fmtElapsed` (y/mo/d), bulk reactivation `monthsSince`, worker `lastServiceDateFor` | The number Tyler reads and the number the customer is texted disagree. WO1 unified display+SMS *inside* reactivation only. |
+| D-1 | **`_d1PropId`** — property primary-key generation | worker `index.js:12267`, copy-pasted into `pure_cleaning_commercial_quick_add.html:256` | Silent orphan properties. Two records for one address, history splits, and nothing throws. This one generates **primary keys** — divergence is unrecoverable without a merge. |
+| D-2 | **`scheduleJobWithDualWrite`** — the booking write path | `calendar.html:1962` ↔ `new_customer.html:1516`, self-admitted duplicate with a hand-maintained field list (FWQ 1.10, open since May) | A field added to one path is dropped on the other — exactly the T1.21 failure mode. Already required 4 manual syncs (sqFt, roofType, endCustomerName, endCustomerPhone). |
+| D-3 | **Address normalization** — 4 implementations with different dictionaries | `js/customer-search.js normAddr` (search), `new_customer._ncAgNormStreet` (address gate), worker `_d1PropId` (keys), commercial_quick_add's copy | Two addresses are "the same place" on one screen and different on another — the Todd Griffin / Tommy class of bug. |
+| D-4 | **Elapsed since last service** — 3 implementations | directory `fmtElapsed` (y/mo/d), bulk reactivation `monthsSince`, worker `lastServiceDateFor` | The number Tyler reads and the number the customer is texted disagree. WO1 unified display+SMS *inside* reactivation only. |
 
 Not logged, deliberately: ~200 inline copies of `phone.replace(/\D/g,'').slice(-10)`. Identical one-liners that agree by construction — noise, not risk (Tyler's call, 2026-08-05).
 
