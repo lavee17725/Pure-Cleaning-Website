@@ -205,6 +205,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
 .jn-amount.tbd{color:#b45309;font-weight:700;font-size:12px;background:#fef3c7;border:1px solid #fde68a;border-radius:5px;padding:0 5px;}
+.js-unpaid-badge{display:inline-block;background:#7f1d1d;color:#fff;font-size:10px;font-weight:800;letter-spacing:.5px;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;flex-shrink:0;}
+.job-card.is-unpaid,.job-note.is-unpaid{box-shadow:inset 3px 0 0 #dc2626;}
+.day-unpaid-chip{display:inline-flex;align-items:center;gap:4px;background:#7f1d1d;color:#fff;font-size:10px;font-weight:800;border-radius:5px;padding:2px 7px;margin-left:6px;}
 .day-tbd{color:#b45309;font-weight:700;font-size:11px;margin-left:4px;}
 .split-badge{font-size:10px;font-weight:700;color:#0369a1;background:#e0f2fe;border-radius:6px;padding:1px 6px;white-space:nowrap;}
 .split-hint{font-size:10px;font-weight:600;color:var(--muted);white-space:nowrap;}
@@ -2692,6 +2695,74 @@ function jobCardMiniQuote(c) {
   </div>`;
 }
 
+
+// ── Unpaid receivables (2026-08-05) ──────────────────────────────────────────
+// Work is now closed when it's DONE and the debt is tracked on paymentStatus,
+// instead of parking finished jobs in 'scheduled' until the money arrived.
+// That old habit understated revenue and made receivables invisible — real AR
+// read $0 while $7,800 was genuinely owed. These surface the owed money so a
+// completed-unpaid job is as hard to lose sight of as a scheduled one.
+function _jobIsUnpaid(c) {
+  if (!c || c.isTest) return false;
+  const ss = c.scheduledStatus || {};
+  if ((ss.state || '') !== 'completed') return false;
+  if (c.paymentInfo && c.paymentInfo.paidAt) return false;
+  if (ss.paidAt) return false;
+  const st = ss.paymentStatus;
+  if (!st) return false;                    // unknown -> silent, same reason as above
+  return st === 'unpaid' || st === 'pending';
+}
+
+// Owed on a given day, across every rig.
+function unpaidForDay(date) {
+  let n = 0, total = 0;
+  const seen = new Set();
+  for (const rig of RIGS) {
+    for (const c of getScheduledForRig(date, rig)) {
+      if (!_jobIsUnpaid(c)) continue;
+      const k = (c.phone || '') + '|' + date;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      n++; total += jobAmount(c).val;
+    }
+    // jh-extra cards: completed jobs that no longer sit in scheduledStatus for
+    // this date (multi-day day_segments, rig-group primaries). Premier's 9-day
+    // run renders entirely through here, so omitting it would have made the
+    // badge miss the one receivable it exists to surface.
+    for (const { customer, jhEntry } of getExtraCompletedJobsForRig(date, rig)) {
+      if (!_jhEntryIsUnpaid(customer, jhEntry)) continue;
+      const k = (customer.phone || '') + '|' + (jhEntry.jobId || jhEntry.date);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      n++; total += (jhEntry.amount || jhEntry.approvedAmount || 0);
+    }
+  }
+  return { count: n, total };
+}
+
+// A jobHistory-rendered completed card is unpaid when the customer's payment
+// state says so. day_segment slices inherit the parent's status — they are the
+// same debt shown per day, so only the slice's own amount is added.
+function _jhEntryIsUnpaid(c, jhEntry) {
+  if (!c || c.isTest || !jhEntry) return false;
+  if (jhEntry.source === 'rig_segment') return false;          // $0 markers
+  if (jhEntry.paidAt) return false;
+  // Read the JOB's own payment state, never the customer's current
+  // scheduledStatus — and never infer from a missing paidAt. Pre-CRM history
+  // (csv_backfill) has no paidAt but was settled years ago; treating that as
+  // owed would badge ~1,800 jobs and bury the one receivable that matters.
+  const st = jhEntry.paymentStatus;
+  if (!st) return false;                    // unknown -> stay silent, don't cry wolf
+  return st === 'unpaid' || st === 'pending';
+}
+
+function unpaidDayChip(date) {
+  const { count, total } = unpaidForDay(date);
+  if (!count) return '';
+  return `<span class="day-unpaid-chip" title="${count} completed job${count===1?'':'s'} awaiting payment">`
+       + `● ${count} unpaid${total ? ' · $' + total.toLocaleString('en-US',{maximumFractionDigits:0}) : ''}</span>`;
+}
+
 function jobAmount(c) {
   const ss = c.scheduledStatus || {};
   // 2026-07-24 "priced after job": TBD is the absence of a price, not $0. Show
@@ -3518,7 +3589,7 @@ function renderCalGrid(dates) {
           <div class="dh-right">${wxHtml}</div>
         </div>
         ${totalJobCount > 0
-          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})}${(() => { const t = countTbdForDay(date); return t ? `<span class="day-tbd" title="${t} job${t!==1?'s':''} priced after completion — not in this total">+${t} TBD</span>` : ''; })()} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${totalJobCount >= 6 ? `<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">Busy</span>` : ''}${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}</div>`
+          ? `<div class="dh-rev">$${dayTotal.toLocaleString('en-US',{maximumFractionDigits:0})}${(() => { const t = countTbdForDay(date); return t ? `<span class="day-tbd" title="${t} job${t!==1?'s':''} priced after completion — not in this total">+${t} TBD</span>` : ''; })()} <span class="dh-rev-jobs">${totalJobCount} job${totalJobCount!==1?'s':''}</span>${totalJobCount >= 6 ? `<span style="font-size:9px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">Busy</span>` : ''}${dayCollected > 0 && dayCollected < dayTotal ? `<span class="dh-rev-collected"> · ✓ $${dayCollected.toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : dayCollected > 0 ? `<span class="dh-rev-collected"> ✓</span>` : ''}${unpaidDayChip(date)}</div>`
           : `<div class="dh-rev dh-rev-empty">—</div>`}
         <div class="wk-cap-bars">${capBarsHtml}</div>
         ${optAllHtml}
@@ -3757,6 +3828,7 @@ function jobCardScheduled(c) {
   let paymentBtnHtml = '';
   let receiptBtnHtml = '';
   let zelleReqBtnHtml = '';
+  let unpaidBadgeHtml = '';
   const complaintLink = (!c.isTest && phone)
     ? `<button class="js-complaint-link" onclick="event.stopPropagation();openComplaintModal('${phone}')">⚠ complaint</button>`
     : '';
@@ -3789,6 +3861,13 @@ function jobCardScheduled(c) {
       if (c.paymentInfo && c.paymentInfo.paidAt) {
         paymentBtnHtml = `<button class="js-pay-btn paid" onclick="event.stopPropagation()">✓ Paid via ${esc(c.paymentInfo.method||'cash')}</button>`;
       } else {
+        // UNPAID badge (2026-08-05). Jobs used to be held in 'scheduled' until
+        // the money arrived, because that was the only way an owed job stayed
+        // visible — which understated revenue and hid receivables entirely
+        // ($0 real AR while $7,800 was actually owed). Now work is closed when
+        // it's done and the debt is carried here, loud enough that a completed
+        // unpaid job can't slip out of sight the way it would have.
+        unpaidBadgeHtml = `<span class="js-unpaid-badge" title="Completed — payment not logged yet">● UNPAID</span>`;
         paymentBtnHtml = `<button class="js-pay-btn" onclick="event.stopPropagation();openPaymentModal('${phone}')">💰 Log Payment</button>`;
         const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
         const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
@@ -3956,8 +4035,8 @@ function jobCardScheduled(c) {
     ? ` <span style="font-size:10px;font-weight:700;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:6px;padding:1px 6px;vertical-align:middle;white-space:nowrap;">${esc(c.propertyLabel)}</span>`
     : '';
   const metaParts = [winLbl, city + propLabelChip].filter(Boolean);
-  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}" data-phone="${c.phone}" data-job-id="${_editJobId}" onclick="toggleJobCard(this)">
-    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}</span>
+  return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}${unpaidBadgeHtml ? ' is-unpaid' : ''}" data-phone="${c.phone}" data-job-id="${_editJobId}" data-unpaid="${unpaidBadgeHtml ? '1' : '0'}" onclick="toggleJobCard(this)">
+    <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}${unpaidBadgeHtml}</span>
       <span style="display:flex;align-items:center;gap:4px;">${amtHtml}${_splitBadge}<button class="crew-toggle-btn" onclick="event.stopPropagation();toggleCrewQe('${phone}')" title="Crew &amp; duration">👥${_crewSummary ? ' '+_crewNames.split(',')[0] : ''}</button></span>
     </div>
     ${endCustSub}
@@ -4103,8 +4182,12 @@ function jobCardHistoryExtra(c, jhEntry) {
     ? `<button class="js-edit-btn" onclick="event.stopPropagation();openEditModal('${phone}','${jobId}')" title="Edit this job's details">✏️ Edit</button>`
     : '';
 
-  return `<div class="job-scheduled completed job-card-completed job-card-extra" data-phone="${phone}"${jobId ? ` data-job-id="${jobId}"` : ''} onclick="toggleJobCard(this)">
-    <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}</span><span>${amtHtml}</span></div>
+  // Unpaid badge on the jh-extra card too — this is the path a completed job
+  // held for payment actually renders through (2026-08-05).
+  const _xUnpaid = _jhEntryIsUnpaid(c, jhEntry)
+    ? `<span class="js-unpaid-badge" title="Completed — payment not logged yet">● UNPAID</span>` : '';
+  return `<div class="job-scheduled completed job-card-completed job-card-extra${_xUnpaid ? ' is-unpaid' : ''}" data-phone="${phone}"${jobId ? ` data-job-id="${jobId}"` : ''} data-unpaid="${_xUnpaid ? '1' : '0'}" onclick="toggleJobCard(this)">
+    <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}${_xUnpaid}</span><span>${amtHtml}</span></div>
     ${endCustSub}
     <div class="js-meta">${[city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}

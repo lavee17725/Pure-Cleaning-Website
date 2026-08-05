@@ -6862,6 +6862,12 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     source:             (j.source||'').startsWith('csv_backfill') ? 'csv_backfill' : (j.source || 'calendar_completion'),
     paymentMethod:      j.paymentMethod   || null,
     paidAt:             j.paidAt          || null,
+    // 2026-08-05: carry the job's OWN payment state. paidAt alone can't answer
+    // "is this owed" — it's null on all 1,794 csv_backfill rows, which were paid
+    // in cash years before the CRM existed. Without this the calendar's unpaid
+    // badge marks a decade of settled work as outstanding and the real
+    // receivable is lost in the noise.
+    paymentStatus:      j.paymentStatus   || null,
     actualDuration:     j.actualDuration  || null,
     actualArrival:      j.actualArrival   || null,
     actualDeparture:    j.actualDeparture || null,
@@ -7103,6 +7109,11 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
         completedAt:        seg.completedAt || null,
         crew:               [],
         source:             'day_segment',
+        // Inherit the parent's payment state — a day slice is the same debt
+        // shown per day, so the calendar's unpaid badge must see it on every
+        // day the work appears (2026-08-05).
+        paymentStatus:      parent.paymentStatus || null,
+        paidAt:             parent.paidAt        || null,
         dayNumber:          seg.dayNumber  ?? null,
         dayPhase:           seg.dayPhase   || null,
         crewCount:          seg.crewCount  ?? null,
