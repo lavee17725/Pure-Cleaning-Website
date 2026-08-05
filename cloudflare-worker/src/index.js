@@ -517,6 +517,20 @@ async function verifySession(request, env) {
 
 export default {
   async scheduled(event, env, ctx) {
+    // Daily due-reminder alarm — 12:00 UTC / 8 AM ET. Silent when nothing is due.
+    if (event.cron === '0 12 * * *') {
+      try {
+        const r = await runDueReminderAlerts(env);
+        if (r.sent) console.log('[reminder-alarm]', JSON.stringify(r));
+      } catch (e) {
+        console.error('reminder alarm cron error:', e.message);
+        await appendErrorLog(env, {
+          source: 'worker', page: 'cron:reminder-alarm',
+          errorType: 'REMINDER_ALARM_CRASH', message: e.message,
+        }).catch(() => {});
+      }
+      return;
+    }
     if (event.cron === '0 4 * * 1') {
       // Monday 4 AM UTC — weekly Google Drive export
       ctx.waitUntil((async () => {
@@ -1501,6 +1515,30 @@ export default {
       // GET /admin/debug/group-parity — JobGroup view vs its JS mirror (0048).
       if (path === 'admin/debug/group-parity' && request.method === 'GET') {
         return await handleGroupParity(env, corsHeaders);
+      }
+
+      // GET /admin/reminders/alarm-preview?asOf=YYYY-MM-DD — what the daily alarm
+      // WOULD send on a given date. Dry-run only; sends nothing, writes nothing.
+      // Exists so the alarm can be proven against a future fire date instead of
+      // waiting for it — the reminder system itself had never once fired in
+      // production, and this one guards a trip.
+      if (path === 'admin/reminders/alarm-preview' && request.method === 'GET') {
+        const asOf = url.searchParams.get('asOf') || undefined;
+        if (url.searchParams.get('send') === '1') {
+          const preview = await runDueReminderAlerts(env, { dry: true, asOf });
+          if (!preview.body) return jsonResponse({ ...preview, testSend: 'nothing due — nothing sent' }, corsHeaders);
+          const push = await sendPush(env, '🧪 TEST — ' + preview.title, preview.body, 'high');
+          let sms = { ok: false, error: 'TYLER_CELL not configured' };
+          if (env.TYLER_CELL) {
+            const _r = await sendSms(env, env.TYLER_CELL, '🧪 TEST — ' + preview.body);
+            sms = { ok: !!_r.ok, error: _r.error || '' };
+          }
+          // Ledger deliberately untouched: a test must not consume the real fire.
+          return jsonResponse({ ...preview, testSend: true, ledgerWritten: false,
+                                push: push.ok, pushError: push.error || null,
+                                sms: sms.ok, smsError: sms.error || null }, corsHeaders);
+        }
+        return jsonResponse(await runDueReminderAlerts(env, { dry: true, asOf }), corsHeaders);
       }
 
       // POST /admin/invoice/from-job  { jobId } → idempotent create+return Invoice + LineItems.
@@ -8643,6 +8681,91 @@ async function handleCalendarJobs(request, env, corsHeaders) {
     await _logD1Failure(env, 'handleCalendarJobs', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
+}
+
+// ── Daily due-reminder alarm (2026-08-05) ────────────────────────────────────
+// The reminder queue was PULL-ONLY: no cron, no message, nothing. A reminder
+// existed only if Tyler happened to open one of three pages. He leaves Aug 20
+// and Ashley Wheeler's $600/mo recurring reminder fires Aug 10 — a ten-day
+// window in which silence and "nothing due" look identical.
+//
+// This converts "if Tyler opens the page" into "Tyler gets a message".
+//
+// TWO CHANNELS ON PURPOSE. Tyler asked for a text, and TWILIO_ACCOUNT_SID /
+// TWILIO_AUTH_TOKEN / TYLER_CELL are all configured — but sendSms has never
+// been called in production, not once, so its first real use would be the
+// trip-critical alarm. sendPush (Pushover) is the proven path: it already
+// delivers new-quote and quote-confirmed alerts to his phone today. Sending
+// both means one unproven dependency cannot silently swallow the alert, which
+// is the entire failure mode this exists to prevent.
+//
+// SILENT ON ORDINARY DAYS: nothing due → nothing sent. And a reminder is
+// announced ONCE per fire date — the ledger is keyed by reminderId+nextFireAt,
+// so a snoozed reminder re-announces when it comes due again, but a due
+// reminder sitting unactioned doesn't nag daily.
+const KV_REMINDER_ALERTS = 'reminder_alerts_sent';
+
+async function runDueReminderAlerts(env, opts = {}) {
+  const asOf = opts.asOf || new Date().toISOString().slice(0, 10);
+  const dry  = !!opts.dry;
+  if (!env.DB) return { ok: false, error: 'D1 not available' };
+
+  const rows = (await env.DB.prepare(
+    `SELECT r.reminderId, r.note, r.type, r.nextFireAt, r.followUpMonth,
+            p.firstName, p.lastName, p.businessName
+       FROM Reminder r
+       JOIN Person   p ON p.personId = r.personId
+      WHERE r.status = 'active'
+        AND COALESCE(r.nextFireAt, r.followUpMonth || '-01') <= ?
+      ORDER BY COALESCE(r.nextFireAt, r.followUpMonth || '-01') ASC`
+  ).bind(asOf).all())?.results || [];
+
+  const ledger = (await env.DATA.get(KV_REMINDER_ALERTS, 'json')) || {};
+  const fresh = rows.filter(r => {
+    const fire = r.nextFireAt || (r.followUpMonth ? r.followUpMonth + '-01' : asOf);
+    return ledger[r.reminderId] !== fire;   // same reminder, same fire date = already said
+  });
+
+  if (!fresh.length) return { ok: true, asOf, due: rows.length, sent: 0, reason: 'nothing new due' };
+
+  const nameOf = r => (r.businessName || [r.firstName, r.lastName].filter(Boolean).join(' ') || 'Customer').trim();
+  const lines = fresh.map(r => {
+    const fire = r.nextFireAt || r.followUpMonth;
+    const note = (r.note || '').replace(/\s+/g, ' ').trim();
+    return `• ${nameOf(r)} (${fire})${note ? ' — ' + (note.length > 160 ? note.slice(0, 157) + '…' : note) : ''}`;
+  });
+  const title = `⏰ ${fresh.length} reminder${fresh.length === 1 ? '' : 's'} due`;
+  const body  = `${title}\n${lines.join('\n')}\n\nhttps://purecleaningpressurecleaning.com/pure_cleaning_reminders.html`;
+
+  if (dry) return { ok: true, dryRun: true, asOf, due: rows.length, wouldSend: fresh.length, title, body,
+                    reminderIds: fresh.map(r => r.reminderId) };
+
+  // Proven channel first. Neither call throws — both return {ok,error}.
+  const push = await sendPush(env, title, body, 'high');
+  // Normalized shape — sendSms omits `error` on success, and the mixed union
+  // fails typecheck (caught pre-commit 2026-08-05).
+  let sms = { ok: false, error: 'TYLER_CELL not configured' };
+  if (env.TYLER_CELL) {
+    const _r = await sendSms(env, env.TYLER_CELL, body);
+    sms = { ok: !!_r.ok, error: _r.error || '' };
+  }
+
+  // Record ONLY if something actually got through, so a total delivery failure
+  // retries tomorrow instead of being marked "announced" and going quiet.
+  if (push.ok || sms.ok) {
+    for (const r of fresh) ledger[r.reminderId] = r.nextFireAt || (r.followUpMonth ? r.followUpMonth + '-01' : asOf);
+    // Keep the ledger from growing without bound — drop entries older than a year.
+    const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    for (const k of Object.keys(ledger)) if (ledger[k] < cutoff) delete ledger[k];
+    await env.DATA.put(KV_REMINDER_ALERTS, JSON.stringify(ledger));
+  } else {
+    await appendErrorLog(env, {
+      source: 'worker', page: 'runDueReminderAlerts', errorType: 'REMINDER_ALERT_UNDELIVERED',
+      message: `${fresh.length} reminder(s) due and BOTH channels failed. push=${push.error || 'ok'} sms=${sms.error || 'ok'}`,
+    });
+  }
+  return { ok: push.ok || sms.ok, asOf, due: rows.length, sent: fresh.length,
+           push: push.ok, sms: sms.ok, pushError: push.error || null, smsError: sms.error || null };
 }
 
 // ── JobGroup (0048): ONE definition of what a job group is worth ─────────────
