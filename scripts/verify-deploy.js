@@ -1465,6 +1465,28 @@ async function checkGroupAmountParity() {
       fail('Group amount — trends internally consistent', `${bad.length} month(s) where avgTicket != gross/jobs, e.g. ${bad[0].ym}`);
     else pass('Group amount — trends internally consistent', `${months.length} months, avgTicket == gross/jobs throughout`);
 
+    // SHIP 2/3: the two boards must agree on COMPLETED revenue, month by month.
+    // They disagreed by $875 on July 2026 before this — same rollup, different
+    // filters, one label. Now both read the JobGroup view and breakdown names
+    // its two numbers separately, so any future divergence is a real defect.
+    for (const ym of ['2026-06', '2026-07', '2026-08']) {
+      try {
+        const br = await fetchRetry(`${WORKERS_API}/admin/monthly-breakdown?month=${ym}`, auth);
+        if (!br.ok) { warn(`Boards agree — ${ym}`, `breakdown HTTP ${br.status}`); continue; }
+        const b = await br.json();
+        if (b.completedTotal === undefined) { warn(`Boards agree — ${ym}`, 'breakdown missing named totals'); continue; }
+        const t = months.find(m => m.ym === ym);
+        const tg = t ? t.gross : 0;
+        if (Math.abs(tg - b.completedTotal) > 0.01)
+          fail(`Boards agree on completed revenue — ${ym}`, `trends $${tg.toLocaleString()} vs breakdown $${b.completedTotal.toLocaleString()}`);
+        else pass(`Boards agree on completed revenue — ${ym}`, `$${b.completedTotal.toLocaleString()} completed · $${b.bookedTotal.toLocaleString()} booked`);
+        // Booked must never be LESS than completed — that would mean completed
+        // work isn't in the booked set, i.e. the filters have drifted apart.
+        if (b.bookedTotal + 0.01 < b.completedTotal)
+          fail(`Booked covers completed — ${ym}`, `booked $${b.bookedTotal} < completed $${b.completedTotal}`);
+      } catch (e) { warn(`Boards agree — ${ym}`, e.message); }
+    }
+
     // Parked work has no date, so it can never land in a month bucket (0049).
     const parkedRes = await fetchRetry(`${WORKERS_API}/admin/parked`, auth);
     if (parkedRes.ok) {

@@ -2724,17 +2724,21 @@ export default {
               // arm and the split arm below, double-counting $400 and pushing
               // the rig total above the month's actual revenue. Any parent with
               // segments belongs to the split arm only.
-              `SELECT SUBSTR(j.scheduledDate,1,7) AS month, j.rigId, j.amount AS rev ` +
-              `FROM Job j WHERE j.state='completed' AND j.rigId IS NOT NULL AND j.amount > 0 ` +
-              `AND COALESCE(j.isRigSegment,0) = 0 ` +
+              `SELECT SUBSTR(j.scheduledDate,1,7) AS month, j.rigId, g.groupAmount AS rev ` +
+              `FROM Job j JOIN JobGroup g ON g.jobId = j.jobId ` +
+              `WHERE j.state='completed' AND j.rigId IS NOT NULL AND j.amount > 0 ` +
               `AND NOT EXISTS (SELECT 1 FROM Job x WHERE x.parentJobId = j.jobId AND x.isRigSegment = 1) ` +
               `AND j.scheduledDate >= DATE('now','-6 months')${srcFilter.replace(/\bsource\b/g, 'j.source')} ` +
               `UNION ALL ` +
               // Multi-rig: parent's amount / number of rigs that completed it.
+              // Ship 3: split the GROUP amount, not the bare parent row. A job that
+              // is BOTH multi-day and multi-rig would have credited only Day 1's
+              // slice across the trucks. Zero such jobs exist today — this closes
+              // it before one does, rather than after.
               `SELECT SUBSTR(c.scheduledDate,1,7) AS month, c.rigId, ` +
-              `p.amount * 1.0 / (SELECT COUNT(*) FROM Job s WHERE s.parentJobId = p.jobId ` +
+              `g.groupAmount * 1.0 / (SELECT COUNT(*) FROM Job s WHERE s.parentJobId = p.jobId ` +
                 `AND s.isRigSegment = 1 AND s.state = 'completed' AND s.rigId IS NOT NULL) AS rev ` +
-              `FROM Job c JOIN Job p ON p.jobId = c.parentJobId ` +
+              `FROM Job c JOIN Job p ON p.jobId = c.parentJobId JOIN JobGroup g ON g.jobId = p.jobId ` +
               `WHERE c.isRigSegment = 1 AND c.state = 'completed' AND c.rigId IS NOT NULL ` +
               `AND p.state = 'completed' AND p.amount > 0 ` +
               `AND c.scheduledDate >= DATE('now','-6 months')` +
@@ -7056,8 +7060,11 @@ function _d1BuildScheduledStatus(personJobs) {
   const _multiDayChildren = ss.isMultiDayParent
     ? personJobs.filter(c => c.parentJobId === ss.jobId && c.state !== 'cancelled' && !c.isRigSegment)
     : [];
-  const _childAmtSum = _multiDayChildren.reduce((s, c) => s + (c.amount || 0), 0);
-  const _groupApprovedAmt = (ss.amount || 0) + _childAmtSum;
+  // Ship 3 (0048): the rollup is _groupAmountOf, the same JS mirror the parity
+  // endpoint checks against the JobGroup view on every deploy. This used to be
+  // a fifth private copy of the formula. _multiDayChildren survives because the
+  // service-string concatenation below needs the child ROWS, not their money.
+  const _groupApprovedAmt = _groupAmountOf(ss, personJobs);
 
   // Group service string: for multi-day parents, concatenate all days in dayNumber order.
   // e.g. "Pressure Clean → Sand → Seal" instead of only "Pressure Clean" (the parent's row).
@@ -9160,18 +9167,9 @@ async function handleCompedSummary(env, corsHeaders) {
       // almost entirely in its children, so filtering to parentJobId IS NULL
       // reported $4,267 of $11,200. Same formula as handleAnalyticsTrends.
       const row = await env.DB.prepare(
-        `SELECT COALESCE(SUM(grp),0) AS paid, COUNT(*) AS jobs FROM (
-           SELECT (COALESCE(j.amount,0) + COALESCE((
-                     SELECT SUM(c.amount) FROM Job c
-                      WHERE c.parentJobId = j.jobId
-                        AND c.state != 'cancelled'
-                        AND COALESCE(c.isRigSegment,0) = 0
-                   ),0)) AS grp
-             FROM Job j
-            WHERE j.payerId = ? AND j.state = 'completed'
-              AND COALESCE(j.isRigSegment,0) = 0 AND j.parentJobId IS NULL
-              AND j.priceMode != 'comped'
-         ) t`
+        `SELECT COALESCE(SUM(g.groupAmount),0) AS paid, COUNT(*) AS jobs
+           FROM Job j JOIN JobGroup g ON g.jobId = j.jobId
+          WHERE j.payerId = ? AND j.state = 'completed' AND j.priceMode != 'comped'`
       ).bind(e.creditedToPersonId).first();
       e.creditedToPaid = Number(row?.paid) || 0;
       e.creditedToJobs = Number(row?.jobs) || 0;
@@ -9216,17 +9214,10 @@ async function handleAnalyticsTrends(env, corsHeaders) {
              SUM(grpAmount)                                  AS gross,
              SUM(CASE WHEN COALESCE(grpAmount,0)=0 THEN 1 ELSE 0 END) AS zeroAmt
       FROM (
-        SELECT substr(j.scheduledDate,1,7) AS ym,
-          (COALESCE(j.amount,0) + COALESCE((
-            SELECT SUM(c.amount) FROM Job c
-            WHERE c.parentJobId = j.jobId
-              AND c.state != 'cancelled'
-              AND COALESCE(c.isRigSegment,0) = 0
-          ),0)) AS grpAmount
+        SELECT substr(j.scheduledDate,1,7) AS ym, g.groupAmount AS grpAmount
         FROM Job j
+        JOIN JobGroup g ON g.jobId = j.jobId
         WHERE j.state = 'completed'
-          AND COALESCE(j.isRigSegment,0) = 0
-          AND j.parentJobId IS NULL
           -- 0047: comped work is deliberately $0. Counting it as a job with $0
           -- gross drags average ticket down and pads zeroAmt with records that
           -- aren't defects. It's reported separately (GET /admin/comped-summary).
@@ -9298,15 +9289,12 @@ async function handleMonthlyBreakdown(request, env, corsHeaders) {
         j.workSiteCity,
         j.rigId,
         j.isMultiDayParent,
-        -- Group amount: parent.amount + sum(non-rig-segment non-cancelled children).
-        -- For standalone jobs and rig-group parents: sum is 0 → equals j.amount.
-        -- For multi-day parents (Jessica): rolls up day-children → returns group total.
-        (j.amount + COALESCE((
-          SELECT SUM(c.amount) FROM Job c
-          WHERE c.parentJobId = j.jobId
-            AND c.state != 'cancelled'
-            AND c.isRigSegment = 0
-        ), 0)) AS groupAmount,
+        -- Group amount now comes from the JobGroup VIEW (0048), not a private
+        -- copy of the formula. The copy that used to live here compared
+        -- isRigSegment to 0 directly, which is NULL-unsafe: a child with a NULL
+        -- flag evaluates to NULL, not true, and was silently dropped from its
+        -- parent's total. The view uses COALESCE.
+        g.groupAmount AS groupAmount,
         -- Business date = scheduledDate. Timezone-safe (no time component), matches
         -- how the calendar buckets jobs, eliminates DST math. See header comment.
         j.scheduledDate AS businessDate,
@@ -9317,11 +9305,13 @@ async function handleMonthlyBreakdown(request, env, corsHeaders) {
         prop.streetAddress AS propStreetAddress,
         prop.city          AS propCity
       FROM Job j
+      JOIN JobGroup g ON g.jobId = j.jobId
       JOIN Person p ON p.personId = j.payerId
       LEFT JOIN Property prop ON prop.propertyId = j.propertyId
+      -- This board deliberately shows BOOKED work, not just completed revenue —
+      -- "what does this month look like". The totals below name both so the two
+      -- can never be mistaken for each other again (Tyler, 2026-08-05).
       WHERE j.state IN ('completed', 'scheduled', 'in_progress')
-        AND j.isRigSegment = 0
-        AND j.parentJobId IS NULL
         AND substr(j.scheduledDate, 1, 7) = ?
       ORDER BY j.scheduledDate, j.jobId
     `).bind(month).all();
@@ -9350,14 +9340,32 @@ async function handleMonthlyBreakdown(request, env, corsHeaders) {
       };
     });
 
-    const totalRevenue = rows.reduce((s, r) => s + (r.amount || 0), 0);
+    // TWO NUMBERS, EACH NAMED. This board counts scheduled and in-progress work
+    // as well as completed, which is intentional — but the single "totalRevenue"
+    // it used to return made it look like earned revenue, and it disagreed with
+    // the Insights board by exactly the not-yet-completed work ($875 on July
+    // 2026 when this was found). Neither number was wrong; the label was.
+    const completedRows = rows.filter(r => r.state === 'completed');
+    const bookedTotal    = rows.reduce((s, r) => s + (r.amount || 0), 0);
+    const completedTotal = completedRows.reduce((s, r) => s + (r.amount || 0), 0);
     const paidCount    = rows.filter(r => r.paymentStatus === 'paid').length;
     const unpaidCount  = rows.length - paidCount;
 
     return jsonResponse({
       month,
       rowCount:     rows.length,
-      totalRevenue,
+      // Named totals. `totalRevenue` is kept as an alias of bookedTotal so no
+      // existing consumer breaks, but it is deprecated — read the named ones.
+      bookedTotal,
+      bookedCount:    rows.length,
+      completedTotal,
+      completedCount: completedRows.length,
+      notYetCompleted: bookedTotal - completedTotal,
+      totalRevenue: bookedTotal,
+      label: {
+        booked:    `Booked this month: $${Math.round(bookedTotal).toLocaleString()}`,
+        completed: `Completed revenue: $${Math.round(completedTotal).toLocaleString()}`,
+      },
       paidCount,
       unpaidCount,
       rows,
