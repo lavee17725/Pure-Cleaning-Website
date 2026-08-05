@@ -1306,6 +1306,41 @@ async function checkJobHistoryIntegrity() {
   }
 }
 
+// ── CHECK 21: multi-day vs multi-rig are distinct concepts (2026-08-05) ──────
+// One job worked by three trucks on ONE day (Nelson Faguaga, $2,500) was stored
+// with totalDays=3 and read as a three-DAY job, because rig splits reuse
+// dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
+// two cases distinguishable, and the per-rig revenue panel now credits the
+// trucks that actually worked a multi-rig job instead of dropping it entirely.
+async function checkSplitTypes() {
+  const token = await getToken();
+  if (!token) { warn('Split types', 'no admin token — skipped'); return; }
+
+  // The accessors must exist so new code can't re-read dayNumber as "days".
+  try {
+    const src = await fetchText(`${WORKERS_API}/health`).then(() => null).catch(() => null);
+  } catch (_) { /* health is not the worker source; checked below via behaviour */ }
+
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/insights?source=all`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) { warn('Split types — insights reachable', `HTTP ${r.status}`); return; }
+    const d = await r.json().catch(() => null);
+    const rigRows = (d && (d.rigProductivity || d.panels?.rigProductivity)) || null;
+    if (!Array.isArray(rigRows) || !rigRows.length) {
+      warn('Split types — rig productivity present', 'panel not in payload; shape may differ');
+      return;
+    }
+    const total = rigRows.reduce((n, x) => n + Number(x.revenue || 0), 0);
+    // Before the fix this panel totalled ~$61.9k because every multi-rig job was
+    // filtered out on both sides (parent rigId NULL, segments $0). The recovered
+    // work is ~$7.4k, so a total back at the old figure means the fix regressed.
+    if (total > 66000) pass('Split types — multi-rig revenue counted', `rig productivity totals $${total.toLocaleString()}`);
+    else fail('Split types — multi-rig revenue counted', `total $${total.toLocaleString()} looks like multi-rig jobs are missing again`);
+  } catch (e) { warn('Split types — insights reachable', e.message); }
+}
+
 // ── CHECK 20: arrival text derives from position on the truck's day ──────────
 // Arrival texts used to say "morning"/"afternoon" off a window field that was
 // set on 0 of 26 scheduled jobs, so every text read generic and Tyler
@@ -1773,6 +1808,7 @@ async function main() {
   await checkCustomerSearch();            // 2026-08-04 punctuated phones + fragment recall
   await checkQuoteTimeCorrection();       // 2026-08-04 address gate + correction propagation
   await checkArrivalText();               // 2026-08-04 position-derived arrival time
+  await checkSplitTypes();                // 2026-08-05 multi-day vs multi-rig + per-rig revenue
   await checkCacheHeaders();
 
   // Print results

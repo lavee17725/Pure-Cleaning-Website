@@ -2667,12 +2667,41 @@ export default {
             `WHERE j.state='completed' AND j.amount > 0${srcFilter} ` +
             `GROUP BY j.payerId ORDER BY lifetime DESC LIMIT 10`
           ).all().then(r => r.results || []),
-          // Panel 6 — Rig productivity last 6 months
+          // Panel 6 — Rig productivity last 6 months.
+          //
+          // 2026-08-05: multi-rig jobs were INVISIBLE here. The billing amount
+          // sits on the parent (rigId NULL, so the old `rigId IS NOT NULL`
+          // filter dropped it) while the per-rig segments carry $0 (dropped by
+          // `amount > 0`). $7,400 of completed work — ~11% of per-rig revenue,
+          // and disproportionately the biggest jobs — never appeared, so the
+          // trucks that did the heaviest work looked idle.
+          //
+          // The parent's amount is now SPLIT EVENLY across the rigs that
+          // actually worked it (completed segments only — a cancelled segment
+          // means that truck never went). Even split is what makes the panel
+          // answer its real question, "how productive is each truck": crediting
+          // one truck for a three-truck job flatters one and starves two.
+          // The calendar's display rule (primary segment shows the full parent
+          // amount) is deliberately unchanged — that's presentation, this is
+          // productivity math.
           env.DB.prepare(
-            `SELECT SUBSTR(scheduledDate,1,7) AS month, rigId, COUNT(*) AS jobs, CAST(SUM(amount) AS INTEGER) AS revenue ` +
-            `FROM Job WHERE state='completed' AND rigId IS NOT NULL AND amount > 0 ` +
-            `AND scheduledDate >= DATE('now','-6 months')${srcFilter} ` +
-            `GROUP BY month, rigId ORDER BY month, rigId`
+            `SELECT month, rigId, COUNT(*) AS jobs, CAST(SUM(rev) AS INTEGER) AS revenue FROM (` +
+              // Ordinary single-rig jobs — unchanged.
+              `SELECT SUBSTR(scheduledDate,1,7) AS month, rigId, amount AS rev ` +
+              `FROM Job WHERE state='completed' AND rigId IS NOT NULL AND amount > 0 ` +
+              `AND COALESCE(isRigSegment,0) = 0 ` +
+              `AND scheduledDate >= DATE('now','-6 months')${srcFilter} ` +
+              `UNION ALL ` +
+              // Multi-rig: parent's amount / number of rigs that completed it.
+              `SELECT SUBSTR(c.scheduledDate,1,7) AS month, c.rigId, ` +
+              `p.amount * 1.0 / (SELECT COUNT(*) FROM Job s WHERE s.parentJobId = p.jobId ` +
+                `AND s.isRigSegment = 1 AND s.state = 'completed' AND s.rigId IS NOT NULL) AS rev ` +
+              `FROM Job c JOIN Job p ON p.jobId = c.parentJobId ` +
+              `WHERE c.isRigSegment = 1 AND c.state = 'completed' AND c.rigId IS NOT NULL ` +
+              `AND p.state = 'completed' AND p.amount > 0 ` +
+              `AND c.scheduledDate >= DATE('now','-6 months')` +
+              srcFilter.replace(/\bsource\b/g, 'p.source') +
+            `) GROUP BY month, rigId ORDER BY month, rigId`
           ).all().then(r => r.results || []),
           // Panel 7 — Avg ticket trend last 12 months
           env.DB.prepare(
@@ -9777,6 +9806,30 @@ async function handleListQuotes(env, corsHeaders, url) {
 // and price-band slices carry `resolved` counts so the UI can render the
 // honest "n/a (only X quotes)" below the min-5 sample floor — the floor is
 // enforced client-side so the raw counts stay visible.
+
+// ── Split accessors (2026-08-05) ─────────────────────────────────────────────
+// dayNumber/totalDays are OVERLOADED: on a rig split they mean "which rig" and
+// "how many rigs", not days. Read them through these so new code can't repeat
+// the mistake that made Nelson Faguaga's one-day three-truck job look like a
+// three-day job. The physical columns are deliberately left alone — rewriting
+// them would erase the fact that multiple rigs worked it.
+function splitTypeOf(job) {
+  if (!job) return null;
+  if (job.splitType) return job.splitType;
+  // Fallback for rows written before migration 0046.
+  if (job.isRigSegment) return 'rig';
+  if (job.parentJobId || job.isMultiDayParent) return 'day';
+  return null;
+}
+/** Position within the split: which DAY for a day split, which RIG for a rig split. */
+function segmentIndex(job) { return job && job.dayNumber != null ? job.dayNumber : null; }
+/** Size of the split: number of DAYS for a day split, number of RIGS for a rig split. */
+function segmentCount(job) { return job && job.totalDays != null ? job.totalDays : null; }
+/** True only for a genuine multi-DATE job — the thing "multi-day" should mean. */
+function isMultiDaySplit(job) { return splitTypeOf(job) === 'day'; }
+/** True for one job worked by several trucks on ONE date. */
+function isMultiRigSplit(job) { return splitTypeOf(job) === 'rig'; }
+
 async function handleQuoteInsights(env, corsHeaders) {
   if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
   try {
