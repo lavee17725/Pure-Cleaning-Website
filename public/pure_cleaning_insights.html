@@ -104,6 +104,39 @@ const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','
 const ymLabel = ym => { const [y,m]=ym.split('-'); return MON[+m-1]+" '"+y.slice(2); };
 const isPreCrm = ym => ym < CRM_RELIABLE_FROM;
 
+let COMPED = null;
+
+// Comped work given vs revenue received from the business it was given for.
+// Free work is not revenue and never appears in the gross/avg-ticket numbers
+// above — this is the separate ledger that keeps it visible anyway.
+function compedSection(){
+  if(!COMPED || !(COMPED.people||[]).length) return '';
+  const rows = COMPED.people.map(p=>{
+    const given = p.compedValue||0;
+    const paid  = p.creditedToPaid||0;
+    // Ratio only means something when both sides are known.
+    const ratio = (given>0 && paid>0) ? (paid/given) : null;
+    const unval = p.jobsWithNoValue
+      ? `<div class="desc" style="margin:2px 0 0">${p.jobsWithNoValue} job${p.jobsWithNoValue===1?'':'s'} with no stated value — not counted</div>` : '';
+    return `<tr>
+      <td><b>${p.name||p.personId}</b>${p.reasons.length?`<div class="desc" style="margin:2px 0 0">${p.reasons.join(' · ')}</div>`:''}${unval}</td>
+      <td>${p.jobs}</td>
+      <td>${given>0?fmtMoney(given):'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${p.creditedTo ? `${p.creditedTo}<div class="desc" style="margin:2px 0 0">${p.creditedToJobs||0} paid job${(p.creditedToJobs||0)===1?'':'s'}</div>` : '<span style="color:var(--muted)">not linked</span>'}</td>
+      <td>${p.creditedTo ? fmtMoney(paid) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td>${ratio ? `<b style="color:var(--green,#34d399)">${ratio.toFixed(1)}×</b>` : '<span style="color:var(--muted)">—</span>'}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="section">
+      <h2>Comped work — reciprocity</h2>
+      <div class="desc">Jobs done free on purpose. Excluded from gross, average ticket and the $0-job count above — free work is a decision, not a defect. "Returned" is what the linked business has actually paid us.</div>
+      <table>
+        <thead><tr><th>Comped for</th><th>Jobs</th><th>Value given</th><th>Credited to</th><th>Returned</th><th>Ratio</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
 function deltaHtml(cur, prev, opts={}){
   if(prev==null || prev===0) return '<span class="delta flat">—</span>';
   const pct = (cur - prev) / prev * 100;
@@ -118,6 +151,13 @@ async function load(){
     const r = await fetch(`${PCPC_BASE}/admin/analytics/trends`);
     data = await r.json();
     if(!r.ok || data.error) throw new Error(data.error || ('HTTP '+r.status));
+    // Reciprocity ledger (0047). Fails soft — a broken comped query must not
+    // take the revenue board down with it.
+    try{
+      const rc = await fetch(`${PCPC_BASE}/admin/comped-summary`);
+      const cd = await rc.json();
+      if(rc.ok && !cd.error) COMPED = cd;
+    }catch(_){}
   }catch(e){
     document.getElementById('content').innerHTML =
       `<div class="loading" style="color:var(--red)">⚠️ Failed to load: ${e.message}</div>`;
@@ -250,6 +290,7 @@ function render(data){
       <div class="chart-wrap"><canvas id="yoyChart"></canvas></div>
       ${yoyTable}
     </div>
+    ${compedSection()}
     <div class="foot">
       <span class="star">*</span> CRM-recorded month (pre-${ymLabel(CRF)}) — may be below the master-sheet total.
       &nbsp;·&nbsp; Gross = SUM(amount) of completed jobs (multi-day parents rolled up); avg ticket = gross ÷ jobs.

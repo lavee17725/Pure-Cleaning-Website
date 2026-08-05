@@ -793,9 +793,21 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
       <input id="schedPrice" type="number" class="fi" min="0" step="1" placeholder="Enter amount" inputmode="decimal" style="font-size:15px;" oninput="_validateSchedModal()">
       <!-- 2026-07-24: "priced after job" — books unpriced (TBD), never $0. -->
       <label style="display:flex;align-items:center;gap:7px;margin-top:8px;font-size:13px;font-weight:600;color:#92400e;cursor:pointer;">
-        <input type="checkbox" id="schedPriceTbd" onchange="_onSchedTbdToggle()" style="width:16px;height:16px;">
+        <input type="checkbox" id="schedPriceTbd" onchange="_onSchedTbdToggle(this)" style="width:16px;height:16px;">
         Price TBD — priced after the job
       </label>
+      <!-- 0047: comped is a DIFFERENT $0 from TBD. TBD = price not known yet;
+           comped = decided to be free. Mutually exclusive by construction. -->
+      <label style="display:flex;align-items:center;gap:7px;margin-top:6px;font-size:13px;font-weight:600;color:#047857;cursor:pointer;">
+        <input type="checkbox" id="schedComped" onchange="_onSchedTbdToggle(this)" style="width:16px;height:16px;">
+        Comped — free on purpose
+      </label>
+      <div id="schedCompedBox" style="display:none;margin-top:8px;padding:9px 10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;">
+        <label style="font-size:12px;font-weight:600;color:#065f46;">Why is it comped? *</label>
+        <input id="schedCompedReason" class="fi" style="font-size:14px;margin-top:4px;" placeholder="e.g. Reciprocity — referred Premier Association" oninput="_validateSchedModal()">
+        <label style="font-size:12px;font-weight:600;color:#065f46;display:block;margin-top:8px;">What would it have billed at? <span style="font-weight:400;">(optional)</span></label>
+        <input id="schedCompedValue" type="number" min="0" step="25" class="fi" style="font-size:14px;margin-top:4px;" placeholder="Enter value — never counted as revenue">
+      </div>
     </div>
     <div class="field" style="margin-bottom:1rem;">
       <label>Scheduled date *</label>
@@ -1509,6 +1521,7 @@ async function saveDb() {
 // calendar.html copy must also carry these params — verify before any signature change.
 async function scheduleJobWithDualWrite({
   phone, propertyId, scheduledDate, amount, priceTbd, rigId,
+  priceMode, compedReason, compedForPersonId, compedValue,   // 0047
   services, workSiteAddress, workSiteCity,
   workSitePlaceId, workSiteGoogleVerified,
   roofStories,
@@ -1566,7 +1579,14 @@ async function scheduleJobWithDualWrite({
     body: JSON.stringify({
       payerId: personId, propertyId: propId, scheduledDate,
       // TBD → send null amount + priceTbd:1; the worker stores amount NULL, never $0.
-      amount: priceTbd ? null : (amount || 0), priceTbd: priceTbd ? 1 : 0, rigId: rigId || null,
+      amount: (priceTbd || priceMode === 'comped') ? null : (amount || 0),
+      // priceMode is canonical (0047). The legacy priceTbd key is deliberately
+      // NOT sent — the worker rejects a payload carrying both when they
+      // disagree, and it derives the mirror column itself.
+      priceMode: priceMode || (priceTbd ? 'tbd' : 'standard'),
+      compedReason: compedReason || null, compedForPersonId: compedForPersonId || null,
+      compedValue: compedValue ?? null,
+      rigId: rigId || null,
       servicesRequested: services || 'Pending', servicesRaw: services || 'Pending',
       jobNotes: services || null, workSiteAddress: workSiteAddress || null,
       workSiteCity: workSiteCity || null,
@@ -3173,15 +3193,23 @@ function buildMQFromSuccess() {
 // ── Option A: Schedule it now ─────────────────────────────────────────────────
 // 2026-07-24: "Price TBD" disables/clears the price input — the job books
 // unpriced and is priced after completion (never $0).
-function _onSchedTbdToggle() {
-  const tbd = document.getElementById('schedPriceTbd').checked;
+function _onSchedTbdToggle(src) {
+  const tbdEl = document.getElementById('schedPriceTbd');
+  const cmpEl = document.getElementById('schedComped');
+  // Enforce exclusivity in the UI, not just the API: checking one clears the
+  // other, so a contradictory pair can't be sent in the first place.
+  if (src === cmpEl && cmpEl.checked) tbdEl.checked = false;
+  if (src === tbdEl && tbdEl.checked) cmpEl.checked = false;
+  const tbd = tbdEl.checked, comped = cmpEl.checked;
   const priceEl = document.getElementById('schedPrice');
-  priceEl.disabled = tbd;
-  if (tbd) { priceEl.value = ''; priceEl.classList.remove('err'); }
+  priceEl.disabled = tbd || comped;
+  if (tbd || comped) { priceEl.value = ''; priceEl.classList.remove('err'); }
+  document.getElementById('schedCompedBox').style.display = comped ? 'block' : 'none';
   _validateSchedModal();
 }
 function _validateSchedModal() {
-  const tbd     = document.getElementById('schedPriceTbd')?.checked;
+  const comped  = document.getElementById('schedComped')?.checked;
+  const tbd     = document.getElementById('schedPriceTbd')?.checked || comped;
   const price   = parseFloat(document.getElementById('schedPrice').value);
   const date    = document.getElementById('schedDate').value;
   const priceEl = document.getElementById('schedPrice');
@@ -3189,6 +3217,8 @@ function _validateSchedModal() {
   const btn     = document.getElementById('schedBtn');
   let err = '';
   if (!tbd && (!price || price <= 0)) err = 'Price must be greater than $0 (or check Price TBD)';
+  else if (comped && !document.getElementById('schedCompedReason').value.trim())
+    err = 'Say why it is comped — a free job with no reason is unreadable later';
   else if (!date)                      err = 'Scheduled date is required';
   if (err) {
     priceEl.classList.toggle('err', !tbd && (!price || price <= 0));
@@ -3211,6 +3241,11 @@ function openScheduleModal() {
   document.getElementById('schedPrice').classList.remove('err');
   document.getElementById('schedPrice').disabled = false;
   document.getElementById('schedPriceTbd').checked = false;   // reset TBD each open
+  document.getElementById('schedComped').checked = false;     // and comped
+  document.getElementById('schedCompedReason').value = '';
+  document.getElementById('schedCompedValue').value  = '';
+  document.getElementById('schedCompedBox').style.display = 'none';
+  document.getElementById('schedPrice').disabled = false;
   document.getElementById('schedRig').value = '';
   document.getElementById('schedNotes').value = '';
   document.getElementById('schedError').style.display = 'none';
@@ -3226,11 +3261,19 @@ function closeScheduleModal() {
 async function submitScheduleNow() {
   const date  = document.getElementById('schedDate').value;
   const priceTbd = document.getElementById('schedPriceTbd')?.checked || false;
+  const comped   = document.getElementById('schedComped')?.checked || false;
+  const compedReason = document.getElementById('schedCompedReason')?.value.trim() || '';
+  const compedValue  = parseFloat(document.getElementById('schedCompedValue')?.value) || null;
   const price = parseFloat(document.getElementById('schedPrice').value);
+  if (comped && !compedReason) {
+    document.getElementById('schedError').textContent = 'Say why it is comped.';
+    document.getElementById('schedError').style.display = 'block';
+    return;
+  }
   const rig   = document.getElementById('schedRig').value || null;
   const errEl = document.getElementById('schedError');
   const sucEl = document.getElementById('schedSuccess');
-  if (!priceTbd && (!price || price <= 0)) {   // TBD books unpriced; else a real amount is required
+  if (!priceTbd && !comped && (!price || price <= 0)) {   // TBD/comped book unpriced; else a real amount is required
     errEl.textContent = 'Price must be greater than $0 (or check Price TBD)';
     errEl.style.display = 'block';
     return;
@@ -3251,7 +3294,10 @@ async function submitScheduleNow() {
     state: 'scheduled', scheduledDate: date,
     rig, jobNotes: c.quoteStatus?.mainServices || notes || null,
     // TBD → no amount (null), priceTbd flag on. Never $0 (T1.21).
-    approvedAmount: priceTbd ? null : price, priceTbd: priceTbd, window: 'morning',
+    approvedAmount: (priceTbd || comped) ? null : price, priceTbd: priceTbd, window: 'morning',
+    priceMode: comped ? 'comped' : (priceTbd ? 'tbd' : 'standard'),
+    compedReason: comped ? compedReason : null,
+    compedValue:  comped ? compedValue  : null,
     roofStories:      c.quoteStatus?.servicesAgreed?.roofStories || null,
     // sqFt fallback chain (Modesta fix): input → KV mirror → servicesAgreed.roofSqFt →
     // servicesAgreed.squareFootage.roof. The quote-time value can live in EITHER
@@ -3294,8 +3340,11 @@ async function submitScheduleNow() {
       phone:                  c.phone,
       propertyId:             _selectedPropertyId || null,
       scheduledDate:          date,
-      amount:                 priceTbd ? null : price,
+      amount:                 (priceTbd || comped) ? null : price,
       priceTbd:               priceTbd,
+      priceMode:              comped ? 'comped' : (priceTbd ? 'tbd' : 'standard'),
+      compedReason:           comped ? compedReason : null,
+      compedValue:            comped ? compedValue  : null,
       rigId:                  rig || null,
       services:               svcStr,
       workSiteAddress:        pws.address        || c.address || null,

@@ -205,6 +205,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .jn-amount{font-weight:700;font-size:13px;color:#c2410c;white-space:nowrap;flex-shrink:0;}
 .jn-amount.missing{color:var(--muted);font-weight:400;font-size:12px;}
 .jn-amount.tbd{color:#b45309;font-weight:700;font-size:12px;background:#fef3c7;border:1px solid #fde68a;border-radius:5px;padding:0 5px;}
+.jn-amount.comped{color:#047857;font-weight:700;font-size:11px;letter-spacing:.3px;background:#d1fae5;border:1px solid #6ee7b7;border-radius:5px;padding:0 5px;cursor:help;}
 .js-unpaid-badge{display:inline-block;background:#7f1d1d;color:#fff;font-size:10px;font-weight:800;letter-spacing:.5px;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;flex-shrink:0;}
 .job-card.is-unpaid,.job-note.is-unpaid{box-shadow:inset 3px 0 0 #dc2626;}
 .day-unpaid-chip{display:inline-flex;align-items:center;gap:4px;background:#7f1d1d;color:#fff;font-size:10px;font-weight:800;border-radius:5px;padding:2px 7px;margin-left:6px;}
@@ -1228,7 +1229,10 @@ body{background:#f0f2f5;}
       <label>Total Paid</label>
       <div style="position:relative;">
         <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:14px;">$</span>
-        <input type="number" id="payTotal" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="Enter amount">
+        <input type="number" id="payTotal" class="modal-input" style="padding-left:26px;" min="0" step="25" placeholder="Enter amount" oninput="_syncPayButton()">
+      </div>
+      <div id="payTbdNote" style="display:none;margin-top:8px;padding:8px 10px;background:#fef3c7;border:1px solid #fde68a;border-radius:6px;font-size:12.5px;color:#92400e;line-height:1.45;">
+        ⚠️ This job is <b>Price TBD</b> — it was booked without a price. Enter the amount you actually collected; it becomes the job's price.
       </div>
     </div>
     <div class="modal-field">
@@ -1252,7 +1256,7 @@ body{background:#f0f2f5;}
     </div>
     <div class="modal-footer">
       <button class="mbtn-cancel" onclick="closePaymentModal()">Cancel</button>
-      <button class="mbtn-save" onclick="submitPayment()">💰 Log Payment</button>
+      <button class="mbtn-save" id="payLogBtn" onclick="submitPayment()">💰 Log Payment</button>
     </div>
   </div>
 </div>
@@ -2702,10 +2706,16 @@ function jobCardMiniQuote(c) {
 // That old habit understated revenue and made receivables invisible — real AR
 // read $0 while $7,800 was genuinely owed. These surface the owed money so a
 // completed-unpaid job is as hard to lose sight of as a scheduled one.
+// Imported history carries a blanket paymentStatus that means "we never
+// recorded this", not "the customer owes us". Never read it as a receivable.
+function _isBackfillSource(src) { return String(src || '').indexOf('backfill') !== -1; }
+
 function _jobIsUnpaid(c) {
   if (!c || c.isTest) return false;
   const ss = c.scheduledStatus || {};
   if ((ss.state || '') !== 'completed') return false;
+  if (ss.priceMode === 'comped') return false;   // 0047: nothing was ever owed
+  if (_isBackfillSource(ss.source)) return false; // imported default, not a payment record
   if (c.paymentInfo && c.paymentInfo.paidAt) return false;
   if (ss.paidAt) return false;
   const st = ss.paymentStatus;
@@ -2746,11 +2756,19 @@ function unpaidForDay(date) {
 function _jhEntryIsUnpaid(c, jhEntry) {
   if (!c || c.isTest || !jhEntry) return false;
   if (jhEntry.source === 'rig_segment') return false;          // $0 markers
+  if (jhEntry.priceMode === 'comped') return false;            // 0047: given, not owed
   if (jhEntry.paidAt) return false;
   // Read the JOB's own payment state, never the customer's current
   // scheduledStatus — and never infer from a missing paidAt. Pre-CRM history
   // (csv_backfill) has no paidAt but was settled years ago; treating that as
   // owed would badge ~1,800 jobs and bury the one receivable that matters.
+  // 2026-08-05 CORRECTION: switching from paidAt to paymentStatus did NOT solve
+  // this. All 1,796 csv_backfill rows carry paymentStatus='unpaid' as an import
+  // default — not a payment record. They were settled in cash years before the
+  // CRM existed, so trusting that field badges a decade of closed work as owed
+  // and buries the receivables that are real. Historical imports are excluded by
+  // source; only jobs the CRM itself recorded can be trusted to say "unpaid".
+  if (_isBackfillSource(jhEntry.source)) return false;
   const st = jhEntry.paymentStatus;
   if (!st) return false;                    // unknown -> stay silent, don't cry wolf
   return st === 'unpaid' || st === 'pending';
@@ -2768,6 +2786,13 @@ function jobAmount(c) {
   // 2026-07-24 "priced after job": TBD is the absence of a price, not $0. Show
   // "TBD" (amber), contribute 0 to money math (val), and flag it (tbd) so the
   // day header can surface "+N TBD" and totals are never silently understated.
+  // 0047: comped is deliberate free work — $0 IS the price, not a missing one.
+  // Rendered as its own chip so it can never be mistaken for a dropped price
+  // (which is exactly how Hardev's comps kept surfacing as data defects).
+  if (ss.priceMode === 'comped') {
+    const _cr = ss.compedReason ? String(ss.compedReason) : 'Comped';
+    return { html: `<span class="jn-amount comped" title="${esc(_cr)}">COMPED</span>`, val: 0, comped: true };
+  }
   if (ss.priceTbd && !ss.approvedAmount) return { html: '<span class="jn-amount tbd">TBD</span>', val: 0, tbd: true };
   const amt = ss.approvedAmount;
   if (!amt) return { html: '<span class="jn-amount missing">—</span>', val: 0 };
@@ -4107,7 +4132,9 @@ function jobCardHistoryExtra(c, jhEntry) {
   const addr     = jhEntry.address ? esc(jhEntry.address) : (c.address ? esc(c.address) : '');
   const addrCity = jhEntry.city || c.city || '';
   const amt      = jhEntry.amount || jhEntry.approvedAmount || 0;
-  const amtHtml  = amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
+  const amtHtml  = jhEntry.priceMode === 'comped'
+    ? `<span class="jn-amount comped" title="${esc(jhEntry.compedReason || 'Comped')}">COMPED</span>`
+    : amt > 0 ? `<span class="jn-amount">$${Number(amt).toLocaleString('en-US',{maximumFractionDigits:0})}</span>` : '';
   const svcText  = (jhEntry.services || jhEntry.jobNotes || jhEntry.notes || '').trim();
   const svcLine  = svcText ? `<div class="js-svc">📋 ${esc(svcText)}</div>` : '';
   const vipBadge = c.isTest ? '' : _calVipBadge(c);
@@ -8334,6 +8361,16 @@ function openPaymentModal(phone, jhJobId) {
     : ((c.scheduledStatus||{}).approvedAmount || (c.quoteStatus||{}).approvedAmount || (c.quoteStatus||{}).mainAmount || 0);
   document.getElementById('payTotal').value = total || '';
 
+  // Price-TBD guard (0047): this job was booked without a price, so there is
+  // nothing to pre-fill and the placeholder 0 must never become the record.
+  // Say so in the modal and hold the button until the collected amount is
+  // entered — the server rejects it either way, this just explains it first.
+  const _ssPm  = (c.scheduledStatus || {}).priceMode;
+  _payIsTbd = (_jh ? _jh.priceMode === 'tbd' : _ssPm === 'tbd') && !(total > 0);
+  const _tbdNote = document.getElementById('payTbdNote');
+  if (_tbdNote) _tbdNote.style.display = _payIsTbd ? 'block' : 'none';
+  _syncPayButton();
+
   // Pre-select payment preference — jhEntry method if available, else customer default
   const _rawPref = (_jh?.paymentMethod || _jh?.payment || c.preferredPaymentMethod || c.paymentMethod || 'cash').toLowerCase();
   const _knownPm = ['zelle','check','cash','venmo','other'];
@@ -8350,10 +8387,24 @@ function openPaymentModal(phone, jhJobId) {
   document.getElementById('paymentModal').classList.remove('hidden');
 }
 
+// Holds the Log Payment button while a TBD job has no amount. Logging $0 here
+// would clear the TBD flag and write the placeholder 0 in as the real price.
+function _syncPayButton() {
+  const btn = document.getElementById('payLogBtn');
+  if (!btn) return;
+  const amt = parseFloat(document.getElementById('payTotal')?.value) || 0;
+  const block = _payIsTbd && !(amt > 0);
+  btn.disabled = block;
+  btn.style.opacity = block ? '.5' : '';
+  btn.style.cursor  = block ? 'not-allowed' : '';
+  btn.title = block ? 'Enter the amount collected first — this job was booked as Price TBD' : '';
+}
+
 function closePaymentModal() {
   document.getElementById('paymentModal').classList.add('hidden');
   _payPhone   = null;
   _payJhJobId = null;
+  _payIsTbd   = false;
 }
 
 async function submitPayment() {
@@ -8369,11 +8420,18 @@ async function submitPayment() {
   btns.forEach(b => { b.disabled = true; });
 
   try {
-    await fetch(`${PCPC_API}/payment/${phone}/log`, {
+    // Check the response. This was fire-and-forget, so the TBD guard's 400 would
+    // have shown a success toast and updated the local record while the server
+    // rejected the write (T1.20).
+    const _payRes = await fetch(`${PCPC_API}/payment/${phone}/log`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ totalPaid: total, method, methodOther, paidDate, notes })
     });
+    if (!_payRes.ok) {
+      const _err = await _payRes.json().catch(() => ({}));
+      throw new Error(_err.error || `Payment not saved (HTTP ${_payRes.status})`);
+    }
 
     // Update local record
     const c = (dbRecord.customers||[]).find(x => (x.phone||'').replace(/\D/g,'').slice(-10) === phone);
@@ -8466,6 +8524,7 @@ let _feCalJobId = null; // D1 jobId when editing a scheduled calendarJobs[] entr
 
 // ── Payment modal jhEntry mode ────────────────────────────────────────────────
 let _payJhJobId = null; // jobId of specific jhEntry being paid; null = whole-customer paymentInfo
+let _payIsTbd   = false; // 0047: job booked Price TBD with no amount yet — block a $0 log
 
 function _findJhByJobId(c, jobId) {
   return (c.jobHistory || []).find(j => j.jobId === jobId) || null;

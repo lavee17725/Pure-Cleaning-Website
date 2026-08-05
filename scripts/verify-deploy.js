@@ -1312,6 +1312,119 @@ async function checkJobHistoryIntegrity() {
 // dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
 // two cases distinguishable, and the per-rig revenue panel now credits the
 // trucks that actually worked a multi-rig job instead of dropping it entirely.
+// ── 0047: comped state + TBD payment guard + settled-only review gate ────────
+// Each assertion below reproduces a symptom that actually shipped broken, per
+// T1.24 — not a synthetic stand-in.
+async function checkPriceModeComped() {
+  const token = await getToken();
+  if (!token) { warn('Comped state', 'no admin token — skipped'); return; }
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+  // 1. The reciprocity ledger exists and reports Hardev's comped work.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/comped-summary`, auth);
+    if (!r.ok) { fail('Comped — /admin/comped-summary', `HTTP ${r.status}`); }
+    else {
+      const d = await r.json();
+      const people = d.people || [];
+      if (!people.length) fail('Comped — ledger has entries', 'no comped jobs returned');
+      else {
+        pass('Comped — reciprocity ledger', `${people.length} person(s), ${d.totals?.jobs || 0} job(s)`);
+        // The comp must be CREDITED, or the whole "given vs returned" view is blank.
+        const linked = people.find(p => p.creditedToPersonId);
+        if (!linked) fail('Comped — credited to a business', 'no comped job carries compedForPersonId');
+        else pass('Comped — credited to a business', `${linked.name} → ${linked.creditedTo} ($${Math.round(linked.creditedToPaid).toLocaleString()} returned)`);
+        // A comp with no stated reason is the unreadable $0 row this replaced.
+        const noReason = people.find(p => !p.reasons || !p.reasons.length);
+        if (noReason) fail('Comped — every comp states a reason', `${noReason.name} has none`);
+        else pass('Comped — every comp states a reason');
+      }
+    }
+  } catch (e) { fail('Comped — /admin/comped-summary', e.message); }
+
+  // 2. Comped work must NOT appear in revenue. Hardev's jobs are $0, so a leak
+  //    shows up as an inflated zero-amount count, not as inflated gross.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/analytics/trends`, auth);
+    const d = await r.json();
+    const jul = (d.months || []).find(m => m.ym === '2026-07');
+    if (!jul) warn('Comped — excluded from trends', 'no 2026-07 row');
+    else if (jul.zeroAmt > 0) fail('Comped — excluded from trends', `2026-07 still reports ${jul.zeroAmt} $0 job(s); comped should be filtered out`);
+    else pass('Comped — excluded from revenue analytics', `2026-07 zeroAmt=0, avg ticket $${jul.avgTicket}`);
+  } catch (e) { warn('Comped — excluded from trends', e.message); }
+
+  // 3. A comped job must never render as a receivable, and imported history
+  //    must not either — 1,796 csv_backfill rows carry paymentStatus='unpaid'
+  //    as an import default, which badged a decade of settled work as owed.
+  try {
+    const html = await fetchText(`${GITHUB_PAGES}/pure_cleaning_calendar.html`);
+    const need = [
+      ["priceMode === 'comped') return false", 'comped is never unpaid (scheduledStatus path)'],
+      ["_isBackfillSource(jhEntry.source)",    'imported history is never unpaid (jobHistory path)'],
+      ["jn-amount comped",                     'COMPED chip renders'],
+      ["_payIsTbd",                            'TBD payment guard present'],
+    ];
+    for (const [marker, label] of need) {
+      if (html.includes(marker)) pass(`Comped — ${label}`);
+      else fail(`Comped — ${label}`, `marker missing: ${marker}`);
+    }
+  } catch (e) { fail('Comped — calendar markers', e.message); }
+
+  // 4. The TBD payment guard must actually reject. Reproduces the real failure:
+  //    logging payment on a TBD job with no amount silently promoted the
+  //    placeholder 0 into the job's permanent price.
+  try {
+    // A real, NOT-comped job: comping it without a reason must be refused.
+    const r = await fetchRetry(`${WORKERS_API}/admin/job/5614148555_2025-06-19_15000_csv`, {
+      ...auth, method: 'PATCH',
+      headers: { ...auth.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priceMode: 'comped' }),
+    });
+    const d = await r.json().catch(() => ({}));
+    // compedReason is validated before the row is looked up, so a missing
+    // reason must be the complaint — not "job not found".
+    if (r.status === 400 && /compedReason required/i.test(d.error || '')) pass('Comped — reason is required, not optional');
+    else fail('Comped — reason is required', `got HTTP ${r.status}: ${d.error || '(none)'}`);
+  } catch (e) { fail('Comped — reason is required', e.message); }
+
+  // 5. Contradictory pricing claims are rejected rather than silently resolved.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/job/5614148555_2025-06-19_15000_csv`, {
+      ...auth, method: 'PATCH',
+      headers: { ...auth.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priceMode: 'comped', priceTbd: 1 }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 400 && /contradicts/i.test(d.error || '')) pass('Comped — contradictory priceMode/priceTbd rejected');
+    else fail('Comped — contradictory priceMode/priceTbd rejected', `got HTTP ${r.status}: ${d.error || '(none)'}`);
+  } catch (e) { fail('Comped — contradiction check', e.message); }
+
+  // 6. Review gate: settled, not merely finished. Premier's 9 completed-unpaid
+  //    rows are the live proof — asking them for a review with $7,800 open is
+  //    exactly what this gate exists to prevent.
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/reviews-hub`, auth);
+    if (!r.ok) { warn('Review gate — queue reachable', `HTTP ${r.status}`); return; }
+    const d = await r.json().catch(() => null);
+    const list = (d && (d.readyToRequest || d.needsRequest || d.tab1 || d.queue)) || null;
+    if (!Array.isArray(list)) { warn('Review gate — queue shape', 'readyToRequest not in payload'); return; }
+    // Invariant, not a single-name spot check: NOBODY in the queue may have an
+    // outstanding recent completion. Premier alone would prove nothing — they're
+    // already excluded by customerType, so that assertion passes with or without
+    // this gate. This one fails the first time a residential job goes unpaid.
+    const owing = list.filter(c => {
+      const jh = c.jobHistory || [];
+      const recent = jh.filter(j => j.status === 'completed'
+        && String(j.source || '').indexOf('backfill') === -1
+        && j.priceMode !== 'comped');
+      if (!recent.length) return false;
+      return recent.every(j => !j.paidAt && j.paymentStatus !== 'paid');
+    });
+    if (owing.length) fail('Review gate — no unpaid customer in queue', `${owing.length}: ${owing.slice(0,3).map(c=>c.firstName||c.phone).join(', ')}`);
+    else pass('Review gate — no unpaid customer in queue', `${list.length} in queue, all settled`);
+  } catch (e) { warn('Review gate — unpaid excluded', e.message); }
+}
+
 async function checkSplitTypes() {
   const token = await getToken();
   if (!token) { warn('Split types', 'no admin token — skipped'); return; }
@@ -1809,6 +1922,7 @@ async function main() {
   await checkQuoteTimeCorrection();       // 2026-08-04 address gate + correction propagation
   await checkArrivalText();               // 2026-08-04 position-derived arrival time
   await checkSplitTypes();                // 2026-08-05 multi-day vs multi-rig + per-rig revenue
+  await checkPriceModeComped();           // 2026-08-05 comped state, TBD payment guard, review gate
   await checkCacheHeaders();
 
   // Print results

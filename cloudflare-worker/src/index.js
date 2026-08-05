@@ -1493,6 +1493,11 @@ export default {
         return await handleAnalyticsTrends(env, corsHeaders);
       }
 
+      // GET /admin/comped-summary — reciprocity ledger: free work given vs revenue received.
+      if (path === 'admin/comped-summary' && request.method === 'GET') {
+        return await handleCompedSummary(env, corsHeaders);
+      }
+
       // POST /admin/invoice/from-job  { jobId } → idempotent create+return Invoice + LineItems.
       // Creates one Invoice row (or returns existing if jobIds already references the jobId),
       // line-items per day for multi-day, atomic counter via DocumentCounter ON CONFLICT UPDATE.
@@ -6141,6 +6146,36 @@ async function handleLogPayment(request, env, phone, corsHeaders) {
   if (!cust) return jsonResponse({ error: 'Customer not found' }, corsHeaders, 404);
 
   const now = new Date().toISOString();
+
+  // ── Price-TBD payment guard (0047) ─────────────────────────────────────────
+  // This is the path the calendar's payment modal actually uses, so the guard
+  // has to live here as well as in handlePatchJob (DL-07). Marking a TBD job
+  // paid with no amount would silently promote the placeholder 0 into a real
+  // price and erase what the work was worth. Resolved BEFORE the KV write so a
+  // rejected payment leaves nothing half-written.
+  let _tbdTarget = null;
+  try {
+    if (env.DB) {
+      const _pid = _d1PersonId((phone||'').replace(/\D/g,'').slice(-10));
+      if (_pid) {
+        _tbdTarget = await env.DB.prepare(
+          `SELECT jobId, amount, priceMode FROM Job
+            WHERE payerId=? AND state='completed' AND (paidAt IS NULL OR paidAt='')
+              AND priceMode != 'comped'
+            ORDER BY scheduledDate DESC LIMIT 1`
+        ).bind(_pid).first();
+      }
+    }
+  } catch (e) { await _logD1Failure(env, 'handleLogPayment:tbdLookup', e.message); }
+
+  if (_tbdTarget && _tbdTarget.priceMode === 'tbd'
+      && !(Number(_tbdTarget.amount) > 0) && !(Number(totalPaid) > 0)) {
+    return jsonResponse({
+      error: 'This job is Price TBD — enter the amount collected before logging payment.',
+      code: 'TBD_AMOUNT_REQUIRED', jobId: _tbdTarget.jobId,
+    }, corsHeaders, 400);
+  }
+
   cust.paymentInfo = {
     totalPaid: totalPaid || 0,
     method:     method     || 'cash',
@@ -6158,9 +6193,18 @@ async function handleLogPayment(request, env, phone, corsHeaders) {
       const normPh   = (phone||'').replace(/\D/g,'').slice(-10);
       const personId = _d1PersonId(normPh);
       if (personId) {
+        // Comped jobs are excluded from the target: they were never owed, so
+        // "the oldest unpaid completed job" must never land on one (0047).
         await env.DB.prepare(
-          `UPDATE Job SET paymentMethod=?, paymentStatus='paid', paidAt=?, modifiedAt=? WHERE payerId=? AND state='completed' AND (paidAt IS NULL OR paidAt='') ORDER BY scheduledDate DESC LIMIT 1`
+          `UPDATE Job SET paymentMethod=?, paymentStatus='paid', paidAt=?, modifiedAt=? WHERE payerId=? AND state='completed' AND (paidAt IS NULL OR paidAt='') AND priceMode != 'comped' ORDER BY scheduledDate DESC LIMIT 1`
         ).bind(method||'cash', now, now, personId).run();
+        // Pricing a TBD job at payment time: the amount collected IS the price.
+        // Capture it on the row so the placeholder 0 never becomes the record.
+        if (_tbdTarget && _tbdTarget.priceMode === 'tbd' && Number(totalPaid) > 0) {
+          await env.DB.prepare(
+            `UPDATE Job SET amount=?, priceMode='standard', priceTbd=0, modifiedAt=? WHERE jobId=?`
+          ).bind(Number(totalPaid), now, _tbdTarget.jobId).run();
+        }
       }
     }
   } catch (e) { await _logD1Failure(env, 'handleLogPayment', e.message); }
@@ -6491,12 +6535,22 @@ function reviewIsReadyToRequest(c, rs, nowIso, thirtyDaysAgo) {
   // Must have a completed job on/after the cutoff (and, if already asked, AFTER that ask).
   // Require completedAt (calendar completions always set it). Exclude csv_backfill — those
   // are historical records, not recent completions.
+  // SETTLED, not merely finished (Tyler, 2026-08-05): never ask a customer for a
+  // review while they still owe us money. Completion used to be the gate, so
+  // Premier's $7,800 run would have triggered an ask with the invoice open.
+  // A comped job counts as settled — there is nothing to collect, and the free
+  // work is exactly the goodwill worth asking about.
+  // Unknown payment state (null) does NOT qualify: silence isn't consent to ask.
+  const _settled = j => j.priceMode === 'comped'
+                     || j.paidAt
+                     || j.paymentStatus === 'paid';
+
   const jh = c.jobHistory || [];
-  if (jh.some(j => j.status === 'completed' && j.source !== 'csv_backfill' && qualifies(j.completedAt))) return true;
+  if (jh.some(j => j.status === 'completed' && j.source !== 'csv_backfill' && _settled(j) && qualifies(j.completedAt))) return true;
 
   // Calendar completions write completedAt on scheduledStatus.
   const ss = c.scheduledStatus || {};
-  if (ss.state === 'completed' && qualifies(ss.completedAt) && (ss.source||'').indexOf('csv_backfill') === -1) return true;
+  if (ss.state === 'completed' && _settled(ss) && qualifies(ss.completedAt) && (ss.source||'').indexOf('csv_backfill') === -1) return true;
 
   return false;
 }
@@ -6868,6 +6922,9 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     // badge marks a decade of settled work as outstanding and the real
     // receivable is lost in the noise.
     paymentStatus:      j.paymentStatus   || null,
+    priceMode:          j.priceMode       || 'standard',   // 0047 — 'comped' is never a receivable
+    compedReason:       j.compedReason    || null,
+    compedValue:        j.compedValue     ?? null,
     actualDuration:     j.actualDuration  || null,
     actualArrival:      j.actualArrival   || null,
     actualDeparture:    j.actualDeparture || null,
@@ -6962,6 +7019,13 @@ function _d1BuildScheduledStatus(personJobs) {
     // is NULL (→ _groupApprovedAmt 0), so every display/money path keys off this
     // flag, never the 0. Cleared automatically once a real amount is set.
     priceTbd:            (ss.priceTbd && !ss.amount) ? true : false,
+    // 0047: why this amount is what it is. 'comped' means $0 IS the price —
+    // deliberate free work, not a missing one — so no surface may render it as
+    // owed, unpriced, or a defect.
+    priceMode:           ss.priceMode || 'standard',
+    compedReason:        ss.compedReason || null,
+    compedForPersonId:   ss.compedForPersonId || null,
+    compedValue:         ss.compedValue ?? null,
     // Fix 5 (multi-day calendar): explicit group total for payment-warning check.
     // The per-day ss card is suppressed for multi-day parents; day_segment jh entries
     // render each day's card. The payment modal reads groupApprovedAmount so the
@@ -7114,6 +7178,10 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
         // day the work appears (2026-08-05).
         paymentStatus:      parent.paymentStatus || null,
         paidAt:             parent.paidAt        || null,
+        // Same inheritance for the pricing decision: a day slice of a comped job
+        // is comped, so it can't badge as owed on the other days (0047).
+        priceMode:          parent.priceMode  || 'standard',
+        compedReason:       parent.compedReason || null,
         dayNumber:          seg.dayNumber  ?? null,
         dayPhase:           seg.dayPhase   || null,
         crewCount:          seg.crewCount  ?? null,
@@ -7456,6 +7524,7 @@ async function d1AllCustomersToKvShape(env) {
     ).all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
+      'priceMode,compedReason,compedForPersonId,compedValue,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -7625,6 +7694,7 @@ async function d1CustomerToKvShape(phone, env) {
     ).bind(personId).all().then(r => r.results || []),
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
+      'priceMode,compedReason,compedForPersonId,compedValue,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -8430,6 +8500,10 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.state,
         j.amount,
         j.priceTbd,
+        j.priceMode,
+        j.compedReason,
+        j.compedForPersonId,
+        j.compedValue,
         j.rigId,
         j.servicesRaw,
         j.jobNotes,
@@ -8566,6 +8640,126 @@ async function handleCalendarJobs(request, env, corsHeaders) {
   }
 }
 
+// ── priceMode (0047) ─────────────────────────────────────────────────────────
+// One field answers "why is this amount what it is". Two booleans could
+// disagree (both TBD and comped, with nothing to say which wins); an enum can't.
+//
+//   standard — amount is the real price
+//   tbd      — priced after the job; the stored 0 is a placeholder, not a price
+//   comped   — deliberately free; the stored 0 IS the truth
+//
+// COMPED IS NOT A MISSING PRICE and it is NOT A RECEIVABLE. It never counts as
+// unpaid, never lands in unpriced-job findings, and never drags average ticket.
+// It is still a real job everywhere else: service history, cadence, job counts,
+// rig hours, review eligibility.
+const _PRICE_MODES = new Set(['standard', 'tbd', 'comped']);
+
+// Accepts either the new priceMode or a legacy priceTbd boolean and returns the
+// single winning mode. Callers that pass both get an explicit error rather than
+// a silent precedence rule nobody can remember six months from now.
+function _resolvePriceMode({ priceMode, priceTbd }) {
+  const pmGiven  = priceMode != null && priceMode !== '';
+  const tbdGiven = priceTbd  != null && priceTbd  !== '';
+  if (pmGiven && !_PRICE_MODES.has(priceMode))
+    return { error: `priceMode must be one of: ${[..._PRICE_MODES].join(', ')}` };
+  if (pmGiven && tbdGiven) {
+    const implied = (priceTbd === 1 || priceTbd === true) ? 'tbd' : 'standard';
+    if (implied !== priceMode)
+      return { error: `priceMode='${priceMode}' contradicts priceTbd=${priceTbd} — send priceMode only` };
+  }
+  if (pmGiven)  return { mode: priceMode };
+  if (tbdGiven) return { mode: (priceTbd === 1 || priceTbd === true) ? 'tbd' : 'standard' };
+  return { mode: 'standard' };
+}
+
+// GET /admin/comped-summary — the reciprocity ledger.
+// For each person we've comped work for: what that free work was worth, against
+// what the business they're linked to has actually paid. Answers "what have I
+// given Hardev against what Premier has paid me" with numbers instead of memory.
+async function handleCompedSummary(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT j.jobId, j.payerId, j.scheduledDate, j.state,
+             j.compedReason, j.compedForPersonId, j.compedValue,
+             p.firstName  AS pFirst,  p.lastName  AS pLast,  p.businessName AS pBiz,
+             f.firstName  AS fFirst,  f.lastName  AS fLast,  f.businessName AS fBiz
+        FROM Job j
+        LEFT JOIN Person p ON p.personId = j.payerId
+        LEFT JOIN Person f ON f.personId = j.compedForPersonId
+       WHERE j.priceMode = 'comped'
+       ORDER BY j.scheduledDate DESC
+    `).all();
+
+    const nameOf = (biz, first, last) =>
+      (biz || [first, last].filter(Boolean).join(' ') || '').trim() || null;
+
+    const byPerson = {};
+    for (const r of (results || [])) {
+      const k = r.payerId;
+      byPerson[k] ??= {
+        personId: k,
+        name: nameOf(r.pBiz, r.pFirst, r.pLast),
+        jobs: 0, compedValue: 0, jobsWithNoValue: 0,
+        creditedTo: null, creditedToPersonId: null, creditedToPaid: 0,
+        reasons: [], history: [],
+      };
+      const e = byPerson[k];
+      e.jobs++;
+      if (r.compedValue != null) e.compedValue += Number(r.compedValue) || 0;
+      else e.jobsWithNoValue++;   // surfaced, never guessed at
+      if (r.compedForPersonId && !e.creditedToPersonId) {
+        e.creditedToPersonId = r.compedForPersonId;
+        e.creditedTo = nameOf(r.fBiz, r.fFirst, r.fLast);
+      }
+      const reason = (r.compedReason || '').trim();
+      if (reason && !e.reasons.includes(reason)) e.reasons.push(reason);
+      e.history.push({ jobId: r.jobId, date: r.scheduledDate, state: r.state, value: r.compedValue ?? null });
+    }
+
+    // What each credited business has actually paid us. Completed work only, and
+    // the same rollup the money surfaces use — rig segments and day-children are
+    // slices of a parent, not separate revenue.
+    for (const e of Object.values(byPerson)) {
+      if (!e.creditedToPersonId) continue;
+      // Group rollup, NOT a bare parent-only sum. A multi-day parent carries
+      // only Day 1's slice in Job.amount — Premier's $7,800 nine-day run lives
+      // almost entirely in its children, so filtering to parentJobId IS NULL
+      // reported $4,267 of $11,200. Same formula as handleAnalyticsTrends.
+      const row = await env.DB.prepare(
+        `SELECT COALESCE(SUM(grp),0) AS paid, COUNT(*) AS jobs FROM (
+           SELECT (COALESCE(j.amount,0) + COALESCE((
+                     SELECT SUM(c.amount) FROM Job c
+                      WHERE c.parentJobId = j.jobId
+                        AND c.state != 'cancelled'
+                        AND COALESCE(c.isRigSegment,0) = 0
+                   ),0)) AS grp
+             FROM Job j
+            WHERE j.payerId = ? AND j.state = 'completed'
+              AND COALESCE(j.isRigSegment,0) = 0 AND j.parentJobId IS NULL
+              AND j.priceMode != 'comped'
+         ) t`
+      ).bind(e.creditedToPersonId).first();
+      e.creditedToPaid = Number(row?.paid) || 0;
+      e.creditedToJobs = Number(row?.jobs) || 0;
+    }
+
+    const people = Object.values(byPerson).sort((a, b) => b.compedValue - a.compedValue);
+    return jsonResponse({
+      people,
+      totals: {
+        people: people.length,
+        jobs:   people.reduce((s, p) => s + p.jobs, 0),
+        compedValue: people.reduce((s, p) => s + p.compedValue, 0),
+      },
+      generatedAt: new Date().toISOString(),
+    }, { ...corsHeaders, 'Cache-Control': 'no-store' });
+  } catch (e) {
+    await _logD1Failure(env, 'handleCompedSummary', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
 // ── GET /admin/analytics/trends ──────────────────────────────────────────────
 // The reusable query core for the insights page. Returns per-month aggregates for the
 // WHOLE history in one query; the client slices it into MoM (trailing 12), YoY (year×
@@ -8600,6 +8794,10 @@ async function handleAnalyticsTrends(env, corsHeaders) {
         WHERE j.state = 'completed'
           AND COALESCE(j.isRigSegment,0) = 0
           AND j.parentJobId IS NULL
+          -- 0047: comped work is deliberately $0. Counting it as a job with $0
+          -- gross drags average ticket down and pads zeroAmt with records that
+          -- aren't defects. It's reported separately (GET /admin/comped-summary).
+          AND j.priceMode != 'comped'
           AND j.scheduledDate IS NOT NULL AND j.scheduledDate != ''
       ) t
       GROUP BY ym
@@ -11274,14 +11472,21 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent,
     state,  // 2026-06-22 add_job migration: 'needs_scheduling' OK with null scheduledDate
     customerSelectedDate,  // queue-path requested date (no commit yet)
-    priceTbd,  // 2026-07-24: "priced after job" — amount stays NULL, priceTbd=1 (never $0)
+    priceTbd,  // legacy input — folded into priceMode below (derived mirror since 0047)
+    priceMode, compedReason, compedForPersonId, compedValue,
   } = body;
-  // TBD is the absence of a price. Job.amount is NOT NULL (original schema), so
-  // the stored 0 is a placeholder — priceTbd=1 is the SOURCE OF TRUTH and gates
-  // every display/money/completion path, so the 0 never surfaces as a real price
-  // (T1.21 honesty preserved by the flag, not the raw value).
-  const _isTbd  = !!priceTbd;
-  const _amtVal = _isTbd ? 0 : amount;
+  // Job.amount is NOT NULL (original schema), so every "no price" state stores a
+  // 0 placeholder plus a mode. priceMode is the SOURCE OF TRUTH and gates every
+  // display/money/completion path, so the 0 never surfaces as a real price
+  // (T1.21 honesty preserved by the mode, not the raw value).
+  const _pm = _resolvePriceMode({ priceMode, priceTbd });
+  if (_pm.error) return jsonResponse({ error: _pm.error }, corsHeaders, 400);
+  const _isTbd    = _pm.mode === 'tbd';
+  const _isComped = _pm.mode === 'comped';
+  // A comp with no stated reason is the unreadable $0 row we built this to kill.
+  if (_isComped && !String(compedReason || '').trim())
+    return jsonResponse({ error: 'compedReason required when priceMode=comped' }, corsHeaders, 400);
+  const _amtVal = (_isTbd || _isComped) ? 0 : amount;
   // State validation. Default 'scheduled' for backward compat. add_job's
   // queue path uses 'needs_scheduling' with null scheduledDate.
   const _jobState = state || 'scheduled';
@@ -11303,7 +11508,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
   // scheduledDate required UNLESS state='needs_scheduling' (queue path — 2026-06-22).
   if (!scheduledDate && _jobState !== 'needs_scheduling')
     return jsonResponse({ error: 'scheduledDate required (or set state=needs_scheduling for queue)' }, corsHeaders, 400);
-  if (amount == null && !_isTbd) return jsonResponse({ error: 'amount required (or set priceTbd for priced-after-job)' }, corsHeaders, 400);
+  if (amount == null && !_isTbd && !_isComped) return jsonResponse({ error: 'amount required (or set priceMode=tbd for priced-after-job / comped for free work)' }, corsHeaders, 400);
   if (!servicesRequested) return jsonResponse({ error: 'servicesRequested required' }, corsHeaders, 400);
 
   // Deterministic jobId: payerId + date (or 'queued_<ts>' when no date yet).
@@ -11360,7 +11565,8 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
     // INSERT OR REPLACE — re-submitting same payer+date+property overwrites cancelled/stale row.
     await env.DB.prepare(
       `INSERT OR REPLACE INTO Job
-         (jobId, payerId, propertyId, scheduledDate, state, amount, priceTbd, paymentStatus,
+         (jobId, payerId, propertyId, scheduledDate, state, amount, priceTbd,
+          priceMode, compedReason, compedForPersonId, compedValue, paymentStatus,
           servicesRequested, servicesRaw, jobNotes, rigId,
           workSiteAddress, workSiteCity, workSiteZip,
           workSitePlaceId, workSiteGoogleVerified,
@@ -11368,9 +11574,14 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
           roofType,
           source, createdAt, modifiedAt,
           parentJobId, dayNumber, totalDays, dayPhase, isMultiDayParent)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      jobId, payerId, propertyId, scheduledDate || null, _jobState, _amtVal, _isTbd ? 1 : 0, 'pending',
+      jobId, payerId, propertyId, scheduledDate || null, _jobState, _amtVal, _isTbd ? 1 : 0,
+      _pm.mode,
+      _isComped ? String(compedReason).trim() : null,
+      _isComped ? (compedForPersonId || null) : null,
+      _isComped && compedValue != null ? Number(compedValue) : null,
+      'pending',
       _svcTagsVal, servicesRaw || servicesRequested, jobNotes || servicesRequested,
       rigId || null,
       workSiteAddress || null, workSiteCity || null, workSiteZip || null,
@@ -11792,7 +12003,8 @@ async function handleSplitJob(request, env, corsHeaders) {
 
 const _JOB_MUTABLE_FIELDS = new Set([
   'state', 'scheduledDate', 'scheduledTimeWindow', 'rigId',
-  'amount', 'priceTbd',   // 2026-07-24: TBD flag — editable; setting a real amount clears it (enforced in handlePatchJob)
+  'amount', 'priceTbd',   // priceTbd is a DERIVED MIRROR of priceMode since 0047 — never set it alone
+  'priceMode', 'compedReason', 'compedForPersonId', 'compedValue',
   'jobNotes', 'servicesRaw', 'servicesRequested', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
@@ -11846,7 +12058,9 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
     return jsonResponse({ error: `Invalid state: ${body.state}` }, corsHeaders, 400);
 
   // Confirm job exists
-  const existing = await env.DB.prepare('SELECT jobId, state, payerId FROM Job WHERE jobId = ?').bind(jobId).first();
+  const existing = await env.DB.prepare(
+    'SELECT jobId, state, payerId, amount, priceMode, compedReason FROM Job WHERE jobId = ?'
+  ).bind(jobId).first();
   if (!existing) return jsonResponse({ error: 'Job not found', jobId }, corsHeaders, 404);
 
   // propertyId re-bind: must have a PersonProperty link for this job's payer.
@@ -11872,11 +12086,57 @@ async function handlePatchJob(request, env, jobId, corsHeaders) {
   const updates = { ...body };
   if (updates.state === 'cancelled' && !updates.cancelledAt) updates.cancelledAt = now;
   if (updates.state === 'completed' && !updates.completedAt) updates.completedAt = now;
-  // 2026-07-24: a real amount and TBD can never coexist. Setting a non-null
-  // amount clears priceTbd (editing/pricing a TBD job makes it a normal job);
-  // setting priceTbd=1 nulls the amount (TBD is the absence of a price, not $0).
-  if (updates.amount != null && Number(updates.amount) > 0) updates.priceTbd = 0;
-  if (updates.priceTbd === 1 || updates.priceTbd === true) { updates.priceTbd = 1; updates.amount = 0; }  // amount is NOT NULL — 0 placeholder, flag is truth
+  // ── priceMode coherence (0047) ─────────────────────────────────────────────
+  // A real amount, "priced later", and "deliberately free" are mutually
+  // exclusive claims about the same number. Resolve them here, in one place, so
+  // no caller can persist a row that says two things at once.
+  const _pmIn = _resolvePriceMode({ priceMode: updates.priceMode, priceTbd: updates.priceTbd });
+  if (_pmIn.error) return jsonResponse({ error: _pmIn.error }, corsHeaders, 400);
+  const _pmGiven   = updates.priceMode !== undefined || updates.priceTbd !== undefined;
+  const _amtGiven  = updates.amount !== undefined && updates.amount != null && Number(updates.amount) > 0;
+  // Effective mode after this patch: what was sent, else what's already stored.
+  let _mode = _pmGiven ? _pmIn.mode : (existing.priceMode || 'standard');
+
+  if (_amtGiven && _pmGiven && _pmIn.mode !== 'standard')
+    return jsonResponse({ error: `cannot set amount and priceMode='${_pmIn.mode}' in the same update` }, corsHeaders, 400);
+  // Pricing a job that was waiting on a price makes it a normal job. A COMPED
+  // job is NOT auto-converted — free is a decision, not a missing value, so
+  // flipping it back requires saying so explicitly (priceMode:'standard').
+  if (_amtGiven && !_pmGiven && _mode === 'tbd') _mode = 'standard';
+
+  if (_mode === 'comped') {
+    const _reason = updates.compedReason !== undefined
+      ? String(updates.compedReason || '').trim()
+      : String(existing.compedReason || '').trim();
+    if (!_reason) return jsonResponse({ error: 'compedReason required when priceMode=comped' }, corsHeaders, 400);
+    updates.amount = 0;   // amount is NOT NULL — 0 is the truth here, not a placeholder
+  } else if (_mode === 'tbd') {
+    updates.amount = 0;   // TBD is the absence of a price; the 0 is a placeholder
+  }
+  // Leaving comped clears its provenance rather than orphaning a reason on a
+  // job that is no longer free.
+  if (_pmGiven && _mode !== 'comped' && (existing.priceMode === 'comped')) {
+    updates.compedReason = null; updates.compedForPersonId = null; updates.compedValue = null;
+  }
+  if (_pmGiven || _amtGiven) {
+    updates.priceMode = _mode;
+    updates.priceTbd  = _mode === 'tbd' ? 1 : 0;   // derived mirror, never independent
+  }
+
+  // ── Price-TBD payment guard ────────────────────────────────────────────────
+  // Marking a TBD job paid without its price destroys the only record of what
+  // the work was worth: the flag clears, the placeholder 0 becomes the price,
+  // and the job reads as legitimately-$0 revenue forever. Comped is exempt —
+  // $0 IS the price there, and it's already been decided on purpose.
+  if (updates.paymentStatus === 'paid' && _mode === 'tbd') {
+    const _finalAmt = _amtGiven ? Number(updates.amount)
+                    : (updates.amount != null ? Number(updates.amount) : Number(existing.amount || 0));
+    if (!(_finalAmt > 0))
+      return jsonResponse({
+        error: 'This job is Price TBD — enter the amount collected before marking it paid.',
+        code: 'TBD_AMOUNT_REQUIRED', jobId,
+      }, corsHeaders, 400);
+  }
 
   const sets = Object.keys(updates).map(k => `${k}=?`);
   sets.push('modifiedAt=?');
