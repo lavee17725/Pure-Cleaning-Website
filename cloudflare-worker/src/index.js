@@ -1498,6 +1498,11 @@ export default {
         return await handleCompedSummary(env, corsHeaders);
       }
 
+      // GET /admin/debug/group-parity — JobGroup view vs its JS mirror (0048).
+      if (path === 'admin/debug/group-parity' && request.method === 'GET') {
+        return await handleGroupParity(env, corsHeaders);
+      }
+
       // POST /admin/invoice/from-job  { jobId } → idempotent create+return Invoice + LineItems.
       // Creates one Invoice row (or returns existing if jobIds already references the jobId),
       // line-items per day for multi-day, atomic counter via DocumentCounter ON CONFLICT UPDATE.
@@ -8636,6 +8641,99 @@ async function handleCalendarJobs(request, env, corsHeaders) {
     return jsonResponse({ weekStart, weekEnd: weekEndStr, jobs: dedupedRows }, corsHeaders);
   } catch (e) {
     await _logD1Failure(env, 'handleCalendarJobs', e.message);
+    return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+  }
+}
+
+// ── JobGroup (0048): ONE definition of what a job group is worth ─────────────
+// The SQL side is the JobGroup view. This is its JS mirror, for the one caller
+// that works over rows already in memory (_d1BuildScheduledStatus) and can't
+// join a view without a second query.
+//
+// Two implementations of one rule is what we are trying to END, so these are
+// not allowed to drift on trust: GET /admin/debug/group-parity compares them
+// across every group in the database, and the deploy gate fails on any
+// mismatch. If you change one, the gate will tell you about the other.
+//
+// A group is a HEAD row — not a rig segment, not a day-child. Its worth is its
+// own amount plus its non-cancelled day-children. Rig segments are $0
+// attribution markers and never contribute (DL-06).
+//
+// This answers ONLY "what is it worth". Whether a group COUNTS — state,
+// priceMode, date window, source — belongs to the caller.
+function _isGroupHead(j) {
+  return !j.isRigSegment && (j.parentJobId == null || j.parentJobId === '');
+}
+function _groupAmountOf(head, candidateChildren) {
+  let total = Number(head.amount) || 0;
+  for (const c of candidateChildren || []) {
+    if (c.parentJobId !== head.jobId) continue;
+    if (c.state === 'cancelled') continue;
+    if (c.isRigSegment) continue;          // $0 markers — never money
+    total += Number(c.amount) || 0;
+  }
+  return total;
+}
+
+// GET /admin/debug/group-parity — proves the two implementations agree.
+// Without this, "one answer" is aspirational (Rule 26).
+async function handleGroupParity(env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  try {
+    const [{ results: rows }, { results: view }] = await Promise.all([
+      env.DB.prepare('SELECT jobId, parentJobId, state, amount, isRigSegment FROM Job').all(),
+      env.DB.prepare('SELECT jobId, groupAmount FROM JobGroup').all(),
+    ]);
+    const all      = rows || [];
+    const children = all.filter(j => j.parentJobId);
+    const byParent = new Map();
+    for (const c of children) {
+      if (!byParent.has(c.parentJobId)) byParent.set(c.parentJobId, []);
+      byParent.get(c.parentJobId).push(c);
+    }
+    const viewAmt = new Map((view || []).map(v => [v.jobId, Number(v.groupAmount) || 0]));
+
+    const mismatches = [];
+    let compared = 0;
+    for (const j of all) {
+      if (!_isGroupHead(j)) continue;
+      compared++;
+      const js = _groupAmountOf(j, byParent.get(j.jobId) || []);
+      const sql = viewAmt.get(j.jobId);
+      if (sql === undefined) { mismatches.push({ jobId: j.jobId, js, sql: null, why: 'missing from view' }); continue; }
+      // Money in cents — float sums of x.67 slices differ in the last bits.
+      if (Math.round(js * 100) !== Math.round(sql * 100))
+        mismatches.push({ jobId: j.jobId, js, sql });
+    }
+    // A head the JS rule skipped but the view included is drift too.
+    const heads = new Set(all.filter(_isGroupHead).map(j => j.jobId));
+    for (const v of (view || [])) {
+      if (!heads.has(v.jobId)) mismatches.push({ jobId: v.jobId, js: null, sql: Number(v.groupAmount) || 0, why: 'in view, not a head in JS' });
+    }
+
+    // COVERAGE, stated honestly. A parity check can only see a rule that is
+    // numerically live in the data. Proof run 2026-08-05: deleting the
+    // rig-segment exclusion from the JS mirror changed NOTHING and the check
+    // stayed green — every rig segment is $0, so that rule is currently
+    // untestable this way. Deleting the children entirely DID go red and named
+    // Premier ($866.67 vs $7,800.03).
+    //
+    // So report what makes each rule observable. If nonZeroRigSegments ever
+    // becomes non-zero, the blind spot has gone live and the gate says so
+    // instead of quietly agreeing with a broken mirror.
+    const nonZeroRigSegments = all.filter(j => j.isRigSegment && (Number(j.amount) || 0) !== 0).length;
+    const cancelledChildrenWithAmount = children.filter(c => c.state === 'cancelled' && (Number(c.amount) || 0) !== 0).length;
+    const multiChildGroups = [...byParent.values()].filter(cs => cs.some(c => !c.isRigSegment && c.state !== 'cancelled' && (Number(c.amount) || 0) !== 0)).length;
+
+    return jsonResponse({
+      compared, viewRows: (view || []).length,
+      mismatchCount: mismatches.length,
+      mismatches: mismatches.slice(0, 25),
+      coverage: { multiChildGroups, cancelledChildrenWithAmount, nonZeroRigSegments },
+      generatedAt: new Date().toISOString(),
+    }, { ...corsHeaders, 'Cache-Control': 'no-store' });
+  } catch (e) {
+    await _logD1Failure(env, 'handleGroupParity', e.message);
     return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
   }
 }

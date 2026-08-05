@@ -1312,6 +1312,66 @@ async function checkJobHistoryIntegrity() {
 // dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
 // two cases distinguishable, and the per-rig revenue panel now credits the
 // trucks that actually worked a multi-rig job instead of dropping it entirely.
+// ── 0048 ship 1: ONE definition of what a job group is worth ─────────────────
+// Four call sites computed this independently and had already drifted — July
+// 2026 read $29,275.03/53 jobs on one board and $30,150.03/56 on another.
+// The rollup now lives in the JobGroup view, with a JS mirror for the one
+// caller that works over in-memory rows. This asserts they agree on EVERY
+// group, so "one answer" is enforced rather than intended (Rule 26).
+async function checkGroupAmountParity() {
+  const token = await getToken();
+  if (!token) { warn('Group amount', 'no admin token — skipped'); return; }
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/debug/group-parity`, auth);
+    if (!r.ok) { fail('Group amount — parity endpoint', `HTTP ${r.status}`); return; }
+    const d = await r.json();
+    if (!d.compared) { fail('Group amount — parity actually ran', 'compared 0 groups'); return; }
+
+    if (d.mismatchCount > 0) {
+      const ex = (d.mismatches || []).slice(0, 3)
+        .map(m => `${m.jobId}: js=${m.js} sql=${m.sql}${m.why ? ' (' + m.why + ')' : ''}`).join(' | ');
+      fail('Group amount — SQL view and JS mirror agree', `${d.mismatchCount} mismatch(es): ${ex}`);
+    } else {
+      pass('Group amount — SQL view and JS mirror agree', `${d.compared} groups, 0 mismatches`);
+    }
+
+    // The view must cover every head — a head missing from it would make a
+    // consumer that JOINs the view silently drop that job's revenue.
+    if (d.viewRows !== d.compared)
+      fail('Group amount — view covers every group', `view has ${d.viewRows} rows, JS found ${d.compared} heads`);
+    else pass('Group amount — view covers every group', `${d.viewRows} groups`);
+
+    // A parity check only sees rules that are numerically live. Proven
+    // 2026-08-05: deleting the rig-segment exclusion from the JS mirror left the
+    // check GREEN, because every rig segment is $0. State the coverage instead
+    // of implying it, and go red the day the blind spot goes live.
+    const cov = d.coverage || {};
+    if (!(cov.multiChildGroups > 0))
+      fail('Group amount — parity has something to compare', 'no multi-child groups — the rollup rule is untested');
+    else pass('Group amount — parity has something to compare',
+      `${cov.multiChildGroups} multi-child group(s), ${cov.cancelledChildrenWithAmount} cancelled child(ren) with an amount`);
+
+    if (cov.nonZeroRigSegments > 0)
+      fail('Group amount — rig segments still $0', `${cov.nonZeroRigSegments} rig segment(s) carry money — the parity check cannot see the exclusion rule, and rig segments are not supposed to hold billing (DL-06)`);
+    else pass('Group amount — rig segments still $0', 'exclusion rule inert by construction');
+  } catch (e) { fail('Group amount — parity check', e.message); }
+
+  // The view must be able to produce BOTH boards' current numbers by changing
+  // only the filter — proof the rollup was never what made them disagree, and
+  // the baseline for ship 2 (which changes the filters, not the math).
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/analytics/trends`, auth);
+    const d = await r.json();
+    const jul = (d.months || []).find(m => m.ym === '2026-07');
+    if (!jul) { warn('Group amount — July completed baseline', 'no 2026-07 row'); return; }
+    if (Math.round(jul.gross) !== 29275)
+      fail('Group amount — July completed revenue holds', `expected $29,275, got $${Math.round(jul.gross)}`);
+    else pass('Group amount — July completed revenue holds', `$${jul.gross.toLocaleString()}`);
+  } catch (e) { warn('Group amount — July baseline', e.message); }
+}
+
 // ── 0047: comped state + TBD payment guard + settled-only review gate ────────
 // Each assertion below reproduces a symptom that actually shipped broken, per
 // T1.24 — not a synthetic stand-in.
@@ -1923,6 +1983,7 @@ async function main() {
   await checkArrivalText();               // 2026-08-04 position-derived arrival time
   await checkSplitTypes();                // 2026-08-05 multi-day vs multi-rig + per-rig revenue
   await checkPriceModeComped();           // 2026-08-05 comped state, TBD payment guard, review gate
+  await checkGroupAmountParity();         // 2026-08-05 ship 1: JobGroup view == its JS mirror
   await checkCacheHeaders();
 
   // Print results
