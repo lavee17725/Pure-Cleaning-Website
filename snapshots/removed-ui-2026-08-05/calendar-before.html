@@ -870,9 +870,12 @@ body{background:#f0f2f5;}
     <button class="block-week-btn" id="blockWeekBtn" onclick="toggleWeekBlocked()">Mark Booked</button>
   </div>
   <div class="topbar-sep"></div>
+  <button class="topbar-action" onclick="openDayRouteView()">📍 Day Route</button>
   <button class="topbar-action" onclick="window.open('/pure_cleaning_monthly.html','_blank')">📊 Monthly View</button>
   <button class="topbar-action" onclick="openPayrollModal()">📊 Payroll</button>
   <button class="topbar-action" id="crewToggleBtn" onclick="toggleCrewPanel()">👥 Crew</button>
+  <button class="topbar-action" id="geocodeBackfillBtn" onclick="startGeocodingBackfill()" title="One-time geocode for all customers missing coordinates" style="opacity:.6;">🗺 Geocode</button>
+  <span id="geocodeBackfillBar" style="display:none;font-size:11px;color:#fff;opacity:.8;max-width:220px;white-space:nowrap;overflow:hidden;"></span>
   <div class="view-pills">
     <button class="vpill active" id="vpWeek"  onclick="switchView('week')">Week</button>
     <button class="vpill"        id="vpDay"   onclick="switchView('day')">Day</button>
@@ -894,11 +897,12 @@ body{background:#f0f2f5;}
 <!-- THREE-COLUMN LAYOUT -->
 <div class="layout" id="mainLayout">
 
-  <!-- LEFT RAIL: Log Quote. The "Needs Mini Quote" queue was removed 2026-08-05
-       (unused). Reserved for the parked-jobs lane — 280px, full height. -->
+  <!-- LEFT: NEEDS MINI QUOTE + NEEDS SCHEDULING -->
   <div class="left-col" id="leftSidebar">
     <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" onclick="toggleSidebar()">◀ collapse</button>
     <div class="sidebar-content" id="sidebarContent">
+      <div class="sidebar-hdr" id="mqHdr" style="display:none;background:#fef9ec;color:#92400e;border-bottom-color:#fcd34d;">✨ Needs Mini Quote (<span id="mqCount">0</span>)</div>
+      <div class="needs-list" id="mqList"></div>
       <div style="padding:.5rem .75rem .25rem;">
         <a href="#" onclick="event.preventDefault();window.QuoteLogger&&QuoteLogger.open({})" style="display:block;text-align:center;padding:9px;background:#c2410c;color:#fff;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.5px;transition:background .15s;" onmouseover="this.style.background='#b03a0b'" onmouseout="this.style.background='#c2410c'">＋ Log Quote</a>
       </div>
@@ -2634,18 +2638,28 @@ function _renderCalProfitChip(p) {
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
 function renderSidebar() {
-  // The rail's only content is the Log Quote button (static markup). The
-  // "Needs Mini Quote" queue that used to live here was removed 2026-08-05.
-  //
-  // DEFAULT COLLAPSED. The old auto-collapse keyed off that queue's length —
-  // empty queue, collapsed rail — so removing the queue without this left the
-  // rail permanently expanded, taking 280px it no longer has anything to show.
-  // That is a UI change Tyler didn't ask for, and it moved the calendar grid
-  // enough to break the fluid-drag test. Collapsing by default restores the
-  // previous behaviour exactly. Tyler's manual preference still wins, and the
-  // ◀/▶ toggle still opens it.
-  if (!_sidebarManualCollapsed) _applySidebarCollapsed(true, false);
+  // Needs Mini Quote queue
+  const mqJobs = getMiniQuoteNeeded();
+  const mqHdr = document.getElementById('mqHdr');
+  const mqEl  = document.getElementById('mqList');
+  document.getElementById('mqCount').textContent = mqJobs.length;
+  if (mqJobs.length) {
+    mqHdr.style.display = '';
+    mqEl.innerHTML = mqJobs.map(c => jobCardMiniQuote(c)).join('');
+  } else {
+    mqHdr.style.display = 'none';
+    mqEl.innerHTML = '';
+  }
+
   initSortables();
+
+  // Auto-collapse when mini-quote pool empty; auto-expand when items added
+  const totalItems = mqJobs.length;
+  if (totalItems === 0 && !_sidebarManualCollapsed) {
+    _applySidebarCollapsed(true, false);
+  } else if (totalItems > 0 && _sidebarAutoCollapsed && !_sidebarManualCollapsed) {
+    _applySidebarCollapsed(false, false);
+  }
 }
 
 function _applySidebarCollapsed(collapsed, manual) {
@@ -2670,6 +2684,37 @@ function toggleSidebar() {
   const isCollapsed = _sidebarManualCollapsed || _sidebarAutoCollapsed;
   _applySidebarCollapsed(!isCollapsed, true);
 }
+
+function getMiniQuoteNeeded() {
+  const seen = new Set();
+  return (dbRecord.customers||[]).filter(x => {
+    if (!x.phone || seen.has(x.phone)) return false;
+    const match = x.quoteStatus && x.quoteStatus.state === 'phone_quoted_pending_mini_quote';
+    if (match) seen.add(x.phone);
+    return match;
+  });
+}
+
+function jobCardMiniQuote(c) {
+  const name = esc(((c.firstName||c.fn||'') + ' ' + (c.lastName||c.ln||'')).trim());
+  const qs   = c.quoteStatus || {};
+  const amt  = qs.mainAmount || qs.approvedAmount;
+  const svc  = esc(qs.mainServices || qs.notes || '');
+  const savedAt = qs.quotedDate
+    ? new Date(qs.quotedDate).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+    : '';
+  const testBadge = c.isTest ? ' <span class="test-badge">🧪 TEST</span>' : '';
+  return `<div class="job-unscheduled" data-phone="${c.phone}" style="border-left:3px solid var(--gold);cursor:default;" title="${name}">
+    <div class="jcard-top">
+      <div class="jcard-name"><a href="/pure_cleaning_customer_profile.html?phone=${encodeURIComponent(c.phone)}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${name}</a>${testBadge}</div>
+      <button class="card-del-btn" onclick="event.stopPropagation();dismissMiniQuote('${c.phone}')" title="Dismiss from Mini Quote queue">✕</button>
+    </div>
+    ${svc || amt ? `<div class="jd" style="font-weight:600;color:var(--navy);">${svc}${amt ? ' — $'+Number(amt).toLocaleString() : ''}</div>` : ''}
+    ${savedAt ? `<div class="jd">Saved ${savedAt}</div>` : ''}
+    <a href="/pure_cleaning_mini_quote_builder.html?phone=${encodeURIComponent(c.phone)}" style="display:inline-block;margin-top:7px;padding:5px 13px;background:var(--gold);color:var(--navy);border-radius:7px;font-size:12px;font-weight:700;text-decoration:none;letter-spacing:.2px;" onclick="event.stopPropagation();">Build Mini Quote →</a>
+  </div>`;
+}
+
 
 // ── Unpaid receivables (2026-08-05) ──────────────────────────────────────────
 // Work is now closed when it's DONE and the debt is tracked on paymentStatus,
@@ -3389,6 +3434,38 @@ async function autoGeocodeJobs() {
     await new Promise(r => setTimeout(r, 80)); // stay well under 50 QPS
   }
   if (updated) renderCalGrid(getWeekDates());
+}
+
+async function startGeocodingBackfill() {
+  const btn = document.getElementById('geocodeBackfillBtn');
+  const bar = document.getElementById('geocodeBackfillBar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  if (bar) bar.style.display = '';
+
+  const targets = (dbRecord.customers||[]).filter(c =>
+    c.address && !c.coordinates?.lat && !c.geocoded?.lat && !c.isReferralOnly
+  );
+  const total = targets.length;
+  let done = 0, failed = 0;
+
+  if (bar) bar.textContent = `Geocoding 0 / ${total}…`;
+
+  for (const c of targets) {
+    const ok = await geocodeAndSave(c);
+    if (ok) done++; else failed++;
+    if (bar) bar.textContent = `Geocoding ${done+failed} / ${total}… (${done} ok, ${failed} failed)`;
+    await new Promise(r => setTimeout(r, 80));
+  }
+
+  if (bar) bar.textContent = `✓ Done — ${done} geocoded, ${failed} failed. Reloading…`;
+  if (done) {
+    await saveDb().catch(e => console.warn('[startGeocodingBackfill] KV sync failed:', e.message));
+    renderCalGrid(getWeekDates());
+  }
+  setTimeout(() => {
+    if (btn) { btn.disabled = false; btn.textContent = '🗺 Backfill Geocoding'; }
+    if (bar) bar.style.display = 'none';
+  }, 3500);
 }
 
 // ── CALENDAR GRID ─────────────────────────────────────────────────────────────
@@ -6597,6 +6674,12 @@ async function goToday() {
   updateBlockWeekBtn();
   syncRosterFromD1(getWeekDates()); // Phase 5B
 }
+function openDayRouteView() {
+  // Opens day route view for the first visible date (start of current window)
+  const date = getWeekDates()[0];
+  window.location.href = `/pure_cleaning_day_route.html?date=${date}`;
+}
+
 let _crewVisible = false;
 function toggleCrewPanel() {
   _crewVisible = !_crewVisible;
@@ -6894,12 +6977,7 @@ async function loadReviewReady() {
   }
   _reviewReadyPending = false;   // let a later render retry after a failure
   updateReviewAlertBanner();
-  // NOT `renderDayHealth?.()` — optional-call guards a null VALUE, not an
-  // undeclared identifier, so that threw ReferenceError on every calendar load
-  // (my bug, shipped with the review-banner rewire; caught 2026-08-05 by a
-  // pageerror listener while chasing an unrelated drag failure). There is no
-  // renderDayHealth in this page; the banner is the only surface that needs
-  // repainting here.
+  renderDayHealth?.();
 }
 
 function getOptimalReviewCandidates() {
@@ -10086,6 +10164,26 @@ async function confirmTapSchedule() {
   showToast(`✓ ${esc(name)} → ${dayLabel} · Day Pool`, 'Undo', () => { undoAction(_tapSchedPhone, prev); });
 }
 
+async function dismissMiniQuote(phone) {
+  // Target the specific record with pending mini-quote state (may be a duplicate)
+  const record = (dbRecord.customers||[]).find(x =>
+    (x.phone||'').replace(/\D/g,'').slice(-10) === phone &&
+    x.quoteStatus?.state === 'phone_quoted_pending_mini_quote'
+  );
+  if (!record) return;
+  record.quoteStatus.state = 'phone_quoted';
+  try {
+    await saveDb();
+    render();
+    showToast('✓ Removed from Mini Quote queue');
+  } catch(e) {
+    record.quoteStatus.state = 'phone_quoted_pending_mini_quote';
+    console.warn('[dismissMiniQuote] KV save failed:', e.message);
+    showToast('⚠️ Could not dismiss — check connection');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // ── VIEW SWITCHING ────────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 

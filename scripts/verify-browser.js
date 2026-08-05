@@ -746,49 +746,6 @@ async function main() {
         }
       }
 
-      // ── Part 3: Day Route navigates in same tab (no _blank) ──────────────────
-      {
-        const dayRouteBtn = page.locator('button:has-text("Day Route")');
-        const btnExists = await dayRouteBtn.isVisible().catch(() => false);
-        if (btnExists) {
-          // Check the button does not open a new tab (window.location.href not window.open)
-          const usesLocationHref = await page.evaluate(() => {
-            const src = document.documentElement.innerHTML;
-            return src.includes('window.location.href') && src.includes('day_route.html') &&
-                   !src.includes("window.open") || src.indexOf('window.location.href') < src.indexOf('window.open') + 5;
-          });
-          // A simpler check: the function source doesn't contain window.open for day route
-          const noBlank = await page.evaluate(() => {
-            const src = openDayRouteView.toString();
-            return src.includes('location.href') && !src.includes('window.open');
-          });
-          if (noBlank) {
-            pass('Calendar — Day Route button: navigates in same tab (no _blank)');
-          } else {
-            fail('Calendar — Day Route button: navigates in same tab', 'openDayRouteView still uses window.open');
-          }
-        } else {
-          warn('Calendar — Day Route button', 'Button not found');
-        }
-      }
-
-      // ── Part 3: Day Route page has ← Calendar back button ────────────────────
-      // (Verified separately since navigating away would end this page's tests)
-      {
-        const backBtnSource = await page.evaluate(async () => {
-          try {
-            const r = await fetch('/pure_cleaning_day_route.html', { headers: { 'Cache-Control': 'no-cache' } });
-            const html = await r.text();
-            return html.includes('← Calendar') || html.includes('← Calendar');
-          } catch { return false; }
-        });
-        if (backBtnSource) {
-          pass('Day Route — ← Calendar back button present in HTML');
-        } else {
-          fail('Day Route — ← Calendar back button present', 'Not found in page source');
-        }
-      }
-
       // ── Jim New: exactly ONE card on May 6, in rig_2 (New Tacoma) ───────────
       // Regression: dual jobHistory.rig/rigId mismatch caused two visual cards.
       // After fix both fields are rig_2, ssCovers fires, no duplicate rendered.
@@ -1837,88 +1794,10 @@ async function main() {
       }
     });
 
-    // ── DAY ROUTE VIEW (day tab + week tab + averages tab) ───────────────────
-    queuePage(context, `${PAGES_BASE}/pure_cleaning_day_route.html?date=2026-05-11`, 'day-route', async page => {
-      await page.waitForTimeout(5000); // API call + render
-
-      // Test 1: three tabs present
-      const tabDay  = await page.locator('#tab-day').isVisible().catch(() => false);
-      const tabWeek = await page.locator('#tab-week').isVisible().catch(() => false);
-      const tabAvg  = await page.locator('#tab-avg').isVisible().catch(() => false);
-      if (tabDay && tabWeek && tabAvg) {
-        pass('Day Route — all 3 tabs visible (Day / Week / Averages)');
-      } else {
-        fail('Day Route — all 3 tabs visible', `day:${tabDay} week:${tabWeek} avg:${tabAvg}`);
-      }
-
-      // Test 2: date picker visible in day tab
-      const datePicker = await page.locator('#datePicker').isVisible().catch(() => false);
-      if (datePicker) { pass('Day Route — date picker visible'); }
-      else            { fail('Day Route — date picker visible', '#datePicker not found'); }
-
-      // Test 3: three rig columns rendered
-      const col1 = await page.locator('#col_rig_1').isVisible().catch(() => false);
-      const col2 = await page.locator('#col_rig_2').isVisible().catch(() => false);
-      const col3 = await page.locator('#col_rig_3').isVisible().catch(() => false);
-      if (col1 && col2 && col3) { pass('Day Route — three rig columns rendered'); }
-      else { fail('Day Route — three rig columns rendered', `col_rig_1:${col1} col_rig_2:${col2} col_rig_3:${col3}`); }
-
-      const rigLabels = await page.locator('.rig-label').count();
-      if (rigLabels >= 3) { pass('Day Route — rig labels rendered', `${rigLabels} found`); }
-      else { fail('Day Route — rig labels rendered', `only ${rigLabels}`); }
-
-      // Test 4: click Week tab → week grid renders
-      if (tabWeek) {
-        await page.locator('#tab-week').click();
-        await page.waitForTimeout(6000); // 7 parallel API calls
-        const weekTable = await page.locator('#weekTable').isVisible().catch(() => false);
-        if (weekTable) {
-          pass('Day Route — Week tab: #weekTable visible after click');
-        } else {
-          fail('Day Route — Week tab: #weekTable visible after click', '#weekTable not visible');
-        }
-        const weekCells = await page.locator('.week-cell').count();
-        if (weekCells > 0) {
-          pass('Day Route — Week tab: .week-cell elements rendered', `${weekCells} cells`);
-        } else {
-          warn('Day Route — Week tab: .week-cell elements', 'No .week-cell found — all empty days or still loading');
-        }
-      }
-
-      // Test 5: click Averages tab → cards render
-      if (tabAvg) {
-        await page.locator('#tab-avg').click();
-        await page.waitForFunction(() => {
-          const cards = document.getElementById('avgCards');
-          return cards && cards.style.display !== 'none';
-        }, { timeout: 15000 }).catch(() => {});
-        const avgCards = await page.locator('#avgCards').isVisible().catch(() => false);
-        if (avgCards) {
-          pass('Day Route — Averages tab: #avgCards visible after click');
-        } else {
-          fail('Day Route — Averages tab: #avgCards visible after click', '#avgCards not visible');
-        }
-        const avgCardCount = await page.locator('.avg-card').count();
-        if (avgCardCount >= 3) {
-          pass('Day Route — Averages tab: stat cards rendered', `${avgCardCount} cards`);
-        } else {
-          fail('Day Route — Averages tab: stat cards rendered', `only ${avgCardCount} .avg-card elements (expected ≥3)`);
-        }
-      }
-    });
-
-    // Test 5: calendar has Day Route button
-    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'calendar-day-route-link', async page => {
-      await page.waitForTimeout(3000);
-      const btn = await page.getByText('Day Route', { exact: false }).isVisible().catch(() => false);
-      if (btn) {
-        pass('Calendar — Day Route button visible in topbar');
-      } else {
-        fail('Calendar — Day Route button visible in topbar', 'No element containing "Day Route" found');
-      }
-    });
-
-    // Test 6: API endpoint returns valid structure
+    // /admin/day-route API — KEPT after pure_cleaning_day_route.html was deleted
+    // 2026-08-05. The page is gone; the endpoint is NOT dead, because
+    // pure_cleaning_costs.html still fetches it to list a date's completed jobs.
+    // This is the only coverage that endpoint has now.
     {
       const token = await (async () => {
         const { getVerifyToken } = require('./lib/auto-auth');

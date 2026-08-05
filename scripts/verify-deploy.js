@@ -64,7 +64,6 @@ const HTML_FILES = [
       'openRigPickModal',                                 // Regression: click-to-assign rig picker
       'categorizeService(_autoSvc)',                      // Regression: auto-assign Chevy on new roof/softwash jobs
       'wasDragging = false',                              // Regression: initSortables resets wasDragging to fix SortableJS interference
-      'openDayRouteView',                                 // Regression: Day Route button in topbar
       'story-badge',                                      // Regression: roof story badge in job cards
       'friendlyServiceDesc',                              // Regression: ETA text uses natural-language service description
       'tomorrow in the',                                  // Regression: night-prior confirmation SMS uses "tomorrow in the {window}"
@@ -91,7 +90,6 @@ const HTML_FILES = [
       // .catch(()=>{}), the marker disappears and this check goes red.
       '[undoAction] KV revert failed',          // Fix B: undoAction logs + warns on KV revert failure
       '[requestPayment] KV save failed',         // Fix F: requestPayment logs + toasts (non-blocking)
-      '[dismissMiniQuote] KV save failed',       // Fix G: dismissMiniQuote awaits + reverts state on failure
       'Could not assign rig',                    // Fix A: applyRigPick legacy branch awaits + reverts rig
       '[handleDropToPool] KV sync failed',       // Residual: drag-to-pool KV sync logged
       '[_doCompleteJob] KV sync failed',         // Residual: completion KV sync logged
@@ -120,12 +118,6 @@ const HTML_FILES = [
   {
     file: 'pure_cleaning_worker_hours.html',
     markers: ['admin/worker-hours', 'worker-card', 'detailTable', 'fromDate'],
-  },
-  {
-    file: 'pure_cleaning_day_route.html',
-    markers: ['admin/day-route', 'renderRigColumn', 'col_rig_1',
-              'tab-week', 'tab-avg', 'loadWeek', 'loadAverages', 'renderWeekCell', 'renderAveragesCards',
-              'roofStories', 'storyBadge'],
   },
   {
     file: 'pure_cleaning_review_hub.html',
@@ -960,7 +952,6 @@ async function checkCustomerFlows() {
       const knownAdmin = ['pure_cleaning_calendar', 'pure_cleaning_customer_directory',
         'pure_cleaning_incoming', 'pure_cleaning_review_hub', 'pure_cleaning_bulk_reactivation',
         'pure_cleaning_admin', 'pure_cleaning_errors', 'pure_cleaning_backups', 'pure_cleaning_worker_hours',
-        'pure_cleaning_day_route',
       ].some(a => file.includes(a));
       if (!knownAdmin) {
         fail(`Customer flow — ${file} has auth gate`, 'Customer page redirects to login — customers would be locked out');
@@ -1312,6 +1303,54 @@ async function checkJobHistoryIntegrity() {
 // dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
 // two cases distinguishable, and the per-rig revenue panel now credits the
 // trucks that actually worked a multi-rig job instead of dropping it entirely.
+// ── Removed calendar UI stays removed (2026-08-05) ───────────────────────────
+// Three surfaces Tyler never used were deleted. Dead UI creeps back when a
+// later edit "restores" something it doesn't recognise as deliberate, so these
+// assert absence, and assert that what they SHARED still works.
+async function checkRemovedCalendarUi() {
+  let html;
+  try { html = await fetchText(`${GITHUB_PAGES}/pure_cleaning_calendar.html`); }
+  catch (e) { fail('Removed UI — calendar reachable', e.message); return; }
+
+  const gone = [
+    ['openDayRouteView',   'Day Route button + handler'],
+    ['day_route.html',     'Day Route page link'],
+    ['geocodeBackfillBtn', 'Geocode button'],
+    ['startGeocodingBackfill', 'Geocode one-time backfill runner'],
+    ['mqHdr',              'Needs Mini Quote header'],
+    ['getMiniQuoteNeeded', 'Needs Mini Quote queue builder'],
+    ['jobCardMiniQuote',   'Needs Mini Quote card renderer'],
+  ];
+  const back = gone.filter(([m]) => html.includes(m));
+  if (back.length) fail('Removed UI — stays removed', `crept back: ${back.map(x => x[1]).join(', ')}`);
+  else pass('Removed UI — Day Route / Geocode / Mini Quote stay removed', `${gone.length} markers absent`);
+
+  // The deleted page must actually be gone from the deploy.
+  try {
+    const r = await fetchRetry(`${GITHUB_PAGES}/pure_cleaning_day_route.html`);
+    if (r.ok) fail('Removed UI — day_route.html deleted', `still served (HTTP ${r.status})`);
+    else pass('Removed UI — day_route.html deleted', `HTTP ${r.status}`);
+  } catch { pass('Removed UI — day_route.html deleted', 'not served'); }
+
+  // WHAT THEY SHARED MUST SURVIVE. Removing a surface is safe; removing a
+  // shared dependency is not, and both of these have other consumers.
+  if (html.includes('autoGeocodeJobs') && html.includes('async function geocodeAndSave'))
+    pass('Removed UI — background geocoding intact', 'autoGeocodeJobs + geocodeAndSave still present');
+  else fail('Removed UI — background geocoding intact', 'the Geocode BUTTON was the target, not geocoding itself');
+
+  // /admin/day-route is still used by pure_cleaning_costs.html — deleting the
+  // page must not have taken the endpoint with it.
+  const token = await getToken();
+  if (!token) { warn('Removed UI — day-route API still live', 'no admin token'); return; }
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/day-route?date=2026-05-11`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (r.ok) pass('Removed UI — /admin/day-route still live for costs page', `HTTP ${r.status}`);
+    else fail('Removed UI — /admin/day-route still live for costs page', `HTTP ${r.status} — pure_cleaning_costs.html depends on it`);
+  } catch (e) { fail('Removed UI — /admin/day-route reachable', e.message); }
+}
+
 // ── 0048 ship 1: ONE definition of what a job group is worth ─────────────────
 // Four call sites computed this independently and had already drifted — July
 // 2026 read $29,275.03/53 jobs on one board and $30,150.03/56 on another.
@@ -1984,6 +2023,7 @@ async function main() {
   await checkSplitTypes();                // 2026-08-05 multi-day vs multi-rig + per-rig revenue
   await checkPriceModeComped();           // 2026-08-05 comped state, TBD payment guard, review gate
   await checkGroupAmountParity();         // 2026-08-05 ship 1: JobGroup view == its JS mirror
+  await checkRemovedCalendarUi();         // 2026-08-05 Day Route / Geocode / Mini Quote stay gone
   await checkCacheHeaders();
 
   // Print results
