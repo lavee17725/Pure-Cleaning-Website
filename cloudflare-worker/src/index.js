@@ -275,56 +275,15 @@ async function runAutoSnapshot(env) {
   return entry;
 }
 
-// ── Twilio SMS ────────────────────────────────────────────────────────────────
-// sendSms: never throws, returns {ok, error}. Logs failures via appendErrorLog
-// (Law T1.11 — no silent-catch on the alert path). Lead/confirm save is always
-// done before this runs — an SMS failure must never 500 the response.
-async function sendSms(env, to, body) {
-  const sid   = env.TWILIO_ACCOUNT_SID;
-  const token = env.TWILIO_AUTH_TOKEN;
-  const from  = env.TWILIO_FROM;
-  if (!sid || !token || !from || !to) {
-    await appendErrorLog(env, {
-      id: crypto.randomUUID(), timestamp: new Date().toISOString(),
-      source: 'worker', page: 'sendSms',
-      errorType: 'SMS_CONFIG_MISSING',
-      message: `sendSms called but config incomplete. sid=${!!sid} token=${!!token} from=${!!from} to=${!!to}`,
-    }).catch(() => {});
-    return { ok: false, error: 'config_missing' };
-  }
-  try {
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Basic ' + btoa(`${sid}:${token}`),
-        },
-        body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
-      }
-    );
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '(unreadable)');
-      await appendErrorLog(env, {
-        id: crypto.randomUUID(), timestamp: new Date().toISOString(),
-        source: 'worker', page: 'sendSms',
-        errorType: 'SMS_SEND_FAILED',
-        message: `Twilio ${res.status}: ${errText.slice(0, 300)}`,
-      }).catch(() => {});
-      return { ok: false, error: `HTTP ${res.status}` };
-    }
-    return { ok: true };
-  } catch (e) {
-    await appendErrorLog(env, {
-      id: crypto.randomUUID(), timestamp: new Date().toISOString(),
-      source: 'worker', page: 'sendSms',
-      errorType: 'SMS_FETCH_ERROR',
-      message: (e.message || String(e)).slice(0, 300),
-    }).catch(() => {});
-    return { ok: false, error: e.message };
-  }
-}
+// ── Notifications: Pushover only ─────────────────────────────────────────────
+// Twilio/SMS sending was REMOVED 2026-08-05. The account was an abandoned setup
+// attempt that never cleared A2P verification, so nothing could reliably send
+// through it. Do not reintroduce an SMS sender — if something needs to reach
+// Tyler, it goes through sendPush.
+//
+// Note this is only about the SYSTEM sending messages. The admin pages still
+// open `sms:` links so Tyler texts a customer from his own phone; that path is
+// untouched and is how every customer message is actually sent.
 
 // sendPush: instant push via Pushover. Reaches Tyler + Mom + business phone via
 // the Pushover app subscribed to env.PUSHOVER_USER_KEY (use a Group key for fan-out).
@@ -340,7 +299,7 @@ async function sendSms(env, to, body) {
 //   priority: -2..2 (0 normal, 1 high — bypasses quiet hours, 2 emergency w/ retry)
 // We map our internal 'urgent' → Pushover 1, anything else → 0.
 //
-// Never-throws, same {ok, error} contract as sendSms; failures logged via
+// Never-throws, returns {ok, error}; failures logged via
 // appendErrorLog so the lead/confirm save flow is never affected (Law T1.11).
 async function sendPush(env, title, message, priority) {
   const userKey  = env.PUSHOVER_USER_KEY;
@@ -8686,10 +8645,10 @@ async function handleCalendarJobs(request, env, corsHeaders) {
 // This converts "if Tyler opens the page" into "Tyler gets a message".
 //
 // PUSHOVER ONLY. An SMS branch was here briefly on 2026-08-05 and was removed
-// the same day: the Twilio credentials it used were never set up by Tyler, and
-// a notification path must not depend on credentials the owner didn't
-// provision and can't account for. Pushover is his, it's proven — it already
-// delivers new-quote and quote-confirmed alerts — and it is enough.
+// the same day. The Twilio account behind it was an abandoned setup that never
+// cleared A2P verification — it could never have reliably delivered, and the
+// alarm exists precisely so a missed reminder can't happen silently. Pushover
+// is proven: it already delivers new-quote and quote-confirmed alerts.
 //
 // SILENT ON ORDINARY DAYS: nothing due → nothing sent. And a reminder is
 // announced ONCE per fire date — the ledger is keyed by reminderId+nextFireAt,
