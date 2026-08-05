@@ -5005,6 +5005,28 @@ async function handleReactivationEligibility(env, corsHeaders) {
     env.DATA.get(KV_KEYS.reactivationContacts, 'json'),
   ]);
   const customers = (dbBlob?.customers || []);
+
+  // DL-09 OVERLAY. This function decides who gets a text, and it reads the raw
+  // KV blob — so any decision-driving field that lives in D1 must be pulled in
+  // explicitly here. hasParkedJob/hasUpcomingJob are built by the D1 shape and
+  // never reach the blob; without this overlay both exclusions silently counted
+  // zero while real parked and booked customers stayed eligible.
+  const _committed = new Set();   // 10-digit phones with work already committed
+  try {
+    if (env.DB) {
+      const today = new Date().toISOString().slice(0, 10);
+      const rows = (await env.DB.prepare(
+        `SELECT DISTINCT payerId FROM Job
+          WHERE state = 'parked'
+             OR (state IN ('scheduled','in_progress','needs_scheduling')
+                 AND (scheduledDate IS NULL OR scheduledDate >= ?))`
+      ).bind(today).all())?.results || [];
+      for (const r of rows) {
+        const ph = String(r.payerId || '').replace(/\D/g, '').slice(-10);
+        if (ph.length === 10) _committed.add(ph);
+      }
+    }
+  } catch (e) { await _logD1Failure(env, 'reactivationEligibility:committed', e.message); }
   const contacts  = contactsMap || {};
   const nowMs     = Date.now();
   const sixMonthsAgoMs   = nowMs - (183 * 86400000);  // ~6 months
@@ -5025,7 +5047,10 @@ async function handleReactivationEligibility(env, corsHeaders) {
     excluded_deleted: 0, excluded_optOut: 0, excluded_movedAway: 0,
     excluded_referralPhone: 0, excluded_referralOnly: 0,
     excluded_noPhone: 0, excluded_noService: 0, excluded_tooRecent: 0,
-    excluded_cooldown: 0, excluded_retryCap_to_review: 0, excluded_parked: 0,
+    excluded_cooldown: 0, excluded_retryCap_to_review: 0,
+    // parked OR booked-for-today-or-later — both are committed work that hasn't
+    // happened yet, and neither should ever hear "it's been a while".
+    excluded_committed: 0,
     residential_eligible: 0, commercial_eligible: 0, partner_eligible: 0,
     // Tier breakdown for residential (2026-06-22)
     tier1_ground: 0, tier1_roof: 0, tier2_grounds_upsell: 0,
@@ -5039,12 +5064,15 @@ async function handleReactivationEligibility(env, corsHeaders) {
     const ph10 = _norm10(c.phone);
     if ((c.phone || '').startsWith('REFERRAL_')) { counters.excluded_referralPhone++; continue; }
     if (ph10.length !== 10)                       { counters.excluded_noPhone++;       continue; }
-    // 0049: a parked job is COMMITTED work waiting on the customer (rain,
-    // construction). "It's been a while since your last cleaning" is wrong and
-    // slightly insulting when we're the ones waiting — Casa Grande, parked six
-    // weeks for rain, is the live case. Reactivation keys off last COMPLETED
-    // service, so without this they'd qualify while their job sits in the lane.
-    if (c.hasParkedJob)   { counters.excluded_parked = (counters.excluded_parked || 0) + 1; continue; }
+    // NEVER TELL SOMEONE WE MISS THEM WHEN THEY'RE ON THE SCHEDULE.
+    // Reactivation keys off last COMPLETED service, so a customer booked for
+    // next week — or one whose job we are holding — still looked "dormant".
+    // Both are the same mistake: committed work that hasn't happened yet.
+    //   • parked  — we're the ones waiting (rain, construction). Casa Grande,
+    //               parked six weeks, is the live case.
+    //   • upcoming — they're already booked. "It's been a while since your last
+    //               cleaning" lands the week before we show up (Tyler, 2026-08-05).
+    if (_committed.has(ph10)) { counters.excluded_committed = (counters.excluded_committed || 0) + 1; continue; }
     if (!c.lastService)                           { counters.excluded_noService++;     continue; }
 
     const lastSvcMs = new Date(c.lastService + 'T12:00:00').getTime();
@@ -7267,6 +7295,11 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
     // reactivation so we never text "been a while" at someone whose job we are
     // holding for them. Cheap boolean — the lane itself reads /admin/parked.
     hasParkedJob:           pjobs.some(j => j.state === 'parked'),
+    // Booked for today or later and not yet done. Read by reactivation so a
+    // customer on next week's schedule never gets a "been a while" text.
+    hasUpcomingJob:         pjobs.some(j =>
+                              (j.state === 'scheduled' || j.state === 'in_progress' || j.state === 'needs_scheduling')
+                              && (!j.scheduledDate || j.scheduledDate >= new Date().toISOString().slice(0, 10))),
     geocoded:               (primaryProp.latitude && primaryProp.longitude)
                               ? { lat: primaryProp.latitude, lng: primaryProp.longitude,
                                   formattedAddress: addr, geocodedAt: null,
