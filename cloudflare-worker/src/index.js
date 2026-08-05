@@ -2686,11 +2686,19 @@ export default {
           // productivity math.
           env.DB.prepare(
             `SELECT month, rigId, COUNT(*) AS jobs, CAST(SUM(rev) AS INTEGER) AS revenue FROM (` +
-              // Ordinary single-rig jobs — unchanged.
-              `SELECT SUBSTR(scheduledDate,1,7) AS month, rigId, amount AS rev ` +
-              `FROM Job WHERE state='completed' AND rigId IS NOT NULL AND amount > 0 ` +
-              `AND COALESCE(isRigSegment,0) = 0 ` +
-              `AND scheduledDate >= DATE('now','-6 months')${srcFilter} ` +
+              // Ordinary single-rig jobs.
+              //
+              // 2026-08-05: the NOT EXISTS is load-bearing. A multi-rig parent
+              // usually has rigId NULL, but not always — Max Stolyarov's parent
+              // carries rigId='rig_1' AND has rig segments, so it matched this
+              // arm and the split arm below, double-counting $400 and pushing
+              // the rig total above the month's actual revenue. Any parent with
+              // segments belongs to the split arm only.
+              `SELECT SUBSTR(j.scheduledDate,1,7) AS month, j.rigId, j.amount AS rev ` +
+              `FROM Job j WHERE j.state='completed' AND j.rigId IS NOT NULL AND j.amount > 0 ` +
+              `AND COALESCE(j.isRigSegment,0) = 0 ` +
+              `AND NOT EXISTS (SELECT 1 FROM Job x WHERE x.parentJobId = j.jobId AND x.isRigSegment = 1) ` +
+              `AND j.scheduledDate >= DATE('now','-6 months')${srcFilter.replace(/\bsource\b/g, 'j.source')} ` +
               `UNION ALL ` +
               // Multi-rig: parent's amount / number of rigs that completed it.
               `SELECT SUBSTR(c.scheduledDate,1,7) AS month, c.rigId, ` +
