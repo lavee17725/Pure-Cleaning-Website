@@ -1307,6 +1307,125 @@ async function main() {
       else pass('Per-job address — billing address not shown on job cards');
     });
 
+    // ── UNPAID BADGE: RENDERED OUTPUT vs THE DATA ──────────────────────────────
+    // Earned 2026-08-05. The badge shipped green twice while Tyler's screen was
+    // wrong, because every check asserted on source markers and on the predicate
+    // function — and the bug was that the primary card NEVER CALLED the
+    // predicate. A marker check cannot catch a caller that doesn't call.
+    //
+    // So this asserts the rendered DOM against the data, per card, and computes
+    // "is this a receivable" with its OWN expression. It deliberately does not
+    // call _jobIsUnpaid: a check that reuses the code under test inherits its
+    // bugs and agrees with it no matter what it does.
+    queuePage(context, `${PAGES_BASE}/pure_cleaning_calendar.html`, 'unpaid-badge-truth', async page => {
+      await waitForData(page, () => typeof dbRecord !== 'undefined' && Array.isArray(dbRecord.customers) && dbRecord.customers.length > 0);
+
+      const out = await page.evaluate(async () => {
+        // Independent restatement of the rule (Tyler, 2026-08-05): completing a
+        // job WAS the payment signal for the life of this business, so unpaid is
+        // an explicit claim — a deliberate 'unpaid' with no method recorded.
+        const receivable = j =>
+          j.status === 'completed' &&
+          j.priceMode !== 'comped' &&
+          String(j.source || '').indexOf('backfill') === -1 &&
+          !j.paidAt &&
+          !(j.paymentMethod || j.payment) &&
+          j.paymentStatus === 'unpaid';
+
+        const owed = new Map();   // jobId -> {name, date}
+        for (const c of dbRecord.customers || []) {
+          if (c.isTest) continue;
+          for (const j of c.jobHistory || []) {
+            if (j.jobId && receivable(j)) owed.set(j.jobId, { name: c.businessName || c.lastName || c.phone, date: j.date });
+          }
+        }
+
+        // expectIds: jobIds that MUST be on screen before auditing. A fixed sleep
+        // flakes under the parallel page batch — and a short read would silently
+        // audit an empty week and call it clean, which is the same class of
+        // false-green this whole check exists to stop (WO-7 polling pattern).
+        const rendered = () => new Set([...document.querySelectorAll('.job-scheduled')]
+          .map(e => e.dataset.jobId).filter(Boolean));
+
+        // Navigate with the page's OWN control (changeWeek), the same path the
+        // ‹ Prev button uses. `dayOffset` is a top-level `let` — a script-scope
+        // binding, NOT a window property — so `window.dayOffset = n` creates an
+        // unrelated property the calendar never reads and the view silently
+        // stays put. A test that "navigates" nowhere audits the current week
+        // twice and calls it proof.
+        const auditWeek = async (weeksBack, expectIds) => {
+          await goToday();                 // async — it refetches the week's jobs
+          await new Promise(r => setTimeout(r, 600));
+          for (let i = 0; i < weeksBack; i++) {
+            await changeWeek(-1);
+            await new Promise(r => setTimeout(r, 250));
+            if (expectIds && expectIds.some(id => rendered().has(id))) break;
+          }
+          await new Promise(r => setTimeout(r, 800));
+
+          const falsePos = [], falseNeg = [], seen = new Set();
+          for (const el of document.querySelectorAll('.job-scheduled')) {
+            const jobId = el.dataset.jobId || '';
+            if (!jobId) continue;                       // can't attribute — not asserted on
+            seen.add(jobId);
+            const badged = !!el.querySelector('.js-unpaid-badge');
+            const should = owed.has(jobId);
+            // A badge on a job nobody owes is the failure Tyler saw.
+            if (badged && !should) falsePos.push(jobId);
+            // A missing badge on a real debt is the failure that loses money.
+            if (!badged && should) falseNeg.push(jobId);
+          }
+          return { falsePos, falseNeg, cards: seen.size,
+                   owedRendered: [...owed.keys()].filter(id => seen.has(id)).length };
+        };
+
+        const owedIds = [...owed.keys()];
+        const firstOwed = [...owed.values()][0] || null;
+        const thisWeek = await auditWeek(0, null);
+        // Walk back a week at a time until an owed job is on screen (stops early
+        // when found). 16 weeks covers a quarter of receivable age.
+        const owedWeek = firstOwed ? await auditWeek(16, owedIds) : null;
+        return {
+          owedTotal: owed.size,
+          owedNames: [...new Set([...owed.values()].map(v => v.name))],
+          thisWeek, owedWeek,
+          owedWeekDate: firstOwed ? firstOwed.date : null,
+          navOk: typeof changeWeek === 'function' && typeof goToday === 'function',
+        };
+      });
+
+      // 1. Current week: nothing is owed there, so nothing may be badged. This is
+      //    the exact assertion that would have gone red on the shipped bug.
+      if (out.thisWeek.falsePos.length)
+        fail('Unpaid badge — no badge without a debt (this week)', `${out.thisWeek.falsePos.length} card(s) badged with nothing owed: ${out.thisWeek.falsePos.slice(0,3).join(', ')}`);
+      else pass('Unpaid badge — no badge without a debt (this week)', `${out.thisWeek.cards} cards audited`);
+
+      if (out.thisWeek.falseNeg.length)
+        fail('Unpaid badge — every debt is badged (this week)', `${out.thisWeek.falseNeg.length} unbadged: ${out.thisWeek.falseNeg.slice(0,3).join(', ')}`);
+      else pass('Unpaid badge — every debt is badged (this week)');
+
+      // 2. The week that actually holds a receivable — proves the badge still
+      //    fires. Without this, "no false positives" would pass by never
+      //    rendering a badge at all.
+      if (!out.owedWeek) {
+        warn('Unpaid badge — real receivable still renders', 'no outstanding receivable in the data to check against');
+      } else if (out.owedWeek.owedRendered === 0) {
+        warn('Unpaid badge — real receivable still renders', `no owed job rendered in the week of ${out.owedWeekDate}`);
+      } else if (out.owedWeek.falseNeg.length) {
+        fail('Unpaid badge — real receivable still renders', `${out.owedWeek.falseNeg.length} owed job(s) rendered WITHOUT a badge`);
+      } else if (out.owedWeek.falsePos.length) {
+        fail('Unpaid badge — no badge without a debt (receivable week)', `${out.owedWeek.falsePos.length} card(s) badged with nothing owed`);
+      } else {
+        pass('Unpaid badge — real receivable still renders', `${out.owedWeek.owedRendered} owed job(s) badged, week of ${out.owedWeekDate}`);
+      }
+
+      // 3. The receivable list itself must stay small and named. A silent jump
+      //    back to hundreds means the "unpaid = explicit" rule regressed.
+      if (out.owedTotal > 40)
+        fail('Unpaid badge — receivables stay explicit', `${out.owedTotal} jobs read as owed across ${out.owedNames.length} customer(s) — the never-set default is leaking back in`);
+      else pass('Unpaid badge — receivables stay explicit', `${out.owedTotal} owed: ${out.owedNames.slice(0,3).join(', ') || 'none'}`);
+    });
+
     // ── MULTI-PROPERTY DEDUP: same-day same-rig distinct jobs render separately ─
     // Tests getExtraCompletedJobsForRig directly (more reliable than DOM nav to past dates).
     // Total cards per customer = getScheduledForRig count + getExtraCompletedJobsForRig count.
