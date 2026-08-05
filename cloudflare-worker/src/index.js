@@ -1528,15 +1528,9 @@ export default {
           const preview = await runDueReminderAlerts(env, { dry: true, asOf });
           if (!preview.body) return jsonResponse({ ...preview, testSend: 'nothing due — nothing sent' }, corsHeaders);
           const push = await sendPush(env, '🧪 TEST — ' + preview.title, preview.body, 'high');
-          let sms = { ok: false, error: 'TYLER_CELL not configured' };
-          if (env.TYLER_CELL) {
-            const _r = await sendSms(env, env.TYLER_CELL, '🧪 TEST — ' + preview.body);
-            sms = { ok: !!_r.ok, error: _r.error || '' };
-          }
           // Ledger deliberately untouched: a test must not consume the real fire.
           return jsonResponse({ ...preview, testSend: true, ledgerWritten: false,
-                                push: push.ok, pushError: push.error || null,
-                                sms: sms.ok, smsError: sms.error || null }, corsHeaders);
+                                push: push.ok, pushError: push.error || null }, corsHeaders);
         }
         return jsonResponse(await runDueReminderAlerts(env, { dry: true, asOf }), corsHeaders);
       }
@@ -8691,13 +8685,11 @@ async function handleCalendarJobs(request, env, corsHeaders) {
 //
 // This converts "if Tyler opens the page" into "Tyler gets a message".
 //
-// TWO CHANNELS ON PURPOSE. Tyler asked for a text, and TWILIO_ACCOUNT_SID /
-// TWILIO_AUTH_TOKEN / TYLER_CELL are all configured — but sendSms has never
-// been called in production, not once, so its first real use would be the
-// trip-critical alarm. sendPush (Pushover) is the proven path: it already
-// delivers new-quote and quote-confirmed alerts to his phone today. Sending
-// both means one unproven dependency cannot silently swallow the alert, which
-// is the entire failure mode this exists to prevent.
+// PUSHOVER ONLY. An SMS branch was here briefly on 2026-08-05 and was removed
+// the same day: the Twilio credentials it used were never set up by Tyler, and
+// a notification path must not depend on credentials the owner didn't
+// provision and can't account for. Pushover is his, it's proven — it already
+// delivers new-quote and quote-confirmed alerts — and it is enough.
 //
 // SILENT ON ORDINARY DAYS: nothing due → nothing sent. And a reminder is
 // announced ONCE per fire date — the ledger is keyed by reminderId+nextFireAt,
@@ -8740,19 +8732,11 @@ async function runDueReminderAlerts(env, opts = {}) {
   if (dry) return { ok: true, dryRun: true, asOf, due: rows.length, wouldSend: fresh.length, title, body,
                     reminderIds: fresh.map(r => r.reminderId) };
 
-  // Proven channel first. Neither call throws — both return {ok,error}.
   const push = await sendPush(env, title, body, 'high');
-  // Normalized shape — sendSms omits `error` on success, and the mixed union
-  // fails typecheck (caught pre-commit 2026-08-05).
-  let sms = { ok: false, error: 'TYLER_CELL not configured' };
-  if (env.TYLER_CELL) {
-    const _r = await sendSms(env, env.TYLER_CELL, body);
-    sms = { ok: !!_r.ok, error: _r.error || '' };
-  }
 
-  // Record ONLY if something actually got through, so a total delivery failure
-  // retries tomorrow instead of being marked "announced" and going quiet.
-  if (push.ok || sms.ok) {
+  // Record ONLY if it actually got through, so a delivery failure retries
+  // tomorrow instead of being marked "announced" and going quiet.
+  if (push.ok) {
     for (const r of fresh) ledger[r.reminderId] = r.nextFireAt || (r.followUpMonth ? r.followUpMonth + '-01' : asOf);
     // Keep the ledger from growing without bound — drop entries older than a year.
     const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
@@ -8761,11 +8745,11 @@ async function runDueReminderAlerts(env, opts = {}) {
   } else {
     await appendErrorLog(env, {
       source: 'worker', page: 'runDueReminderAlerts', errorType: 'REMINDER_ALERT_UNDELIVERED',
-      message: `${fresh.length} reminder(s) due and BOTH channels failed. push=${push.error || 'ok'} sms=${sms.error || 'ok'}`,
+      message: `${fresh.length} reminder(s) due and Pushover failed: ${push.error || 'unknown'}`,
     });
   }
-  return { ok: push.ok || sms.ok, asOf, due: rows.length, sent: fresh.length,
-           push: push.ok, sms: sms.ok, pushError: push.error || null, smsError: sms.error || null };
+  return { ok: push.ok, asOf, due: rows.length, sent: fresh.length,
+           push: push.ok, pushError: push.error || null };
 }
 
 // ── JobGroup (0048): ONE definition of what a job group is worth ─────────────
