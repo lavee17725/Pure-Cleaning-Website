@@ -2718,9 +2718,11 @@ function _jobIsUnpaid(c) {
   if (_isBackfillSource(ss.source)) return false; // imported default, not a payment record
   if (c.paymentInfo && c.paymentInfo.paidAt) return false;
   if (ss.paidAt) return false;
-  const st = ss.paymentStatus;
-  if (!st) return false;                    // unknown -> silent, same reason as above
-  return st === 'unpaid' || st === 'pending';
+  // JOB-level method only. c.paymentMethod is the customer's PREFERENCE (the
+  // payment modal uses it to pre-select a radio), not a record of collection —
+  // reading it here would silence Premier, who has a preference and owes $7,800.
+  if (ss.paymentMethod) return false;                          // method recorded = collected
+  return ss.paymentStatus === 'unpaid';
 }
 
 // Owed on a given day, across every rig.
@@ -2762,16 +2764,17 @@ function _jhEntryIsUnpaid(c, jhEntry) {
   // scheduledStatus — and never infer from a missing paidAt. Pre-CRM history
   // (csv_backfill) has no paidAt but was settled years ago; treating that as
   // owed would badge ~1,800 jobs and bury the one receivable that matters.
-  // 2026-08-05 CORRECTION: switching from paidAt to paymentStatus did NOT solve
-  // this. All 1,796 csv_backfill rows carry paymentStatus='unpaid' as an import
-  // default — not a payment record. They were settled in cash years before the
-  // CRM existed, so trusting that field badges a decade of closed work as owed
-  // and buries the receivables that are real. Historical imports are excluded by
-  // source; only jobs the CRM itself recorded can be trusted to say "unpaid".
-  if (_isBackfillSource(jhEntry.source)) return false;
-  const st = jhEntry.paymentStatus;
-  if (!st) return false;                    // unknown -> stay silent, don't cry wolf
-  return st === 'unpaid' || st === 'pending';
+  // UNPAID IS AN EXPLICIT CLAIM, NOT AN INFERENCE (Tyler, 2026-08-05).
+  // For the whole life of this business, completing a job WAS the payment
+  // signal — cash or Zelle on the spot. That's exactly why Premier's finished
+  // work was held in 'scheduled': parking it there was the only way an actually-
+  // owed job stayed visible. So paymentStatus='unpaid' on a historical row means
+  // "nobody ever set this field", not "the customer owes us", and 'pending' is
+  // the CREATE default on every new job — neither is evidence of a debt.
+  // Only a deliberate 'unpaid', with no payment method recorded, is a receivable.
+  if (_isBackfillSource(jhEntry.source)) return false;   // imported default, never a debt
+  if (jhEntry.paymentMethod || jhEntry.payment) return false;  // method recorded = collected
+  return jhEntry.paymentStatus === 'unpaid';
 }
 
 function unpaidDayChip(date) {
@@ -3892,7 +3895,10 @@ function jobCardScheduled(c) {
         // ($0 real AR while $7,800 was actually owed). Now work is closed when
         // it's done and the debt is carried here, loud enough that a completed
         // unpaid job can't slip out of sight the way it would have.
-        unpaidBadgeHtml = `<span class="js-unpaid-badge" title="Completed — payment not logged yet">● UNPAID</span>`;
+        // ONE implementation — _jobIsUnpaid. The Log Payment button still shows
+        // whenever payment isn't recorded (harmless, and Tyler needs the way in);
+        // the BADGE is the loud claim, so it fires only on a real receivable.
+        if (_jobIsUnpaid(c)) unpaidBadgeHtml = `<span class="js-unpaid-badge" title="Marked unpaid — money still owed">● UNPAID</span>`;
         paymentBtnHtml = `<button class="js-pay-btn" onclick="event.stopPropagation();openPaymentModal('${phone}')">💰 Log Payment</button>`;
         const _pm = c.paymentMethod || ss.paymentMethod || 'zelle';
         const _zLbl = (_pm === 'cash' || _pm === 'check') ? '💵 Request Payment' : '💵 Request Zelle Payment';
