@@ -12728,7 +12728,7 @@ async function _patchJobKvSync(job, patchedFields, env, now) {
 
     // Multi-property guard: if this job's property ≠ customer's primary address prop, D1-only.
     if (cust.address && job.propertyId) {
-      const primaryPropId = _d1PropId(cust.address, cust.city||'');
+      const primaryPropId = await _resolvePropertyId(cust.address, cust.city||'', env);
       if (primaryPropId !== job.propertyId) return;
     }
 
@@ -12795,6 +12795,34 @@ function _normPropKey(street, city) {
     .map(t => _ADDR_TYPE_FOLD[t] || t)
     .join(' ');
   return fold(street) + '|' + fold(city);
+}
+
+// THE choke point for "which property record is this address?" (2026-08-06).
+//
+// _d1PropId alone is not enough and briefly made things worse: normalising the
+// key changed what NEW ids look like, so an address already stored under an old
+// id ("...northwest_10th_court...") got a second record under the new one
+// ("...nw_10th_ct..."). Joe Rubio's house duplicated within hours of the change
+// — caught by the property-dupes gate, which is why that gate exists.
+//
+// Every path that turns an address into a propertyId must call this, not
+// _d1PropId directly. Returns an EXISTING equivalent record's id when one
+// exists, otherwise the canonical new id.
+async function _resolvePropertyId(street, city, env) {
+  const canonical = _d1PropId(street, city);
+  if (!env?.DB) return canonical;
+  try {
+    const exact = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+      .bind(canonical).first();
+    if (exact) return canonical;
+    const want = _normPropKey(street, city);
+    const sameCity = (await env.DB.prepare(
+      'SELECT propertyId, streetAddress, city FROM Property WHERE lower(trim(city)) = lower(trim(?))'
+    ).bind(city || '').all())?.results || [];
+    const hit = sameCity.find(r => _normPropKey(r.streetAddress, r.city) === want);
+    if (hit) return hit.propertyId;
+  } catch (e) { await _logD1Failure(env, '_resolvePropertyId', e.message); }
+  return canonical;
 }
 
 function _d1PropId(street, city) {
@@ -12865,7 +12893,7 @@ async function _d1SyncNewCustomer(c, env, now) {
 
     // Property INSERT OR IGNORE
     if (c.address) {
-      const propId = _d1PropId(c.address, c.city||'');
+      const propId = await _resolvePropertyId(c.address, c.city||'', env);
       const lat    = c.coordinates?.lat || c.geocoded?.lat || null;
       const lng    = c.coordinates?.lng || c.geocoded?.lng || null;
       const geoSrc = c.geocodeSource || c.coordinates?.source || null;
@@ -12895,7 +12923,7 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
   if (!personId) return;
 
   // Resolve propertyId for this customer
-  const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
+  const propId = c.address ? await _resolvePropertyId(c.address, c.city||'', env) : null;
 
   for (const jh of (c.jobHistory||[])) {
     if (!jh.jobId || prevJhIds.has(jh.jobId)) continue;
@@ -12918,12 +12946,21 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
     }
     try {
       await env.DB.prepare(
-        `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,servicesRequested,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,servicesRequested,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,roofType,roofStories,sqFt,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         jh.jobId, personId, propId, jh.date||null, 'completed',
         jh.completedAt||now, jh.amount||0, '[]', jh.paymentMethod||jh.payment||null,
         jh.paidAt?'paid':'unpaid', jh.paidAt||null,
         jh.services||null, jh.rig||jh.rigId||null, 'phone_quote',
+        // 2026-08-06 FIX: this column list had no roof fields at all, so every
+        // completed job synced through here lost them — 0 of 36 phone_quote
+        // roof jobs had a roofType. Falls back to the quote record the same way
+        // _d1SyncScheduledJob already did; Tyler reads roof type off BCPA at
+        // quote time, so the value exists before the job is ever completed.
+        jh.roofType   || c.quoteStatus?.servicesAgreed?.roofType   || null,
+        jh.roofStories ?? c.quoteStatus?.servicesAgreed?.roofStories ?? null,
+        jh.sqFt || c.quoteStatus?.servicesAgreed?.roofSqFt
+                || c.quoteStatus?.servicesAgreed?.squareFootage?.roof || null,
         now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high'
       ).run();
     } catch(e) { await _logD1Failure(env, `_d1SyncJobHistory:${ph}:${jh.jobId}`, e.message); }
@@ -12936,7 +12973,7 @@ async function _d1SyncScheduledJob(c, env, now) {
   const ph = (c.phone||'').replace(/\D/g,'').slice(-10);
   const personId = _d1PersonId(ph);
   if (!personId) return;
-  const propId = c.address ? _d1PropId(c.address, c.city||'') : null;
+  const propId = c.address ? await _resolvePropertyId(c.address, c.city||'', env) : null;
   const jobId  = _d1ScheduledJobId(personId, ss.scheduledDate);
 
   // Part 1c (T1.22): structured servicesRequested from serviceTags (set by handleAgreementConfirm)
@@ -13106,7 +13143,7 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
             // MOVE: different house number or city → genuinely new address.
             // Create new Property row, promote to primary, re-point open jobs.
             // Completed jobs keep their historical propertyId — never rewrite history.
-            const propId = _d1PropId(c.address, c.city||'');
+            const propId = await _resolvePropertyId(c.address, c.city||'', env);
             await env.DB.prepare(
               `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
             ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
@@ -13130,7 +13167,7 @@ async function _d1SyncCustomersPut(incomingCustomers, prevCustomers, env, addrEd
         } else {
           // Incidental diff (autocomplete, bulk sync, migration): never silently promote.
           // Ensure Property row exists, then INSERT OR IGNORE with primaryContact=0.
-          const propId = _d1PropId(c.address, c.city||'');
+          const propId = await _resolvePropertyId(c.address, c.city||'', env);
           await env.DB.prepare(
             `INSERT OR IGNORE INTO Property (propertyId,streetAddress,city,state,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?)`
           ).bind(propId, c.address, c.city||'', 'FL', now, now, 'kv_dual_write', 'v3_day2_dualwrite', now, 'high').run();
@@ -15806,30 +15843,10 @@ async function handleResolveServiceProperty(request, env, corsHeaders) {
 // never duplicates. Returns the propertyId, or null if the write failed.
 async function _ensurePropertyForPerson({ personId, streetAddress, city, zip, googlePlaceId, propertyLabel, primaryContact }, env) {
   const now = new Date().toISOString();
-  const propId = _d1PropId(streetAddress, city);
+  const propId = await _resolvePropertyId(streetAddress, city, env);
 
-  let existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+  const existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
     .bind(propId).first();
-
-  // EQUIVALENCE LOOKUP (2026-08-06). An exact-id match is not enough: the same
-  // house can already exist under an id generated before the key was
-  // normalised ("...ave." vs "...ave", "court" vs "ct"). Scan this city's
-  // properties and reuse the one whose normalised address matches, so a
-  // punctuation or abbreviation difference can never mint a second record.
-  // Scoped by city, so it's a few dozen rows, not 1,544.
-  if (!existing) {
-    try {
-      const want = _normPropKey(streetAddress, city);
-      const sameCity = (await env.DB.prepare(
-        'SELECT propertyId, streetAddress, city FROM Property WHERE lower(trim(city)) = lower(trim(?))'
-      ).bind(city || '').all())?.results || [];
-      const hit = sameCity.find(r => _normPropKey(r.streetAddress, r.city) === want);
-      if (hit) {
-        existing = { propertyId: hit.propertyId };
-        console.log('[property] reused equivalent record', hit.propertyId, 'for', streetAddress);
-      }
-    } catch (e) { await _logD1Failure(env, '_ensurePropertyForPerson:equivalence', e.message); }
-  }
 
   if (!existing) {
     let lat = null, lng = null, formatted = null, gsrc = null, gprec = null, pid = googlePlaceId || null;

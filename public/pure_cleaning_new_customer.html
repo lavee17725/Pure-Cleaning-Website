@@ -928,6 +928,7 @@ let _svcSecExp       = false;
 let _svcCustExp      = false;
 let _roofMethod      = null;
 let _roofStories     = null;
+let _roofTypeStash   = null;  // survives a roof-service deselect/re-select (2026-08-06)
 
 // 0038: when propertyId is given, ONLY that property's roof history counts (silent if none) —
 // so a story-mismatch warning compares against THE PROPERTY BEING BOOKED, not the customer's
@@ -1133,8 +1134,23 @@ function toggleService(id) {
   // Show/hide roof extra fields
   const roofExtra = document.getElementById('roofExtraFields');
   if (roofExtra) roofExtra.style.display = _svcSel.has('roof_cleaning') ? 'block' : 'none';
-  // Reset roof type state when roof is deselected
+  // Roof re-selected and we stashed a choice earlier — put it back, UI included.
+  if (_svcSel.has('roof_cleaning') && !_roofType && _roofTypeStash) {
+    const _el = document.querySelector('#roofTypeOpts input[name=roofType][value="' + _roofTypeStash + '"]');
+    if (_el) {
+      _roofType = _roofTypeStash;
+      _el.checked = true;
+      _el.closest('.roof-type-opt')?.classList.add('selected');
+    }
+  }
+  // Roof deselected: hide the picker, but REMEMBER the choice.
+  // 2026-08-06: this used to null _roofType outright. If a customer changed
+  // services mid-call ("actually skip the roof… no, do the roof"), the roof
+  // type Darla had already read off BCPA was silently gone and the picker came
+  // back empty — she has no reason to re-check a field she already filled.
+  // Now it's stashed and restored on re-select.
   if (!_svcSel.has('roof_cleaning') && _roofType) {
+    _roofTypeStash = _roofType;
     _roofType = null;
     // Scope to #roofTypeOpts — don't touch driveway material radios.
     // .checked=false is safe here: roofExtraFields is already display:none at this point.
