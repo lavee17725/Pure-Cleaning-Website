@@ -38,6 +38,8 @@ Miami-Dade (Davie, Weston, Pembroke Pines, Cooper City, Plantation, Miramar,
 Coral Springs, Pinecrest).
 
 Residential pressure washing, roof cleaning (soft wash) and sealing.
+**Windows are cleaned as part of wall/exterior work** — a normal service line,
+not a favour *(2026-08-06)*.
 
 | Who | Role |
 |---|---|
@@ -47,6 +49,9 @@ Residential pressure washing, roof cleaning (soft wash) and sealing.
 | **Byron, Jonathan, Danny, Yudani** | Crew |
 
 Three trucks: **rig_1 (Old Tacoma), rig_2 (New Tacoma), rig_3 (Chevy)**.
+**rig_3 is the exclusive soft-wash rig** and takes the big projects, often with
+Tony. Its higher revenue/hour is **job mix, not crew performance** — never read
+per-rig rates as a crew ranking *(2026-08-06)*.
 
 **This is a residential company.** Commercial and partner work is real and
 valuable, but it arrives through relationships — property managers who already
@@ -162,6 +167,9 @@ depends on one of these blind spots, say so instead of estimating.
 - **Square footage covers ~20% of jobs** (334 jobs / 387 properties), recovered
   **2026-08-06** from a pre-migration snapshot after the D1 migration nulled it.
   Good for analysis on the covered set, not for portfolio-wide claims.
+  **Historical sqft is not lost** — it can be backfilled from satellite once the
+  measurement calibration set is finished. That work is **deliberately paused**
+  until Tyler is back from his trip (returns **Sept 6, 2026**).
 - **No campaign→booking attribution.** Nothing links a text to the job it
   produced, so reactivation conversion is a **floor, not a real rate** —
   campaign-driven bookings look organic.
