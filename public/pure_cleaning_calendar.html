@@ -1405,7 +1405,7 @@ body{background:#f0f2f5;}
             <option value="flat_tile">Flat tile</option>
             <option value="v_shape">V-shape</option>
             <option value="venezuelan_tile">Venezuelan tile</option>
-            <option value="metal">Metal</option>
+            <option value="metal">Metal — textured / tile-look</option>
           </select>
         </div>
         <div class="modal-field">
@@ -4048,14 +4048,16 @@ function jobCardScheduled(c) {
     : '';
 
   const _svcAgreed = (c.quoteStatus || {}).servicesAgreed || {};
-  const _roofTypeLabels = {shingle:'Shingle',barrel_tile:'Barrel tile',large_barrel:'Large Barrel tile',short_barrel:'Short Barrel tile',flat_tile:'Flat tile',v_shape:'V-shape',venezuelan_tile:'Venezuelan tile',metal:'Metal'};
+  const _roofTypeLabels = {shingle:'Shingle',barrel_tile:'Barrel tile',large_barrel:'Large Barrel tile',short_barrel:'Short Barrel tile',flat_tile:'Flat tile',v_shape:'V-shape',venezuelan_tile:'Venezuelan tile',metal:'Metal — textured / tile-look'};
   const _rt = _svcAgreed.roofType;
   const _rm = {softwash:'Softwash',power_wash_chemical:'PW+chem',power_wash_no_chemical:'PW'}[_svcAgreed.roofMethod] || _svcAgreed.roofMethod;
   const roofInfoHtml = _rt ? (() => {
     const label = _roofTypeLabels[_rt] || _rt;
     const sqft  = _svcAgreed.roofSqFt ? ` · ${Number(_svcAgreed.roofSqFt).toLocaleString()} sq ft` : '';
     const meth  = _rm ? ` · ${_rm}` : '';
-    const warn  = _rt === 'venezuelan_tile' ? ' ⚠️ Fragile' : _rt === 'metal' ? ' ⛔' : '';
+    // ⛔ meant "we don't service metal" — no longer true for the textured type,
+    // which is the only one bookable. The label itself now carries the meaning.
+    const warn  = _rt === 'venezuelan_tile' ? ' ⚠️ Fragile' : '';
     return `<div class="js-roof-info">🏠 ${esc(label)}${sqft}${meth}${warn}</div>`;
   })() : '';
 
@@ -7479,7 +7481,7 @@ function _showInvoiceLinkModal(d, phone) {
 // every service-list renderer (job sheet, invoice print, invoice email). DL-07.
 // Mirrors the per-render _ROOF_LABELS object; matches are exact + case-insensitive,
 // so a real service ("Roof Cleaning", "soft wash") is never dropped.
-const _ROOF_LABELS_FOR_SVC = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
+const _ROOF_LABELS_FOR_SVC = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal — textured / tile-look',other:'Other'};
 const _ROOF_LABEL_WORDS = new Set([
   ...Object.keys(_ROOF_LABELS_FOR_SVC),
   ...Object.values(_ROOF_LABELS_FOR_SVC).map(v => v.toLowerCase()),
@@ -7677,7 +7679,7 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
     ? (c.sqFt || null)
     : (c.properties?.[0]?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null);
   const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || c.roofType || null;  // T1.15: ss first
-  const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
+  const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal — textured / tile-look',other:'Other'};
   const roofLabel   = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
   // Issue 5 — Notes always visible on print (T1.15 chain).
   // ss.jobNotes is intentionally EXCLUDED — it's a services alias, not a notes field.
@@ -8065,7 +8067,7 @@ function _fullProposalBody(c, splitDays, totalAmt) {
   // Property details — identical sourcing to _jobSheetBody.
   const sqft = ('sqFt' in c) ? (c.sqFt || null) : (c.properties?.[0]?.sqFt || (qs.servicesAgreed||{}).roofSqFt || null);
   const _roofTypeKey = ss.roofType || (qs.servicesAgreed||{}).roofType || c.roofType || null;
-  const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal',other:'Other'};
+  const _ROOF_LABELS = {shingle:'Shingle',barrel_tile:'Barrel Tile',large_barrel:'Large Barrel Tile',short_barrel:'Short Barrel Tile',flat_tile:'Flat Tile',v_shape:'V-Shape Tile',venezuelan_tile:'Venezuelan Tile',metal:'Metal — textured / tile-look',other:'Other'};
   const roofLabel = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey).toUpperCase() : null;
   const stories  = ss.roofStories || getLastKnownRoofStories(c) || null;
   const storyStr = stories ? `${stories}-story` : null;

@@ -608,8 +608,8 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
           <div class="roof-type-opt metal-opt" onclick="selectRoofType('metal',this)">
             <input type="radio" name="roofType" value="metal" class="rto-radio">
             <div class="rto-body">
-              <div class="rto-name">Metal ⛔</div>
-              <div class="rto-note warn-red">We don't service metal — record but don't schedule</div>
+              <div class="rto-name">Metal — textured / tile-look</div>
+              <div class="rto-note warn-amber">Only textured metal. We do not service flat/standing-seam metal.</div>
             </div>
           </div>
           <div class="roof-type-opt" onclick="selectRoofType('other',this)">
@@ -1061,15 +1061,20 @@ function selectRoofType(type, optEl) {
         renderNewAlerts();
       }
       // Remove metal alert if switching
-      const idx = pendingAlerts.findIndex(a => a.id === 'metal_roof_no_service');
+      const idx = pendingAlerts.findIndex(a => a.id === 'metal_roof_no_service' || a.id === 'metal_roof_confirm_type');
       if (idx >= 0) { pendingAlerts.splice(idx, 1); renderNewAlerts(); }
     } else if (type === 'metal') {
-      warnEl.className = 'roof-inline-warn red';
-      warnEl.textContent = '⛔ We don\'t service metal roofs. Record this customer for reference, but do not schedule. Consider marking as a lost lead.';
+      // 2026-08-06: this used to be a blanket refusal ("we don't service metal
+      // — record only, consider a lost lead"). Pure Cleaning DOES service one
+      // kind: the grainy/textured metal that mimics short barrel tile. Flat
+      // plated/standing-seam is the one we don't touch. There is deliberately
+      // no second option for it — it should never be bookable — so this asks
+      // Darla to confirm WHICH metal rather than turning the job away.
+      warnEl.className = 'roof-inline-warn amber';
+      warnEl.textContent = '⚠️ Confirm this is TEXTURED / tile-look metal (grainy, mimics short barrel tile) — that is the only metal we service. We do not service flat plated or standing-seam metal.';
       warnEl.style.display = 'block';
-      // Auto-add no-service alert
-      if (!pendingAlerts.some(a => a.id === 'metal_roof_no_service')) {
-        pendingAlerts.push({ id:'metal_roof_no_service', icon:'⛔', label:'Metal Roof — Do Not Service', note:'We do not clean metal roofs. Record only.', severity:'critical' });
+      if (!pendingAlerts.some(a => a.id === 'metal_roof_confirm_type')) {
+        pendingAlerts.push({ id:'metal_roof_confirm_type', icon:'⚠️', label:'Metal — confirm textured/tile-look', note:'Serviced only if textured (tile-look). Flat/standing-seam is not serviced.', severity:'warning' });
         renderNewAlerts();
       }
       const idx = pendingAlerts.findIndex(a => a.id === 'venezuelan_tile_fragile');

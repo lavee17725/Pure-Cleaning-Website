@@ -12729,9 +12729,30 @@ function _d1PersonId(phone) {
   return d ? 'person_' + d : null;
 }
 
+// Canonical address key. ONE vocabulary — the same street-type/directional fold
+// the search engine and the Address Gate use.
+//
+// 2026-08-06: this is what "12820 SW 80th Ave" and "12820 SW 80th Ave." being
+// two different properties came down to. The old key did
+// `.replace(/[^\w]/g,'_')`, which turned a trailing period into an underscore
+// instead of dropping it, and it folded nothing — so Ct/Court, Rd/Road, W/West
+// and NW/Northwest each produced a second record for the same house. Eight such
+// pairs existed across 1,544 properties.
+function _normPropKey(street, city) {
+  const fold = s => String(s || '').toLowerCase()
+    .replace(/[.,#]/g, ' ')
+    .split(/\s+/).filter(Boolean)
+    .map(t => _ADDR_TYPE_FOLD[t] || t)
+    .join(' ');
+  return fold(street) + '|' + fold(city);
+}
+
 function _d1PropId(street, city) {
-  const norm = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
-  const key  = (norm(street) + '|' + norm(city)).replace(/[^\w]/g,'_').slice(0,40);
+  // NOTE: existing rows keep whatever id they were created with — this only
+  // makes NEW ids canonical. Equivalence for existing rows is handled by the
+  // lookup in _ensurePropertyForPerson, which is what actually prevents
+  // duplicates; changing the id scheme alone would have created MORE of them.
+  const key = _normPropKey(street, city).replace(/[^\w|]/g, '_').replace(/\|/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
   return 'prop_' + key;
 }
 
@@ -15737,8 +15758,28 @@ async function _ensurePropertyForPerson({ personId, streetAddress, city, zip, go
   const now = new Date().toISOString();
   const propId = _d1PropId(streetAddress, city);
 
-  const existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
+  let existing = await env.DB.prepare('SELECT propertyId FROM Property WHERE propertyId=?')
     .bind(propId).first();
+
+  // EQUIVALENCE LOOKUP (2026-08-06). An exact-id match is not enough: the same
+  // house can already exist under an id generated before the key was
+  // normalised ("...ave." vs "...ave", "court" vs "ct"). Scan this city's
+  // properties and reuse the one whose normalised address matches, so a
+  // punctuation or abbreviation difference can never mint a second record.
+  // Scoped by city, so it's a few dozen rows, not 1,544.
+  if (!existing) {
+    try {
+      const want = _normPropKey(streetAddress, city);
+      const sameCity = (await env.DB.prepare(
+        'SELECT propertyId, streetAddress, city FROM Property WHERE lower(trim(city)) = lower(trim(?))'
+      ).bind(city || '').all())?.results || [];
+      const hit = sameCity.find(r => _normPropKey(r.streetAddress, r.city) === want);
+      if (hit) {
+        existing = { propertyId: hit.propertyId };
+        console.log('[property] reused equivalent record', hit.propertyId, 'for', streetAddress);
+      }
+    } catch (e) { await _logD1Failure(env, '_ensurePropertyForPerson:equivalence', e.message); }
+  }
 
   if (!existing) {
     let lat = null, lng = null, formatted = null, gsrc = null, gprec = null, pid = googlePlaceId || null;

@@ -904,7 +904,7 @@ function renderHeroBanner(c) {
       const _sqft = c.sqFt || (_jh.find(j => j.sqFt) || {}).sqFt || (c.quoteStatus||{}).servicesAgreed?.roofSqFt || null;
       const _svcAgreed = (c.quoteStatus || {}).servicesAgreed || {};
       const _roofTypeKey = _svcAgreed.roofType || null;
-      const _ROOF_LABELS = { shingle:'Shingle', barrel_tile:'Barrel tile', large_barrel:'Large Barrel tile', short_barrel:'Short Barrel tile', flat_tile:'Flat tile', v_shape:'V-shape tile', venezuelan_tile:'Venezuelan tile ⚠️', metal:'Metal ⛔', other:'Other' };
+      const _ROOF_LABELS = { shingle:'Shingle', barrel_tile:'Barrel tile', large_barrel:'Large Barrel tile', short_barrel:'Short Barrel tile', flat_tile:'Flat tile', v_shape:'V-shape tile', venezuelan_tile:'Venezuelan tile ⚠️', metal:'Metal — textured / tile-look', other:'Other' };
       const _roofLabel = _roofTypeKey ? (_ROOF_LABELS[_roofTypeKey] || _roofTypeKey) : null;
       const _parseStories = svc => { if (!svc) return null; if (/\b2[\s\-]*stor(y|ies)\b/i.test(svc)) return 2; if (/\b1[\s\-]*stor(y|ies)\b/i.test(svc)) return 1; return null; };
       const _roofJob = _jh.find(j => j.roofStories || _parseStories(j.services));
@@ -1304,7 +1304,10 @@ function renderContextBlocks(c) {
   const alertLines = [];
   const svcAgreed = (c.quoteStatus||{}).servicesAgreed || {};
   if (svcAgreed.roofType === 'venezuelan_tile') alertLines.push('Venezuelan tile — most fragile, extra care required');
-  if (svcAgreed.roofType === 'metal')           alertLines.push('Metal roof — we do not service metal roofs');
+  // 2026-08-06: was "we do not service metal roofs" — untrue for the textured /
+  // tile-look type, which is the only metal that's bookable. Flat plated and
+  // standing-seam remain unserviced and are deliberately not selectable.
+  if (svcAgreed.roofType === 'metal')           alertLines.push('Metal — textured / tile-look only (flat & standing-seam not serviced)');
   (c.alerts||[]).forEach(a => alertLines.push(a.label||a));
   if (alertLines.length) {
     blocks.push({ cls:'ctx-block-red', icon:'🚨', title:'Heads-up',
