@@ -1471,6 +1471,36 @@ export default {
         return await handleCompedSummary(env, corsHeaders);
       }
 
+      // GET /admin/debug/property-dupes — the address-key invariant. Two records
+      // for one house is what made Darla re-answer "is this a rental" forever.
+      if (path === 'admin/debug/property-dupes' && request.method === 'GET') {
+        try {
+          const rows = (await env.DB.prepare('SELECT propertyId, streetAddress, city FROM Property').all())?.results || [];
+          const groups = new Map();
+          for (const r of rows) {
+            const k = _normPropKey(r.streetAddress, r.city);
+            if (!groups.has(k)) groups.set(k, []);
+            groups.get(k).push(r);
+          }
+          const dupes = [...groups.entries()].filter(([, v]) => v.length > 1);
+          const orphanJobs = await env.DB.prepare(
+            `SELECT COUNT(*) n FROM Job j WHERE j.propertyId IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM Property p WHERE p.propertyId = j.propertyId)`).first();
+          const orphanLinks = await env.DB.prepare(
+            `SELECT COUNT(*) n FROM PersonProperty pp
+              WHERE NOT EXISTS (SELECT 1 FROM Property p WHERE p.propertyId = pp.propertyId)`).first();
+          return jsonResponse({
+            properties: rows.length,
+            duplicateGroups: dupes.length,
+            examples: dupes.slice(0, 5).map(([, v]) => v[0].streetAddress + ' (' + v.length + ')'),
+            orphanJobs: Number(orphanJobs?.n) || 0,
+            orphanLinks: Number(orphanLinks?.n) || 0,
+          }, { ...corsHeaders, 'Cache-Control': 'no-store' });
+        } catch (e) {
+          return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /admin/debug/group-parity — JobGroup view vs its JS mirror (0048).
       if (path === 'admin/debug/group-parity' && request.method === 'GET') {
         return await handleGroupParity(env, corsHeaders);

@@ -1303,6 +1303,31 @@ async function checkJobHistoryIntegrity() {
 // dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
 // two cases distinguishable, and the per-rig revenue panel now credits the
 // trucks that actually worked a multi-rig job instead of dropping it entirely.
+// ── Property key normalization (2026-08-06) ──────────────────────────────────
+// Eight duplicate property records existed because the key underscored
+// punctuation instead of stripping it and folded nothing: "Ave." vs "Ave",
+// Ct/Court, Rd/Road, W/West, NW/Northwest each minted a second record for the
+// same house. Darla labelled one as a rental; the next booking landed on the
+// other and asked again. This asserts the population stays deduplicated —
+// a new pair means the normalization or the equivalence lookup regressed.
+async function checkPropertyDuplicates() {
+  const token = await getToken();
+  if (!token) { warn('Property keys', 'no admin token — skipped'); return; }
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/debug/property-dupes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) { warn('Property keys — dupe scan', `HTTP ${r.status}`); return; }
+    const d = await r.json();
+    if (d.duplicateGroups > 0)
+      fail('Property keys — no duplicate addresses', `${d.duplicateGroups} group(s), e.g. ${(d.examples||[]).slice(0,2).join(' | ')}`);
+    else pass('Property keys — no duplicate addresses', `${d.properties} properties, 0 duplicate groups`);
+    if (d.orphanJobs > 0 || d.orphanLinks > 0)
+      fail('Property keys — no orphans after merges', `${d.orphanJobs} job(s), ${d.orphanLinks} link(s) point at a missing property`);
+    else pass('Property keys — no orphans after merges');
+  } catch (e) { warn('Property keys — dupe scan', e.message); }
+}
+
 // ── Parked jobs (0049) ───────────────────────────────────────────────────────
 // A parked job is real work with no date. The invariants that make it safe:
 // it is dateless, its multi-day family stays whole, and it is money that must
@@ -2112,6 +2137,7 @@ async function main() {
   await checkGroupAmountParity();         // 2026-08-05 ship 1: JobGroup view == its JS mirror
   await checkRemovedCalendarUi();         // 2026-08-05 Day Route / Geocode / Mini Quote stay gone
   await checkParkedJobs();                // 2026-08-05 dateless hold (0049)
+  await checkPropertyDuplicates();        // 2026-08-06 address-key normalization holds
   await checkCacheHeaders();
 
   // Print results
