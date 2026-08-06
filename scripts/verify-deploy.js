@@ -1303,6 +1303,36 @@ async function checkJobHistoryIntegrity() {
 // dayNumber/totalDays to mean "which rig"/"how many rigs". splitType makes the
 // two cases distinguishable, and the per-rig revenue panel now credits the
 // trucks that actually worked a multi-rig job instead of dropping it entirely.
+// ── Square footage coverage (0050) ───────────────────────────────────────────
+// Tyler recorded roof sqft on essentially every roof job for years. The Day-1
+// KV→D1 loader hardcoded `"sqft": None` and no Job column existed, so the
+// values were dropped at the migration boundary — and because the KV blob is
+// rebuilt FROM D1, the next rebuild erased them from the only other copy. It
+// went unnoticed for three months because nothing asserted the coverage.
+// 337 values were recovered from a pre-migration snapshot. This is the alarm
+// that fires if they ever start disappearing again.
+async function checkSqftCoverage() {
+  const token = await getToken();
+  if (!token) { warn('Sqft coverage', 'no admin token — skipped'); return; }
+  try {
+    const r = await fetchRetry(`${WORKERS_API}/admin/debug/sqft-coverage`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) { warn('Sqft coverage — endpoint', `HTTP ${r.status}`); return; }
+    const d = await r.json();
+    // Floors, not exact counts: new jobs push these UP, never down.
+    const JOB_FLOOR = 300, PROP_FLOOR = 350;
+    if (d.jobsWithSqft < JOB_FLOOR)
+      fail('Sqft coverage — per-job values retained', `${d.jobsWithSqft} jobs carry sqFt, expected >= ${JOB_FLOOR} (recovered 334 on 2026-08-06)`);
+    else pass('Sqft coverage — per-job values retained', `${d.jobsWithSqft} jobs`);
+    if (d.propsWithSqft < PROP_FLOOR)
+      fail('Sqft coverage — property defaults retained', `${d.propsWithSqft} properties, expected >= ${PROP_FLOOR}`);
+    else pass('Sqft coverage — property defaults retained', `${d.propsWithSqft} of ${d.propsTotal} properties`);
+    if (d.needsRemeasure > 0)
+      warn('Sqft — properties flagged for re-measure', `${d.needsRemeasure} with conflicting readings (Woodfield, Sapphire Isle)`);
+  } catch (e) { warn('Sqft coverage', e.message); }
+}
+
 // ── Property key normalization (2026-08-06) ──────────────────────────────────
 // Eight duplicate property records existed because the key underscored
 // punctuation instead of stripping it and folded nothing: "Ave." vs "Ave",
@@ -2138,6 +2168,7 @@ async function main() {
   await checkRemovedCalendarUi();         // 2026-08-05 Day Route / Geocode / Mini Quote stay gone
   await checkParkedJobs();                // 2026-08-05 dateless hold (0049)
   await checkPropertyDuplicates();        // 2026-08-06 address-key normalization holds
+  await checkSqftCoverage();              // 2026-08-06 recovered sqft must not silently vanish again
   await checkCacheHeaders();
 
   // Print results

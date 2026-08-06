@@ -1471,6 +1471,21 @@ export default {
         return await handleCompedSummary(env, corsHeaders);
       }
 
+      // GET /admin/debug/sqft-coverage — the alarm for the loss that went
+      // unnoticed for three months (0050).
+      if (path === 'admin/debug/sqft-coverage' && request.method === 'GET') {
+        try {
+          const j = await env.DB.prepare('SELECT COUNT(*) n FROM Job WHERE sqFt IS NOT NULL AND sqFt > 0').first();
+          const p = await env.DB.prepare('SELECT COUNT(*) n FROM Property WHERE sqft IS NOT NULL AND sqft > 0').first();
+          const t = await env.DB.prepare('SELECT COUNT(*) n FROM Property').first();
+          const m = await env.DB.prepare("SELECT COUNT(*) n FROM Property WHERE measurements LIKE '%needsRemeasure%'").first();
+          return jsonResponse({
+            jobsWithSqft: Number(j?.n) || 0, propsWithSqft: Number(p?.n) || 0,
+            propsTotal: Number(t?.n) || 0, needsRemeasure: Number(m?.n) || 0,
+          }, { ...corsHeaders, 'Cache-Control': 'no-store' });
+        } catch (e) { return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500); }
+      }
+
       // GET /admin/debug/property-dupes — the address-key invariant. Two records
       // for one house is what made Darla re-answer "is this a rental" forever.
       if (path === 'admin/debug/property-dupes' && request.method === 'GET') {
@@ -7028,7 +7043,10 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     // the number, so `e.sqFt` was always undefined and the chip never showed.
     // Resolved from the job's OWN property, not the customer's primary: a job at
     // the rental must not report the main house's footage.
-    sqFt:               (jobProp && jobProp.sqft) || null,
+    // 0050: the JOB's own measurement first — that is what the roof measured
+    // when this job was done. Property.sqft is only the current quoting
+    // default, and a later re-measure must not rewrite history.
+    sqFt:               j.sqFt || (jobProp && jobProp.sqft) || null,
     // propertyLabel is set by the caller — it lives on PersonProperty, not on
     // the Job row, so it can't be read from `j` here (Part 4 needs it on
     // completed cards, which render through this path).
@@ -7649,7 +7667,7 @@ async function d1AllCustomersToKvShape(env) {
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
       'priceMode,compedReason,compedForPersonId,compedValue,' +
-      'parkedReason,parkedAt,parkedFromDate,' +
+      'parkedReason,parkedAt,parkedFromDate,sqFt,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -7820,7 +7838,7 @@ async function d1CustomerToKvShape(phone, env) {
     env.DB.prepare(
       'SELECT jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,priceTbd,' +
       'priceMode,compedReason,compedForPersonId,compedValue,' +
-      'parkedReason,parkedAt,parkedFromDate,' +
+      'parkedReason,parkedAt,parkedFromDate,sqFt,' +
       'paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,' +
       'actualDuration,actualArrival,actualDeparture,bouncieMatchStatus,bouncieMatchConfidence,geocodeSource,' +
       'workSiteAddress,workSiteCity,crewCount,' +
@@ -8633,6 +8651,7 @@ async function handleCalendarJobs(request, env, corsHeaders) {
         j.parkedReason,
         j.parkedAt,
         j.parkedFromDate,
+        j.sqFt,
         j.rigId,
         j.servicesRaw,
         j.jobNotes,
@@ -12496,6 +12515,7 @@ const _JOB_MUTABLE_FIELDS = new Set([
   'amount', 'priceTbd',   // priceTbd is a DERIVED MIRROR of priceMode since 0047 — never set it alone
   'priceMode', 'compedReason', 'compedForPersonId', 'compedValue',
   'parkedReason', 'parkedAt', 'parkedFromDate',   // 0049
+  'sqFt',                                         // 0050 — per-job measurement
   'jobNotes', 'servicesRaw', 'servicesRequested', 'cancellationReason', 'cancelledAt',
   'completedAt', 'paymentStatus', 'paymentMethod', 'paidAt',
   'workSiteAddress', 'workSiteCity', 'workSiteZip',
