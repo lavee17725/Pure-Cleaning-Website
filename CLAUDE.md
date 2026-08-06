@@ -12,7 +12,14 @@ For full architectural rationale, code patterns, and schema detail, read **`docs
 
 For project history, timeline, and the architectural decisions log, read **`docs/HISTORY.md`**.
 
-When in doubt, follow this file. The other two are reference.
+For BUSINESS truths — what the company is, how work actually happens,
+seasonality, key relationships, and the standing list of things Tyler has
+already corrected — read **`BUSINESS.md`**. CLAUDE.md governs the code;
+BUSINESS.md governs what's true about the business. **Read both.** BUSINESS.md
+carries its own standing rule: append a correction the first time Tyler makes
+it, without being asked.
+
+When in doubt, follow this file. The others are reference.
 
 ---
 
