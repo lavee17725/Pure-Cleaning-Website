@@ -6993,6 +6993,16 @@ function _d1JobToJhEntry(j, primaryCity, primaryAddr, propById) {
     actualDeparture:    j.actualDeparture || null,
     bouncieMatchStatus: j.bouncieMatchStatus || null,
     propertyId:         j.propertyId         || null,   // which property this job was at (per-property story check — 0038)
+    // Square footage for the service-history row. The chip that renders it has
+    // existed on the customer profile all along — this entry just never carried
+    // the number, so `e.sqFt` was always undefined and the chip never showed.
+    // Resolved from the job's OWN property, not the customer's primary: a job at
+    // the rental must not report the main house's footage.
+    sqFt:               (jobProp && jobProp.sqft) || null,
+    // propertyLabel is set by the caller — it lives on PersonProperty, not on
+    // the Job row, so it can't be read from `j` here (Part 4 needs it on
+    // completed cards, which render through this path).
+    propertyLabel:      null,
     workSiteAddress:    j.workSiteAddress    || null,
     workSiteCity:       j.workSiteCity       || null,
     endCustomerName:    j.endCustomerName    || null,   // partner-referral end customer (for completed-card name resolver)
@@ -7124,6 +7134,12 @@ function _d1BuildScheduledStatus(personJobs) {
 }
 
 function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
+  // propertyId → this person's label for it. Used to stamp completed jobHistory
+  // entries so a card at the friend's house says so (Part 4, 2026-08-06).
+  const _labelByPropId = {};
+  for (const _pr of (props || [])) {
+    if (_pr && _pr.propertyId && _pr.propertyLabel) _labelByPropId[_pr.propertyId] = _pr.propertyLabel;
+  }
   const _gp = geoPrecisionMap || {};
   const primaryProp = props.find(pp => pp.primaryContact === 1) || props[0] || {};
   const city = primaryProp.city || '';
@@ -7149,6 +7165,9 @@ function _d1PersonToKv(p, props, pjobs, propById, geoPrecisionMap) {
   const totalJobs      = completedJobs.length;
   const jobHistory     = completedJobs.filter(j => j.jobId).map(j => {
     const entry = _d1JobToJhEntry(j, city, addr, propById);
+    // The label is a PERSON↔PROPERTY fact ("this is Joe's friend's house"), so
+    // it comes from the person's property list rather than the Property row.
+    entry.propertyLabel = _labelByPropId[j.propertyId] || null;
     if (j.isMultiDayParent) {
       // Fix 2: roll up group total AND concatenate all day-services onto the parent entry.
       // Previously only amount was summed; services came from parent.servicesRaw alone

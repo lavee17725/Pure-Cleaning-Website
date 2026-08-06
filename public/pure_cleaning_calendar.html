@@ -217,6 +217,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .parked-card .pk-why{margin-top:4px;font-size:11px;color:#92400e;background:#fef9ec;border:1px solid #fde68a;border-radius:5px;padding:2px 6px;display:inline-block;}
 .parked-card .pk-days{font-size:10px;font-weight:700;color:#475569;background:#e2e8f0;border-radius:4px;padding:1px 5px;margin-left:4px;}
 .jn-amount.comped{color:#047857;font-weight:700;font-size:11px;letter-spacing:.3px;background:#d1fae5;border:1px solid #6ee7b7;border-radius:5px;padding:0 5px;cursor:help;}
+.js-propbadge{display:inline-block;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe;font-size:10px;font-weight:700;border-radius:5px;padding:1px 5px;margin-left:5px;vertical-align:middle;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis;}
 .js-unpaid-badge{display:inline-block;background:#7f1d1d;color:#fff;font-size:10px;font-weight:800;letter-spacing:.5px;border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:middle;flex-shrink:0;}
 .job-card.is-unpaid,.job-note.is-unpaid{box-shadow:inset 3px 0 0 #dc2626;}
 .day-unpaid-chip{display:inline-flex;align-items:center;gap:4px;background:#7f1d1d;color:#fff;font-size:10px;font-weight:800;border-radius:5px;padding:2px 7px;margin-left:6px;}
@@ -1761,7 +1762,22 @@ function _idbOpen() {
     req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(_IDB_STORE)) req.result.createObjectStore(_IDB_STORE); };
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
+    // A BLOCKED open fires NEITHER onsuccess NOR onerror — it just waits for the
+    // other connection to close. Without this the promise never settles, so
+    // getCachedCustomerDB() hangs, the Promise.all in init() never resolves, and
+    // the calendar renders an empty week FOREVER with no error and no toast:
+    // the catch can't fire because nothing ever rejected. Found 2026-08-06 after
+    // an IndexedDB delete left the DB blocked; any stalled connection or a tab
+    // mid-upgrade does the same thing.
+    req.onblocked = () => reject(new Error('IndexedDB open blocked'));
   });
+  // Belt-and-braces: the cache is an OPTIMISATION. It must never be able to
+  // hold the whole page hostage, so cap the wait and fall through to the live
+  // fetch. 4s is far longer than a healthy open (single-digit ms).
+  _idbPromise = Promise.race([
+    _idbPromise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('IndexedDB open timed out')), 4000)),
+  ]).catch(err => { _idbPromise = null; throw err; });   // null it so a later call can retry
   return _idbPromise;
 }
 async function _idbGet(key) {
@@ -2765,6 +2781,34 @@ function toggleSidebar() {
   // Manual toggle: flip current combined state
   const isCollapsed = _sidebarManualCollapsed || _sidebarAutoCollapsed;
   _applySidebarCollapsed(!isCollapsed, true);
+}
+
+// ── Non-primary property badge (2026-08-06) ──────────────────────────────────
+// Joe Fernandez had two cards on the same day at different addresses — his
+// house and his neighbour's (the neighbour doesn't speak English, so everything
+// routed through Joe). Nothing on either card said which was which.
+//
+// The label was ALREADY stored (PersonProperty.propertyLabel = "Friend's
+// Property") and a chip already existed — but only on the SCHEDULED card
+// builder, and it printed every label including "Main Residence". Completed
+// jobs render through the jobHistory path, which had no chip at all. So on the
+// day that mattered, both of Joe's cards were completed and neither said
+// anything.
+//
+// Rule: badge ONLY when it's not the customer's own home. "Main Residence" is
+// the default and carries no information — badging it is noise, and noise is
+// what makes Tony and Darla stop reading badges.
+const _PRIMARY_LABELS = ['main residence', 'primary residence', 'main', 'home'];
+function _isNonPrimaryLabel(label) {
+  const l = String(label || '').trim().toLowerCase();
+  return !!l && !_PRIMARY_LABELS.includes(l);
+}
+// Indigo, and it reads as a PLACE. Deliberately not red — UNPAID is red and
+// these must never blur together on a phone at arm's length.
+function propertyLabelBadge(label) {
+  if (!_isNonPrimaryLabel(label)) return '';
+  const short = String(label).replace(/\s*\(referral\)\s*/i, '').trim();
+  return `<span class="js-propbadge" title="Not the customer's main residence — ${esc(label)}">📍 ${esc(short.length > 18 ? short.slice(0, 17) + '…' : short)}</span>`;
 }
 
 // ── Unpaid receivables (2026-08-05) ──────────────────────────────────────────
@@ -4097,9 +4141,11 @@ function jobCardScheduled(c) {
     ? (() => { const _svcIsRoof = /roof|soft\s*wash|softwash/i.test(_svcRaw); const _stories = _svcIsRoof ? (ss.roofStories || _jhMatch?.roofStories || null) : null; const _storyBadge = _svcIsRoof ? `<span class="story-badge">${_stories != null ? `${_stories}-story` : '?-story'}</span>` : ''; return `<div class="js-svc">📋 ${esc(_svcRaw)}${_storyBadge}</div>`; })()
     : state !== 'completed' ? `<div class="js-svc missing">📋 service not specified</div>` : '';
   // Multi-property label chip (Phase 2B-1)
-  const propLabelChip = (c.isMultiProperty && c.propertyLabel)
-    ? ` <span style="font-size:10px;font-weight:700;background:#f0fdf4;color:#166534;border:1px solid #86efac;border-radius:6px;padding:1px 6px;vertical-align:middle;white-space:nowrap;">${esc(c.propertyLabel)}</span>`
-    : '';
+  // Was gated on isMultiProperty (>1 job in the LOADED WEEK) and printed any
+  // label. Now: badge whenever the property isn't the customer's own home,
+  // regardless of how many jobs happen to be on screen — the fact that it's the
+  // rental is true even on a week where it's the only job.
+  const propLabelChip = c.propertyLabel ? ' ' + propertyLabelBadge(c.propertyLabel) : '';
   const metaParts = [winLbl, city + propLabelChip].filter(Boolean);
   return `<div class="job-scheduled ${state}${c.isTest ? ' job-test' : ''}${state === 'completed' ? ' job-card-completed' : ''}${unpaidBadgeHtml ? ' is-unpaid completed-unpaid' : ''}" data-phone="${c.phone}" data-job-id="${_editJobId}" data-unpaid="${unpaidBadgeHtml ? '1' : '0'}" onclick="toggleJobCard(this)">
     <div class="js-name"><span>${badge}${name}${testBadge}${cmptBadge}${confirmBadge}${alerts}${vipBadge}${unpaidBadgeHtml}</span>
@@ -4253,9 +4299,10 @@ function jobCardHistoryExtra(c, jhEntry) {
   // Unpaid badge on the jh-extra card too — this is the path a completed job
   // held for payment actually renders through (2026-08-05).
   const _xUnpaid = _jhEntryIsUnpaid(c, jhEntry)
-    ? `<span class="js-unpaid-badge" title="Completed — payment not logged yet">● UNPAID</span>` : '';
+    ? `<span class="js-unpaid-badge" title="Marked unpaid — money still owed">● UNPAID</span>` : '';
+  const _xPropBadge = propertyLabelBadge(jhEntry.propertyLabel);
   return `<div class="job-scheduled completed job-card-completed job-card-extra${_xUnpaid ? ' is-unpaid completed-unpaid' : ''}" data-phone="${phone}"${jobId ? ` data-job-id="${jobId}"` : ''} data-unpaid="${_xUnpaid ? '1' : '0'}" onclick="toggleJobCard(this)">
-    <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}${_xUnpaid}</span><span>${amtHtml}</span></div>
+    <div class="js-name"><span>✓ ${name}${cmptBadge}${vipBadge}${_xUnpaid}${_xPropBadge}</span><span>${amtHtml}</span></div>
     ${endCustSub}
     <div class="js-meta">${[city].filter(Boolean).join(' · ')}<span class="jc-chevron">▼</span></div>
     ${svcLine}
@@ -7684,8 +7731,13 @@ function _jobSheetBody(c, jobOrder, totalJobs, date, rig) {
   const addrLine  = _titleAddr(displayAddr||'');
   // sqFt and storyStr moved to js-propdetails row (Issue 4). Keep gateStr here — it's address-relevant.
   const cityLine  = displayCity ? (_titleAddr(displayCity)+', FL'+(c.zip?' '+c.zip:'')+(gateStr?' &nbsp;·&nbsp; <strong>'+gateStr+'</strong>':'')) : '';
-  const propLabelLine = (c.propertyLabel || ss.propertyLabel)
-    ? `<div style="font-family:Arial,sans-serif;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#1d4ed8;margin-bottom:2px;">${esc(c.propertyLabel || ss.propertyLabel)}</div>`
+  // Print sheet: same rule as the card — only say something when it ISN'T the
+  // customer's own home. "MAIN RESIDENCE" printed on every sheet is noise the
+  // crew learns to skip, which defeats the one case that matters: they're
+  // standing at the neighbour's house, not the customer's (2026-08-06).
+  const _pLabel = c.propertyLabel || ss.propertyLabel;
+  const propLabelLine = _isNonPrimaryLabel(_pLabel)
+    ? `<div style="font-family:Arial,sans-serif;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1pt;color:#3730a3;margin-bottom:2px;">📍 NOT CUSTOMER'S HOME — ${esc(_pLabel)}</div>`
     : '';
   const addrHtml  = displayAddr ? `${propLabelLine}${esc(addrLine)}<br>${cityLine}` : '<span style="color:#c2410c;">Address pending</span>';
 
