@@ -180,6 +180,10 @@ tr:hover .dir-edit-btn{opacity:.55;}
     <button class="export-btn" onclick="exportCsv()">📥 Export CSV</button>
   </div>
 
+  <!-- Route proximity: top search result only. Silent when nothing is nearby —
+       no empty state, because a row that says nothing still costs a glance. -->
+  <div class="rp-wrap" id="rpBanner" style="display:none;"></div>
+
   <!-- Desktop table -->
   <div class="table-outer" id="tableOuter">
     <div class="dir-scroll-wrap">
@@ -935,8 +939,36 @@ function buildCard(c){
 function renderRows(data){
   document.getElementById('tableBody').innerHTML=data.map(buildRow).join('');
   requestAnimationFrame(_dirLoadSatThumbs);   // WO-B: load only the rendered rows' thumbs
+  _rpForTopResult(data);
 }
-function appendRows(data){
+
+// ── Route proximity on the TOP result only ──────────────────────────────────
+// The phone rings, Darla searches, the customer is on the line. This is the
+// moment the suggestion has to be visible — before any quote form is open.
+//
+// TOP RESULT ONLY, and only when the search has actually narrowed. One request,
+// not one per row: the directory is the fastest-feeling page in the system and
+// that must not regress. Fires after render, never blocks it.
+let _rpLastKey = null;
+function _rpForTopResult(data){
+  const box = document.getElementById('rpBanner');
+  if (!box || !window.RouteProximity) return;
+  // Fire on the TOP-RANKED result of an actual SEARCH. The first version gated
+  // on "list is short", but the search engine is deliberately high-recall — a
+  // phone-book model where five plausible rows beat zero — so "Denise Allen"
+  // returns 11 and the suggestion never showed. Browsing an unfiltered list is
+  // not a lookup, so the query guard stays; the length one goes.
+  const q = (document.getElementById('searchInput')?.value || '').trim();
+  const c = (q.length >= 2 && Array.isArray(data) && data.length) ? data[0] : null;
+  // The directory payload is slimmed and carries NO coordinates, so pass the
+  // phone and let the worker resolve the property from D1.
+  const key = c ? String(c.phone || '').replace(/\D/g, '').slice(-10) : null;
+  if (!key || key.length !== 10) { box.innerHTML = ''; box.style.display='none'; _rpLastKey = null; return; }
+  if (key === _rpLastKey) return;              // same customer still on screen
+  _rpLastKey = key;
+  RouteProximity.show(box, { phone: key }).catch(()=>{});
+}
+function appendRows(data){  // paging — never re-fires the proximity lookup
   document.getElementById('tableBody').insertAdjacentHTML('beforeend',data.map(buildRow).join(''));
   requestAnimationFrame(_dirLoadSatThumbs);   // WO-B: load only the newly-appended rows' thumbs
 }
@@ -1349,6 +1381,7 @@ addEventListener('load', () => { try { _initQuoteReturnBar(); } catch (e) { cons
 </script>
 
 <script src="/js/customer-search.js?v=2"></script>
+<script src="/js/route-proximity.js?v=4"></script>
 <script src="/js/quote-logger.js?v=4"></script>
 </body>
 </html>

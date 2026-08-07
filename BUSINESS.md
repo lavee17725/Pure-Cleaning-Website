@@ -180,6 +180,12 @@ depends on one of these blind spots, say so instead of estimating.
 - **No campaign→booking attribution.** Nothing links a text to the job it
   produced, so reactivation conversion is a **floor, not a real rate** —
   campaign-driven bookings look organic.
+- **Route-proximity suggestions are UNVERIFIED against an organic winter match.**
+  Shipped 2026-08-07 and confirmed on one real match (Shawn Carrillo ↔
+  Intercontinental, 1.7 mi, Aug 16), but with only 8 scheduled jobs in the
+  window it will be silent almost always until volume returns. **The acceptance
+  test that matters is October** — check it produces useful matches in busy
+  season, and widen the radius in KV (`route_proximity_config`) if it doesn't.
 - **Bouncie duration coverage is partial** — durations exist for some jobs, not
   all, so crew-efficiency conclusions are partial by construction.
 - **Year-over-year is not like-for-like until 2027.** 2024–25 are spreadsheet

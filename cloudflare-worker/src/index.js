@@ -1471,6 +1471,11 @@ export default {
         return await handleCompedSummary(env, corsHeaders);
       }
 
+      // GET /admin/nearby-jobs — route-proximity suggestions. Read-only.
+      if (path === 'admin/nearby-jobs' && request.method === 'GET') {
+        return await handleNearbyJobs(request, env, corsHeaders);
+      }
+
       // GET /admin/debug/vocab-values — every column read through a strict
       // vocabulary, with its stored values and any VIOLATIONS.
       //
@@ -12887,6 +12892,132 @@ async function _resolvePropertyId(street, city, env) {
     if (hit) return hit.propertyId;
   } catch (e) { await _logD1Failure(env, '_resolvePropertyId', e.message); }
   return canonical;
+}
+
+// ── Route proximity (2026-08-07) ────────────────────────────────────────────
+// A job booked on a day the truck is already in that area is near-pure margin.
+// Measured from Bouncie arrival/departure gaps: a same-city hop averages 20 min
+// against 42 min for a different-city hop (n=10 / n=48) — ~22 minutes of
+// recovered capacity, about $79 at the ~$215/hr on-site rate. Thin sample from
+// slow season; the direction is strong, so the UI states DISTANCE and lets
+// Tyler judge.
+//
+// DISTANCE, NEVER MINUTES. Converting straight-line to drive time needs a
+// road/straight-line detour factor, and the 10 pairs where both are known give
+// a median of 0.85x — physically impossible, which proves
+// milesFromPreviousJob is not property-to-property road distance. A confident
+// "8 minutes" across a canal is worse than an honest "1.4 miles".
+//
+// CONFIG LIVES IN KV so the radius can be widened in slow season without a
+// deploy (Tyler, 2026-08-07). Defaults below are the fallback only.
+const _ROUTE_CFG_KEY = 'route_proximity_config';
+const _ROUTE_CFG_DEFAULTS = {
+  windowDays:    21,   // how far ahead to look
+  radiusMiles:    2,   // "already in the area"
+  maxResults:     3,   // closest N, nearest first
+  capacityFull:   3,   // a truck runs 1-3 jobs/day; suppress at this many
+  capacityWarn:   2,   // mark the day as filling up at this many
+};
+async function _routeConfig(env) {
+  try {
+    const raw = await env.DATA.get(_ROUTE_CFG_KEY, 'json');
+    if (raw && typeof raw === 'object') return { ..._ROUTE_CFG_DEFAULTS, ...raw };
+  } catch (_) { /* config is an optimisation — never block the lookup */ }
+  return { ..._ROUTE_CFG_DEFAULTS };
+}
+
+// GET /admin/nearby-jobs?lat=&lng=  (or &address=&city= to geocode on the fly)
+// Suggestion only. Reads scheduled work; never books, never modifies.
+async function handleNearbyJobs(request, env, corsHeaders) {
+  if (!env.DB) return jsonResponse({ error: 'D1 not available' }, corsHeaders, 503);
+  const url = new URL(request.url);
+  const cfg = await _routeConfig(env);
+
+  let lat = parseFloat(url.searchParams.get('lat'));
+  let lng = parseFloat(url.searchParams.get('lng'));
+
+  // PRIMARY SURFACE PATH. The directory serves a slimmed customer payload with
+  // no coordinates at all, so it passes a phone and the worker resolves the
+  // primary property from D1 — exact, and no Google call per keystroke.
+  const _ph = (url.searchParams.get('phone') || '').replace(/\D/g, '').slice(-10);
+  if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && _ph.length === 10) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT p.latitude AS la, p.longitude AS lo
+           FROM PersonProperty pp JOIN Property p ON p.propertyId = pp.propertyId
+          WHERE pp.personId = ? AND p.latitude IS NOT NULL
+          ORDER BY pp.primaryContact DESC LIMIT 1`
+      ).bind(_d1PersonId(_ph)).first();
+      if (row) { lat = row.la; lng = row.lo; }
+    } catch (_) { /* fall through — a suggestion never blocks the page */ }
+  }
+  // The customer's OWN scheduled work is not a reason to book them again on
+  // that day; exclude it so a lookup never suggests someone is near themselves.
+  const _selfPerson = _ph.length === 10 ? _d1PersonId(_ph) : null;
+  // Second surface: a brand-new address typed into the booking form is not in
+  // the directory yet, so geocode it here rather than making the page do it.
+  if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && url.searchParams.get('address')) {
+    try {
+      const geo = await geocodeAddress(
+        `${url.searchParams.get('address')}, ${url.searchParams.get('city') || ''}, FL`, env);
+      if (geo) { lat = geo.lat; lng = geo.lng; }
+    } catch (_) { /* fall through to the empty result below */ }
+  }
+  if (!Number.isFinite(lat) || !Number.isFinite(lng))
+    return jsonResponse({ matches: [], reason: 'no coordinates', config: cfg }, corsHeaders);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const end = new Date(Date.now() + cfg.windowDays * 86400000).toISOString().slice(0, 10);
+
+  // Scheduled work only. Parked jobs are dateless and completed jobs are done —
+  // neither is a truck that will be in the area.
+  const rows = (await env.DB.prepare(
+    `SELECT j.jobId, j.scheduledDate, j.rigId, j.propertyId,
+            p.latitude, p.longitude, p.streetAddress, p.city,
+            COALESCE(pe.businessName, pe.firstName || ' ' || pe.lastName) AS who
+       FROM Job j
+       JOIN Property p ON p.propertyId = j.propertyId
+       JOIN Person  pe ON pe.personId  = j.payerId
+      WHERE j.state = 'scheduled'
+        AND j.scheduledDate >= ? AND j.scheduledDate <= ?
+        AND COALESCE(j.isRigSegment, 0) = 0
+        AND (? IS NULL OR j.payerId != ?)
+        AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL`
+  ).bind(today, end, _selfPerson, _selfPerson).all())?.results || [];
+
+  // Capacity per rig-day. Rig segments are $0 attribution markers, not extra
+  // work, so they must not inflate the count (DL-06).
+  const capRows = (await env.DB.prepare(
+    `SELECT scheduledDate, rigId, COUNT(*) AS n FROM Job
+      WHERE state = 'scheduled' AND scheduledDate >= ? AND scheduledDate <= ?
+        AND rigId IS NOT NULL AND COALESCE(isRigSegment, 0) = 0
+      GROUP BY scheduledDate, rigId`
+  ).bind(today, end).all())?.results || [];
+  const cap = new Map(capRows.map(r => [`${r.scheduledDate}|${r.rigId}`, Number(r.n) || 0]));
+
+  const M_PER_MILE = 1609.344;
+  const seen = new Set();
+  const matches = [];
+  for (const r of rows) {
+    const miles = haversineMeters(lat, lng, r.latitude, r.longitude) / M_PER_MILE;
+    if (miles > cfg.radiusMiles) continue;
+    const key = `${r.scheduledDate}|${r.rigId}`;
+    if (seen.has(key)) continue;            // one suggestion per rig-day
+    const dayCount = cap.get(key) || 0;
+    // Suggesting a fourth job on a full truck is worse than suggesting nothing.
+    if (dayCount >= cfg.capacityFull) continue;
+    seen.add(key);
+    matches.push({
+      jobId: r.jobId, date: r.scheduledDate, rigId: r.rigId,
+      anchorName: (r.who || '').trim(), anchorAddress: r.streetAddress, anchorCity: r.city,
+      distanceMiles: Math.round(miles * 10) / 10,
+      dayJobCount: dayCount,
+      fillingUp: dayCount >= cfg.capacityWarn,
+    });
+  }
+  matches.sort((a, b) => a.distanceMiles - b.distanceMiles || a.date.localeCompare(b.date));
+  return jsonResponse({ matches: matches.slice(0, cfg.maxResults), config: cfg,
+                        scanned: rows.length }, { ...corsHeaders, 'Cache-Control': 'no-store' });
 }
 
 // ── Payment method: ONE vocabulary (2026-08-07) ─────────────────────────────

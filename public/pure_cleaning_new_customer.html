@@ -811,6 +811,10 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
     </div>
     <div class="field" style="margin-bottom:1rem;">
       <label>Scheduled date *</label>
+      <!-- Route proximity — a day the truck is already in that area. Tapping one
+           pre-selects the date ONLY; it never books anything. Silent when
+           nothing is nearby. -->
+      <div class="rp-wrap" id="rpSchedBanner" style="display:none;"></div>
       <input id="schedDate" type="date" class="fi" style="font-size:15px;" oninput="_validateSchedModal()">
     </div>
     <div class="field" style="margin-bottom:1rem;">
@@ -3253,6 +3257,30 @@ function _validateSchedModal() {
   }
 }
 
+// A brand-new address is not in the directory yet, so the worker geocodes it —
+// same engine as the directory surface, one implementation (Rule 25).
+async function _rpSchedLookup() {
+  const box = document.getElementById('rpSchedBanner');
+  if (!box || !window.RouteProximity) return;
+  const c = _lastSavedCustomer || {};
+  const where = (c.coordinates && c.coordinates.lat)
+    ? { lat: c.coordinates.lat, lng: c.coordinates.lng }
+    : { address: c.address || document.getElementById('nAddress')?.value || '',
+        city:    c.city    || document.getElementById('nCity')?.value    || '' };
+  if (!where.lat && !where.address) return;
+  try {
+    await RouteProximity.show(box, where, {
+      onPickDate: (date) => {
+        // Pre-select ONLY. Never books, never touches an existing job.
+        const el = document.getElementById('schedDate');
+        if (el) { el.value = date; _validateSchedModal(); }
+        box.querySelectorAll('.rp-hit').forEach(h =>
+          h.style.outline = h.dataset.date === date ? '2px solid #2563eb' : '');
+      },
+    });
+  } catch (_) { /* suggestion is an enhancement — never block booking */ }
+}
+
 function openScheduleModal() {
   const tom = new Date(); tom.setDate(tom.getDate() + 1);
   document.getElementById('schedDate').value = tom.toISOString().slice(0, 10);
@@ -3272,6 +3300,7 @@ function openScheduleModal() {
   document.getElementById('schedError').style.display = 'none';
   document.getElementById('schedSuccess').style.display = 'none';
   _validateSchedModal();
+  _rpSchedLookup();
   document.getElementById('schedDateModal').classList.remove('hidden');
 }
 
@@ -4070,5 +4099,6 @@ async function _ncPatchPropertyImages(propertyId) {
   return res.json();
 }
 </script>
+<script src="/js/route-proximity.js?v=4"></script>
 </body>
 </html>
