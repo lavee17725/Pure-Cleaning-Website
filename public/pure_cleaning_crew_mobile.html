@@ -305,12 +305,25 @@ function sessFor(ph) {
 
 // ── INDEXEDDB (for offline photo queue) ────────────────────────────────────
 function openIDB() {
-  return new Promise((res, rej) => {
-    const req = indexedDB.open('pcpc_crew_v1', 1);
-    req.onupgradeneeded = e => e.target.result.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
-    req.onsuccess = e => res(e.target.result);
-    req.onerror   = e => rej(e);
-  });
+  // A BLOCKED open fires NEITHER onsuccess NOR onerror — it waits for the other
+  // connection to close. Without onblocked this promise never settles, and
+  // since init() awaits it, the crew app hangs on a blank screen with no error
+  // to catch. Same class that blanked the calendar 2026-08-06; found here by
+  // scripts/audit.js. Worse in the field than on a desk — a crew member with a
+  // frozen phone at a job site has no fix and no explanation.
+  return Promise.race([
+    new Promise((res, rej) => {
+      const req = indexedDB.open('pcpc_crew_v1', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+      req.onsuccess = e => res(e.target.result);
+      req.onerror   = e => rej(e);
+      req.onblocked = () => rej(new Error('IndexedDB open blocked — another tab holds it'));
+    }),
+    // The offline photo queue is an ENHANCEMENT. It must never hold up the app
+    // the crew needs to see their jobs; the caller already treats a rejection
+    // as "no queue" and carries on.
+    new Promise((_, rej) => setTimeout(() => rej(new Error('IndexedDB open timed out')), 4000)),
+  ]);
 }
 function idbAdd(data) {
   return new Promise((res, rej) => {

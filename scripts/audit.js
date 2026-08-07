@@ -335,18 +335,12 @@ function checkDocs() {
   if (!fs.existsSync(claude)) return;
   const src = fs.readFileSync(claude, 'utf8');
 
-  // Verifier check-count claims vs reality
-  const claimed = src.match(/(\d+)-check post-deploy verifier/);
-  if (claimed) {
-    const vd = fs.readFileSync(path.join(ROOT, 'scripts/verify-deploy.js'), 'utf8');
-    const actual = (vd.match(/\bpass\(/g) || []).length + (vd.match(/\bfail\(/g) || []).length;
-    if (Math.abs(Number(claimed[1]) - actual) > Number(claimed[1]) * 0.25) {
-      add({ check: 'docs', kind: 'stale-count',
-        what: `CLAUDE.md claims a "${claimed[1]}-check" verifier; source has roughly ${actual} assertions`,
-        where: [`CLAUDE.md:${lineOf(src, claimed.index)}`], severity: 'LOW', confidence: 'certain',
-        breaks: 'A stale law is trusted. Small on its own; the class is what matters.' });
-    }
-  }
+  // The verifier check-count comparison lived here and was REMOVED 2026-08-07.
+  // Counting assertions statically (pass(/fail( occurrences) undercounts every
+  // one inside a loop — it read ~206 where the gate reports 320, so the check
+  // silently reported 0 findings whether or not the doc was stale. Tyler's
+  // call: "a check I can't trust is worse than no check." The dead-file-
+  // reference check below is deterministic and stays.
 
   // file:line citations that no longer point at what they claim
   for (const m of src.matchAll(/`?([\w/.-]+\.(?:js|html))(?::(\d+))?`?\s*(?:—|-)?/g)) {
