@@ -114,6 +114,10 @@ Relationships, not accounts — most came from someone vouching for Tyler.
 - **Harts Painting** — painting partner, refers work.
 - **Carlos — Pro Built** — contractor partner.
 - **Nelson Faguaga** — partner referral source.
+- **Jose Contractor** — contractor partner. 4 completed jobs, $2,500
+  *(2026-08-07)*. Dropped from this list on 2026-08-06 as unpinnable and
+  restored once the data confirmed the record — the name in the CRM is
+  literally "Jose Contractor".
 - **Ashley Wheeler** — monthly recurring. **Agreed rate $600/mo, not $750** —
   $750 was one-off/long-gap pricing and must not be quoted to her again. Also
   manages a rental.
