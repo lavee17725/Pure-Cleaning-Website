@@ -33,6 +33,7 @@ const arg  = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] 
 const SCOPE     = arg('--scope', 'all');
 const ONLY      = arg('--check', null);
 const JSON_OUT  = arg('--json', null);
+const VOCAB_DATA = arg('--vocab-data', null);   // column -> {value: count}, supplied externally
 const SELF_TEST = argv.includes('--self-test');
 
 // ── Suppression: known and deliberate ────────────────────────────────────────
@@ -50,6 +51,13 @@ const SUPPRESS = {
   // Tyler's explicit call, 2026-08-05: identical one-liners that agree by
   // construction. Noise, not risk.
   phoneNormalization: /replace\(\/\\D\/g,\s*''\)\.slice\(-10\)/,
+  // Tyler's call, 2026-08-07: the 2023 Job.roofType rows keep their free text
+  // on purpose. They are a historical record of what the spreadsheet said, and
+  // normalising a 2023 guess into clean enum would make it LOOK verified.
+  // Property.roofType (which prefills a live quote) was cleared instead.
+  vocab: [
+    { match: /^Job\.roofType holds/, why: 'pre-CRM 2023 rows kept as-is — deliberate, see CLAUDE.md' },
+  ],
 };
 
 // ── File collection ──────────────────────────────────────────────────────────
@@ -219,6 +227,136 @@ function checkDrift(files) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// CHECK: VOCABULARY — failure mode #5.
+// A write path accepts any string; a read path looks it up in a strict map or
+// tests it with .includes(). The value is stored, real, and either INVISIBLE
+// (map miss → blank) or SILENTLY REPLACED (includes miss → default). It never
+// errors, so nothing surfaces it. roofType hid 118 free-text values this way,
+// and paymentMethod silently preselected Cash on 4 jobs for months.
+//
+// Static half: find each vocabulary and the COLUMN it is applied to.
+// Data half:   supplied via --vocab-data <file> so this file stays pure — no
+//              network, no credentials. The skill or a wrangler query provides
+//              the actual stored values.
+//
+// THREE BUCKETS, always reported: traced-clean, traced-mismatched, untraceable.
+// A tool that implies it checked everything is worse than one that states its
+// coverage — most real codebases have lookups no regex can resolve.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Field name in JS ≠ column name in D1 in a handful of known places.
+const _COL_ALIAS = { sqFt:'sqFt', rig:'rigId', payment:'paymentMethod', status:'state' };
+
+function checkVocabulary(files, vocabData) {
+  const vocabs = [];   // {name, kind:'map'|'array', values:Set, file, line}
+  const uses   = [];   // {name, column|null, expr, file, line}
+
+  for (const f of files) {
+    const src = stripComments(fs.readFileSync(f, 'utf8'));
+
+    // Vocabularies: object literals (keys are the vocabulary) and string arrays.
+    for (const m of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\{([^{}]{20,900})\}/g)) {
+      const keys = [...m[2].matchAll(/([A-Za-z_$][\w$]*)\s*:/g)].map(x => x[1]);
+      if (keys.length >= 3) vocabs.push({ name: m[1], kind: 'map', values: new Set(keys), file: rel(f), line: lineOf(src, m.index) });
+    }
+    for (const m of src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[([^\]]{10,400})\]/g)) {
+      const vals = [...m[2].matchAll(/'([^']{1,40})'|"([^"]{1,40})"/g)].map(x => x[1] || x[2]);
+      if (vals.length >= 3 && vals.every(v => /^[a-z_][\w-]*$/i.test(v)))
+        vocabs.push({ name: m[1], kind: 'array', values: new Set(vals), file: rel(f), line: lineOf(src, m.index) });
+    }
+
+    // Uses: MAP[expr] and ARRAY.includes(expr)
+    for (const v of vocabs.filter(x => x.file === rel(f))) {
+      const esc = v.name.replace(/[$]/g, '\\$');
+      for (const m of src.matchAll(new RegExp(esc + '\\s*\\[([^\\]]{1,60})\\]', 'g')))
+        uses.push({ ...v, expr: m[1].trim(), line: lineOf(src, m.index), via: 'map-lookup' });
+      for (const m of src.matchAll(new RegExp(esc + '\\.includes\\(([^)]{1,60})\\)', 'g')))
+        uses.push({ ...v, expr: m[1].trim(), line: lineOf(src, m.index), via: 'includes-guard' });
+    }
+  }
+
+  // Resolve the key expression to a column name. Only a plain member access is
+  // traceable — LABELS[resolveType(job)] or LABELS[a || b] cannot be resolved
+  // without executing the code, and is reported as untraceable rather than
+  // guessed at.
+  // Resolve the key expression to a column. Two forms are traceable:
+  //   direct   LABELS[j.roofType]
+  //   one hop  const _rt = j.roofType; … LABELS[_rt]
+  // The one-hop case is the COMMON one in this codebase — the first version of
+  // this tracer only handled direct access and found ZERO of the two known
+  // instances. The acceptance test caught that before it shipped.
+  const srcCache = new Map();
+  const readSrc = f => {
+    const key = path.join(ROOT, f);
+    if (!srcCache.has(key)) srcCache.set(key, stripComments(fs.readFileSync(key, 'utf8')));
+    return srcCache.get(key);
+  };
+  const colFromExpr = e => {
+    const direct = /^[A-Za-z_$][\w$]*(?:\?\.|\.)([A-Za-z_$][\w$]*)$/.exec(e);
+    return direct ? direct[1] : null;
+  };
+
+  const traced = [], untraceable = [];
+  for (const u of uses) {
+    let col = colFromExpr(u.expr);
+    if (!col && /^[A-Za-z_$][\w$]*$/.test(u.expr)) {
+      // One hop: find `const <ident> = …` and pull the first member access.
+      const src = readSrc(u.file);
+      const decl = new RegExp('(?:const|let|var)\\s+' + u.expr.replace(/[$]/g, '\\$') + '\\s*=\\s*([^;\\n]{1,160})').exec(src);
+      if (decl) {
+        const mem = /[A-Za-z_$][\w$]*(?:\?\.|\.)([A-Za-z_$][\w$]*)/.exec(decl[1]);
+        if (mem) col = mem[1];
+      }
+    }
+    if (!col) { untraceable.push(u); continue; }
+    traced.push({ ...u, column: _COL_ALIAS[col] || col });
+  }
+
+  // Data half.
+  const byCol = new Map();
+  for (const t of traced) {
+    if (!byCol.has(t.column)) byCol.set(t.column, []);
+    byCol.get(t.column).push(t);
+  }
+  let clean = 0;
+  for (const [col, hits] of byCol) {
+    // EVERY matching column, not the first. A column name can appear on more
+    // than one table — Job.roofType was clean while Property.roofType held 107
+    // free-text values, and taking the first match reported the whole column
+    // clean and stopped.
+    const keys = Object.keys(vocabData || {}).filter(k => k.split('.').pop() === col);
+    if (!keys.length) continue;                        // no data supplied for this column
+    for (const key of keys) {
+    const stored = vocabData[key];
+    // CASE-SENSITIVE, deliberately. The real readers are:
+    //   _knownPm.includes(v)   — case-sensitive
+    //   LABELS[v]              — case-sensitive
+    // The first version lowercased both sides and reported 'Zelle' as CLEAN,
+    // hiding the exact bug class this exists to find. Match the reader's
+    // semantics or the check is a comfort blanket.
+    const allowed = new Set();
+    for (const h of hits) for (const v of h.values) allowed.add(String(v));
+    const bad = Object.entries(stored).filter(([v]) => !allowed.has(String(v)));
+    if (bad.length) {
+      const _what = `${key} holds ${bad.length} value(s) outside the vocabulary read by ${hits[0].name}: ` +
+              bad.slice(0, 4).map(([v, n]) => `"${v}" ×${n}`).join(', ');
+      const _sup = (SUPPRESS.vocab || []).find(x => x.match.test(_what));
+      add({ check: 'vocab', kind: 'vocabulary-mismatch', known: _sup ? _sup.why : null,
+        what: _what,
+        where: [...new Set(hits.map(h => `${h.file}:${h.line} (${h.via})`))].slice(0, 4),
+        severity: hits.some(h => h.via === 'includes-guard') ? 'HIGH' : 'MEDIUM',
+        confidence: 'certain',
+        breaks: hits.some(h => h.via === 'includes-guard')
+          ? 'An includes() guard SILENTLY substitutes a default — the value is replaced, not shown, and nothing errors.'
+          : 'A map miss renders BLANK — the value looks uncaptured while sitting in the database.' });
+    } else clean++;
+    }
+  }
+  return { tracedCols: byCol.size, cleanCols: clean, untraceable: untraceable.length,
+           vocabs: vocabs.length, dataCols: Object.keys(vocabData || {}).length };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // CHECK: SILENT FAILURES — the class that reports success while doing nothing.
 // ═══════════════════════════════════════════════════════════════════════════
 const emptyCatch = [];
@@ -377,6 +515,27 @@ const KNOWN_DRIFT_SEMANTIC = [
   { id: 'D-4 elapsed since service', why: 'three different names, one question — needs reading comprehension' },
 ];
 
+function selfTestVocab(files) {
+  const fx = path.join(ROOT, 'scripts/fixtures/prefix-vocab-2026-08-07.json');
+  if (!fs.existsSync(fx)) { console.log('    ⚪  vocabulary fixture missing — cannot self-test'); return 0; }
+  findings.length = 0;
+  checkVocabulary(files, JSON.parse(fs.readFileSync(fx, 'utf8')));
+  const hay = findings.map(f => f.what).join('\n');
+  const want = [
+    { id: 'roofType free text ("barrel tile")', re: /barrel tile/i },
+    { id: 'paymentMethod "Zelle" (includes-guard)', re: /Zelle/ },
+  ];
+  console.log('\n  ACCEPTANCE — vocabulary tracer vs the PRE-FIX snapshot\n');
+  let pass = 0;
+  for (const w of want) {
+    const ok = w.re.test(hay);
+    if (ok) pass++;
+    console.log(`    ${ok ? '✅' : '❌'}  ${w.id.padEnd(42)} ${ok ? 'FOUND' : 'MISSED'}`);
+  }
+  console.log(`\n    ${pass} / ${want.length} rediscovered from data that still had them`);
+  return pass === want.length;
+}
+
 function selfTest(files) {
   findings.length = 0;
   checkDrift(files);
@@ -399,7 +558,15 @@ function selfTest(files) {
     console.log('     tool than one that reports green on a codebase he knows has drift in it.\n');
     process.exitCode = 1;
   } else {
-    console.log('\n  Detector rediscovers the known sites. Safe to trust its NEW findings.\n');
+    console.log('\n  Drift detector rediscovers the known sites.\n');
+  }
+  const vocabOk = selfTestVocab(files);
+  if (!vocabOk) {
+    console.log('\n  🚨 VOCABULARY TRACER MISSED A KNOWN INSTANCE — do not ship it.');
+    console.log('     It must find roofType free-text AND paymentMethod Zelle in data that still had them.\n');
+    process.exitCode = 1;
+  } else {
+    console.log('\n  Both detectors rediscover the known instances. Safe to trust NEW findings.\n');
   }
 }
 
@@ -408,6 +575,13 @@ const files = collect(SCOPES[SCOPE] || SCOPES.all);
 if (!files.length) { console.error(`No files for scope "${SCOPE}"`); process.exit(1); }
 
 if (SELF_TEST) { selfTest(files); return; }
+
+let vocabStats = null;
+{
+  let vd = null;
+  if (VOCAB_DATA && fs.existsSync(VOCAB_DATA)) vd = JSON.parse(fs.readFileSync(VOCAB_DATA, 'utf8'));
+  vocabStats = checkVocabulary(files, vd);
+}
 
 checkDrift(files);
 checkSilent(files);
@@ -474,6 +648,15 @@ if (known.length) {
   console.log('');
 }
 
+if (vocabStats) {
+  const v = vocabStats;
+  console.log(`  ── VOCABULARY COVERAGE ` + '─'.repeat(42));
+  console.log(`     ${v.vocabs} vocabularies found · ${v.tracedCols} columns traced · ${v.untraceable} lookups UNTRACEABLE`);
+  console.log(`     ${v.cleanCols} traced column(s) clean · ${findings.filter(f => f.check === 'vocab').length} mismatched`);
+  if (!v.dataCols) console.log('     No --vocab-data supplied — static half only, NOTHING was compared against stored values.');
+  if (v.untraceable) console.log(`     ${v.untraceable} lookup(s) use a computed key (LABELS[fn(x)] / a || b) — not resolvable without executing the code.`);
+  console.log('');
+}
 console.log(`  ${certain.length} certain · ${maybe.length} worth a look · ${docs.length} doc · ${known.length} known`);
 console.log('  Read-only: nothing was modified.\n');
 

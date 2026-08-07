@@ -58,6 +58,24 @@ precision. It finds:
 - functions with no caller in scope
 - stale doc claims and dead file references
 
+### Vocabulary check (failure mode #5) — needs data
+
+`--vocab-data <file>` supplies `{"Table.column": {"value": count}}`. Without it
+the vocabulary check runs its STATIC half only and compares nothing. Capture it
+with a wrangler query, write it to the scratch dir, then pass it:
+
+```
+npx wrangler d1 execute pure-cleaning-crm-v1 --remote \
+  --config cloudflare-worker/wrangler.toml --json \
+  --command "SELECT 'Job.roofType' c, roofType v, COUNT(*) n FROM Job WHERE roofType IS NOT NULL GROUP BY v" 
+node scripts/audit.js --check vocab --vocab-data <scratch>/vocab.json
+```
+
+Read the THREE BUCKETS in the coverage line and repeat them to Tyler: traced
+columns, clean vs mismatched, and how many lookups were UNTRACEABLE. Roughly a
+third use a computed key (`LABELS[fn(x)]`, `LABELS[a || b]`) and cannot be
+resolved without executing the code. **Never present the check as complete.**
+
 **It cannot decide whether two things answer the same QUESTION.** That is your
 job, and it is the highest-value part of this skill.
 
