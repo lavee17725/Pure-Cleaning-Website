@@ -1485,6 +1485,9 @@ export default {
             `SELECT COUNT(*) tot, SUM(CASE WHEN roofType IS NOT NULL AND roofType != '' THEN 1 ELSE 0 END) typed
                FROM Job WHERE state='completed' AND scheduledDate >= '2026-05-01'
                 AND lower(COALESCE(servicesRaw,'')) LIKE '%roof%'`).first();
+          const badPm = await env.DB.prepare(
+            `SELECT COUNT(*) n FROM Job WHERE paymentMethod IS NOT NULL AND paymentMethod != ''
+              AND paymentMethod NOT IN ('zelle','check','cash','venmo','other')`).first();
           const badVocab = await env.DB.prepare(
             `SELECT COUNT(*) n FROM Job WHERE roofType IS NOT NULL AND roofType != ''
               AND scheduledDate >= '2026-05-01'
@@ -1492,6 +1495,7 @@ export default {
           return jsonResponse({
             jobsWithSqft: Number(j?.n) || 0, propsWithSqft: Number(p?.n) || 0,
             propsTotal: Number(t?.n) || 0, needsRemeasure: Number(m?.n) || 0,
+            nonEnumPaymentMethods: Number(badPm?.n) || 0,
             crmRoofJobs: Number(rt?.tot) || 0, crmRoofTyped: Number(rt?.typed) || 0,
             nonEnumRoofTypes: Number(badVocab?.n) || 0,
           }, { ...corsHeaders, 'Cache-Control': 'no-store' });
@@ -6317,7 +6321,7 @@ async function handleLogPayment(request, env, phone, corsHeaders) {
         // "the oldest unpaid completed job" must never land on one (0047).
         await env.DB.prepare(
           `UPDATE Job SET paymentMethod=?, paymentStatus='paid', paidAt=?, modifiedAt=? WHERE payerId=? AND state='completed' AND (paidAt IS NULL OR paidAt='') AND priceMode != 'comped' ORDER BY scheduledDate DESC LIMIT 1`
-        ).bind(method||'cash', now, now, personId).run();
+        ).bind(_normPaymentMethod(method) || 'cash', now, now, personId).run();
         // Pricing a TBD job at payment time: the amount collected IS the price.
         // Capture it on the row so the placeholder 0 never becomes the record.
         if (_tbdTarget && _tbdTarget.priceMode === 'tbd' && Number(totalPaid) > 0) {
@@ -12199,7 +12203,7 @@ async function handleCompleteJobGroup(request, env, jobId, corsHeaders) {
   const fields = { state: 'completed', completedAt, modifiedAt: now };
   if (body.paymentStatus === 'paid') {
     fields.paymentStatus = 'paid';
-    fields.paymentMethod = body.paymentMethod || null;
+    fields.paymentMethod = _normPaymentMethod(body.paymentMethod);
     fields.paidAt        = body.paidAt || now;
   }
 
@@ -12837,6 +12841,26 @@ async function _resolvePropertyId(street, city, env) {
   return canonical;
 }
 
+// ── Payment method: ONE vocabulary (2026-08-07) ─────────────────────────────
+// Failure mode #5, second instance. The calendar's payment modal reads
+// strictly — `_knownPm.includes(v) ? v : 'cash'` — so any value outside the set
+// SILENTLY PRESELECTS CASH. Three jobs stored 'Zelle' (capital Z) and
+// preselected Cash for months; one stored 'paid', which is a STATUS that leaked
+// in through the `jh.paymentMethod || jh.payment` fallback, because the legacy
+// jh.payment field holds a status on csv_backfill rows.
+//
+// Returns a canonical value or null. NEVER passes through an unknown string:
+// a value the reader silently replaces with a wrong default is worse than a
+// blank, because the blank makes someone look it up.
+const _PAYMENT_METHOD_ENUM = new Set(['zelle','check','cash','venmo','other']);
+function _normPaymentMethod(v) {
+  if (v == null || v === '') return null;
+  const k = String(v).trim().toLowerCase();
+  if (_PAYMENT_METHOD_ENUM.has(k)) return k;
+  // 'paid' / 'unpaid' / 'pending' are STATUSES. Never let one land here.
+  return null;
+}
+
 // ── Roof type: ONE vocabulary (2026-08-07) ──────────────────────────────────
 // Two vocabularies were reaching Property.roofType: the enum from the quote
 // picker and the calendar's <select>, and free text ("barrel tile", "Steel",
@@ -12992,7 +13016,9 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
         `INSERT OR ROLLBACK INTO Job (jobId,payerId,propertyId,scheduledDate,state,completedAt,amount,servicesRequested,paymentMethod,paymentStatus,paidAt,servicesRaw,rigId,source,roofType,roofStories,sqFt,createdAt,modifiedAt,migratedFrom,migrationVersion,migratedAt,migrationConfidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         jh.jobId, personId, propId, jh.date||null, 'completed',
-        jh.completedAt||now, jh.amount||0, '[]', jh.paymentMethod||jh.payment||null,
+        // _normPaymentMethod on the fallback: jh.payment holds a STATUS on
+        // csv_backfill rows, and that is how 'paid' reached this column.
+        jh.completedAt||now, jh.amount||0, '[]', _normPaymentMethod(jh.paymentMethod||jh.payment),
         jh.paidAt?'paid':'unpaid', jh.paidAt||null,
         jh.services||null, jh.rig||jh.rigId||null, 'phone_quote',
         // 2026-08-06 FIX: this column list had no roof fields at all, so every
