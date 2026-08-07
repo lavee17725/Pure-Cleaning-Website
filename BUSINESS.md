@@ -110,7 +110,10 @@ Relationships, not accounts — most came from someone vouching for Tyler.
 - **Premier Association Management** (Glen, University Parc) — largest partner
   relationship, reached through **Hardev Mattu**, a property manager whose own
   house is cleaned **free** as reciprocity. Hardev's $0 jobs are intentional —
-  never flag them as missing prices.
+  never flag them as missing prices. **$17,700 across 14 jobs** *(2026-08-07)*.
+  Premier existed as TWO person records — "Association Management" (Glen) and
+  "Association Services" (Glauco Fuertes, Terra Bella) — merged 2026-08-07 on
+  Tyler's instruction: **one company**. The second is retired, not deleted.
 - **Harts Painting** — painting partner, refers work.
 - **Carlos — Pro Built** — contractor partner.
 - **Nelson Faguaga** — partner referral source.
