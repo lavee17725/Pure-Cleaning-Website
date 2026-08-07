@@ -1330,6 +1330,28 @@ async function checkSqftCoverage() {
     else pass('Sqft coverage — property defaults retained', `${d.propsWithSqft} of ${d.propsTotal} properties`);
     if (d.needsRemeasure > 0)
       warn('Sqft — properties flagged for re-measure', `${d.needsRemeasure} with conflicting readings (Woodfield, Sapphire Isle)`);
+
+    // ── Roof type, CRM-era only ────────────────────────────────────────────
+    // Tyler records roof type per job from satellite during quoting and does
+    // NOT vouch for pre-CRM values (often bare "barrel", no short/large split),
+    // so the floor is measured from 2026-05-01 forward only. Coverage was 6%
+    // because the value died between the quote record and the Job row; the
+    // backfill took it to 47%. New work should push it up, never down.
+    const ROOF_FLOOR = 40;
+    const pct = d.crmRoofJobs ? Math.round(100 * d.crmRoofTyped / d.crmRoofJobs) : 0;
+    if (pct < ROOF_FLOOR)
+      fail('Roof type — CRM-era coverage', `${pct}% of ${d.crmRoofJobs} CRM-era roof jobs carry a type, floor is ${ROOF_FLOOR}%`);
+    else pass('Roof type — CRM-era coverage', `${pct}% (${d.crmRoofTyped}/${d.crmRoofJobs})`);
+
+    // ONE vocabulary. A non-enum value renders blank in every label map, so it
+    // looks captured while showing nothing — the failure this whole pass fixed.
+    // CRM-era only. 121 pre-CRM rows (all 2023, from apply_2023_backfill.py
+    // reading raw CSV) hold free text and were deliberately NOT normalised —
+    // Tyler does not vouch for them, and laundering a 2023 guess into clean
+    // enum would make it look verified. They are a separate decision.
+    if (d.nonEnumRoofTypes > 0)
+      fail('Roof type — one vocabulary (CRM-era)', `${d.nonEnumRoofTypes} CRM-era job(s) hold free text — the validation is leaking`);
+    else pass('Roof type — one vocabulary (CRM-era)', 'no free text reaching Job.roofType');
   } catch (e) { warn('Sqft coverage', e.message); }
 }
 

@@ -1479,9 +1479,21 @@ export default {
           const p = await env.DB.prepare('SELECT COUNT(*) n FROM Property WHERE sqft IS NOT NULL AND sqft > 0').first();
           const t = await env.DB.prepare('SELECT COUNT(*) n FROM Property').first();
           const m = await env.DB.prepare("SELECT COUNT(*) n FROM Property WHERE measurements LIKE '%needsRemeasure%'").first();
+          // Roof type, CRM-era only — Tyler does not vouch for pre-CRM values
+          // (often recorded as bare "barrel" with no short/large distinction).
+          const rt = await env.DB.prepare(
+            `SELECT COUNT(*) tot, SUM(CASE WHEN roofType IS NOT NULL AND roofType != '' THEN 1 ELSE 0 END) typed
+               FROM Job WHERE state='completed' AND scheduledDate >= '2026-05-01'
+                AND lower(COALESCE(servicesRaw,'')) LIKE '%roof%'`).first();
+          const badVocab = await env.DB.prepare(
+            `SELECT COUNT(*) n FROM Job WHERE roofType IS NOT NULL AND roofType != ''
+              AND scheduledDate >= '2026-05-01'
+              AND roofType NOT IN ('shingle','barrel_tile','large_barrel','short_barrel','flat_tile','v_shape','venezuelan_tile','metal','other')`).first();
           return jsonResponse({
             jobsWithSqft: Number(j?.n) || 0, propsWithSqft: Number(p?.n) || 0,
             propsTotal: Number(t?.n) || 0, needsRemeasure: Number(m?.n) || 0,
+            crmRoofJobs: Number(rt?.tot) || 0, crmRoofTyped: Number(rt?.typed) || 0,
+            nonEnumRoofTypes: Number(badVocab?.n) || 0,
           }, { ...corsHeaders, 'Cache-Control': 'no-store' });
         } catch (e) { return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500); }
       }
@@ -12097,7 +12109,7 @@ async function handleCreateScheduledJob(request, env, corsHeaders) {
       workSitePlaceId || null, workSiteGoogleVerified ? 1 : 0,
       endCustomerName || null, endCustomerPhone || null,
       roofStories || null, crewCount || null,
-      roofType || null,                              // Fix 1: snapshot at job creation (T1.22)
+      _normRoofType(roofType),                       // Fix 1: snapshot at job creation (T1.22)
       src, now, now,
       parentJobId || null, dayNumber || null, totalDays || null, dayPhase || null,
       isMultiDayParent ? 1 : 0
@@ -12825,6 +12837,35 @@ async function _resolvePropertyId(street, city, env) {
   return canonical;
 }
 
+// ── Roof type: ONE vocabulary (2026-08-07) ──────────────────────────────────
+// Two vocabularies were reaching Property.roofType: the enum from the quote
+// picker and the calendar's <select>, and free text ("barrel tile", "Steel",
+// "Venezuelan barrel tile") carried in from the legacy KV field c.roofType by
+// _d1SyncNewCustomer. Every display surface looks the value up in an
+// enum-keyed label map, so a free-text value renders BLANK — the data was
+// there and the screen said nothing, which is why this looked like an
+// under-entry problem for weeks.
+//
+// Steel folds to metal: Pure Cleaning services TEXTURED metal only (grainy,
+// tile-look — it has traction and gets soft washed). Flat/smooth steel is too
+// slippery to walk on and is never serviced, so there is one serviced type and
+// one label.
+const _ROOF_TYPE_ENUM = new Set(['shingle','barrel_tile','large_barrel','short_barrel',
+                                 'flat_tile','v_shape','venezuelan_tile','metal','other']);
+const _ROOF_TYPE_ALIASES = {
+  'barrel tile':'barrel_tile', 'flat tile':'flat_tile', 'steel':'metal',
+  'venezuelan barrel tile':'venezuelan_tile', 'v shape':'v_shape', 'v-shape':'v_shape',
+};
+// Returns a canonical enum value, or null. NEVER returns free text — a value
+// nothing can render is worse than a blank, because it looks captured.
+function _normRoofType(v) {
+  if (v == null || v === '') return null;
+  const k = String(v).trim().toLowerCase();
+  if (_ROOF_TYPE_ENUM.has(k)) return k;
+  if (_ROOF_TYPE_ALIASES[k]) return _ROOF_TYPE_ALIASES[k];
+  return null;
+}
+
 function _d1PropId(street, city) {
   // NOTE: existing rows keep whatever id they were created with — this only
   // makes NEW ids canonical. Equivalence for existing rows is handled by the
@@ -12869,7 +12910,7 @@ async function _d1SyncPropertyUpdate(propId, fields, env, now) {
   if (!propId) return;
   const sets = [], vals = [];
   if (fields.sqft     !== undefined) { sets.push('sqft=?');     vals.push(fields.sqft     || null); }
-  if (fields.roofType !== undefined) { sets.push('roofType=?'); vals.push(fields.roofType || null); }
+  if (fields.roofType !== undefined) { sets.push('roofType=?'); vals.push(_normRoofType(fields.roofType)); }
   if (fields.gateCode    !== undefined) { sets.push('gateCode=?');    vals.push(fields.gateCode    || null); }
   if (fields.accessNotes !== undefined) { sets.push('accessNotes=?'); vals.push(fields.accessNotes || null); }
   if (!sets.length) return;
@@ -12909,7 +12950,9 @@ async function _d1SyncNewCustomer(c, env, now) {
 
       await _d1SyncPropertyUpdate(propId, {
         sqft:     c.sqFt || c.roofSqFt || null,
-        roofType: c.roofType || c.quoteStatus?.servicesAgreed?.roofType || null,
+        // Normalised — this is the exact line that carried free text from the
+        // legacy KV blob into D1 on a full resync (~104 properties, 2026-07-03).
+        roofType: _normRoofType(c.roofType || c.quoteStatus?.servicesAgreed?.roofType),
         gateCode: c.gateCode || null,
       }, env, now);
     }
@@ -12957,7 +13000,7 @@ async function _d1SyncJobHistory(c, prevJhIds, env, now) {
         // roof jobs had a roofType. Falls back to the quote record the same way
         // _d1SyncScheduledJob already did; Tyler reads roof type off BCPA at
         // quote time, so the value exists before the job is ever completed.
-        jh.roofType   || c.quoteStatus?.servicesAgreed?.roofType   || null,
+        _normRoofType(jh.roofType || c.quoteStatus?.servicesAgreed?.roofType),
         jh.roofStories ?? c.quoteStatus?.servicesAgreed?.roofStories ?? null,
         jh.sqFt || c.quoteStatus?.servicesAgreed?.roofSqFt
                 || c.quoteStatus?.servicesAgreed?.squareFootage?.roof || null,
