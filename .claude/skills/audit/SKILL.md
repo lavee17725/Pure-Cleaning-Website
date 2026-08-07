@@ -126,7 +126,15 @@ For each gate candidate, ask: **would this fail if the feature were broken but
 the code still present?** If a check asserts `html.includes('someFunction')`,
 it passes whether or not anything calls it.
 
-### 5. SILENT FAILURES
+### 5. RULE 28 — a strict read demands a validated write
+
+For every vocabulary the script finds, ask: **can an unvalidated path write this
+column?** A `<select>` writing enum is fine; the danger is a second path — a
+legacy KV field, a bulk resync, a free-text admin input — reaching the same
+column. Check the column appears in `/admin/debug/vocab-values`; if it has a
+normaliser but is missing from that endpoint, the gate is blind to it.
+
+### 6. SILENT FAILURES
 
 Beyond the script's patterns: defaults that mask missing data (`|| 0` on a
 value where null means "unknown"), success reported before verification, error

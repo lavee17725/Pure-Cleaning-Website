@@ -1471,6 +1471,54 @@ export default {
         return await handleCompedSummary(env, corsHeaders);
       }
 
+      // GET /admin/debug/vocab-values — every column read through a strict
+      // vocabulary, with its stored values and any VIOLATIONS.
+      //
+      // The worker owns the normalisers (_normRoofType, _normPaymentMethod), so
+      // it answers this itself rather than shipping a copy of each vocabulary to
+      // the gate — that copy would be the drift this endpoint exists to catch.
+      // Add a column here the moment you add a normaliser (Rule 28).
+      if (path === 'admin/debug/vocab-values' && request.method === 'GET') {
+        try {
+          const COLS = [
+            { key: 'Job.roofType',       table: 'Job',      col: 'roofType',      norm: _normRoofType },
+            { key: 'Property.roofType',  table: 'Property', col: 'roofType',      norm: _normRoofType },
+            { key: 'Job.paymentMethod',  table: 'Job',      col: 'paymentMethod', norm: _normPaymentMethod },
+          ];
+          const out = {}; let totalViolations = 0;
+          for (const c of COLS) {
+            const rows = (await env.DB.prepare(
+              `SELECT ${c.col} AS v, COUNT(*) AS n FROM ${c.table} WHERE ${c.col} IS NOT NULL AND ${c.col} != '' GROUP BY ${c.col}`
+            ).all())?.results || [];
+            const values = {}, violations = {};
+            for (const r of rows) {
+              values[r.v] = r.n;
+              // A violation is a stored value the normaliser would not return —
+              // i.e. one the READER cannot use. Pre-CRM roofType rows are
+              // deliberate history (Tyler, 2026-08-07) and are excluded by date.
+              if (c.norm(r.v) !== r.v) violations[r.v] = r.n;
+            }
+            if (c.key === 'Job.roofType') {
+              const pre = (await env.DB.prepare(
+                `SELECT roofType AS v, COUNT(*) AS n FROM Job
+                  WHERE roofType IS NOT NULL AND roofType != '' AND scheduledDate < '2026-05-01' GROUP BY roofType`
+              ).all())?.results || [];
+              for (const r of pre) if (violations[r.v]) {
+                violations[r.v] -= r.n;
+                if (violations[r.v] <= 0) delete violations[r.v];
+              }
+            }
+            totalViolations += Object.values(violations).reduce((a, b) => a + b, 0);
+            out[c.key] = { values, violations };
+          }
+          return jsonResponse({ columns: out, totalViolations, checkedColumns: COLS.length,
+                                generatedAt: new Date().toISOString() },
+            { ...corsHeaders, 'Cache-Control': 'no-store' });
+        } catch (e) {
+          return jsonResponse({ error: 'D1 query failed', detail: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /admin/debug/sqft-coverage — the alarm for the loss that went
       // unnoticed for three months (0050).
       if (path === 'admin/debug/sqft-coverage' && request.method === 'GET') {

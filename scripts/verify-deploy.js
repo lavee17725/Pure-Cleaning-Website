@@ -1349,16 +1349,29 @@ async function checkSqftCoverage() {
     // reading raw CSV) hold free text and were deliberately NOT normalised —
     // Tyler does not vouch for them, and laundering a 2023 guess into clean
     // enum would make it look verified. They are a separate decision.
-    // Failure mode #5 — a value outside the enum is SILENTLY replaced by 'cash'
-    // in the payment modal, so it never errors and never surfaces. Three jobs
-    // stored 'Zelle' and preselected Cash for months.
-    if (d.nonEnumPaymentMethods > 0)
-      fail('Payment method — one vocabulary', `${d.nonEnumPaymentMethods} job(s) hold a value outside the enum — the modal will silently preselect Cash`);
-    else pass('Payment method — one vocabulary', 'no unreadable payment methods');
-
-    if (d.nonEnumRoofTypes > 0)
-      fail('Roof type — one vocabulary (CRM-era)', `${d.nonEnumRoofTypes} CRM-era job(s) hold free text — the validation is leaking`);
-    else pass('Roof type — one vocabulary (CRM-era)', 'no free text reaching Job.roofType');
+    // Vocabulary integrity is now ONE generic check against
+    // /admin/debug/vocab-values — the worker owns the normalisers, so it
+    // reports its own violations. The gate holding its own copy of each
+    // vocabulary would be exactly the drift this is meant to catch.
+    // Runs on every deploy: a check Tyler has to remember to run is one he
+    // won't run.
+    try {
+      const vr = await fetchRetry(`${WORKERS_API}/admin/debug/vocab-values`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!vr.ok) { warn('Vocabulary integrity', `HTTP ${vr.status}`); }
+      else {
+        const v = await vr.json();
+        if (v.totalViolations > 0) {
+          const offenders = Object.entries(v.columns)
+            .filter(([, c]) => Object.keys(c.violations).length)
+            .map(([k, c]) => `${k}: ${Object.entries(c.violations).map(([val, n]) => `"${val}"×${n}`).join(', ')}`);
+          fail('Vocabulary integrity — no unreadable values', offenders.join(' | '));
+        } else {
+          pass('Vocabulary integrity — no unreadable values', `${v.checkedColumns} strict-read columns clean`);
+        }
+      }
+    } catch (e) { warn('Vocabulary integrity', e.message); }
   } catch (e) { warn('Sqft coverage', e.message); }
 }
 
